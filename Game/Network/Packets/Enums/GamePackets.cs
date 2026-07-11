@@ -8,10 +8,13 @@ public enum GamePackets : ushort
     TM_SC_ENTER = 3,
     TM_SC_LOGIN_RESULT = 4,
     TM_CS_MOVE_REQUEST = 5,
+    TM_CS_REGION_UPDATE = 7,
     TM_SC_MOVE = 8,
     TM_SC_WEAR_INFO = 202,
 
+    TM_CS_UPDATE = 503,
     TM_SC_PROPERTY = 507,
+    TM_CS_CHANGE_LOCATION = 900,
     TM_SC_STAT_INFO = 1000,
 
     TM_CS_GAME_TIME = 1100,

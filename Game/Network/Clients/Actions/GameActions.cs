@@ -85,6 +85,11 @@ public class GameActions : IActions
         var hp = character.Hp > 0 ? character.Hp : stats.MaxHp;
         var mp = character.Mp > 0 ? character.Mp : stats.MaxMp;
 
+        client.ConnectionInfo.CharacterHandle = (uint)character.Id;
+        client.ConnectionInfo.X = position[0];
+        client.ConnectionInfo.Y = position[1];
+        client.ConnectionInfo.Z = position[2];
+
         var result = new TS_SC_LOGIN_RESULT
         {
             Result = (ushort)ResultCode.Success,

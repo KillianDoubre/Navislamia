@@ -75,6 +75,23 @@ public class GameClient : Client
         Connection.Send(packet);
     }
 
+    private void HandleRegionUpdate(byte[] buffer)
+    {
+        // TS_CS_REGION_UPDATE: update_time(u32), x/y/z(float), bIsStopMessage(bool)
+        var input = buffer.AsSpan(7);
+        ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+        ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
+        ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
+    }
+
+    private void HandleChangeLocation(byte[] buffer)
+    {
+        // TS_CS_CHANGE_LOCATION: x(float), y(float)
+        var input = buffer.AsSpan(7);
+        ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
+        ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+    }
+
     public void SendDisconnectDesription(DisconnectType type)
     {
         var message = new Packet<TS_SC_DISCONNECT_DESC>((ushort)GamePackets.TM_SC_DISCONNECT_DESC, new TS_SC_DISCONNECT_DESC(type));
@@ -92,8 +109,10 @@ public class GameClient : Client
 
             if (header.Length > remainingData)
             {
-                _logger.Warning(
-                    "Partial packet received from {clientTag} !!! ID: {id} Length: {length} Available Data: {remaining}",
+                // Normal TCP fragmentation: the packet spans reads. Keep the bytes buffered and
+                // finish framing it on the next receive.
+                _logger.Verbose(
+                    "Waiting for rest of packet from {clientTag} (ID: {id} Length: {length} Available: {remaining})",
                     ClientTag, header.ID, header.Length, remainingData);
 
                 return;
@@ -118,7 +137,9 @@ public class GameClient : Client
 
             if (header.ID == (ushort)GamePackets.TM_NONE)
             {
-                _logger.Debug("{name} ({id}) Length: {length} received from {clientTag}", "TM_NONE", header.ID, header.Length, ClientTag);
+                // Client keepalive/latency ping (id 9999): not a gameplay opcode (absent from rzu
+                // and the client opcode table), carries a tick timestamp, needs no response.
+                _logger.Verbose("Keepalive (TM_NONE) Length: {length} from {clientTag}", header.Length, ClientTag);
                 continue;
             }
 
@@ -132,6 +153,23 @@ public class GameClient : Client
             {
                 HandleMoveRequest(msgBuffer);
                 continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_REGION_UPDATE)
+            {
+                HandleRegionUpdate(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
+            {
+                HandleChangeLocation(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_UPDATE)
+            {
+                continue; // periodic client keepalive, nothing to answer
             }
 
             IPacket msg = header.ID switch

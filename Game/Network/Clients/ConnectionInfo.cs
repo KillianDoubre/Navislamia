@@ -7,6 +7,10 @@ public class ConnectionInfo
     public string AccountName { get; set; }
     public List<string> CharacterList { get; set; } = new();
     // TODO: StructPlayer Player;
+    public uint CharacterHandle { get; set; }
+    public float X { get; set; }
+    public float Y { get; set; }
+    public float Z { get; set; }
     public int AccountId { get; set; }
     public int Version { get; set; }
     public float LastReadTime { get; set; }
