@@ -33,6 +33,61 @@ Navislamia is an free, open source, cross platform reimplementation of the Rappe
 - Game Client login up to `Character List`
 - Character Creation
 
+## Architecture
+
+Navislamia implements only the **Game Server**. In the Rappelz / Arcadia architecture the
+login flow is split across separate servers:
+
+| Server               | Port | Provided by Navislamia?              |
+|----------------------|------|--------------------------------------|
+| Auth Server (login)  | 4502 | Stub included (`AuthServer/`)        |
+| Upload Server (data) | 4616 | Stub included (`AuthServer/`)        |
+| Game Server          | 4515 | Yes — `DevConsole/` hosts `Game/`    |
+
+At startup the Game Server connects to the Auth and Upload servers **as a client** and
+registers itself; it will not start if they are unreachable. The `AuthServer` project is a
+minimal stub that answers this registration handshake so the Game Server can boot. Full
+Epic 7.3 client login (RSA key exchange, XRC4 cipher, account validation, server selection,
+one-time key) is **not yet implemented** — design notes live under `docs/superpowers/`.
+
+## Building & Running
+
+### Prerequisites
+
+- .NET SDK 8.0 (x64)
+- PostgreSQL with the `arcadia` database — connection settings in `DevConsole/appsettings.json`
+
+### Run the whole server (Windows)
+
+From the repository root:
+
+```powershell
+.\start-server.ps1
+```
+
+This launches the stub `AuthServer` (ports 4502 / 4616), waits until it is actually
+listening, then starts the Game Server (`DevConsole`, port 4515). When `DevConsole` exits,
+the stub is stopped automatically. Pass `-Configuration Release` for a release build.
+
+Success looks like this in the DevConsole output:
+
+```
+[... DBG AuthActions] Successfully registered to the Auth Server!
+[... DBG UploadActions] Successfully registered to the Upload Server!
+[... INF GameModule] Listening for clients on 127.0.0.1:4515
+```
+
+### Run manually
+
+```powershell
+# Terminal 1 — stub auth/upload servers (start this first)
+dotnet run --project AuthServer
+
+# Terminal 2 — game server (only once AuthServer is listening)
+cd DevConsole
+dotnet run
+```
+
 ## Community
 
 ### How can I help?

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Navislamia.Game.Network.Packets.Interfaces;
@@ -49,13 +49,12 @@ public class Packet<T> : IPacket where T : new()
         Deserialize();
     }
 
-
     public TS GetDataStruct<TS>() => (TS)(object)DataStruct;
 
     private void Serialize()
     {
         HeaderStruct.Length = (uint)(Data.Length);
-        HeaderStruct.CalculateChecksum();
+        HeaderStruct.Checksum = HeaderStruct.CalculateChecksum();
 
         var ptr = Marshal.AllocHGlobal(_headerLen);
 
@@ -126,7 +125,7 @@ public class Packet<T> : IPacket where T : new()
             {
                 continue;
             }
-            
+
             rowHeader += 10;
 
             Span<byte> lineBuffer = buffer.Slice(i + 1 - maxWidth, maxWidth).ToArray();
@@ -140,7 +139,7 @@ public class Packet<T> : IPacket where T : new()
                     lineBufferStr += System.Text.Encoding.Default.GetString(new byte[] { b });
             }
 
-            if (maxWidth < 16) // There was not 16 bytes of data, so we must pad the rest to keep output aligned
+            if (maxWidth < 16)
             {
                 var remainder = 16 - maxWidth;
 

@@ -1,8 +1,18 @@
-﻿namespace Navislamia.Game.Network.Packets.Enums;
+namespace Navislamia.Game.Network.Packets.Enums;
 
 public enum GamePackets : ushort
 {
     TM_SC_RESULT = 0,
+
+    TM_CS_LOGIN = 1,
+    TM_SC_ENTER = 3,
+    TM_SC_LOGIN_RESULT = 4,
+    TM_CS_MOVE_REQUEST = 5,
+    TM_SC_MOVE = 8,
+    TM_SC_WEAR_INFO = 202,
+
+    TM_CS_GAME_TIME = 1100,
+    TM_SC_GAME_TIME = 1101,
 
     TM_SC_DISCONNECT_DESC = 28,
 

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Navislamia.Game.Network.Packets;
@@ -16,7 +17,7 @@ public class GameClient : Client
     {
         Connection = new CipherConnection(socket, networkService.NetworkOptions.CipherKey);
     }
-    
+
     public void CreateClientConnection()
     {
         Connection.OnDataSent = OnDataSent;
@@ -38,12 +39,48 @@ public class GameClient : Client
         SendMessage(message);
     }
 
+    public void SendGameTime()
+    {
+        var message = new Packet<TS_SC_GAME_TIME>((ushort)GamePackets.TM_SC_GAME_TIME,
+            new TS_SC_GAME_TIME { T = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(), GameTime = 0 });
+        Connection.Send(message.Data);
+    }
+
+    private void HandleMoveRequest(byte[] buffer)
+    {
+        var input = buffer.AsSpan(7);
+        var handle = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(0, 4));
+        var curTime = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(12, 4));
+        var count = BinaryPrimitives.ReadUInt16LittleEndian(input.Slice(17, 2));
+        var waypoints = input.Slice(19, count * 8);
+
+        const byte speed = 100;
+        var total = 7 + 12 + count * 8;
+        var packet = new byte[total];
+        var s = packet.AsSpan();
+
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(0, 4), (uint)total);
+        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_MOVE);
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), curTime);
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(11, 4), handle);
+        s[15] = 0;
+        s[16] = speed;
+        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(17, 2), count);
+        waypoints.CopyTo(s.Slice(19));
+
+        byte checksum = 0;
+        for (var i = 0; i < 6; i++) checksum += packet[i];
+        packet[6] = checksum;
+
+        Connection.Send(packet);
+    }
+
     public void SendDisconnectDesription(DisconnectType type)
     {
         var message = new Packet<TS_SC_DISCONNECT_DESC>((ushort)GamePackets.TM_SC_DISCONNECT_DESC, new TS_SC_DISCONNECT_DESC(type));
         SendMessage(message);
     }
-    
+
     public override void OnDataReceived(int bytesReceived)
     {
         var remainingData = bytesReceived;
@@ -73,24 +110,34 @@ public class GameClient : Client
 
             remainingData -= msgBuffer.Length;
 
-            // Check for packets that haven't been defined yet (development)
             if (!Enum.IsDefined(typeof(GamePackets), header.ID))
             {
                 _logger.Debug("Undefined packet ID: {id} Length: {length}) received from {clientTag}", header.ID, header.Length, ClientTag);
                 continue;
             }
 
-            // TM_NONE is a dummy packet sent by the clientService for...."reasons"
             if (header.ID == (ushort)GamePackets.TM_NONE)
             {
                 _logger.Debug("{name} ({id}) Length: {length} received from {clientTag}", "TM_NONE", header.ID, header.Length, ClientTag);
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_GAME_TIME)
+            {
+                SendGameTime();
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_MOVE_REQUEST)
+            {
+                HandleMoveRequest(msgBuffer);
+                continue;
+            }
+
             IPacket msg = header.ID switch
             {
-                //(ushort)GamePackets.TM_NONE => null,
                 (ushort)GamePackets.TM_CS_VERSION => new Packet<TM_CS_VERSION>(msgBuffer),
+                (ushort)GamePackets.TM_CS_LOGIN => new Packet<TS_CS_LOGIN>(msgBuffer),
                 (ushort)GamePackets.TM_CS_CHARACTER_LIST => new Packet<TS_CS_CHARACTER_LIST>(msgBuffer),
                 (ushort)GamePackets.TM_CS_CREATE_CHARACTER => new Packet<TS_CS_CREATE_CHARACTER>(msgBuffer),
                 (ushort)GamePackets.TM_CS_DELETE_CHARACTER => new Packet<TS_CS_DELETE_CHARACTER>(msgBuffer),

@@ -4,6 +4,7 @@
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <LangVersion>latest</LangVersion>
 
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
@@ -21,6 +22,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\AuthServer\AuthServer.csproj" />
       <ProjectReference Include="..\Configuration\Configuration.csproj" />
       <ProjectReference Include="..\DevConsole\DevConsole.csproj" />
       <ProjectReference Include="..\Game\Game.csproj" />

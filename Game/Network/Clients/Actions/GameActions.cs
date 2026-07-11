@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -26,7 +27,7 @@ public class GameActions : IActions
     private readonly NetworkService _networkService;
 
     private readonly Dictionary<ushort, Action<GameClient, IPacket>> _actions = new();
-   
+
     public GameActions(NetworkService networkService)
     {
         _networkService = networkService;
@@ -34,6 +35,7 @@ public class GameActions : IActions
         _characterService = networkService.CharacterService;
 
         _actions.Add((ushort)GamePackets.TM_CS_VERSION, OnVersion);
+        _actions.Add((ushort)GamePackets.TM_CS_LOGIN, OnLogin);
         _actions.Add((ushort)GamePackets.TM_CS_REPORT, OnReport);
         _actions.Add((ushort)GamePackets.TM_CS_CHARACTER_LIST, OnCharacterList);
         _actions.Add((ushort)GamePackets.TM_CS_CREATE_CHARACTER, OnCreateCharacter);
@@ -49,17 +51,160 @@ public class GameActions : IActions
             action?.Invoke(client as GameClient, packet);
         }
     }
-    
+
     private void OnVersion(GameClient client, IPacket packet)
     {
-        // TODO: properly implement this action
     }
-    
+
+    private static readonly int[] DefaultSpawn = { 92044, 116950, 0 };
+    private const int DefaultHp = 100;
+    private const int DefaultMp = 100;
+
+    private async void OnLogin(GameClient client, IPacket packet)
+    {
+        var msg = packet.GetDataStruct<TS_CS_LOGIN>();
+
+        var characters = await _characterService.GetCharactersByAccountNameAsync(client.ConnectionInfo.AccountName, true);
+        var character = characters.FirstOrDefault(c => c.CharacterName == msg.Name);
+
+        if (character == null)
+        {
+            _logger.Error("Enter game failed: character {name} not found for ({account}) {clientTag}", msg.Name,
+                client.ConnectionInfo.AccountName, client.ClientTag);
+            client.SendResult(packet.Id, (ushort)ResultCode.AccessDenied);
+            return;
+        }
+
+        var position = character.Position ?? new[] { 0, 0, 0 };
+        if (position.Length < 3 || (position[0] == 0 && position[1] == 0 && position[2] == 0))
+        {
+            position = DefaultSpawn;
+        }
+
+        var hp = character.Hp > 0 ? character.Hp : DefaultHp;
+        var mp = character.Mp > 0 ? character.Mp : DefaultMp;
+
+        var result = new TS_SC_LOGIN_RESULT
+        {
+            Result = (ushort)ResultCode.Success,
+            Handle = (uint)character.Id,
+            X = position[0],
+            Y = position[1],
+            Z = position[2],
+            Layer = (byte)character.Layer,
+            FaceDirection = 0,
+            RegionSize = 180,
+            Hp = hp,
+            Mp = mp,
+            MaxHp = hp,
+            MaxMp = mp,
+            Havoc = 0,
+            MaxHavoc = 0,
+            Sex = character.Sex,
+            Race = character.Race,
+            SkinColor = (uint)character.SkinColor,
+            FaceId = character.TextureId,
+            HairId = character.HairColorIndex,
+            Name = character.CharacterName,
+            CellSize = 0,
+            GuildId = 0
+        };
+
+        client.Connection.Send(new Packet<TS_SC_LOGIN_RESULT>((ushort)GamePackets.TM_SC_LOGIN_RESULT, result).Data);
+
+        var enter = new TS_SC_ENTER_PLAYER
+        {
+            Type = 0,
+            Handle = (uint)character.Id,
+            X = result.X,
+            Y = result.Y,
+            Z = result.Z,
+            Layer = (byte)character.Layer,
+            ObjType = 0,
+            Status = 0,
+            FaceDirection = 0,
+            Hp = hp,
+            MaxHp = hp,
+            Mp = mp,
+            MaxMp = mp,
+            Level = character.Lv > 0 ? character.Lv : 1,
+            Race = (byte)character.Race,
+            SkinColor = (uint)character.SkinColor,
+            IsFirstEnter = 1,
+            Energy = 0,
+            Sex = (byte)character.Sex,
+            FaceId = character.Models is { Length: > 0 } ? (uint)character.Models[0] : 0,
+            FaceTextureId = (uint)character.TextureId,
+            HairId = character.Models is { Length: > 1 } ? (uint)character.Models[1] : 0,
+            HairColorIndex = (uint)character.HairColorIndex,
+            HairColorRGB = (uint)character.HairColorRgb,
+            HideEquipFlag = 0,
+            Name = character.CharacterName,
+            JobId = (ushort)character.CurrentJob,
+            RideHandle = 0,
+            GuildId = 0
+        };
+        client.Connection.Send(new Packet<TS_SC_ENTER_PLAYER>((ushort)GamePackets.TM_SC_ENTER, enter).Data);
+        client.Connection.Send(BuildWearInfo((uint)character.Id, character));
+
+        _logger.Debug("{clientTag} entered game as {name} (lv {lv}) at ({x},{y},{z})", client.ClientTag,
+            character.CharacterName, enter.Level, result.X, result.Y, result.Z);
+    }
+
+    private static byte[] BuildWearInfo(uint handle, CharacterEntity character)
+    {
+        const int slots = 24;
+        var total = 7 + 4 + slots * 4 * 3 + slots;
+        var packet = new byte[total];
+        var s = packet.AsSpan();
+
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(0, 4), (uint)total);
+        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_WEAR_INFO);
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), handle);
+
+        var codeBase = 11;
+        var enhanceBase = codeBase + slots * 4;
+        var levelBase = enhanceBase + slots * 4;
+        var elemBase = levelBase + slots * 4;
+
+        if (character.Items != null)
+        {
+            foreach (var item in character.Items)
+            {
+                var slot = (int)item.WearInfo;
+                if (item.WearInfo == ItemWearType.None || slot < 0 || slot >= slots)
+                {
+                    continue;
+                }
+                BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(codeBase + slot * 4, 4), (uint)item.ItemResourceId);
+                BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(enhanceBase + slot * 4, 4), (uint)item.Enhance);
+                BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(levelBase + slot * 4, 4), (uint)item.Level);
+                s[elemBase + slot] = (byte)item.ElementalEffectType;
+            }
+        }
+
+        if (character.Models is { Length: > 0 })
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                s.Slice(codeBase + (int)ItemWearType.Face * 4, 4), (uint)character.Models[0]);
+        }
+        if (character.Models is { Length: > 1 })
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                s.Slice(codeBase + (int)ItemWearType.Hair * 4, 4), (uint)character.Models[1]);
+        }
+
+        byte checksum = 0;
+        for (var i = 0; i < 6; i++) checksum += packet[i];
+        packet[6] = checksum;
+
+        return packet;
+    }
+
     private void OnReport(GameClient client, IPacket packet)
     {
-        // TODO: implement me
     }
-    
+
     private async void OnCharacterList(GameClient client, IPacket packet)
     {
         var message = packet.GetDataStruct<TS_CS_CHARACTER_LIST>();
@@ -73,7 +218,7 @@ public class GameActions : IActions
                 Level = character.Lv,
                 Job = (int)character.CurrentJob,
                 JobLevel = character.Jlv,
-                ExpPercentage = 0, // TODO: needs to be done by getting values from LevelResourceRepository
+                ExpPercentage = 0,
                 HP = character.Hp,
                 MP = character.Mp,
                 Permission = character.Permission,
@@ -109,7 +254,7 @@ public class GameActions : IActions
 
         SendCharacterList(client, lobbyCharacters);
     }
-    
+
     private void SendCharacterList(GameClient client, List<LobbyCharacterInfo> characterList)
     {
         var charCount = (ushort)characterList.Count;
@@ -129,9 +274,9 @@ public class GameActions : IActions
 
             charInfoOffset += lobbyCharacterStructLength;
         }
-        
+
         client.Connection.Send(packet.Data);
-        
+
     }
 
     private async void OnCreateCharacter(GameClient client, IPacket packet)
@@ -149,7 +294,6 @@ public class GameActions : IActions
 
         var selectedArmor = createMsg.Info.WearInfo[(int)ItemWearType.Armor];
 
-        // Set default weapon and armor ids
         int defaultArmorId;
         int defaultWeaponId;
 
@@ -173,8 +317,7 @@ public class GameActions : IActions
                 throw new ArgumentOutOfRangeException(nameof(createMsg.Info.Race));
         }
 
-        // We don't need to pass all info, most of it is safely ignored and should default when inserted to Character table
-        var character = new CharacterEntity 
+        var character = new CharacterEntity
         {
             AccountId = client.ConnectionInfo.AccountId,
             AccountName = client.ConnectionInfo.AccountName,
@@ -186,13 +329,11 @@ public class GameActions : IActions
             TextureId = createMsg.Info.TextureID,
             SkinColor = (int)createMsg.Info.SkinColor,
 
-            // Add default gear to the character
             Items = new List<ItemEntity>
             {
                 new() { ItemResourceId = defaultArmorId, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.Armor, GenerateBySource = ItemGenerateSource.Basic },
                 new() { ItemResourceId = defaultWeaponId, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.Weapon, GenerateBySource = ItemGenerateSource.Basic },
 
-                // TODO: bag item id should come from config
                 new() { ItemResourceId = 490001, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.BagSlot, GenerateBySource = ItemGenerateSource.Basic}
             }
         };
@@ -201,7 +342,6 @@ public class GameActions : IActions
 
         if (createdEntity == null)
         {
-            // Should never happen
             _logger.Error("Character create failed! for ({accountName}) {clientTag} !!!", character.AccountName, client.ClientTag);
 
             client.SendResult(packet.Id, (ushort)ResultCode.DBError);
@@ -214,7 +354,6 @@ public class GameActions : IActions
 
     private void OnDeleteCharacter(GameClient client, IPacket packet)
     {
-        // Normally a player cannot request a character delete before any have been made, bad actor!
         if (client.ConnectionInfo.CharacterList.Count == 0)
         {
             client.SendDisconnectDesription(DisconnectType.AntiHack);
@@ -226,29 +365,8 @@ public class GameActions : IActions
 
         var deleteMsg = packet.GetDataStruct<TS_CS_DELETE_CHARACTER>();
 
-        // TODO: implement delete security
-
-        // TODO: check if is guild leader (and send result AccessDenied)
-
-        // TODO: get party (if leader, destroy. If member, leave)
-
-        // TODO: remove own friends list entries
-
-        // TODO: remove self from friend list of friends
-
-        // TODO: remove denials (people blocked)
-
-        // TODO: remove self from other players denials
-
-        // TODO: remove self from ranking score
-
-        // TODO: update player name to have @ at the front of it and set DeleteOn date
-        
         _characterService.DeleteCharacterByNameAsync(deleteMsg.Name);
-        
-        // Do not call SaveChanges in any of the methods above as if anything fails the changes are not commited
-        // into the database unless SaveChanges has been run. This is a protective messure to not remove too much and 
-        // and risk a failure that corrupts the entities
+
         _characterService.SaveChanges();
         client.SendResult(packet.Id, (ushort)ResultCode.Success);
     }
@@ -274,7 +392,7 @@ public class GameActions : IActions
 
             return;
         }
-        
+
         if (_bannedWordsRepository.ContainsBannedWord(nameMsg.Name))
         {
             client.SendResult(packet.Id, (ushort)ResultCode.InvalidText);
@@ -284,7 +402,7 @@ public class GameActions : IActions
             return;
         }
 
-        if (_characterService.CharacterExists(nameMsg.Name)) 
+        if (_characterService.CharacterExists(nameMsg.Name))
         {
             client.SendResult(packet.Id, (ushort)ResultCode.AlreadyExist);
 
@@ -297,7 +415,6 @@ public class GameActions : IActions
 
         client.SendResult(packet.Id, (ushort)ResultCode.Success);
     }
-
 
     private void OnAccountWithAuth(GameClient client, IPacket packet)
     {
@@ -322,7 +439,7 @@ public class GameActions : IActions
 
             _networkService.UnauthorizedGameClients.Add(msg.Account, client);
         }
-    
+
         _networkService.AuthClient.SendMessage(loginInfo);
     }
 }

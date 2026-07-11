@@ -466,3 +466,9 @@ fabric.properties
 .idea/**/azureSettings.xml
 
 # End of https://www.toptal.com/developers/gitignore/api/jetbrains
+start-server.ps1
+CLAUDE.md
+/docs
+DevConsole/appsettings.json
+AuthServer/appsettings.json
+launch-client.ps1
