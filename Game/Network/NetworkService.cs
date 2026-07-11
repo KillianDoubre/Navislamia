@@ -20,6 +20,7 @@ public class NetworkService : INetworkService
     private readonly ILogger<NetworkService> _logger;
     public readonly ICharacterService CharacterService;
     public readonly IBannedWordsRepository BannedWordsRepository;
+    public readonly IStatService StatService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -31,13 +32,14 @@ public class NetworkService : INetworkService
 
     public Dictionary<string, GameClient> AuthorizedGameClients { get; set; } = new();
 
-    public NetworkService(ILogger<NetworkService> logger, IOptions<NetworkOptions> networkOptions, 
+    public NetworkService(ILogger<NetworkService> logger, IOptions<NetworkOptions> networkOptions,
         ICharacterService characterService, IBannedWordsRepository bannedWordsRepository,
-        IOptions<ServerOptions> serverOptions)
+        IStatService statService, IOptions<ServerOptions> serverOptions)
     {
         _logger = logger;
         CharacterService = characterService;
         BannedWordsRepository = bannedWordsRepository;
+        StatService = statService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
     }

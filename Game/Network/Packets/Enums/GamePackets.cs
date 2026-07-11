@@ -11,6 +11,9 @@ public enum GamePackets : ushort
     TM_SC_MOVE = 8,
     TM_SC_WEAR_INFO = 202,
 
+    TM_SC_PROPERTY = 507,
+    TM_SC_STAT_INFO = 1000,
+
     TM_CS_GAME_TIME = 1100,
     TM_SC_GAME_TIME = 1101,
 

@@ -24,6 +24,7 @@ public struct TS_SC_LOGIN_RESULT
     public uint SkinColor;
     public int FaceId;
     public int HairId;
+    public int FaceTextureId; // this client build carries the skin/face texture id here, before the name
 
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 19)]
     public string Name;

@@ -24,6 +24,7 @@ public class GameActions : IActions
     private readonly ILogger _logger = Log.ForContext<GameActions>();
     private readonly ICharacterService _characterService;
     private readonly IBannedWordsRepository _bannedWordsRepository;
+    private readonly IStatService _statService;
     private readonly NetworkService _networkService;
 
     private readonly Dictionary<ushort, Action<GameClient, IPacket>> _actions = new();
@@ -33,6 +34,7 @@ public class GameActions : IActions
         _networkService = networkService;
         _bannedWordsRepository = networkService.BannedWordsRepository;
         _characterService = networkService.CharacterService;
+        _statService = networkService.StatService;
 
         _actions.Add((ushort)GamePackets.TM_CS_VERSION, OnVersion);
         _actions.Add((ushort)GamePackets.TM_CS_LOGIN, OnLogin);
@@ -57,8 +59,6 @@ public class GameActions : IActions
     }
 
     private static readonly int[] DefaultSpawn = { 92044, 116950, 0 };
-    private const int DefaultHp = 100;
-    private const int DefaultMp = 100;
 
     private async void OnLogin(GameClient client, IPacket packet)
     {
@@ -81,8 +81,9 @@ public class GameActions : IActions
             position = DefaultSpawn;
         }
 
-        var hp = character.Hp > 0 ? character.Hp : DefaultHp;
-        var mp = character.Mp > 0 ? character.Mp : DefaultMp;
+        var stats = _statService.Compute(character.Race, character.Lv > 0 ? character.Lv : 1);
+        var hp = character.Hp > 0 ? character.Hp : stats.MaxHp;
+        var mp = character.Mp > 0 ? character.Mp : stats.MaxMp;
 
         var result = new TS_SC_LOGIN_RESULT
         {
@@ -103,8 +104,9 @@ public class GameActions : IActions
             Sex = character.Sex,
             Race = character.Race,
             SkinColor = (uint)character.SkinColor,
-            FaceId = character.TextureId,
-            HairId = character.HairColorIndex,
+            FaceId = character.Models is { Length: > 0 } ? character.Models[0] : 0,
+            HairId = character.Models is { Length: > 1 } ? character.Models[1] : 0,
+            FaceTextureId = character.TextureId,
             Name = character.CharacterName,
             CellSize = 0,
             GuildId = 0
@@ -147,6 +149,15 @@ public class GameActions : IActions
         client.Connection.Send(new Packet<TS_SC_ENTER_PLAYER>((ushort)GamePackets.TM_SC_ENTER, enter).Data);
         client.Connection.Send(BuildWearInfo((uint)character.Id, character));
 
+        client.Connection.Send(GameStatPackets.BuildStatInfo((uint)character.Id, stats));
+
+        var level = character.Lv > 0 ? character.Lv : 1;
+        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "level", level));
+        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "hp", hp));
+        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "mp", mp));
+        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "max_hp", stats.MaxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "max_mp", stats.MaxMp));
+
         _logger.Debug("{clientTag} entered game as {name} (lv {lv}) at ({x},{y},{z})", client.ClientTag,
             character.CharacterName, enter.Level, result.X, result.Y, result.Z);
     }
@@ -154,7 +165,9 @@ public class GameActions : IActions
     private static byte[] BuildWearInfo(uint handle, CharacterEntity character)
     {
         const int slots = 24;
-        var total = 7 + 4 + slots * 4 * 3 + slots;
+        // handle(4) + item_code/enhance/level (3 x uint32) + elemental_effect_type (byte)
+        // + appearance_code (uint32) per slot, matching rzu TS_SC_WEAR_INFO for EPIC 7.3.
+        var total = 7 + 4 + slots * 4 * 3 + slots + slots * 4;
         var packet = new byte[total];
         var s = packet.AsSpan();
 
@@ -194,11 +207,33 @@ public class GameActions : IActions
                 s.Slice(codeBase + (int)ItemWearType.Hair * 4, 4), (uint)character.Models[1]);
         }
 
+        // Base (naked) body models for empty slots, per rzu Character::sendEquip.
+        // Models = [face, hair, armor, gloves, boots]; gloves/boots give the bare hands/feet.
+        InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Armor, character.Models, 2);
+        InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Glove, character.Models, 3);
+        InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Boots, character.Models, 4);
+
         byte checksum = 0;
         for (var i = 0; i < 6; i++) checksum += packet[i];
         packet[6] = checksum;
 
         return packet;
+    }
+
+    private static void InjectBaseModelIfEmpty(byte[] packet, int codeBase, ItemWearType slot, int[] models, int modelIndex)
+    {
+        if (models == null || models.Length <= modelIndex)
+        {
+            return;
+        }
+
+        var offset = codeBase + (int)slot * 4;
+        if (BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(offset, 4)) != 0)
+        {
+            return; // slot already holds an equipped item
+        }
+
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(offset, 4), (uint)models[modelIndex]);
     }
 
     private void OnReport(GameClient client, IPacket packet)

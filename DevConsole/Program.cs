@@ -91,13 +91,15 @@ public class Program
         services.AddSingleton<IWorldRepository, WorldRepository>();
         services.AddSingleton<ICharacterRepository, CharacterRepository>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
-        
+        services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
+
         // Services
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();
         services.AddSingleton<INetworkService, NetworkService>();
         services.AddSingleton<ICharacterService, CharacterService>();
         services.AddSingleton<IBannedWordsRepository, BannedWordsRepository>();
+        services.AddSingleton<IStatService, StatService>();
     }
 
     private static void ConfigureDataAccess(IServiceCollection services)
