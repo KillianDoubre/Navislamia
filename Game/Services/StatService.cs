@@ -10,10 +10,6 @@ public class StatService : IStatService
     private readonly ILogger _logger = Log.ForContext<StatService>();
     private readonly IStatResourceRepository _statResources;
 
-    // Race -> StatResource row id. JobResource (the retail source of this mapping) has no data,
-    // so these ids are a documented starting point. Verify against the live StatResource table:
-    //   SELECT "Id","Strength","Vitality" FROM "StatResource" ORDER BY "Id";
-    // A wrong/empty lookup is covered by the static fallback below.
     private static readonly Dictionary<int, int> RaceStatId = new()
     {
         { (int)Race.Deva, 1 },

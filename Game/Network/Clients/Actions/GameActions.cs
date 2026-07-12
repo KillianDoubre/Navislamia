@@ -86,6 +86,7 @@ public class GameActions : IActions
         var mp = character.Mp > 0 ? character.Mp : stats.MaxMp;
 
         client.ConnectionInfo.CharacterHandle = (uint)character.Id;
+        client.ConnectionInfo.CharacterName = character.CharacterName;
         client.ConnectionInfo.X = position[0];
         client.ConnectionInfo.Y = position[1];
         client.ConnectionInfo.Z = position[2];
@@ -170,8 +171,6 @@ public class GameActions : IActions
     private static byte[] BuildWearInfo(uint handle, CharacterEntity character)
     {
         const int slots = 24;
-        // handle(4) + item_code/enhance/level (3 x uint32) + elemental_effect_type (byte)
-        // + appearance_code (uint32) per slot, matching rzu TS_SC_WEAR_INFO for EPIC 7.3.
         var total = 7 + 4 + slots * 4 * 3 + slots + slots * 4;
         var packet = new byte[total];
         var s = packet.AsSpan();
@@ -212,8 +211,6 @@ public class GameActions : IActions
                 s.Slice(codeBase + (int)ItemWearType.Hair * 4, 4), (uint)character.Models[1]);
         }
 
-        // Base (naked) body models for empty slots, per rzu Character::sendEquip.
-        // Models = [face, hair, armor, gloves, boots]; gloves/boots give the bare hands/feet.
         InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Armor, character.Models, 2);
         InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Glove, character.Models, 3);
         InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Boots, character.Models, 4);
@@ -235,7 +232,7 @@ public class GameActions : IActions
         var offset = codeBase + (int)slot * 4;
         if (BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(offset, 4)) != 0)
         {
-            return; // slot already holds an equipped item
+            return;
         }
 
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(offset, 4), (uint)models[modelIndex]);
@@ -245,11 +242,18 @@ public class GameActions : IActions
     {
     }
 
-    private async void OnCharacterList(GameClient client, IPacket packet)
+    private void OnCharacterList(GameClient client, IPacket packet)
     {
         var message = packet.GetDataStruct<TS_CS_CHARACTER_LIST>();
-        var characters = await _characterService.GetCharactersByAccountNameAsync(message.Account, true);
+        SendCharacterListForAccount(client, message.Account);
+    }
+
+    public async void SendCharacterListForAccount(GameClient client, string accountName)
+    {
+        var characters = await _characterService.GetCharactersByAccountNameAsync(accountName, true);
         var lobbyCharacters = new List<LobbyCharacterInfo>();
+
+        client.ConnectionInfo.CharacterList.Clear();
 
         foreach (var character in characters)
         {

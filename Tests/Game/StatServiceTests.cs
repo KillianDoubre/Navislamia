@@ -9,7 +9,7 @@ namespace Tests.Game;
 [TestFixture]
 public class StatServiceTests
 {
-    private const int DevaRace = 4; // Navislamia.Game.DataAccess.Entities.Enums.Race.Deva
+    private const int DevaRace = 4;
 
     [Test]
     public void Compute_UsesDbStats_WhenRowPresent()
@@ -26,7 +26,7 @@ public class StatServiceTests
 
         stats.Strength.Should().Be(20);
         stats.Vitality.Should().Be(21);
-        stats.Mentality.Should().Be(25); // Wisdom maps to mentality
+        stats.Mentality.Should().Be(25);
         stats.MaxHp.Should().Be(50 + 21 * 10 + 1 * 20);
         stats.MaxMp.Should().Be(30 + 25 * 8 + 1 * 10);
     }

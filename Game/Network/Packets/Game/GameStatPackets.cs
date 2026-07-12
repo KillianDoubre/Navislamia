@@ -10,13 +10,12 @@ public static class GameStatPackets
 {
     private const int HeaderSize = 7;
 
-    // TS_SC_STAT_INFO (id 1000, EPIC 7.3): handle + 8 x int16 base + 34 x int16 attrib + type byte.
     public static byte[] BuildStatInfo(uint handle, CharacterStats stats)
     {
         const int baseCount = 8;
         const int attribCount = 34;
-        const int payload = 4 + baseCount * 2 + attribCount * 2 + 1; // 89
-        var total = HeaderSize + payload; // 96
+        const int payload = 4 + baseCount * 2 + attribCount * 2 + 1;
+        var total = HeaderSize + payload;
         var p = new byte[total];
         var s = p.AsSpan();
 
@@ -24,7 +23,6 @@ public static class GameStatPackets
         BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_STAT_INFO);
         BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), handle);
 
-        // TS_STAT_INFO_BASE
         var baseStats = new short[]
         {
             (short)stats.StatId,
@@ -39,25 +37,23 @@ public static class GameStatPackets
             o += 2;
         }
 
-        // TS_STAT_INFO_ATTRIB: 34 x int16 combat stats. Left 0 for V1 (see plan note).
         for (var i = 0; i < attribCount; i++)
         {
             BinaryPrimitives.WriteInt16LittleEndian(p.AsSpan(o, 2), 0);
             o += 2;
         }
 
-        p[o] = 0; // type = SIT_Total
+        p[o] = 0;
 
         WriteChecksum(p);
         return p;
     }
 
-    // TS_SC_PROPERTY (id 507, EPIC 7.3): handle + is_number(bool) + name[16] + int64 value + null string_value.
     public static byte[] BuildProperty(uint handle, string name, long value)
     {
         const int nameSize = 16;
-        const int payload = 4 + 1 + nameSize + 8 + 1; // 30
-        var total = HeaderSize + payload; // 37
+        const int payload = 4 + 1 + nameSize + 8 + 1;
+        var total = HeaderSize + payload;
         var p = new byte[total];
         var s = p.AsSpan();
 
@@ -65,14 +61,14 @@ public static class GameStatPackets
         BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_PROPERTY);
         BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), handle);
 
-        p[11] = 1; // is_number
+        p[11] = 1;
 
         var nameBytes = Encoding.ASCII.GetBytes(name);
         var len = Math.Min(nameBytes.Length, nameSize - 1);
-        nameBytes.AsSpan(0, len).CopyTo(s.Slice(12, len)); // remaining bytes stay 0 (null-padded)
+        nameBytes.AsSpan(0, len).CopyTo(s.Slice(12, len));
 
         BinaryPrimitives.WriteInt64LittleEndian(s.Slice(28, 8), value);
-        p[36] = 0; // string_value: empty, null-terminated
+        p[36] = 0;
 
         WriteChecksum(p);
         return p;

@@ -8,6 +8,7 @@ public class ConnectionInfo
     public List<string> CharacterList { get; set; } = new();
     // TODO: StructPlayer Player;
     public uint CharacterHandle { get; set; }
+    public string CharacterName { get; set; }
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }

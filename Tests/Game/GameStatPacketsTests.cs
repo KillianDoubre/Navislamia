@@ -28,12 +28,10 @@ public class GameStatPacketsTests
         BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4, 2)).Should().Be(1000);
         p[6].Should().Be(Checksum(p));
         BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(7, 4)).Should().Be(0x11223344);
-        // base block at offset 11: stat_id, str, vit, ... as int16
         BinaryPrimitives.ReadInt16LittleEndian(p.AsSpan(11, 2)).Should().Be(7);
         BinaryPrimitives.ReadInt16LittleEndian(p.AsSpan(13, 2)).Should().Be(20);
         BinaryPrimitives.ReadInt16LittleEndian(p.AsSpan(15, 2)).Should().Be(21);
-        BinaryPrimitives.ReadInt16LittleEndian(p.AsSpan(25, 2)).Should().Be(26); // luck (8th int16)
-        // type byte is the final payload byte
+        BinaryPrimitives.ReadInt16LittleEndian(p.AsSpan(25, 2)).Should().Be(26);
         p[95].Should().Be(0);
     }
 
@@ -47,10 +45,10 @@ public class GameStatPacketsTests
         BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4, 2)).Should().Be(507);
         p[6].Should().Be(Checksum(p));
         BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(7, 4)).Should().Be(0x0A0B0C0D);
-        p[11].Should().Be(1); // is_number
+        p[11].Should().Be(1);
         Encoding.ASCII.GetString(p, 12, 5).Should().Be("level");
-        p[17].Should().Be(0); // name null-padded
+        p[17].Should().Be(0);
         BinaryPrimitives.ReadInt64LittleEndian(p.AsSpan(28, 8)).Should().Be(42);
-        p[36].Should().Be(0); // string_value terminator
+        p[36].Should().Be(0);
     }
 }

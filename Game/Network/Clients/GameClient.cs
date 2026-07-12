@@ -2,6 +2,8 @@ using System;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Text;
+using Navislamia.Game.Network.Clients.Actions;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
@@ -77,7 +79,6 @@ public class GameClient : Client
 
     private void HandleRegionUpdate(byte[] buffer)
     {
-        // TS_CS_REGION_UPDATE: update_time(u32), x/y/z(float), bIsStopMessage(bool)
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
@@ -86,10 +87,24 @@ public class GameClient : Client
 
     private void HandleChangeLocation(byte[] buffer)
     {
-        // TS_CS_CHANGE_LOCATION: x(float), y(float)
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+    }
+
+    private void HandleChatRequest(byte[] buffer)
+    {
+        var input = buffer.AsSpan(7);
+        var count = input[22];
+        var type = input[23];
+        var message = Encoding.ASCII.GetString(input.Slice(24, count));
+
+        var isLocal = type is (byte)ChatType.Normal or (byte)ChatType.Yell;
+        var reply = isLocal
+            ? GameChatPackets.BuildChatLocal(ConnectionInfo.CharacterHandle, type, message)
+            : GameChatPackets.BuildChat(ConnectionInfo.CharacterName, type, message);
+
+        Connection.Send(reply);
     }
 
     public void SendDisconnectDesription(DisconnectType type)
@@ -109,8 +124,6 @@ public class GameClient : Client
 
             if (header.Length > remainingData)
             {
-                // Normal TCP fragmentation: the packet spans reads. Keep the bytes buffered and
-                // finish framing it on the next receive.
                 _logger.Verbose(
                     "Waiting for rest of packet from {clientTag} (ID: {id} Length: {length} Available: {remaining})",
                     ClientTag, header.ID, header.Length, remainingData);
@@ -137,8 +150,6 @@ public class GameClient : Client
 
             if (header.ID == (ushort)GamePackets.TM_NONE)
             {
-                // Client keepalive/latency ping (id 9999): not a gameplay opcode (absent from rzu
-                // and the client opcode table), carries a tick timestamp, needs no response.
                 _logger.Verbose("Keepalive (TM_NONE) Length: {length} from {clientTag}", header.Length, ClientTag);
                 continue;
             }
@@ -167,9 +178,39 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_CHAT_REQUEST)
+            {
+                HandleChatRequest(msgBuffer);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_UPDATE)
             {
-                continue; // periodic client keepalive, nothing to answer
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_RETURN_LOBBY)
+            {
+                SendResult(header.ID, (ushort)ResultCode.Success);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_RETURN_LOBBY)
+            {
+                ConnectionInfo.CharacterHandle = 0;
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_LOGOUT)
+            {
+                SendResult(header.ID, (ushort)ResultCode.Success);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_LOGOUT)
+            {
+                _logger.Debug("{clientTag} logging out", ClientTag);
+                continue;
             }
 
             IPacket msg = header.ID switch

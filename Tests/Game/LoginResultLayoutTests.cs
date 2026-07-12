@@ -9,9 +9,6 @@ namespace Tests.Game;
 [TestFixture]
 public class LoginResultLayoutTests
 {
-    // The real Epic 7.3 client used with Navislamia carries one extra 4-byte field between hairId
-    // and name in TS_SC_LOGIN_RESULT (FaceTextureId). Without it the self-player name renders
-    // truncated ("Freezeraid" -> "zeraid"). This locks the name at the calibrated wire offset.
     private const int CalibratedNameOffset = 82;
 
     [Test]
