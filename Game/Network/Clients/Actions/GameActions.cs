@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -91,6 +90,8 @@ public class GameActions : IActions
 
         client.ConnectionInfo.CharacterHandle = (uint)character.Id;
         client.ConnectionInfo.CharacterName = character.CharacterName;
+        client.ConnectionInfo.CharacterHp = hp;
+        client.ConnectionInfo.CharacterLevel = character.Lv > 0 ? character.Lv : 1;
         client.ConnectionInfo.Layer = (byte)character.Layer;
         client.ConnectionInfo.X = position[0];
         client.ConnectionInfo.Y = position[1];
@@ -115,8 +116,8 @@ public class GameActions : IActions
             Sex = character.Sex,
             Race = character.Race,
             SkinColor = (uint)character.SkinColor,
-            FaceId = character.Models is { Length: > 0 } ? character.Models[0] : 0,
-            HairId = character.Models is { Length: > 1 } ? character.Models[1] : 0,
+            FaceId = (int)GameCharacterPackets.GetFaceId(character),
+            HairId = (int)GameCharacterPackets.GetHairId(character),
             FaceTextureId = character.TextureId,
             Name = character.CharacterName,
             CellSize = 0,
@@ -146,104 +147,69 @@ public class GameActions : IActions
             IsFirstEnter = 1,
             Energy = 0,
             Sex = (byte)character.Sex,
-            FaceId = character.Models is { Length: > 0 } ? (uint)character.Models[0] : 0,
+            FaceId = GameCharacterPackets.GetFaceId(character),
             FaceTextureId = (uint)character.TextureId,
-            HairId = character.Models is { Length: > 1 } ? (uint)character.Models[1] : 0,
+            HairId = GameCharacterPackets.GetHairId(character),
             HairColorIndex = (uint)character.HairColorIndex,
             HairColorRGB = (uint)character.HairColorRgb,
-            HideEquipFlag = 0,
+            HideEquipFlag = (uint)character.HideEquipFlag,
             Name = character.CharacterName,
             JobId = (ushort)character.CurrentJob,
             RideHandle = 0,
             GuildId = 0
         };
         client.Connection.Send(new Packet<TS_SC_ENTER_PLAYER>((ushort)GamePackets.TM_SC_ENTER, enter).Data);
-        client.Connection.Send(BuildWearInfo((uint)character.Id, character));
 
-        client.Connection.Send(GameStatPackets.BuildStatInfo((uint)character.Id, stats));
+        var handle = (uint)character.Id;
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats));
+        foreach (var inventoryPacket in GameCharacterPackets.BuildInventory(character))
+        {
+            client.Connection.Send(inventoryPacket);
+        }
 
-        var level = character.Lv > 0 ? character.Lv : 1;
-        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "level", level));
-        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "hp", hp));
-        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "mp", mp));
-        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "max_hp", stats.MaxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty((uint)character.Id, "max_mp", stats.MaxMp));
+        client.Connection.Send(GameCharacterPackets.BuildEquipSummon(character.SummonSlotItemIds));
+        client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, character));
+        client.Connection.Send(GameCharacterPackets.BuildHideEquipInfo(handle, character.HideEquipFlag));
+        client.Connection.Send(GameCharacterPackets.BuildSkinInfo(handle, character.SkinColor));
+        client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(character.Gold, character.Chaos));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_chaos", character.Chaos));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_stamina", character.Stamina));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "tp", character.TalentPoint));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "chaos", character.Chaos));
+        client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(handle, character.Lv, character.Jlv));
+        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(handle, character.Exp, character.Jp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "job", (int)character.CurrentJob));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "job_level", character.Jlv));
+
+        for (var i = 0; i < 3; i++)
+        {
+            client.Connection.Send(GameStatPackets.BuildProperty(handle, $"job_{i}", (int)character.PreviousJobs[i]));
+            client.Connection.Send(GameStatPackets.BuildProperty(handle, $"jlv_{i}", character.JobLvs[i]));
+        }
+
+        client.Connection.Send(GameCharacterPackets.BuildEmptyAddedSkillList(handle));
+        client.Connection.Send(GameCharacterPackets.BuildBeltSlotInfo(character.BeltItemIds));
+        client.SendGameTime();
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", hp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", mp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", stats.MaxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", stats.MaxMp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "stamina", character.Stamina));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_stamina", character.Stamina));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "permission", character.Permission));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "pk_count", character.PkCount));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "dk_count", character.DkCount));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholicpoint", character.HuntaholicPoint));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholic_ent", character.HuntaholicEnterCount));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", decimal.ToInt64(character.ImmoralPoint)));
+        client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle));
 
         _logger.Debug("{clientTag} entered game as {name} (lv {lv}) at ({x},{y},{z})", client.ClientTag,
             character.CharacterName, enter.Level, result.X, result.Y, result.Z);
 
         _npcSpawnService.Sync(client);
         _monsterSpawnService.Sync(client);
-    }
-
-    private static byte[] BuildWearInfo(uint handle, CharacterEntity character)
-    {
-        const int slots = 24;
-        var total = 7 + 4 + slots * 4 * 3 + slots + slots * 4;
-        var packet = new byte[total];
-        var s = packet.AsSpan();
-
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(0, 4), (uint)total);
-        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_WEAR_INFO);
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), handle);
-
-        var codeBase = 11;
-        var enhanceBase = codeBase + slots * 4;
-        var levelBase = enhanceBase + slots * 4;
-        var elemBase = levelBase + slots * 4;
-
-        if (character.Items != null)
-        {
-            foreach (var item in character.Items)
-            {
-                var slot = (int)item.WearInfo;
-                if (item.WearInfo == ItemWearType.None || slot < 0 || slot >= slots)
-                {
-                    continue;
-                }
-                BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(codeBase + slot * 4, 4), (uint)item.ItemResourceId);
-                BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(enhanceBase + slot * 4, 4), (uint)item.Enhance);
-                BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(levelBase + slot * 4, 4), (uint)item.Level);
-                s[elemBase + slot] = (byte)item.ElementalEffectType;
-            }
-        }
-
-        if (character.Models is { Length: > 0 })
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(
-                s.Slice(codeBase + (int)ItemWearType.Face * 4, 4), (uint)character.Models[0]);
-        }
-        if (character.Models is { Length: > 1 })
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(
-                s.Slice(codeBase + (int)ItemWearType.Hair * 4, 4), (uint)character.Models[1]);
-        }
-
-        InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Armor, character.Models, 2);
-        InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Glove, character.Models, 3);
-        InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Boots, character.Models, 4);
-
-        byte checksum = 0;
-        for (var i = 0; i < 6; i++) checksum += packet[i];
-        packet[6] = checksum;
-
-        return packet;
-    }
-
-    private static void InjectBaseModelIfEmpty(byte[] packet, int codeBase, ItemWearType slot, int[] models, int modelIndex)
-    {
-        if (models == null || models.Length <= modelIndex)
-        {
-            return;
-        }
-
-        var offset = codeBase + (int)slot * 4;
-        if (BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(offset, 4)) != 0)
-        {
-            return;
-        }
-
-        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(offset, 4), (uint)models[modelIndex]);
     }
 
     private void OnReport(GameClient client, IPacket packet)
@@ -334,8 +300,9 @@ public class GameActions : IActions
     private async void OnCreateCharacter(GameClient client, IPacket packet)
     {
         var createMsg = packet.GetDataStruct<TS_CS_CREATE_CHARACTER>();
+        var characterCount = _characterService.CharacterCount(client.ConnectionInfo.AccountId);
 
-        if (_characterService.CharacterCount(client.ConnectionInfo.AccountId) >= 6)
+        if (characterCount >= 6)
         {
             _logger.Debug("Character create failed! Limit reached! for ({accountName}) {clientTag} !!!", client.ConnectionInfo.AccountName, client.ClientTag);
 
@@ -345,6 +312,7 @@ public class GameActions : IActions
         }
 
         var selectedArmor = createMsg.Info.WearInfo[(int)ItemWearType.Armor];
+        var startingStats = _statService.Compute(createMsg.Info.Race, 1);
 
         int defaultArmorId;
         int defaultWeaponId;
@@ -374,19 +342,32 @@ public class GameActions : IActions
             AccountId = client.ConnectionInfo.AccountId,
             AccountName = client.ConnectionInfo.AccountName,
             CharacterName = createMsg.Info.Name.FormatName(),
+            Slot = characterCount,
             Sex = createMsg.Info.Sex,
             Race = createMsg.Info.Race,
+            Lv = 1,
+            MaxReachedLv = 1,
+            CurrentJob = CharacterDefaults.GetStarterJob(createMsg.Info.Race),
+            JobDepth = JobDepth.Base,
+            Jlv = 1,
+            PreviousJobs = new Job[3],
+            JobLvs = new int[3],
+            Position = DefaultSpawn.ToArray(),
+            Hp = startingStats.MaxHp,
+            Mp = startingStats.MaxMp,
             Models = createMsg.Info.ModelId,
             HairColorIndex = createMsg.Info.HairColorIndex,
+            HairColorRgb = unchecked((int)createMsg.Info.HairColorRGB),
+            HideEquipFlag = unchecked((int)createMsg.Info.HideEquipFlag),
             TextureId = createMsg.Info.TextureID,
             SkinColor = (int)createMsg.Info.SkinColor,
 
             Items = new List<ItemEntity>
             {
-                new() { ItemResourceId = defaultArmorId, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.Armor, GenerateBySource = ItemGenerateSource.Basic },
-                new() { ItemResourceId = defaultWeaponId, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.Weapon, GenerateBySource = ItemGenerateSource.Basic },
+                new() { Idx = 0, ItemResourceId = defaultArmorId, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.Armor, GenerateBySource = ItemGenerateSource.Basic },
+                new() { Idx = 1, ItemResourceId = defaultWeaponId, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.Weapon, GenerateBySource = ItemGenerateSource.Basic },
 
-                new() { ItemResourceId = 490001, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.BagSlot, GenerateBySource = ItemGenerateSource.Basic}
+                new() { Idx = 2, ItemResourceId = 490001, Level = 1, Amount = 1, Endurance = 50, WearInfo = ItemWearType.BagSlot, GenerateBySource = ItemGenerateSource.Basic}
             }
         };
 

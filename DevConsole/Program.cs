@@ -117,7 +117,9 @@ public class Program
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
+        services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
+        services.AddSingleton<ICombatService, CombatService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();

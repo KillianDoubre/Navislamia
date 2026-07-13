@@ -70,6 +70,7 @@ local opcode_names = {
     [221] = "TM_CS_HIDE_EQUIP_INFO",
     [222] = "TM_SC_HIDE_EQUIP_INFO",
     [223] = "TM_CS_SWAP_EQUIP",
+    [224] = "TM_SC_SKIN_INFO",
 
     [240] = "TM_SC_NPC_TRADE_INFO",
 

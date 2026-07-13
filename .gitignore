@@ -469,6 +469,7 @@ fabric.properties
 start-server.ps1
 /docs/*
 !/docs/world-spawning.md
+!/docs/character-bootstrap.md
 DevConsole/appsettings.json
 AuthServer/appsettings.json
 launch-client.ps1

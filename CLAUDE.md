@@ -57,10 +57,29 @@ and uses local/channel chat.
 
 ## World entry and movement
 
-`GameActions.OnLogin` sends the login result, player enter packet, wear information, stats and
-properties. It then synchronizes NPC and monster visibility. Movement uses the client's current `x/y`
-fields for visibility; the final waypoint is a future destination and must never be used as the
-current position.
+`GameActions.OnLogin` sends the login result and player enter packet, followed by the Epic 7.3
+character bootstrap: stats, inventory, summon slots, wear information, gold/chaos, level/job level,
+experience/JP, job properties, learned skills, belt slots, game time and status. It then synchronizes
+NPC and monster visibility. See `docs/character-bootstrap.md` for packet layouts and model ordering.
+
+Movement uses the client's current `x/y` fields for visibility; the final waypoint is a future
+destination and must never be used as the current position.
+
+This client build uses the calibrated model order `face, hair, armor, gloves, boots`. Its extended
+`TS_SC_LOGIN_RESULT` appearance block after `race` is `faceId, skinColor, hairId, faceTextureId`; the
+name starts at absolute packet offset 82. This exact order comes from the client deserializer: absolute
+offset 70 feeds the primary body colorizer. World login also sends dedicated hidden-equipment and skin
+information packets.
+Hair changes use `TS_SC_HAIR_INFO`, but initial login relies on the login result plus the
+client-calibrated hair wear slot 13 to avoid an equipment refresh dropping the hairstyle. Face wear
+slot 12 must remain empty; filling it replaces the textured login face with a transparent mesh.
+`TS_SC_WEAR_INFO` is the 323-byte Epic 7.3 variant and contains 24 code/enhance/level/element arrays
+without the Epic 7.4 appearance array.
+
+The same client nevertheless expects the later four-byte `appearance_code` inside each inventory
+item record: records are 85 bytes, with `appearance_code` immediately before `wear_position`. This
+was confirmed directly in `SFrame.exe` (`0x55`-byte copy stride). Do not reduce them to the canonical
+81-byte Epic 7.3 record or equipment slots and all following items become misaligned.
 
 The client view is a circular 540-unit window derived from three 180-unit regions. Sending far-away
 enter packets can make objects permanently absent until reconnect because the client discards the
@@ -89,12 +108,37 @@ generic configuration provider because flattening the large arrays adds tens of 
 The catalog is generated from the available 9.4 NFS/Lua spawn sources and filtered against IDs decoded
 from the Epic 7.3 client `db_monster.rdb`. Rendering and streaming have been validated in game.
 
+## Targeting and action cancel
+
+Pressing Escape sends `TS_CS_TARGETING` (`511`) with `target = 0` and `TS_CS_CANCEL_ACTION` (`150`),
+each an 11-byte packet whose only payload is a 4-byte `ar_handle_t` (IDs valid for Epic < 9.6.3).
+`TS_CS_TARGETING` sets `ConnectionInfo.TargetHandle` (the handle an attack or skill acts on;
+`0` deselects and stops the current attack). `TS_CS_CANCEL_ACTION` stops the current attack. Neither
+sends a response. `GameActionPackets` holds the pure offset parsers.
+
+## Combat
+
+Double-clicking a monster sends `TS_CS_ATTACK_REQUEST` (`100`, Epic < 9.6.3): `handle` @7 +
+`target_handle` @11. The server drives auto-attack: `CombatService` runs a 100 ms `PeriodicTimer`
+loop that swings every 1200 ms, sending `TS_SC_ATTACK_EVENT` (`101`). For Epic 7.3
+(`version >= EPIC_7_3`) every `ATTACK_INFO` field is int32 and there is no `flag_padding`, so one
+swing is 83 bytes (`ATTACK_INFO` = 61) and a `count = 0` `AEAA_EndAttack` is 22 bytes. The client
+plays the death animation when `target_hp` reaches 0; there is no `TS_SC_DEAD` in this version.
+
+`MonsterWorldState` is the single source of mutable monster state: the shared `SpatialIndex`, current
+HP and respawn deadlines (both sparse). `MonsterSpawnService` reads it and skips dead instances in
+`Sync`; `CombatService` mutates it and re-streams a respawned monster to its last attacker. Access to
+`ConnectionInfo.SpawnedMonsters` is guarded by `MonsterVisibilityLock` because the combat tick thread
+and the client thread both touch it. Damage is a placeholder (`30 + level * 5`) and attack timing is
+fixed until the `MonsterResource` combat columns are backfilled.
+
 ## Current limitations
 
-- Monsters are idle: no AI, movement, aggro, combat, death, loot, respawn or taming
+- Monsters can be auto-attacked, killed and respawn, but have no AI, movement, aggro, retaliation,
+  loot or taming; damage and attack speed are placeholders
 - NPC behavior beyond rendering and existing scripts is incomplete
+- Advanced cosmetics, equipment changes and learned-skill persistence are not implemented
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
-- Equipment and character skin rendering are incomplete
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work
 

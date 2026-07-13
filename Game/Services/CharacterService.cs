@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Navislamia.Game.DataAccess.Entities.Enums;
@@ -24,11 +25,25 @@ public class CharacterService : ICharacterService
 
     public async Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false)
     {
-        return await _characterRepository.GetCharactersByAccountNameAsync(accountName, withItems);
+        var characters = (await _characterRepository.GetCharactersByAccountNameAsync(accountName, withItems)).ToList();
+        var changed = false;
+        foreach (var character in characters)
+        {
+            changed |= CharacterDefaults.Apply(character);
+        }
+
+        if (changed)
+        {
+            await _characterRepository.SaveChangesAsync();
+        }
+
+        return characters;
     }
 
     public async Task<CharacterEntity> CreateCharacterAsync(CharacterEntity character, bool withStarterItems = false)
     {
+        CharacterDefaults.Apply(character);
+
         if (withStarterItems)
         {
             character.Items ??= new List<ItemEntity>();

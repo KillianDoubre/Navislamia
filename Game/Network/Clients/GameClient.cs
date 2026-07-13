@@ -107,6 +107,30 @@ public class GameClient : Client
         _networkService.MonsterSpawnService.Sync(this);
     }
 
+    private void HandleTargeting(byte[] buffer)
+    {
+        var target = GameActionPackets.ReadTargetHandle(buffer);
+        ConnectionInfo.TargetHandle = target;
+
+        if (target == 0)
+        {
+            _networkService.CombatService.StopAttack(this);
+        }
+    }
+
+    private void HandleCancelAction(byte[] buffer)
+    {
+        var handle = GameActionPackets.ReadCancelActionHandle(buffer);
+        _logger.Verbose("{clientTag} cancelled action for handle {handle}", ClientTag, handle);
+        _networkService.CombatService.StopAttack(this);
+    }
+
+    private void HandleAttackRequest(byte[] buffer)
+    {
+        var target = GameAttackPackets.ReadAttackTarget(buffer);
+        _networkService.CombatService.StartAttack(this, target);
+    }
+
     private void HandleChatRequest(byte[] buffer)
     {
         var input = buffer.AsSpan(7);
@@ -120,6 +144,12 @@ public class GameClient : Client
             : GameChatPackets.BuildChat(ConnectionInfo.CharacterName, type, message);
 
         Connection.Send(reply);
+    }
+
+    public override void OnDisconnect()
+    {
+        _networkService.CombatService.StopAttack(this);
+        base.OnDisconnect();
     }
 
     public void SendDisconnectDesription(DisconnectType type)
@@ -190,6 +220,24 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_ATTACK_REQUEST)
+            {
+                HandleAttackRequest(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_TARGETING)
+            {
+                HandleTargeting(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_CANCEL_ACTION)
+            {
+                HandleCancelAction(msgBuffer);
                 continue;
             }
 

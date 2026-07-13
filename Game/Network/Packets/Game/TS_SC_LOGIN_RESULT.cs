@@ -21,8 +21,8 @@ public struct TS_SC_LOGIN_RESULT
     public int MaxHavoc;
     public int Sex;
     public int Race;
-    public uint SkinColor;
     public int FaceId;
+    public uint SkinColor;
     public int HairId;
     public int FaceTextureId;
 

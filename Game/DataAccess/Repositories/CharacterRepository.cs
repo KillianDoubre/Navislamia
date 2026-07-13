@@ -25,7 +25,7 @@ public class CharacterRepository : ICharacterRepository
             query = query.Include(c => c.Items);
         }
         
-        return query;
+        return await query.ToListAsync();
     }
 
     public async Task<CharacterEntity> CreateCharacterAsync(CharacterEntity character)

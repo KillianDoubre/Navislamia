@@ -20,6 +20,7 @@ public class NetworkService : INetworkService
     public readonly IStatService StatService;
     public readonly INpcSpawnService NpcSpawnService;
     public readonly IMonsterSpawnService MonsterSpawnService;
+    public readonly ICombatService CombatService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -34,7 +35,8 @@ public class NetworkService : INetworkService
     public NetworkService(ILogger<NetworkService> logger, IOptions<NetworkOptions> networkOptions,
         ICharacterService characterService, IBannedWordsRepository bannedWordsRepository,
         IStatService statService, IOptions<ServerOptions> serverOptions,
-        INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService)
+        INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
+        ICombatService combatService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -42,6 +44,7 @@ public class NetworkService : INetworkService
         StatService = statService;
         NpcSpawnService = npcSpawnService;
         MonsterSpawnService = monsterSpawnService;
+        CombatService = combatService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
     }

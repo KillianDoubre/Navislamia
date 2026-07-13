@@ -7,8 +7,12 @@ public class ConnectionInfo
     public string AccountName { get; set; }
     public List<string> CharacterList { get; set; } = new();
     public uint CharacterHandle { get; set; }
+    public uint TargetHandle { get; set; }
+    public int CharacterHp { get; set; }
+    public int CharacterLevel { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
+    public readonly object MonsterVisibilityLock = new();
     public Dictionary<long, uint> SpawnedNpcs { get; } = new();
     public Dictionary<long, uint> SpawnedMonsters { get; } = new();
     public float X { get; set; }
