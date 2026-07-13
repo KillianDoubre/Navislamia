@@ -20,5 +20,6 @@ public class MssqlArcadiaContext : DbContext
     public DbSet<MSSQLEnhanceResource> EnhanceResource { get; set; }
     public DbSet<MSSQLSkillResource> SkillResource { get; set; }
     public DbSet<MSSQLStateResource> StateResource { get; set; }
-    
+    public DbSet<MSSQLNPCResource> NPCResource { get; set; }
+
 }

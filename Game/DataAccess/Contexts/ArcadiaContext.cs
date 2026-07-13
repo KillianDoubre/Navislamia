@@ -23,7 +23,8 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<StatResourceEntity> StatResources { get; set; }
     public DbSet<ModelEffectResourceEntity> ModelEffectResources { get; set; }
     public DbSet<BannedWordsResourceEntity> BannedWordsResources { get; set; }
-    
+    public DbSet<NpcResourceEntity> NpcResources { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

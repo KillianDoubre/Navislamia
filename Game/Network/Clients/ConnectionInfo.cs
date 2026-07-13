@@ -9,6 +9,8 @@ public class ConnectionInfo
     // TODO: StructPlayer Player;
     public uint CharacterHandle { get; set; }
     public string CharacterName { get; set; }
+    public byte Layer { get; set; }
+    public Dictionary<long, uint> SpawnedNpcs { get; } = new();
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }

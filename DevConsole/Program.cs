@@ -92,6 +92,8 @@ public class Program
         services.AddSingleton<ICharacterRepository, CharacterRepository>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
+        services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
+        services.AddSingleton<INpcSpawnService, NpcSpawnService>();
 
         // Services
         services.AddSingleton<IScriptService, ScriptService>();

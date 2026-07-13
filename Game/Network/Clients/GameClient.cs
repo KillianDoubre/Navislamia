@@ -15,8 +15,11 @@ namespace Navislamia.Game.Network.Clients;
 public class GameClient : Client
 {
     private readonly ILogger _logger = Log.ForContext<GameClient>();
+    private readonly NetworkService _networkService;
+
     public GameClient(Socket socket, NetworkService networkService) : base(networkService, ClientType.Game)
     {
+        _networkService = networkService;
         Connection = new CipherConnection(socket, networkService.NetworkOptions.CipherKey);
     }
 
@@ -83,6 +86,7 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
+        _networkService.NpcSpawnService.Sync(this);
     }
 
     private void HandleChangeLocation(byte[] buffer)
@@ -90,6 +94,7 @@ public class GameClient : Client
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+        _networkService.NpcSpawnService.Sync(this);
     }
 
     private void HandleChatRequest(byte[] buffer)

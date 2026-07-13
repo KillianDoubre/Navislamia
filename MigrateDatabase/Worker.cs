@@ -631,6 +631,7 @@ public class Worker : BackgroundService
         await TransferEffectResource(token);
         await TransferStatResource(token);
         await TransferStateResource(token);
+        await TransferNpcResource(token);
         await TransferSummonResource(token, false);
         await TransferSkillResource(token);
         await TransferSetItemEffectResource(token);
@@ -1376,6 +1377,49 @@ public class Worker : BackgroundService
     }
     
     // TODO transfer ModelEffectResource
+
+    private async Task TransferNpcResource(CancellationToken token)
+    {
+        await using var mssqlContext = new MssqlArcadiaContext(_mssqlOptions);
+
+        var items = mssqlContext.NPCResource.ToList();
+        var processed = 1;
+
+        Log.Logger.Information("Transferring {type}: {amount} entities", nameof(MSSQLNPCResource), items.Count);
+
+        foreach (var item in items)
+        {
+            if (token.IsCancellationRequested)
+            {
+                Log.Logger.Warning("Stopping...");
+                return;
+            }
+            Log.Information("Processing... {processed}/{amount}", processed, items.Count);
+
+            var mappedItem = _mapper.Map<NpcResourceEntity>(item);
+
+            await using (var psqlContext = new ArcadiaContext(_psqlArcadiaContext))
+            {
+                var existingEntity = psqlContext.NpcResources.FirstOrDefault(i => i.Id == item.id);
+                if (existingEntity != null)
+                {
+                    psqlContext.NpcResources.Update(mappedItem);
+                }
+                else
+                {
+                    psqlContext.NpcResources.Add(mappedItem);
+                }
+
+                await psqlContext.SaveChangesAsync(token);
+            }
+
+            processed++;
+            ClearCurrentConsoleLine();
+        }
+
+        _finishedTransfers.Add(nameof(MSSQLNPCResource));
+        UpdateConsole();
+    }
 
     private void UpdateConsole()
     {

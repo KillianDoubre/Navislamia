@@ -25,6 +25,7 @@ public class GameActions : IActions
     private readonly ICharacterService _characterService;
     private readonly IBannedWordsRepository _bannedWordsRepository;
     private readonly IStatService _statService;
+    private readonly INpcSpawnService _npcSpawnService;
     private readonly NetworkService _networkService;
 
     private readonly Dictionary<ushort, Action<GameClient, IPacket>> _actions = new();
@@ -35,6 +36,7 @@ public class GameActions : IActions
         _bannedWordsRepository = networkService.BannedWordsRepository;
         _characterService = networkService.CharacterService;
         _statService = networkService.StatService;
+        _npcSpawnService = networkService.NpcSpawnService;
 
         _actions.Add((ushort)GamePackets.TM_CS_VERSION, OnVersion);
         _actions.Add((ushort)GamePackets.TM_CS_LOGIN, OnLogin);
@@ -58,7 +60,7 @@ public class GameActions : IActions
     {
     }
 
-    private static readonly int[] DefaultSpawn = { 92044, 116950, 0 };
+    private static readonly int[] DefaultSpawn = { 83950, 115980, 0 };
 
     private async void OnLogin(GameClient client, IPacket packet)
     {
@@ -87,6 +89,7 @@ public class GameActions : IActions
 
         client.ConnectionInfo.CharacterHandle = (uint)character.Id;
         client.ConnectionInfo.CharacterName = character.CharacterName;
+        client.ConnectionInfo.Layer = (byte)character.Layer;
         client.ConnectionInfo.X = position[0];
         client.ConnectionInfo.Y = position[1];
         client.ConnectionInfo.Z = position[2];
@@ -166,6 +169,8 @@ public class GameActions : IActions
 
         _logger.Debug("{clientTag} entered game as {name} (lv {lv}) at ({x},{y},{z})", client.ClientTag,
             character.CharacterName, enter.Level, result.X, result.Y, result.Z);
+
+        _npcSpawnService.Sync(client);
     }
 
     private static byte[] BuildWearInfo(uint handle, CharacterEntity character)

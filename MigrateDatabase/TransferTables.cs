@@ -1,7 +1,7 @@
 namespace MigrateDatabase;
 
 [Flags]
-public enum TransferTables : short
+public enum TransferTables : int
 {
     Unset = 0,
     None = 1,
@@ -19,4 +19,5 @@ public enum TransferTables : short
     EnhanceResource = 4096,
     SkillResource = 8192,
     StateResource = 16384,
+    NpcResource = 32768,
 }
