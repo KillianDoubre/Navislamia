@@ -26,10 +26,10 @@ public class LoginResultLayoutTests
 
         var data = new Packet<TS_SC_LOGIN_RESULT>((ushort)GamePackets.TM_SC_LOGIN_RESULT, result).Data;
 
-        BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(66, 4)).Should().Be(0x11223344);
+        BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(66, 4)).Should().Be(0x55667788);
         BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(70, 4)).Should().Be(0xAABBCCDD);
-        BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(74, 4)).Should().Be(0x01020304);
-        BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(78, 4)).Should().Be(0x55667788);
+        BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(74, 4)).Should().Be(0x11223344);
+        BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(78, 4)).Should().Be(0x01020304);
         IndexOf(data, Encoding.ASCII.GetBytes("Freezeraid")).Should().Be(CalibratedNameOffset);
     }
 

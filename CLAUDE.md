@@ -66,13 +66,17 @@ Movement uses the client's current `x/y` fields for visibility; the final waypoi
 destination and must never be used as the current position.
 
 This client build uses the calibrated model order `face, hair, armor, gloves, boots`. Its extended
-`TS_SC_LOGIN_RESULT` appearance block after `race` is `faceId, skinColor, hairId, faceTextureId`; the
+`TS_SC_LOGIN_RESULT` appearance block after `race` is `faceTextureId, skinColor, faceId, hairId`; the
 name starts at absolute packet offset 82. This exact order comes from the client deserializer: absolute
-offset 70 feeds the primary body colorizer. World login also sends dedicated hidden-equipment and skin
-information packets.
-Hair changes use `TS_SC_HAIR_INFO`, but initial login relies on the login result plus the
-client-calibrated hair wear slot 13 to avoid an equipment refresh dropping the hairstyle. Face wear
-slot 12 must remain empty; filling it replaces the textured login face with a transparent mesh.
+offset 70 feeds the primary body colorizer, while offsets 74 and 78 feed the face and hair model slots.
+World login also sends dedicated hidden-equipment and skin information packets.
+Hair and face wear slots 13 and 12 must remain empty: the values stored in `model_id` are cosmetic
+model IDs, not item resource codes, and putting them in `TS_SC_WEAR_INFO` creates transparent meshes.
+The local player takes its face and hair models from `TS_SC_LOGIN_RESULT`; its own `TS_SC_ENTER` does
+not rebuild the already-created actor. `TS_SC_ENTER` carries the same appearance for other players.
+Do not send `TS_SC_HAIR_INFO` during bootstrap: a persisted zero custom RGB is valid when paired with
+a hair color index, but the runtime update path applies it as a transparent material.
+`TS_SC_HAIR_INFO` is reserved for later changes with a resolved nonzero RGB color.
 `TS_SC_WEAR_INFO` is the 323-byte Epic 7.3 variant and contains 24 code/enhance/level/element arrays
 without the Epic 7.4 appearance array.
 

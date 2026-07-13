@@ -32,18 +32,20 @@ The lobby consumes the array as-is. This ordering is calibrated against the actu
 it differs from some newer server implementations. Skin color, face texture, hair color and the
 hide-equipment flag are copied independently from the character row.
 
-The extended login packet expected by this client stores `faceId`, `skinColor`, `hairId`, then
-`faceTextureId` after `race`; the name starts at absolute packet offset 82. This order was recovered
-from the actual `SFrame.exe` deserializer and handler. In particular, the client consumes absolute
-offset 70 as the primary body color. Sending `faceId` there makes the body blue-purple. After world
-entry the server reinforces the hidden-equipment and skin values with `TS_SC_HIDE_EQUIP_INFO (222)`
-and `TS_SC_SKIN_INFO (224)`.
+The extended login packet expected by this client stores `faceTextureId`, `skinColor`, `faceId`, then
+`hairId` after `race`; the name starts at absolute packet offset 82. This order was recovered from the
+actual `SFrame.exe` deserializer and model handler. The client consumes absolute offset 70 as the
+primary body color, offset 74 as the face model and offset 78 as the hair model. After world entry the
+server reinforces the hidden-equipment and skin values with `TS_SC_HIDE_EQUIP_INFO (222)` and
+`TS_SC_SKIN_INFO (224)`.
 
-This client is calibrated to expect the base hair model in wear slot 13. The face model must stay out
-of slot 12 because it overrides the correctly textured login face with a transparent mesh. The login
-result remains authoritative for the face and hair IDs, while slot 13 prevents the subsequent
-equipment refresh from dropping the hairstyle. `TS_SC_HAIR_INFO (220)` is kept for runtime hairstyle
-changes and is not sent during the initial bootstrap.
+The base face and hair models must stay out of wear slots 12 and 13. They are cosmetic model IDs, not
+item resource codes; treating them as equipped items creates geometry with transparent materials.
+The local actor takes its face and hair IDs from the login result; its own player-enter packet does not
+rebuild it because it already exists. Player-enter remains authoritative for other players seen in the
+world. `TS_SC_HAIR_INFO (220)` must not be sent during bootstrap when the persisted custom RGB is
+zero, because the runtime update path applies that value as a transparent material. Hair-info updates
+are reserved for later changes with a resolved nonzero RGB color.
 
 ## Login sequence
 
@@ -53,7 +55,7 @@ After `TS_SC_LOGIN_RESULT (4)` and player `TS_SC_ENTER (3)`, the server sends:
 2. one or more `TS_SC_INVENTORY (207)` packets, with at most 45 Epic 7.3 item records each
 3. `TS_EQUIP_SUMMON (303)`
 4. `TS_SC_WEAR_INFO (202)`
-5. hidden-equipment and skin packets, with skin last so it applies to the assembled body
+5. hidden-equipment and skin packets
 6. `TS_SC_GOLD_UPDATE (1001)`
 7. `TS_SC_LEVEL_UPDATE (1002)` and `TS_SC_EXP_UPDATE (1003)`
 8. numeric `TS_SC_PROPERTY (507)` packets, including current and previous jobs

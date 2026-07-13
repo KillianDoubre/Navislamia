@@ -42,7 +42,7 @@ public class GameCharacterPacketsTests
         ReadSlot(packet, codeBase, ItemWearType.Glove).Should().Be(401);
         ReadSlot(packet, codeBase, ItemWearType.Boots).Should().Be(501);
         ReadSlot(packet, codeBase, ItemWearType.Face).Should().Be(0);
-        ReadSlot(packet, codeBase, ItemWearType.Hair).Should().Be(205);
+        ReadSlot(packet, codeBase, ItemWearType.Hair).Should().Be(0);
     }
 
     [Test]

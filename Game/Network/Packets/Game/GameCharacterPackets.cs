@@ -87,7 +87,6 @@ public static class GameCharacterPackets
         InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Armor, character.Models, 2);
         InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Glove, character.Models, 3);
         InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Boots, character.Models, 4);
-        InjectBaseModelIfEmpty(packet, codeBase, ItemWearType.Hair, character.Models, 1);
 
         WriteChecksum(packet);
         return packet;

@@ -21,10 +21,10 @@ public struct TS_SC_LOGIN_RESULT
     public int MaxHavoc;
     public int Sex;
     public int Race;
-    public int FaceId;
-    public uint SkinColor;
-    public int HairId;
     public int FaceTextureId;
+    public uint SkinColor;
+    public int FaceId;
+    public int HairId;
 
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 19)]
     public string Name;
