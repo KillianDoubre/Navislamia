@@ -11,6 +11,7 @@ public enum GamePackets : ushort
     TM_CS_REGION_UPDATE = 7,
     TM_SC_MOVE = 8,
     TM_SC_LEAVE = 9,
+    TM_CS_QUERY = 13,
     TM_CS_CHAT_REQUEST = 20,
     TM_SC_CHAT_LOCAL = 21,
     TM_SC_CHAT = 22,

@@ -20,15 +20,18 @@ public class CombatService : ICombatService
     private readonly ILogger _logger = Log.ForContext<CombatService>();
     private readonly MonsterWorldState _worldState;
     private readonly IMonsterSpawnService _spawnService;
+    private readonly ILevelingService _levelingService;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
 
-    public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService)
+    public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
+        ILevelingService levelingService)
     {
         _worldState = worldState;
         _spawnService = spawnService;
+        _levelingService = levelingService;
         _ = RunAsync();
     }
 
@@ -178,7 +181,7 @@ public class CombatService : ICombatService
         session.NextSwingAt = now.AddMilliseconds(AttackDelayMs);
     }
 
-    private static void AwardKill(GameClient client, ConnectionInfo info, int monsterLevel)
+    private void AwardKill(GameClient client, ConnectionInfo info, int monsterLevel)
     {
         var (exp, jp, gold) = CombatRewards.Compute(monsterLevel);
         info.CharacterExp += exp;
@@ -187,6 +190,7 @@ public class CombatService : ICombatService
 
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
         client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+        _levelingService.ApplyExperience(client);
     }
 
     private void ProcessPendingLeaves(DateTime now)

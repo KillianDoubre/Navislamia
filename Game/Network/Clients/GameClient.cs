@@ -3,7 +3,8 @@ using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
-using Navislamia.Game.Network.Clients.Actions;
+using System.Threading;
+using System.Threading.Tasks;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
@@ -16,6 +17,7 @@ public class GameClient : Client
 {
     private readonly ILogger _logger = Log.ForContext<GameClient>();
     private readonly NetworkService _networkService;
+    private int _returnToLobbyInProgress;
 
     public GameClient(Socket socket, NetworkService networkService) : base(networkService, ClientType.Game)
     {
@@ -33,7 +35,18 @@ public class GameClient : Client
 
     public override void SendMessage(IPacket msg)
     {
-        _logger.Debug("{name} ({id}) Length: {length} sent to {clientTag}", msg.StructName, msg.Id, msg.Length, ClientTag);
+        if (msg is Packet<TS_SC_RESULT> resultPacket)
+        {
+            var result = resultPacket.DataStruct;
+            _logger.Debug(
+                "{name} ({id}) Length: {length}, request={requestId}, result={result}, value={value} sent to {clientTag}",
+                msg.StructName, msg.Id, msg.Length, result.RequestMsgID, result.Result, result.Value, ClientTag);
+        }
+        else
+        {
+            _logger.Debug("{name} ({id}) Length: {length} sent to {clientTag}", msg.StructName, msg.Id, msg.Length,
+                ClientTag);
+        }
 
         base.SendMessage(msg);
     }
@@ -178,12 +191,62 @@ public class GameClient : Client
         }
     }
 
-    public override void OnDisconnect()
+    public override async void OnDisconnect()
     {
-        _networkService.CombatService.StopAttack(this);
-        _networkService.CharacterService.SaveProgress(ConnectionInfo.CharacterName, ConnectionInfo.CharacterExp,
-            ConnectionInfo.CharacterJp, ConnectionInfo.CharacterGold, ConnectionInfo.CharacterChaos);
-        base.OnDisconnect();
+        try
+        {
+            _networkService.CombatService.StopAttack(this);
+            await SaveProgressSafelyAsync("while disconnecting");
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not cleanly disconnect {clientTag}", ClientTag);
+        }
+        finally
+        {
+            base.OnDisconnect();
+        }
+    }
+
+    private async Task ReturnToLobbyAsync()
+    {
+        var info = ConnectionInfo;
+        if (Interlocked.CompareExchange(ref _returnToLobbyInProgress, 1, 0) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _logger.Debug("{clientTag} returning to character selection", ClientTag);
+            _networkService.CombatService.StopAttack(this);
+            await SaveProgressSafelyAsync("before returning to character selection");
+            info.ClearCharacterSession();
+            SendResult((ushort)GamePackets.TM_CS_RETURN_LOBBY, (ushort)ResultCode.Success);
+            _logger.Debug("{clientTag} completed the character selection transition", ClientTag);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not return {clientTag} to character selection", ClientTag);
+        }
+        finally
+        {
+            Volatile.Write(ref _returnToLobbyInProgress, 0);
+        }
+    }
+
+    private async Task SaveProgressSafelyAsync(string operation)
+    {
+        var info = ConnectionInfo;
+        try
+        {
+            await _networkService.CharacterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
+                info.CharacterExp, info.CharacterJp, info.CharacterGold, info.CharacterChaos);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not save progress {operation} for {clientTag}", operation, ClientTag);
+        }
     }
 
     public void SendDisconnectDesription(DisconnectType type)
@@ -300,21 +363,25 @@ public class GameClient : Client
             }
 
             if (header.ID is (ushort)GamePackets.TM_CS_UPDATE or
-                (ushort)GamePackets.TM_CS_MONSTER_RECOGNIZE)
+                (ushort)GamePackets.TM_CS_MONSTER_RECOGNIZE or
+                (ushort)GamePackets.TM_CS_QUERY)
             {
                 continue;
             }
 
             if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_RETURN_LOBBY)
             {
+                _logger.Debug("TM_CS_REQUEST_RETURN_LOBBY ({id}) Length: {length} received from {clientTag}",
+                    header.ID, header.Length, ClientTag);
                 SendResult(header.ID, (ushort)ResultCode.Success);
                 continue;
             }
 
             if (header.ID == (ushort)GamePackets.TM_CS_RETURN_LOBBY)
             {
-                ConnectionInfo.CharacterHandle = 0;
-                ConnectionInfo.ClearVisibleObjects();
+                _logger.Debug("TM_CS_RETURN_LOBBY ({id}) Length: {length} received from {clientTag}",
+                    header.ID, header.Length, ClientTag);
+                _ = ReturnToLobbyAsync();
                 continue;
             }
 

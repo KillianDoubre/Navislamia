@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -108,7 +109,7 @@ public class CharacterService : ICharacterService
         return true;
     }
 
-    public async void SaveProgress(string characterName, long exp, long jp, long gold, int chaos)
+    public async Task SaveProgressAsync(string characterName, int level, long exp, long jp, long gold, int chaos)
     {
         if (string.IsNullOrEmpty(characterName))
         {
@@ -119,6 +120,12 @@ public class CharacterService : ICharacterService
         if (character is null)
         {
             return;
+        }
+
+        if (level > 0)
+        {
+            character.Lv = level;
+            character.MaxReachedLv = Math.Max(character.MaxReachedLv, level);
         }
 
         character.Exp = exp;

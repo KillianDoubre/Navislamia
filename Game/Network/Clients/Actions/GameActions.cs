@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
@@ -92,6 +93,8 @@ public class GameActions : IActions
         client.ConnectionInfo.CharacterName = character.CharacterName;
         client.ConnectionInfo.CharacterHp = hp;
         client.ConnectionInfo.CharacterLevel = character.Lv > 0 ? character.Lv : 1;
+        client.ConnectionInfo.CharacterRace = character.Race;
+        client.ConnectionInfo.CharacterJobLevel = character.Jlv;
         client.ConnectionInfo.CharacterExp = character.Exp;
         client.ConnectionInfo.CharacterJp = character.Jp;
         client.ConnectionInfo.CharacterGold = character.Gold;
@@ -221,13 +224,20 @@ public class GameActions : IActions
     {
     }
 
-    private void OnCharacterList(GameClient client, IPacket packet)
+    private async void OnCharacterList(GameClient client, IPacket packet)
     {
         var message = packet.GetDataStruct<TS_CS_CHARACTER_LIST>();
-        SendCharacterListForAccount(client, message.Account);
+        try
+        {
+            await SendCharacterListForAccountAsync(client, message.Account);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not load the character list for {clientTag}", client.ClientTag);
+        }
     }
 
-    public async void SendCharacterListForAccount(GameClient client, string accountName)
+    private async Task SendCharacterListForAccountAsync(GameClient client, string accountName)
     {
         var characters = await _characterService.GetCharactersByAccountNameAsync(accountName, true);
         var lobbyCharacters = new List<LobbyCharacterInfo>();

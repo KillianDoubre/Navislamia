@@ -88,3 +88,35 @@ corrupts every item after the first one.
 packet fields and frame checksums. `GameStatPacketsTests` checks the numeric and string property
 layouts. `CharacterDefaultsTests` checks all three starter jobs, the complete Epic 7.3 key map and the
 automatic repair of existing characters.
+
+## Return to character selection
+
+Pressing the character-selection button sends `TM_CS_REQUEST_RETURN_LOBBY (25)`, which receives a
+successful `TS_SC_RESULT (0)` tagged with request ID 25. This result only authorizes SFrame to display
+the confirmation popup; the server does not save, clear state or start a scene transition yet. When
+the user clicks Yes, SFrame sends `TM_CS_RETURN_LOBBY (23)`. Only then does the server stop combat,
+persist level, exp, JP, gold and chaos, clear the active character/world state while retaining the
+account session, and send the successful result tagged as 23. Sending result 23 automatically after
+packet 25 runs the final scene handler before the popup has been confirmed and crashes `SFrame.exe`.
+
+The validated Epic 7.3 exchange is:
+
+```text
+SFrame -> Game  TM_CS_REQUEST_RETURN_LOBBY (25)
+Game   -> SFrame TS_SC_RESULT (0), RequestMsgID=25
+                 [the player confirms the popup]
+SFrame -> Game  TM_CS_RETURN_LOBBY (23)
+Game   -> SFrame TS_SC_RESULT (0), RequestMsgID=23
+SFrame -> Game  TM_CS_CHARACTER_LIST (2001)
+Game   -> SFrame TS_SC_CHARACTER_LIST (2004)
+```
+
+Both result packets use the standard 15-byte Epic 7.3 layout. A duplicate packet 23 is ignored while
+the first transition is running. Progress persistence is awaited before state is cleared; a database
+failure is logged but does not leave SFrame blocked in the world. The character list is not pushed
+early: the existing handler answers only when SFrame requests it after switching scenes.
+
+`ActionPacketsTests` verifies that the reset removes all character and streamed-world state without
+discarding the authenticated account session, and that both acknowledgements carry the required
+request ID.
+`CharacterDefaultsTests` verifies that progress persistence is awaitable.

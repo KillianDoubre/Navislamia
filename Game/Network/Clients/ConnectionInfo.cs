@@ -10,6 +10,8 @@ public class ConnectionInfo
     public uint TargetHandle { get; set; }
     public int CharacterHp { get; set; }
     public int CharacterLevel { get; set; }
+    public int CharacterRace { get; set; }
+    public int CharacterJobLevel { get; set; }
     public long CharacterExp { get; set; }
     public long CharacterJp { get; set; }
     public long CharacterGold { get; set; }
@@ -43,10 +45,38 @@ public class ConnectionInfo
 
     public void ClearVisibleObjects()
     {
-        SpawnedNpcs.Clear();
-        SpawnedNpcIdsByHandle.Clear();
-        SpawnedMonsters.Clear();
-        ClearNpcDialog();
+        lock (NpcVisibilityLock)
+        {
+            SpawnedNpcs.Clear();
+            SpawnedNpcIdsByHandle.Clear();
+            ClearNpcDialog();
+        }
+
+        lock (MonsterVisibilityLock)
+        {
+            SpawnedMonsters.Clear();
+        }
+    }
+
+    public void ClearCharacterSession()
+    {
+        CharacterHandle = 0;
+        TargetHandle = 0;
+        CharacterHp = 0;
+        CharacterLevel = 0;
+        CharacterRace = 0;
+        CharacterJobLevel = 0;
+        CharacterExp = 0;
+        CharacterJp = 0;
+        CharacterGold = 0;
+        CharacterChaos = 0;
+        CharacterName = string.Empty;
+        Layer = 0;
+        X = 0;
+        Y = 0;
+        Z = 0;
+        NameToDelete = string.Empty;
+        ClearVisibleObjects();
     }
 
     public void ClearNpcDialog()

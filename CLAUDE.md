@@ -55,6 +55,16 @@ TS_CA_VERSION -> TS_CA_ACCOUNT -> TS_AC_RESULT -> TS_CA_SERVER_LIST
 The game client reaches character selection, enters the world, receives stats and appearance, moves
 and uses local/channel chat.
 
+Returning to character selection is a strict two-request exchange. Pressing the menu button sends
+`TM_CS_REQUEST_RETURN_LOBBY (25)`; its successful result tagged as 25 authorizes SFrame to display the
+confirmation popup. The server must do nothing else at this stage. Clicking Yes sends
+`TM_CS_RETURN_LOBBY (23)`. Only packet 23 stops combat, persists progress, clears the active
+character/world state while preserving the account session, and receives the successful result tagged
+as 23. Sending result 23 before the user confirms invokes the final scene handler too early and crashes
+`SFrame.exe`. The client then requests the lobby list with `TM_CS_CHARACTER_LIST (2001)`, which receives
+`TS_SC_CHARACTER_LIST (2004)` normally. This SFrame keeps the same game connection throughout the
+exchange; no delayed response, reconnect or temporary transfer session is involved.
+
 ## World entry and movement
 
 `GameActions.OnLogin` sends the login result and player enter packet, followed by the Epic 7.3
@@ -174,6 +184,17 @@ and gold (`10 + level * 5`, `5 + level * 2`, `5 + level * 3`), added to `Connect
 reward columns (`Exp`, `GoldMin`, `GoldMax`) and replace the placeholder once backfilled. Progress
 persists once per session: `GameClient.OnDisconnect` calls `CharacterService.SaveProgress`, which writes
 exp, jp, gold and chaos; there are no per-kill database writes.
+
+Experience levels the character server-side. `LevelResource` (300 rows, columns `level`/`exp`, extracted
+from the 9.4 Arcadia data into Postgres `LevelResources`) gives the cumulative exp threshold to advance
+from each level. `CharacterExp` is cumulative and never reset; on each exp gain `LevelingService` runs
+`LevelCurve.Resolve` (`while exp >= threshold[level]: level++`), so gaining enough for several levels at
+once levels up several times. A level-up recomputes stats with `StatService`, sets HP/MP to the new
+maximum, and sends `TS_SC_LEVEL_UPDATE` (`1002`), stat info and the hp/mp properties. There is no
+client level-up packet; `TM_CS_QUERY` (`13`), which the client sends when its exp bar is full, is
+consumed without a response because the server has already applied the level. The new level persists
+through `CharacterService.SaveProgressAsync`. The exp curve comes from 9.4 data and may differ slightly
+from the 7.3 client's own table.
 
 The death sequence lets the client play its death animation: the killing swing is followed by
 `TS_SC_STATUS_CHANGE` (`500`) with the dead flag (`1 << 8`), and the `TS_SC_LEAVE` that removes the

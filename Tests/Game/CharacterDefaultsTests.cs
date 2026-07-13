@@ -85,4 +85,27 @@ public class CharacterDefaultsTests
         character.CurrentJob.Should().Be(Job.Rogue);
         A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
     }
+
+    [Test]
+    public async Task CharacterService_AwaitsProgressPersistenceBeforeReturning()
+    {
+        var character = new CharacterEntity { CharacterName = "Character" };
+        var repository = A.Fake<ICharacterRepository>();
+        A.CallTo(() => repository.GetCharacterByName("Character")).Returns(character);
+
+        var service = new CharacterService(
+            A.Fake<IStarterItemsRepository>(),
+            repository,
+            A.Fake<ILogger<CharacterService>>());
+
+        await service.SaveProgressAsync("Character", 1, 100, 200, 300, 400);
+
+        character.Lv.Should().Be(1);
+        character.MaxReachedLv.Should().Be(1);
+        character.Exp.Should().Be(100);
+        character.Jp.Should().Be(200);
+        character.Gold.Should().Be(300);
+        character.Chaos.Should().Be(400);
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
 }

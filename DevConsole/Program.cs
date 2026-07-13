@@ -142,6 +142,8 @@ public class Program
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
+        services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
+        services.AddSingleton<ILevelingService, LevelingService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();
