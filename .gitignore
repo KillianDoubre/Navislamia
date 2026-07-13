@@ -467,8 +467,8 @@ fabric.properties
 
 # End of https://www.toptal.com/developers/gitignore/api/jetbrains
 start-server.ps1
-CLAUDE.md
-/docs
+/docs/*
+!/docs/world-spawning.md
 DevConsole/appsettings.json
 AuthServer/appsettings.json
 launch-client.ps1

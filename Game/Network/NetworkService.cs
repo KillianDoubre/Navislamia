@@ -12,9 +12,6 @@ using Navislamia.Game.Services;
 
 namespace Navislamia.Game.Network;
 
-// TODO: Poll connections by configuration interval
-// TODO: Disconnect/Destroy
-
 public class NetworkService : INetworkService
 {
     private readonly ILogger<NetworkService> _logger;
@@ -22,13 +19,14 @@ public class NetworkService : INetworkService
     public readonly IBannedWordsRepository BannedWordsRepository;
     public readonly IStatService StatService;
     public readonly INpcSpawnService NpcSpawnService;
+    public readonly IMonsterSpawnService MonsterSpawnService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
     public AuthClient AuthClient { get; set; }
-    
+
     public UploadClient UploadClient { get; set; }
-    
+
     public Dictionary<string, GameClient> UnauthorizedGameClients { get; set; } = new();
 
     public Dictionary<string, GameClient> AuthorizedGameClients { get; set; } = new();
@@ -36,13 +34,14 @@ public class NetworkService : INetworkService
     public NetworkService(ILogger<NetworkService> logger, IOptions<NetworkOptions> networkOptions,
         ICharacterService characterService, IBannedWordsRepository bannedWordsRepository,
         IStatService statService, IOptions<ServerOptions> serverOptions,
-        INpcSpawnService npcSpawnService)
+        INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService)
     {
         _logger = logger;
         CharacterService = characterService;
         BannedWordsRepository = bannedWordsRepository;
         StatService = statService;
         NpcSpawnService = npcSpawnService;
+        MonsterSpawnService = monsterSpawnService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
     }
@@ -51,12 +50,12 @@ public class NetworkService : INetworkService
     {
         return AuthClient.Ready && UploadClient.Ready;
     }
-    
+
     public void SendMessageToAuth(IPacket packet)
     {
         AuthClient.SendMessage(packet);
     }
-    
+
     public void SendMessageToUpload(IPacket packet)
     {
         UploadClient.SendMessage(packet);
@@ -87,7 +86,7 @@ public class NetworkService : INetworkService
     public GameClient CreateGameClient(Socket socket)
     {
         var client = new GameClient(socket, this);
-        
+
         client.CreateClientConnection();
 
         return client;

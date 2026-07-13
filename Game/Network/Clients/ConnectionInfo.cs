@@ -6,11 +6,11 @@ public class ConnectionInfo
 {
     public string AccountName { get; set; }
     public List<string> CharacterList { get; set; } = new();
-    // TODO: StructPlayer Player;
     public uint CharacterHandle { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
     public Dictionary<long, uint> SpawnedNpcs { get; } = new();
+    public Dictionary<long, uint> SpawnedMonsters { get; } = new();
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }
@@ -27,4 +27,10 @@ public class ConnectionInfo
     public float LastContinuousPlayTimeProcTime;
     public string NameToDelete { get; set; }
     public bool StorageSecurityCheck { get; set; } = false;
+
+    public void ClearVisibleObjects()
+    {
+        SpawnedNpcs.Clear();
+        SpawnedMonsters.Clear();
+    }
 }

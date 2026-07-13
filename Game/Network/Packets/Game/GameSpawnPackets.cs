@@ -7,65 +7,102 @@ namespace Navislamia.Game.Network.Packets.Game;
 public static class GameSpawnPackets
 {
     private const int HeaderSize = 7;
-    private const byte EnterTypeNpc = 1;
-    private const byte ObjTypeNpc = 1;
+    private const int EncodedIdOffset = 64;
+    private const byte EnterTypeCreature = 1;
+    private const byte ObjectTypeNpc = 1;
+    private const byte ObjectTypeMonster = 3;
 
     public static byte[] BuildEnterNpc(uint handle, float x, float y, float z, byte layer,
         int hp, int level, byte race, int npcId)
     {
-        const int total = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8;
-        var p = new byte[total];
-        var s = p.AsSpan();
+        const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8;
+        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race, ObjectTypeNpc);
 
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(0, 4), total);
-        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_ENTER);
+        WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), (uint)npcId);
+        WriteChecksum(packet);
 
-        p[7] = EnterTypeNpc;
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(8, 4), handle);
-        BinaryPrimitives.WriteSingleLittleEndian(s.Slice(12, 4), x);
-        BinaryPrimitives.WriteSingleLittleEndian(s.Slice(16, 4), y);
-        BinaryPrimitives.WriteSingleLittleEndian(s.Slice(20, 4), z);
-        p[24] = layer;
-        p[25] = ObjTypeNpc;
+        return packet;
+    }
 
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(26, 4), 0);
-        BinaryPrimitives.WriteSingleLittleEndian(s.Slice(30, 4), 0f);
-        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(34, 4), hp);
-        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(38, 4), hp);
-        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(42, 4), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(46, 4), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(50, 4), level);
-        p[54] = race;
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(55, 4), 0);
-        p[59] = 0;
-        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(60, 4), 0);
+    public static byte[] BuildEnterMonster(uint handle, float x, float y, float z, byte layer,
+        int hp, int level, byte race, int monsterId)
+    {
+        const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8 + 1;
+        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race,
+            ObjectTypeMonster);
 
-        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(64, 2), 0);
-        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(66, 2), (ushort)((npcId >> 16) & 0xFFFF));
-        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(68, 2), 0);
-        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(70, 2), (ushort)(npcId & 0xFFFF));
+        WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), ScrambledInt.Encode((uint)monsterId));
+        packet[72] = 0;
+        WriteChecksum(packet);
 
-        byte c = 0;
-        for (var i = 0; i < 6; i++) c += p[i];
-        p[6] = c;
-
-        return p;
+        return packet;
     }
 
     public static byte[] BuildLeave(uint handle)
     {
-        const int total = HeaderSize + 4;
-        var p = new byte[total];
-        var s = p.AsSpan();
+        const int length = HeaderSize + 4;
+        var packet = new byte[length];
+        var span = packet.AsSpan();
 
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(0, 4), total);
-        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_LEAVE);
-        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), handle);
+        WriteHeader(span, length, GamePackets.TM_SC_LEAVE);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(HeaderSize, 4), handle);
+        WriteChecksum(packet);
 
-        byte c = 0;
-        for (var i = 0; i < 6; i++) c += p[i];
-        p[6] = c;
+        return packet;
+    }
 
-        return p;
+    private static byte[] BuildEnterCreature(int length, uint handle, float x, float y, float z,
+        byte layer, int hp, int level, byte race, byte objectType)
+    {
+        var packet = new byte[length];
+        var span = packet.AsSpan();
+
+        WriteHeader(span, length, GamePackets.TM_SC_ENTER);
+        packet[7] = EnterTypeCreature;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(8, 4), handle);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(12, 4), x);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(16, 4), y);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(20, 4), z);
+        packet[24] = layer;
+        packet[25] = objectType;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(26, 4), 0);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(30, 4), 0);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(34, 4), hp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(38, 4), hp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(42, 4), 0);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(46, 4), 0);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(50, 4), level);
+        packet[54] = race;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(55, 4), 0);
+        packet[59] = 0;
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(60, 4), 0);
+
+        return packet;
+    }
+
+    private static void WriteHeader(Span<byte> packet, int length, GamePackets id)
+    {
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(0, 4), (uint)length);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.Slice(4, 2), (ushort)id);
+    }
+
+    private static void WriteEncodedInt(Span<byte> target, uint value)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(0, 2), 0);
+        BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(2, 2), (ushort)(value >> 16));
+        BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(4, 2), 0);
+        BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(6, 2), (ushort)value);
+    }
+
+    private static void WriteChecksum(byte[] packet)
+    {
+        byte checksum = 0;
+
+        for (var i = 0; i < 6; i++)
+        {
+            checksum += packet[i];
+        }
+
+        packet[6] = checksum;
     }
 }

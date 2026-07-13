@@ -1,4 +1,6 @@
 ﻿using System.Threading.Tasks;
+using System.IO;
+using System.Text.Json;
 using DevConsole.Properties;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -20,7 +22,7 @@ using Serilog.Exceptions;
 
 namespace DevConsole;
 
-public class Program 
+public class Program
 {
     public static async Task Main(string[] args)
     {
@@ -29,14 +31,14 @@ public class Program
         Log.Logger.Information($"\n{Resources.arcadia}");
         Log.Logger.Information("Navislamia starting...");
 
-        var scopeFactory = host.Services.GetService<IServiceScopeFactory>();
+        var scopeFactory = host.Services.GetRequiredService<IServiceScopeFactory>();
         using (var scope = scopeFactory.CreateScope())
         {
-            var arcadia = scope.ServiceProvider.GetService<ArcadiaContext>();
-            var telecaster = scope.ServiceProvider.GetService<TelecasterContext>();
+            var arcadia = scope.ServiceProvider.GetRequiredService<ArcadiaContext>();
+            var telecaster = scope.ServiceProvider.GetRequiredService<TelecasterContext>();
             await arcadia.Database.MigrateAsync();
             await telecaster.Database.MigrateAsync();
-            
+
             Log.Logger.Verbose("Applied Arcadia migrations: {Migrations}\n", await arcadia.Database.GetAppliedMigrationsAsync());
             Log.Logger.Verbose("Applied Telecaster migrations: {Migrations}\n", await telecaster.Database.GetAppliedMigrationsAsync());
         }
@@ -80,22 +82,43 @@ public class Program
         services.Configure<ScriptOptions>(context.Configuration.GetSection("Script"));
         services.Configure<MapOptions>(context.Configuration.GetSection("Map"));
         services.Configure<ServerOptions>(context.Configuration.GetSection("Server"));
+        ConfigureMonsterSpawns(services, context);
+    }
+
+    private static void ConfigureMonsterSpawns(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "monster-spawns.73.json");
+
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<MonsterSpawnOptions>(context.Configuration.GetSection("MonsterSpawns"));
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("MonsterSpawnCatalog")
+            .Deserialize<MonsterSpawnOptions>() ?? new MonsterSpawnOptions();
+
+        services.Configure<MonsterSpawnOptions>(options =>
+        {
+            options.Spawns = catalog.Spawns;
+            options.Areas = catalog.Areas;
+        });
     }
 
     private static void ConfigureServices(IServiceCollection services)
     {
-        // Modules
         services.AddSingleton<IGameModule, GameModule>();
-        
-        // Repositories
         services.AddSingleton<IWorldRepository, WorldRepository>();
         services.AddSingleton<ICharacterRepository, CharacterRepository>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
+        services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
+        services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
 
-        // Services
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();
         services.AddSingleton<INetworkService, NetworkService>();
@@ -111,24 +134,19 @@ public class Program
             var config = serviceProvider.GetService<IConfiguration>();
             var dbOptions = config.GetSection("Database").Get<DatabaseOptions>();
             dbOptions.InitialCatalog = "Arcadia";
-                
-            // https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency
+
             builder
                 .UseNpgsql(dbOptions.ConnectionString(), options => options.EnableRetryOnFailure());
-            // .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
         });
-                
+
         services.AddDbContextPool<TelecasterContext>((serviceProvider, builder) =>
         {
             var config = serviceProvider.GetService<IConfiguration>();
             var dbOptions = config.GetSection("Database").Get<DatabaseOptions>();
             dbOptions.InitialCatalog = "Telecaster";
 
-            // https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency
             builder
                 .UseNpgsql(dbOptions.ConnectionString(), options => options.EnableRetryOnFailure());
-            // .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-
         });
     }
 }

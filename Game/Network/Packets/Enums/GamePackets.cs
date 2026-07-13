@@ -19,6 +19,7 @@ public enum GamePackets : ushort
 
     TM_CS_UPDATE = 503,
     TM_SC_PROPERTY = 507,
+    TM_CS_MONSTER_RECOGNIZE = 517,
     TM_CS_CHANGE_LOCATION = 900,
     TM_SC_STAT_INFO = 1000,
 

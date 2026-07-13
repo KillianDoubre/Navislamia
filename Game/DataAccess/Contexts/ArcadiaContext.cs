@@ -24,6 +24,7 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<ModelEffectResourceEntity> ModelEffectResources { get; set; }
     public DbSet<BannedWordsResourceEntity> BannedWordsResources { get; set; }
     public DbSet<NpcResourceEntity> NpcResources { get; set; }
+    public DbSet<MonsterResourceEntity> MonsterResources { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +40,22 @@ public class ArcadiaContext : SoftDeletionContext
         ConfigureLevelResource(modelBuilder);
         ConfigureModelEffectResource(modelBuilder);
         ConfigureBannedWordsResource(modelBuilder);
+        ConfigureMonsterResource(modelBuilder);
+    }
+
+    private static void ConfigureMonsterResource(ModelBuilder modelBuilder)
+    {
+        var monster = modelBuilder.Entity<MonsterResourceEntity>();
+        monster.Property(m => m.Size).HasPrecision(10, 2);
+        monster.Property(m => m.Scale).HasPrecision(10, 2);
+        monster.Property(m => m.TargetFxSize).HasPrecision(10, 2);
+        monster.Property(m => m.TargetX).HasPrecision(10, 2);
+        monster.Property(m => m.TargetY).HasPrecision(10, 2);
+        monster.Property(m => m.TargetZ).HasPrecision(10, 2);
+        monster.Property(m => m.AttackRange).HasPrecision(10, 2);
+        monster.Property(m => m.HidesenseRange).HasPrecision(10, 2);
+        monster.Property(m => m.TamingPercentage).HasPrecision(12, 4);
+        monster.Property(m => m.TamingExpMod).HasPrecision(10, 2);
     }
     
     private static void ConfigureBannedWordsResource(ModelBuilder modelBuilder)

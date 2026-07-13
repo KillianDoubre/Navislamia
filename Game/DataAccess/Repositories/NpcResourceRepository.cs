@@ -18,6 +18,18 @@ public class NpcResourceRepository : INpcResourceRepository
 
     public IReadOnlyList<NpcResourceEntity> GetAll()
     {
-        return _context.NpcResources.AsNoTracking().ToList();
+        return _context.NpcResources
+            .AsNoTracking()
+            .Select(resource => new NpcResourceEntity
+            {
+                Id = resource.Id,
+                X = resource.X,
+                Y = resource.Y,
+                Z = resource.Z,
+                Hp = resource.Hp,
+                Level = resource.Level,
+                RaceId = resource.RaceId
+            })
+            .ToList();
     }
 }

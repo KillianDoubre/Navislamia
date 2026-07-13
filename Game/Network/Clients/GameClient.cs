@@ -28,7 +28,7 @@ public class GameClient : Client
         Connection.OnDataSent = OnDataSent;
         Connection.OnDataReceived = OnDataReceived;
         Connection.OnDisconnected = OnDisconnect;
-        Connection.Start();;
+        Connection.Start();
     }
 
     public override void SendMessage(IPacket msg)
@@ -78,6 +78,10 @@ public class GameClient : Client
         packet[6] = checksum;
 
         Connection.Send(packet);
+
+        ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+        ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
+        SyncVisibleObjects();
     }
 
     private void HandleRegionUpdate(byte[] buffer)
@@ -86,7 +90,7 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
-        _networkService.NpcSpawnService.Sync(this);
+        SyncVisibleObjects();
     }
 
     private void HandleChangeLocation(byte[] buffer)
@@ -94,7 +98,13 @@ public class GameClient : Client
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+        SyncVisibleObjects();
+    }
+
+    private void SyncVisibleObjects()
+    {
         _networkService.NpcSpawnService.Sync(this);
+        _networkService.MonsterSpawnService.Sync(this);
     }
 
     private void HandleChatRequest(byte[] buffer)
@@ -189,7 +199,8 @@ public class GameClient : Client
                 continue;
             }
 
-            if (header.ID == (ushort)GamePackets.TM_CS_UPDATE)
+            if (header.ID is (ushort)GamePackets.TM_CS_UPDATE or
+                (ushort)GamePackets.TM_CS_MONSTER_RECOGNIZE)
             {
                 continue;
             }
@@ -203,6 +214,7 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_RETURN_LOBBY)
             {
                 ConnectionInfo.CharacterHandle = 0;
+                ConnectionInfo.ClearVisibleObjects();
                 continue;
             }
 

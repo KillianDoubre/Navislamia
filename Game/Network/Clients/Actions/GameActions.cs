@@ -26,6 +26,7 @@ public class GameActions : IActions
     private readonly IBannedWordsRepository _bannedWordsRepository;
     private readonly IStatService _statService;
     private readonly INpcSpawnService _npcSpawnService;
+    private readonly IMonsterSpawnService _monsterSpawnService;
     private readonly NetworkService _networkService;
 
     private readonly Dictionary<ushort, Action<GameClient, IPacket>> _actions = new();
@@ -37,6 +38,7 @@ public class GameActions : IActions
         _characterService = networkService.CharacterService;
         _statService = networkService.StatService;
         _npcSpawnService = networkService.NpcSpawnService;
+        _monsterSpawnService = networkService.MonsterSpawnService;
 
         _actions.Add((ushort)GamePackets.TM_CS_VERSION, OnVersion);
         _actions.Add((ushort)GamePackets.TM_CS_LOGIN, OnLogin);
@@ -60,7 +62,7 @@ public class GameActions : IActions
     {
     }
 
-    private static readonly int[] DefaultSpawn = { 83950, 115980, 0 };
+    private static readonly int[] DefaultSpawn = { 94454, 126040, 0 };
 
     private async void OnLogin(GameClient client, IPacket packet)
     {
@@ -103,7 +105,7 @@ public class GameActions : IActions
             Z = position[2],
             Layer = (byte)character.Layer,
             FaceDirection = 0,
-            RegionSize = 180,
+            RegionSize = WorldVisibility.RegionSize,
             Hp = hp,
             Mp = mp,
             MaxHp = hp,
@@ -171,6 +173,7 @@ public class GameActions : IActions
             character.CharacterName, enter.Level, result.X, result.Y, result.Z);
 
         _npcSpawnService.Sync(client);
+        _monsterSpawnService.Sync(client);
     }
 
     private static byte[] BuildWearInfo(uint handle, CharacterEntity character)

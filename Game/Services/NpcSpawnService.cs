@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network;
@@ -12,34 +11,46 @@ namespace Navislamia.Game.Services;
 
 public class NpcSpawnService : INpcSpawnService
 {
-    private const float NpcViewRange = 15000f;
-
     private readonly ILogger _logger = Log.ForContext<NpcSpawnService>();
     private readonly INpcResourceRepository _repository;
     private readonly object _lock = new();
-    private IReadOnlyList<NpcResourceEntity> _npcs;
+    private SpatialIndex<NpcResourceEntity> _index;
 
     public NpcSpawnService(INpcResourceRepository repository)
     {
         _repository = repository;
+        Load();
+    }
+
+    private void Load()
+    {
+        try
+        {
+            var npcs = _repository.GetAll();
+            _index = new SpatialIndex<NpcResourceEntity>(npcs, npc => npc.X, npc => npc.Y,
+                WorldVisibility.ViewRange);
+            _logger.Information("Loaded and indexed {count} NPCs", _index.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Failed to load NPCs at startup; will retry on first sync");
+        }
     }
 
     public void Sync(GameClient client)
     {
         try
         {
-            var npcs = GetNpcs();
             var info = client.ConnectionInfo;
-            var inRange = NpcSpawnSelector.WithinRange(npcs, info.X, info.Y, NpcViewRange).ToList();
+            var inRange = GetIndex()?.WithinRange(info.X, info.Y, WorldVisibility.ViewRange)
+                ?? Array.Empty<NpcResourceEntity>();
 
             var inRangeIds = new HashSet<long>(inRange.Count);
+
             foreach (var npc in inRange)
             {
                 inRangeIds.Add(npc.Id);
-            }
 
-            foreach (var npc in inRange)
-            {
                 if (info.SpawnedNpcs.ContainsKey(npc.Id))
                 {
                     continue;
@@ -51,16 +62,7 @@ public class NpcSpawnService : INpcSpawnService
                 info.SpawnedNpcs[npc.Id] = handle;
             }
 
-            foreach (var id in info.SpawnedNpcs.Keys.ToList())
-            {
-                if (inRangeIds.Contains(id))
-                {
-                    continue;
-                }
-
-                client.Connection.Send(GameSpawnPackets.BuildLeave(info.SpawnedNpcs[id]));
-                info.SpawnedNpcs.Remove(id);
-            }
+            SpawnedObjectSet.DespawnMissing(client.Connection, info.SpawnedNpcs, inRangeIds);
         }
         catch (Exception ex)
         {
@@ -68,18 +70,21 @@ public class NpcSpawnService : INpcSpawnService
         }
     }
 
-    private IReadOnlyList<NpcResourceEntity> GetNpcs()
+    private SpatialIndex<NpcResourceEntity> GetIndex()
     {
-        if (_npcs != null)
+        if (_index != null)
         {
-            return _npcs;
+            return _index;
         }
 
         lock (_lock)
         {
-            _npcs ??= _repository.GetAll();
+            if (_index == null)
+            {
+                Load();
+            }
         }
 
-        return _npcs;
+        return _index;
     }
 }
