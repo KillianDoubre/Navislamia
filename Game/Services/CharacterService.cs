@@ -108,6 +108,26 @@ public class CharacterService : ICharacterService
         return true;
     }
 
+    public async void SaveProgress(string characterName, long exp, long jp, long gold, int chaos)
+    {
+        if (string.IsNullOrEmpty(characterName))
+        {
+            return;
+        }
+
+        var character = _characterRepository.GetCharacterByName(characterName);
+        if (character is null)
+        {
+            return;
+        }
+
+        character.Exp = exp;
+        character.Jp = jp;
+        character.Gold = gold;
+        character.Chaos = chaos;
+        await _characterRepository.SaveChangesAsync();
+    }
+
     public async void SaveChanges()
     {
         await _characterRepository.SaveChangesAsync();

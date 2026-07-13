@@ -20,6 +20,7 @@ public class NetworkService : INetworkService
     public readonly IBannedWordsRepository BannedWordsRepository;
     public readonly IStatService StatService;
     public readonly INpcSpawnService NpcSpawnService;
+    public readonly INpcDialogService NpcDialogService;
     public readonly IMonsterSpawnService MonsterSpawnService;
     public readonly ICombatService CombatService;
     public readonly NetworkOptions NetworkOptions;
@@ -36,7 +37,8 @@ public class NetworkService : INetworkService
     public NetworkService(ILogger<NetworkService> logger, IOptions<NetworkOptions> networkOptions,
         ICharacterService characterService, IBannedWordsRepository bannedWordsRepository,
         IStatService statService, IOptions<ServerOptions> serverOptions,
-        INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
+        INpcSpawnService npcSpawnService, INpcDialogService npcDialogService,
+        IMonsterSpawnService monsterSpawnService,
         ICombatService combatService)
     {
         _logger = logger;
@@ -44,6 +46,7 @@ public class NetworkService : INetworkService
         BannedWordsRepository = bannedWordsRepository;
         StatService = statService;
         NpcSpawnService = npcSpawnService;
+        NpcDialogService = npcDialogService;
         MonsterSpawnService = monsterSpawnService;
         CombatService = combatService;
         NetworkOptions = networkOptions.Value;

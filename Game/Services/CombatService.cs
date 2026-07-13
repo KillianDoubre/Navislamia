@@ -13,8 +13,9 @@ public class CombatService : ICombatService
     private const int TickIntervalMs = 100;
     private const ushort AttackDelayMs = 1200;
     private const int RespawnDelaySeconds = 10;
-    private const int BaseDamage = 30;
-    private const int PerLevelDamage = 5;
+    private const int DamageHpDivisor = 3;
+    private const int DeathAnimationSeconds = 6;
+    private const uint MonsterDeadStatus = 1 << 8;
 
     private readonly ILogger _logger = Log.ForContext<CombatService>();
     private readonly MonsterWorldState _worldState;
@@ -22,6 +23,7 @@ public class CombatService : ICombatService
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
+    private readonly List<PendingLeave> _pendingLeaves = new();
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService)
     {
@@ -122,6 +124,7 @@ public class CombatService : ICombatService
             }
         }
 
+        ProcessPendingLeaves(now);
         ProcessRespawns(now);
     }
 
@@ -137,13 +140,14 @@ public class CombatService : ICombatService
                 && handle == session.TargetHandle;
         }
 
-        if (!visible || !_worldState.IsAlive(session.TargetInstanceId))
+        if (!visible || !_worldState.IsAlive(session.TargetInstanceId)
+            || !_worldState.TryGetInstance(session.TargetInstanceId, out var instance))
         {
             StopAttack(client);
             return;
         }
 
-        var damage = BaseDamage + info.CharacterLevel * PerLevelDamage;
+        var damage = Math.Max(1, instance.Hp / DamageHpDivisor);
         var targetHp = _worldState.ApplyDamage(session.TargetInstanceId, damage);
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle, session.TargetHandle,
@@ -152,23 +156,72 @@ public class CombatService : ICombatService
         if (targetHp <= 0)
         {
             _worldState.Kill(session.TargetInstanceId, now.AddSeconds(RespawnDelaySeconds));
+            client.Connection.Send(GameCharacterPackets.BuildStatusChange(session.TargetHandle, MonsterDeadStatus));
 
             lock (_lock)
             {
                 _lastAttacker[session.TargetInstanceId] = client;
                 _sessions.Remove(client);
+                _pendingLeaves.Add(new PendingLeave
+                {
+                    Client = client,
+                    InstanceId = session.TargetInstanceId,
+                    Handle = session.TargetHandle,
+                    LeaveAt = now.AddSeconds(DeathAnimationSeconds)
+                });
             }
 
-            lock (info.MonsterVisibilityLock)
-            {
-                info.SpawnedMonsters.Remove(session.TargetInstanceId);
-            }
-
-            client.Connection.Send(GameSpawnPackets.BuildLeave(session.TargetHandle));
+            AwardKill(client, info, instance.Level);
             return;
         }
 
         session.NextSwingAt = now.AddMilliseconds(AttackDelayMs);
+    }
+
+    private static void AwardKill(GameClient client, ConnectionInfo info, int monsterLevel)
+    {
+        var (exp, jp, gold) = CombatRewards.Compute(monsterLevel);
+        info.CharacterExp += exp;
+        info.CharacterJp += jp;
+        info.CharacterGold += gold;
+
+        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
+        client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+    }
+
+    private void ProcessPendingLeaves(DateTime now)
+    {
+        List<PendingLeave> due = null;
+
+        lock (_lock)
+        {
+            for (var i = _pendingLeaves.Count - 1; i >= 0; i--)
+            {
+                if (_pendingLeaves[i].LeaveAt <= now)
+                {
+                    (due ??= new List<PendingLeave>()).Add(_pendingLeaves[i]);
+                    _pendingLeaves.RemoveAt(i);
+                }
+            }
+        }
+
+        if (due == null)
+        {
+            return;
+        }
+
+        foreach (var leave in due)
+        {
+            var info = leave.Client.ConnectionInfo;
+            lock (info.MonsterVisibilityLock)
+            {
+                if (info.SpawnedMonsters.TryGetValue(leave.InstanceId, out var handle) && handle == leave.Handle)
+                {
+                    leave.Client.Connection.Send(GameSpawnPackets.BuildLeave(leave.Handle));
+                    info.SpawnedMonsters.Remove(leave.InstanceId);
+                }
+            }
+        }
     }
 
     private void ProcessRespawns(DateTime now)
@@ -199,5 +252,13 @@ public class CombatService : ICombatService
         public uint TargetHandle;
         public uint AttackerHandle;
         public DateTime NextSwingAt;
+    }
+
+    private sealed class PendingLeave
+    {
+        public GameClient Client;
+        public long InstanceId;
+        public uint Handle;
+        public DateTime LeaveAt;
     }
 }

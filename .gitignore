@@ -470,6 +470,7 @@ start-server.ps1
 /docs/*
 !/docs/world-spawning.md
 !/docs/character-bootstrap.md
+!/docs/npc-dialogs.md
 DevConsole/appsettings.json
 AuthServer/appsettings.json
 launch-client.ps1

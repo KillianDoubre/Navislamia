@@ -80,7 +80,7 @@ public class MonsterWorldStateTests
 
         state.TryBeginWander(InstanceId, now, out _).Should().BeFalse();
 
-        state.TryBeginWander(InstanceId, now.AddSeconds(10), out var destination).Should().BeTrue();
+        state.TryBeginWander(InstanceId, now.AddSeconds(15), out var destination).Should().BeTrue();
         Distance(destination, (1000f, 2000f)).Should().BeLessThanOrEqualTo(150f);
         state.GetPosition(InstanceId).Should().Be(destination);
     }
@@ -101,10 +101,10 @@ public class MonsterWorldStateTests
         var state = BuildState(100);
         var now = DateTime.UtcNow;
         state.TryBeginWander(InstanceId, now, out _);
-        state.TryBeginWander(InstanceId, now.AddSeconds(10), out _).Should().BeTrue();
+        state.TryBeginWander(InstanceId, now.AddSeconds(15), out _).Should().BeTrue();
 
-        state.Kill(InstanceId, now.AddSeconds(11));
-        state.CollectRespawns(now.AddSeconds(12));
+        state.Kill(InstanceId, now.AddSeconds(16));
+        state.CollectRespawns(now.AddSeconds(17));
 
         state.GetPosition(InstanceId).Should().Be((1000f, 2000f));
     }

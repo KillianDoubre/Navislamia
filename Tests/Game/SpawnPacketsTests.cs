@@ -55,11 +55,12 @@ public class SpawnPacketsTests
     {
         var packet = GameSpawnPackets.BuildEnterMonster(
             handle: 0x40000002u, x: 83950f, y: 115980f, z: 4f,
-            layer: 3, hp: 900, level: 5, race: 1, monsterId: 2101);
+            layer: 3, hp: 900, level: 5, race: 1, monsterId: 2101, faceDir: 1.5f);
 
         var enc = ScrambledInt.Encode(2101);
 
         packet.Length.Should().Be(73);
+        BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(30, 4)).Should().Be(1.5f);
         BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0, 4)).Should().Be(73);
         BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)).Should().Be((ushort)GamePackets.TM_SC_ENTER);
         packet[6].Should().Be(Checksum(packet));

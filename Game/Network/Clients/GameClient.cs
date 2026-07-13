@@ -181,6 +181,8 @@ public class GameClient : Client
     public override void OnDisconnect()
     {
         _networkService.CombatService.StopAttack(this);
+        _networkService.CharacterService.SaveProgress(ConnectionInfo.CharacterName, ConnectionInfo.CharacterExp,
+            ConnectionInfo.CharacterJp, ConnectionInfo.CharacterGold, ConnectionInfo.CharacterChaos);
         base.OnDisconnect();
     }
 
@@ -282,6 +284,18 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_SET_PROPERTY)
             {
                 HandleSetProperty(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_CONTACT)
+            {
+                _networkService.NpcDialogService.Contact(this, msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_DIALOG)
+            {
+                _networkService.NpcDialogService.Select(this, msgBuffer);
                 continue;
             }
 

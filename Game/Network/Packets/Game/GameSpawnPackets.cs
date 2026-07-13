@@ -16,7 +16,7 @@ public static class GameSpawnPackets
         int hp, int level, byte race, int npcId)
     {
         const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8;
-        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race, ObjectTypeNpc);
+        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race, ObjectTypeNpc, 0f);
 
         WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), (uint)npcId);
         WriteChecksum(packet);
@@ -25,11 +25,11 @@ public static class GameSpawnPackets
     }
 
     public static byte[] BuildEnterMonster(uint handle, float x, float y, float z, byte layer,
-        int hp, int level, byte race, int monsterId)
+        int hp, int level, byte race, int monsterId, float faceDir)
     {
         const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8 + 1;
         var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race,
-            ObjectTypeMonster);
+            ObjectTypeMonster, faceDir);
 
         WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), ScrambledInt.Encode((uint)monsterId));
         packet[72] = 0;
@@ -52,7 +52,7 @@ public static class GameSpawnPackets
     }
 
     private static byte[] BuildEnterCreature(int length, uint handle, float x, float y, float z,
-        byte layer, int hp, int level, byte race, byte objectType)
+        byte layer, int hp, int level, byte race, byte objectType, float faceDir)
     {
         var packet = new byte[length];
         var span = packet.AsSpan();
@@ -66,7 +66,7 @@ public static class GameSpawnPackets
         packet[24] = layer;
         packet[25] = objectType;
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(26, 4), 0);
-        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(30, 4), 0);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(30, 4), faceDir);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(34, 4), hp);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(38, 4), hp);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(42, 4), 0);

@@ -14,6 +14,7 @@ public class MonsterWorldState
     private readonly MonsterSpawnOptions _options;
     private const float WanderRadiusMin = 75f;
     private const float WanderRadiusMax = 150f;
+    private const int FirstMoveMaxMs = 1000;
     private const int MoveIntervalMinMs = 6000;
     private const int MoveIntervalMaxMs = 12000;
 
@@ -57,6 +58,17 @@ public class MonsterWorldState
         }
     }
 
+    public bool TryGetInstance(long instanceId, out MonsterInstance instance)
+    {
+        if (_byId != null && _byId.TryGetValue(instanceId, out instance))
+        {
+            return true;
+        }
+
+        instance = default;
+        return false;
+    }
+
     public (float X, float Y) GetPosition(long instanceId)
     {
         lock (_stateLock)
@@ -83,7 +95,7 @@ public class MonsterWorldState
 
             if (!_nextMoveAt.TryGetValue(instanceId, out var next))
             {
-                _nextMoveAt[instanceId] = now.AddMilliseconds(NextInterval());
+                _nextMoveAt[instanceId] = now.AddMilliseconds(Random.Shared.Next(0, FirstMoveMaxMs));
                 return false;
             }
 

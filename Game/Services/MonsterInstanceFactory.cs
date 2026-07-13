@@ -104,10 +104,11 @@ public static class MonsterInstanceFactory
 
         for (var i = 0; i < count; i++)
         {
+            var faceDirection = (float)(random.NextDouble() * Math.PI * 2);
             instances.Add(new MonsterInstance(
                 instanceId++, monsterId,
                 random.Next(left, right + 1), random.Next(top, bottom + 1), 0f,
-                resource.Level, resource.Hp, race));
+                resource.Level, resource.Hp, race, faceDirection));
         }
     }
 

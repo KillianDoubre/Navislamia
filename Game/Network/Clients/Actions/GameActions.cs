@@ -92,6 +92,10 @@ public class GameActions : IActions
         client.ConnectionInfo.CharacterName = character.CharacterName;
         client.ConnectionInfo.CharacterHp = hp;
         client.ConnectionInfo.CharacterLevel = character.Lv > 0 ? character.Lv : 1;
+        client.ConnectionInfo.CharacterExp = character.Exp;
+        client.ConnectionInfo.CharacterJp = character.Jp;
+        client.ConnectionInfo.CharacterGold = character.Gold;
+        client.ConnectionInfo.CharacterChaos = character.Chaos;
         client.ConnectionInfo.Layer = (byte)character.Layer;
         client.ConnectionInfo.X = position[0];
         client.ConnectionInfo.Y = position[1];

@@ -7,9 +7,9 @@ namespace Navislamia.Game.Services;
 public static class SpawnedObjectSet
 {
     public static void DespawnMissing(Connection connection, Dictionary<long, uint> spawned,
-        HashSet<long> visible)
+        HashSet<long> visible, Dictionary<uint, long> idsByHandle = null)
     {
-        List<long> leaving = null;
+        List<KeyValuePair<long, uint>> leaving = null;
 
         foreach (var pair in spawned)
         {
@@ -19,8 +19,8 @@ public static class SpawnedObjectSet
             }
 
             connection.Send(GameSpawnPackets.BuildLeave(pair.Value));
-            leaving ??= new List<long>();
-            leaving.Add(pair.Key);
+            leaving ??= new List<KeyValuePair<long, uint>>();
+            leaving.Add(pair);
         }
 
         if (leaving == null)
@@ -28,10 +28,10 @@ public static class SpawnedObjectSet
             return;
         }
 
-        foreach (var id in leaving)
+        foreach (var pair in leaving)
         {
-            spawned.Remove(id);
+            spawned.Remove(pair.Key);
+            idsByHandle?.Remove(pair.Value);
         }
-
     }
 }

@@ -8,4 +8,5 @@ public readonly record struct MonsterInstance(
     float Z,
     int Level,
     int Hp,
-    byte Race);
+    byte Race,
+    float FaceDirection);

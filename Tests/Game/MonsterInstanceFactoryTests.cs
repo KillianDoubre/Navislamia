@@ -29,6 +29,7 @@ public class MonsterInstanceFactoryTests
         instances.Should().OnlyContain(i =>
             i.MonsterId == 2101 && i.Level == 5 && i.Hp == 900 && i.Race == 1 &&
             Math.Abs(i.X - 1000) <= 200 && Math.Abs(i.Y - 2000) <= 200);
+        instances.Should().OnlyContain(i => i.FaceDirection >= 0f && i.FaceDirection < (float)(Math.PI * 2));
     }
 
     [Test]

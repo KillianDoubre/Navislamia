@@ -44,6 +44,11 @@ public class MonsterMovementService
 
     private void Tick(DateTime now)
     {
+        if (_networkService.AuthorizedGameClients.IsEmpty)
+        {
+            return;
+        }
+
         var clients = new List<GameClient>(_networkService.AuthorizedGameClients.Values);
         if (clients.Count == 0)
         {

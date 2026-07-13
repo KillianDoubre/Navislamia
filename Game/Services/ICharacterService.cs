@@ -20,6 +20,8 @@ public interface ICharacterService
 
     Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo);
 
+    void SaveProgress(string characterName, long exp, long jp, long gold, int chaos);
+
     void SaveChanges();
 
 }

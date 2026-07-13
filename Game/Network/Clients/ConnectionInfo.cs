@@ -10,12 +10,20 @@ public class ConnectionInfo
     public uint TargetHandle { get; set; }
     public int CharacterHp { get; set; }
     public int CharacterLevel { get; set; }
+    public long CharacterExp { get; set; }
+    public long CharacterJp { get; set; }
+    public long CharacterGold { get; set; }
+    public int CharacterChaos { get; set; }
     public uint ClientClockOffset { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
+    public readonly object NpcVisibilityLock = new();
     public readonly object MonsterVisibilityLock = new();
     public Dictionary<long, uint> SpawnedNpcs { get; } = new();
+    public Dictionary<uint, long> SpawnedNpcIdsByHandle { get; } = new();
     public Dictionary<long, uint> SpawnedMonsters { get; } = new();
+    public uint NpcDialogHandle { get; set; }
+    public HashSet<string> NpcDialogTriggers { get; } = new();
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }
@@ -36,6 +44,14 @@ public class ConnectionInfo
     public void ClearVisibleObjects()
     {
         SpawnedNpcs.Clear();
+        SpawnedNpcIdsByHandle.Clear();
         SpawnedMonsters.Clear();
+        ClearNpcDialog();
+    }
+
+    public void ClearNpcDialog()
+    {
+        NpcDialogHandle = 0;
+        NpcDialogTriggers.Clear();
     }
 }

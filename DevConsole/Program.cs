@@ -85,6 +85,7 @@ public class Program
         services.Configure<MapOptions>(context.Configuration.GetSection("Map"));
         services.Configure<ServerOptions>(context.Configuration.GetSection("Server"));
         ConfigureMonsterSpawns(services, context);
+        ConfigureNpcDialogs(services, context);
     }
 
     private static void ConfigureMonsterSpawns(IServiceCollection services, HostBuilderContext context)
@@ -109,6 +110,27 @@ public class Program
         });
     }
 
+    private static void ConfigureNpcDialogs(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "npc-dialogs.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<NpcDialogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("NpcDialogCatalog")
+            .Deserialize<NpcDialogOptions>() ?? new NpcDialogOptions();
+
+        services.Configure<NpcDialogOptions>(options =>
+        {
+            options.Npcs = catalog.Npcs;
+            options.Dialogs = catalog.Dialogs;
+        });
+    }
+
     private static void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IGameModule, GameModule>();
@@ -118,6 +140,7 @@ public class Program
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
+        services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();

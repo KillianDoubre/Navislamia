@@ -41,6 +41,9 @@ public enum GamePackets : ushort
 
     TM_CS_GAME_TIME = 1100,
     TM_SC_GAME_TIME = 1101,
+    TM_SC_DIALOG = 3000,
+    TM_CS_DIALOG = 3001,
+    TM_CS_CONTACT = 3002,
 
     TM_CS_RETURN_LOBBY = 23,
     TM_CS_REQUEST_RETURN_LOBBY = 25,

@@ -107,12 +107,34 @@ NPCs use `TS_SC_ENTER` (`3`) with `type = 1`, `objType = 1`, a 38-byte creature 
 randomized `npc_id`. The total packet is 72 bytes. The client resolves model, name and appearance from
 that ID. Objects leaving the view receive `TS_SC_LEAVE` (`9`).
 
+NPC interaction starts with `TS_CS_CONTACT (3002)`, an 11-byte packet containing the visible NPC
+handle. `NpcDialogService` resolves that per-client handle back to the resource ID and sends
+`TS_SC_DIALOG (3000)`. Epic 7.3 dialog fields are length-prefixed ASCII resource references; menu
+entries use the original server format `TAB + label + TAB + trigger + TAB`. A selected choice returns
+its trigger through `TS_CS_DIALOG (3001)`. Only a trigger advertised in the current dialog is accepted,
+and it is resolved as a catalog lookup rather than executed as arbitrary Lua.
+
+NPC visibility keeps synchronized ID-to-handle and handle-to-ID dictionaries, so contact resolution is
+O(1) and cannot accept a handle outside the connection's visible set. The dialog service compiles
+contact expressions and packet templates once at startup, then stores them in frozen dictionaries.
+The interaction path only looks up the NPC/page, copies a template, writes the connection-specific
+handle and sends it. Dialog state is cleared when its NPC leaves visibility.
+
+`DevConsole/npc-dialogs.73.json` links 1,445 NPC resource IDs to their original contact functions and
+contains 2,338 dialog definitions recovered from the server Lua. The local Arcadia database also has
+the matching `ContactScript` values. See `docs/npc-dialogs.md` for the packet layout, catalog generation
+and current action limitations.
+
 ## Monster packets and catalog
 
 Monsters use the 73-byte monster variant of `TS_SC_ENTER`: `objType = 3`, the shared creature payload,
 an 8-byte scrambled `monster_id` and `is_tamed = 0`. `monster_id` must be the actual
 `MonsterResource.id`, never a name or location code. Packet `TS_CS_MONSTER_RECOGNIZE` (`517`) is valid
-and needs no response while monsters are idle.
+and needs no response while monsters are idle. Each monster carries a random `creatureInfo.face_direction`
+(the `float` at offset 30, verified correct against `TS_CREATURE_STATUS` being a 4-byte `uint32`), set
+once per instance from the factory's seeded `Random`. This client build appears to ignore the enter-packet
+facing for idle monsters (setting `is_first_enter` made no difference), so they render facing the default
+direction until they orient through movement; the field is kept for correctness and future clients.
 
 `DevConsole/monster-spawns.73.json` currently contains 3,973 compatible areas, 43,443 instances and
 2,457 distinct resource IDs. It is deserialized directly with `System.Text.Json`; do not add it to the
@@ -141,8 +163,22 @@ plays the death animation when `target_hp` reaches 0; there is no `TS_SC_DEAD` i
 HP and respawn deadlines (both sparse). `MonsterSpawnService` reads it and skips dead instances in
 `Sync`; `CombatService` mutates it and re-streams a respawned monster to its last attacker. Access to
 `ConnectionInfo.SpawnedMonsters` is guarded by `MonsterVisibilityLock` because the combat tick thread
-and the client thread both touch it. Damage is a placeholder (`30 + level * 5`) and attack timing is
-fixed until the `MonsterResource` combat columns are backfilled.
+and the client thread both touch it. Damage is currently the monster's max HP divided by 3 (a
+fast-kill value for testing) and attack timing is fixed until the `MonsterResource` combat columns are
+backfilled.
+
+On death the killer is rewarded: `CombatRewards.Compute(level)` returns level-based placeholder exp, jp
+and gold (`10 + level * 5`, `5 + level * 2`, `5 + level * 3`), added to `ConnectionInfo`
+(`CharacterExp`/`CharacterJp`/`CharacterGold`, seeded in `OnLogin`) and sent with `TS_SC_EXP_UPDATE`
+(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). Real per-monster exp and gold live in the `MonsterResource`
+reward columns (`Exp`, `GoldMin`, `GoldMax`) and replace the placeholder once backfilled. Progress
+persists once per session: `GameClient.OnDisconnect` calls `CharacterService.SaveProgress`, which writes
+exp, jp, gold and chaos; there are no per-kill database writes.
+
+The death sequence lets the client play its death animation: the killing swing is followed by
+`TS_SC_STATUS_CHANGE` (`500`) with the dead flag (`1 << 8`), and the `TS_SC_LEAVE` that removes the
+corpse is deferred by `DeathAnimationSeconds` (6 s) through a pending-leave list on the combat tick
+rather than sent immediately. Item drops are a later milestone that will hook the same death branch.
 
 ## Monster movement
 
@@ -163,7 +199,8 @@ and applied to `start_time` so the walk does not teleport. Walk speed is a place
 
 - Monsters auto-attack (kill + respawn) and idle-wander, but have no aggro, chase, retaliation, loot or
   taming; damage, attack speed and walk speed are placeholders
-- NPC behavior beyond rendering and existing scripts is incomplete
+- NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
+  teleportation and quest mutation are not executed yet
 - Advanced cosmetics, equipment changes and learned-skill persistence are not implemented
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming

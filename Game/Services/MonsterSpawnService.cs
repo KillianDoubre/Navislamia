@@ -31,14 +31,21 @@ public class MonsterSpawnService : IMonsterSpawnService
 
                 foreach (var monster in inRange)
                 {
+                    var spawned = info.SpawnedMonsters.ContainsKey(monster.InstanceId);
+
                     if (dead.Contains(monster.InstanceId))
                     {
+                        if (spawned)
+                        {
+                            inRangeIds.Add(monster.InstanceId);
+                        }
+
                         continue;
                     }
 
                     inRangeIds.Add(monster.InstanceId);
 
-                    if (info.SpawnedMonsters.ContainsKey(monster.InstanceId))
+                    if (spawned)
                     {
                         continue;
                     }
@@ -46,7 +53,8 @@ public class MonsterSpawnService : IMonsterSpawnService
                     var handle = WorldObjectHandle.Next();
                     var (x, y) = _worldState.GetPosition(monster.InstanceId);
                     client.Connection.Send(GameSpawnPackets.BuildEnterMonster(handle, x, y, monster.Z,
-                        info.Layer, _worldState.GetHp(monster.InstanceId), monster.Level, monster.Race, monster.MonsterId));
+                        info.Layer, _worldState.GetHp(monster.InstanceId), monster.Level, monster.Race,
+                        monster.MonsterId, monster.FaceDirection));
                     info.SpawnedMonsters[monster.InstanceId] = handle;
                 }
 

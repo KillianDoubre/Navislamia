@@ -44,25 +44,35 @@ public class NpcSpawnService : INpcSpawnService
             var info = client.ConnectionInfo;
             var inRange = GetIndex()?.WithinRange(info.X, info.Y, WorldVisibility.ViewRange)
                 ?? Array.Empty<NpcResourceEntity>();
-
             var inRangeIds = new HashSet<long>(inRange.Count);
 
-            foreach (var npc in inRange)
+            lock (info.NpcVisibilityLock)
             {
-                inRangeIds.Add(npc.Id);
-
-                if (info.SpawnedNpcs.ContainsKey(npc.Id))
+                foreach (var npc in inRange)
                 {
-                    continue;
+                    inRangeIds.Add(npc.Id);
+
+                    if (info.SpawnedNpcs.ContainsKey(npc.Id))
+                    {
+                        continue;
+                    }
+
+                    var handle = WorldObjectHandle.Next();
+                    client.Connection.Send(GameSpawnPackets.BuildEnterNpc(handle, npc.X, npc.Y, npc.Z,
+                        info.Layer, npc.Hp, npc.Level, (byte)npc.RaceId, (int)npc.Id));
+                    info.SpawnedNpcs[npc.Id] = handle;
+                    info.SpawnedNpcIdsByHandle[handle] = npc.Id;
                 }
 
-                var handle = WorldObjectHandle.Next();
-                client.Connection.Send(GameSpawnPackets.BuildEnterNpc(handle, npc.X, npc.Y, npc.Z, info.Layer,
-                    npc.Hp, npc.Level, (byte)npc.RaceId, (int)npc.Id));
-                info.SpawnedNpcs[npc.Id] = handle;
-            }
+                SpawnedObjectSet.DespawnMissing(client.Connection, info.SpawnedNpcs, inRangeIds,
+                    info.SpawnedNpcIdsByHandle);
 
-            SpawnedObjectSet.DespawnMissing(client.Connection, info.SpawnedNpcs, inRangeIds);
+                if (info.NpcDialogHandle != 0 &&
+                    !info.SpawnedNpcIdsByHandle.ContainsKey(info.NpcDialogHandle))
+                {
+                    info.ClearNpcDialog();
+                }
+            }
         }
         catch (Exception ex)
         {
