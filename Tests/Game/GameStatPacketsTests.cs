@@ -51,4 +51,27 @@ public class GameStatPacketsTests
         BinaryPrimitives.ReadInt64LittleEndian(p.AsSpan(28, 8)).Should().Be(42);
         p[36].Should().Be(0);
     }
+
+    [Test]
+    public void StringProperty_RoundTripsTheEpic73ClientInfoLayout()
+    {
+        const string clientInfo = "KGM=02,1,3|AKA=2,513,3";
+        var response = GameStatPackets.BuildStringProperty(0x11223344, "client_info", clientInfo);
+
+        BinaryPrimitives.ReadUInt16LittleEndian(response.AsSpan(4, 2)).Should().Be(507);
+        BinaryPrimitives.ReadUInt32LittleEndian(response.AsSpan(7, 4)).Should().Be(0x11223344);
+        response[11].Should().Be(0);
+        Encoding.ASCII.GetString(response, 12, 11).Should().Be("client_info");
+        Encoding.ASCII.GetString(response, 36, clientInfo.Length).Should().Be(clientInfo);
+        response[^1].Should().Be(0);
+        response[6].Should().Be(Checksum(response));
+
+        var request = new byte[7 + 16 + clientInfo.Length + 1];
+        Encoding.ASCII.GetBytes("client_info").CopyTo(request, 7);
+        Encoding.ASCII.GetBytes(clientInfo).CopyTo(request, 23);
+
+        GameStatPackets.TryReadSetProperty(request, out var name, out var value).Should().BeTrue();
+        name.Should().Be("client_info");
+        value.Should().Be(clientInfo);
+    }
 }

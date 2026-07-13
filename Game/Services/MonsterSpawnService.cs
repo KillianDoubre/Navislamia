@@ -44,7 +44,8 @@ public class MonsterSpawnService : IMonsterSpawnService
                     }
 
                     var handle = WorldObjectHandle.Next();
-                    client.Connection.Send(GameSpawnPackets.BuildEnterMonster(handle, monster.X, monster.Y, monster.Z,
+                    var (x, y) = _worldState.GetPosition(monster.InstanceId);
+                    client.Connection.Send(GameSpawnPackets.BuildEnterMonster(handle, x, y, monster.Z,
                         info.Layer, _worldState.GetHp(monster.InstanceId), monster.Level, monster.Race, monster.MonsterId));
                     info.SpawnedMonsters[monster.InstanceId] = handle;
                 }

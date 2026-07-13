@@ -62,6 +62,14 @@ character bootstrap: stats, inventory, summon slots, wear information, gold/chao
 experience/JP, job properties, learned skills, belt slots, game time and status. It then synchronizes
 NPC and monster visibility. See `docs/character-bootstrap.md` for packet layouts and model ordering.
 
+Epic 7.3 key bindings are character data, not a local `.opt` setting. The server sends the single
+string property `client_info` with `TS_SC_PROPERTY (507)` during world entry, and the client writes it
+back with `TS_CS_SET_PROPERTY (508)`, normally when leaving the game. The value is an opaque,
+pipe-delimited list of `QS2`, `KMT` and chat-mode entries stored as text in
+`Characters.ClientInfo`. `CharacterDefaults` supplies the complete default map for new and legacy
+characters. Do not split this value into the `quick_slot`, `current_key` or `saved_key` properties
+used by later clients such as Epic 9.4; this Epic 7.3 executable only registers `client_info`.
+
 Movement uses the client's current `x/y` fields for visibility; the final waypoint is a future
 destination and must never be used as the current position.
 
@@ -136,10 +144,25 @@ HP and respawn deadlines (both sparse). `MonsterSpawnService` reads it and skips
 and the client thread both touch it. Damage is a placeholder (`30 + level * 5`) and attack timing is
 fixed until the `MonsterResource` combat columns are backfilled.
 
+## Monster movement
+
+Monsters visible to at least one player idle-wander: every 6-12 seconds they pick a random destination
+75-150 units from their spawn point and walk there via `TS_SC_MOVE` (`8`, reused from the
+player-move echo: `start_time` @7, `handle` @11, `tlayer` @15, `speed` @16, `count` @17, then
+`tx/ty` floats). `MonsterMovementService` runs a 500 ms loop in two phases: it unions every client's
+visible monster set, calls `MonsterWorldState.TryBeginWander` once per active instance to decide a
+shared destination, then broadcasts the move to each client that sees it using that client's handle.
+`MonsterWorldState` holds the mutable current position and next-move deadline; a respawned monster
+returns to its origin. The `SpatialIndex` keeps culling on spawn positions (wander radius is far
+smaller than the view range), while enter and move packets use the current position. Movement is timed
+against the client clock: `ConnectionInfo.ClientClockOffset` is captured from each `TS_CS_MOVE_REQUEST`
+and applied to `start_time` so the walk does not teleport. Walk speed is a placeholder.
+`AuthorizedGameClients` is a `ConcurrentDictionary` so the movement thread can iterate it safely.
+
 ## Current limitations
 
-- Monsters can be auto-attacked, killed and respawn, but have no AI, movement, aggro, retaliation,
-  loot or taming; damage and attack speed are placeholders
+- Monsters auto-attack (kill + respawn) and idle-wander, but have no aggro, chase, retaliation, loot or
+  taming; damage, attack speed and walk speed are placeholders
 - NPC behavior beyond rendering and existing scripts is incomplete
 - Advanced cosmetics, equipment changes and learned-skill persistence are not implemented
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility

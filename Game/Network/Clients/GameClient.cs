@@ -79,6 +79,7 @@ public class GameClient : Client
 
         Connection.Send(packet);
 
+        ConnectionInfo.ClientClockOffset = unchecked(curTime - (uint)Environment.TickCount);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         SyncVisibleObjects();
@@ -144,6 +145,37 @@ public class GameClient : Client
             : GameChatPackets.BuildChat(ConnectionInfo.CharacterName, type, message);
 
         Connection.Send(reply);
+    }
+
+    private async void HandleSetProperty(byte[] buffer)
+    {
+        const int maxClientInfoLength = 4096;
+        if (!GameStatPackets.TryReadSetProperty(buffer, out var name, out var value))
+        {
+            _logger.Warning("Malformed property update received from {clientTag}", ClientTag);
+            return;
+        }
+
+        if (!string.Equals(name, "client_info", StringComparison.Ordinal) || value.Length > maxClientInfoLength)
+        {
+            _logger.Warning("Rejected property {name} ({length} bytes) from {clientTag}", name, value.Length,
+                ClientTag);
+            return;
+        }
+
+        try
+        {
+            if (!await _networkService.CharacterService.UpdateClientInfoAsync(ConnectionInfo.CharacterName, value))
+            {
+                _logger.Warning("Could not persist client settings for {character} from {clientTag}",
+                    ConnectionInfo.CharacterName, ClientTag);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not persist client settings for {character} from {clientTag}",
+                ConnectionInfo.CharacterName, ClientTag);
+        }
     }
 
     public override void OnDisconnect()
@@ -244,6 +276,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHAT_REQUEST)
             {
                 HandleChatRequest(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_SET_PROPERTY)
+            {
+                HandleSetProperty(msgBuffer);
                 continue;
             }
 

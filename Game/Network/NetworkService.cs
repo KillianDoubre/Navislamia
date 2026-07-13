@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -30,7 +31,7 @@ public class NetworkService : INetworkService
 
     public Dictionary<string, GameClient> UnauthorizedGameClients { get; set; } = new();
 
-    public Dictionary<string, GameClient> AuthorizedGameClients { get; set; } = new();
+    public ConcurrentDictionary<string, GameClient> AuthorizedGameClients { get; set; } = new();
 
     public NetworkService(ILogger<NetworkService> logger, IOptions<NetworkOptions> networkOptions,
         ICharacterService characterService, IBannedWordsRepository bannedWordsRepository,

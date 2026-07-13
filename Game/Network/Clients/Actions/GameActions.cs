@@ -204,6 +204,7 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", decimal.ToInt64(character.ImmoralPoint)));
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle));
+        client.Connection.Send(GameStatPackets.BuildStringProperty(handle, "client_info", character.ClientInfo));
 
         _logger.Debug("{clientTag} entered game as {name} (lv {lv}) at ({x},{y},{z})", client.ClientTag,
             character.CharacterName, enter.Level, result.X, result.Y, result.Z);

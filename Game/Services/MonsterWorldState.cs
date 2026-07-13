@@ -12,15 +12,22 @@ public class MonsterWorldState
     private readonly ILogger _logger = Log.ForContext<MonsterWorldState>();
     private readonly IMonsterResourceRepository _repository;
     private readonly MonsterSpawnOptions _options;
+    private const float WanderRadiusMin = 75f;
+    private const float WanderRadiusMax = 150f;
+    private const int MoveIntervalMinMs = 6000;
+    private const int MoveIntervalMaxMs = 12000;
+
     private readonly object _loadLock = new();
     private readonly object _stateLock = new();
     private static readonly IReadOnlySet<long> EmptyDead = new HashSet<long>();
 
     private readonly Dictionary<long, int> _currentHp = new();
     private readonly Dictionary<long, DateTime> _respawnAt = new();
+    private readonly Dictionary<long, (float X, float Y)> _position = new();
+    private readonly Dictionary<long, DateTime> _nextMoveAt = new();
 
     private SpatialIndex<MonsterInstance> _index;
-    private Dictionary<long, int> _maxHp;
+    private Dictionary<long, MonsterInstance> _byId;
 
     public MonsterWorldState(IMonsterResourceRepository repository, IOptions<MonsterSpawnOptions> options)
     {
@@ -47,6 +54,58 @@ public class MonsterWorldState
         lock (_stateLock)
         {
             return _respawnAt.Count == 0 ? EmptyDead : new HashSet<long>(_respawnAt.Keys);
+        }
+    }
+
+    public (float X, float Y) GetPosition(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            if (_position.TryGetValue(instanceId, out var position))
+            {
+                return position;
+            }
+        }
+
+        return Origin(instanceId);
+    }
+
+    public bool TryBeginWander(long instanceId, DateTime now, out (float X, float Y) destination)
+    {
+        destination = default;
+
+        lock (_stateLock)
+        {
+            if (_respawnAt.ContainsKey(instanceId))
+            {
+                return false;
+            }
+
+            if (!_nextMoveAt.TryGetValue(instanceId, out var next))
+            {
+                _nextMoveAt[instanceId] = now.AddMilliseconds(NextInterval());
+                return false;
+            }
+
+            if (next > now)
+            {
+                return false;
+            }
+
+            if (_byId == null || !_byId.TryGetValue(instanceId, out var instance))
+            {
+                return false;
+            }
+
+            var angle = Random.Shared.NextDouble() * Math.PI * 2;
+            var distance = WanderRadiusMin + Random.Shared.NextDouble() * (WanderRadiusMax - WanderRadiusMin);
+            destination = (
+                instance.X + (float)(Math.Cos(angle) * distance),
+                instance.Y + (float)(Math.Sin(angle) * distance));
+
+            _position[instanceId] = destination;
+            _nextMoveAt[instanceId] = now.AddMilliseconds(NextInterval());
+            return true;
         }
     }
 
@@ -114,15 +173,29 @@ public class MonsterWorldState
             {
                 _respawnAt.Remove(id);
                 _currentHp.Remove(id);
+                _position.Remove(id);
+                _nextMoveAt.Remove(id);
             }
 
             return respawned;
         }
     }
 
+    private static int NextInterval()
+    {
+        return Random.Shared.Next(MoveIntervalMinMs, MoveIntervalMaxMs);
+    }
+
     private int MaxHp(long instanceId)
     {
-        return _maxHp != null && _maxHp.TryGetValue(instanceId, out var hp) ? hp : 1;
+        return _byId != null && _byId.TryGetValue(instanceId, out var instance) ? instance.Hp : 1;
+    }
+
+    private (float X, float Y) Origin(long instanceId)
+    {
+        return _byId != null && _byId.TryGetValue(instanceId, out var instance)
+            ? (instance.X, instance.Y)
+            : (0f, 0f);
     }
 
     private SpatialIndex<MonsterInstance> GetIndex()
@@ -151,13 +224,13 @@ public class MonsterWorldState
             var resources = _repository.GetByIds(resourceIds);
             var instances = MonsterInstanceFactory.Build(_options, resources);
 
-            var maxHp = new Dictionary<long, int>(instances.Count);
+            var byId = new Dictionary<long, MonsterInstance>(instances.Count);
             foreach (var instance in instances)
             {
-                maxHp[instance.InstanceId] = instance.Hp;
+                byId[instance.InstanceId] = instance;
             }
 
-            _maxHp = maxHp;
+            _byId = byId;
             _index = new SpatialIndex<MonsterInstance>(instances, monster => monster.X, monster => monster.Y,
                 WorldVisibility.ViewRange);
 

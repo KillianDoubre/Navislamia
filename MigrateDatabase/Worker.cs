@@ -332,7 +332,7 @@ public class Worker : BackgroundService
                 HairColorIndex = 2,
                 TextureId = 10,
                 FlagList = new[] { "rx:168339", "ry:55413", "wbx:168356", "lvup_armor:1", "wby:55399", "lvup_weapon:1" },
-                ClientInfo = new[]
+                ClientInfo = string.Join("|", new[]
                 {
                     "QS2=0,2,0", "QS2=1,2,2", "QS2=11,2,1", "QS2=24,2,7", "QS2=25,2,8", "QS2=35,2,28",
                     "KMT=0,0,0,0,192", "KMT=1,0,0,0,73", "KMT=2,0,0,0,83", "KMT=3,0,0,0,67", "KMT=4,0,0,0,89",
@@ -362,7 +362,7 @@ public class Worker : BackgroundService
                     "KMT=120,0,0,0,0", "KMT=121,0,0,0,0", "KMT=122,0,0,0,0", "KMT=123,0,0,0,66", "KMT=124,0,0,0,68",
                     "KMT=125,0,0,0,85", "KMT=126,0,0,0,74", "KMT=127,0,0,0,75", "KMT=128,0,0,0,76", "ENTERCHATMODE=1",
                     "ENTERCHATMODE2=1", "PREVINSTANCEGAME=0", "CLIENTVER=1"
-                }
+                })
             },
             new()
             {
@@ -391,7 +391,7 @@ public class Worker : BackgroundService
                 TextureId = 20,
                 FlagList =
                     new[] { "rx:164325", "ry:49528", "wbx:164335", "lvup_armor:1", "wby:49510", "lvup_weapon:1" },
-                ClientInfo = new[]
+                ClientInfo = string.Join("|", new[]
                 {
                     "QS2=0,2,0", "QS2=1,2,2", "QS2=11,2,1", "QS2=24,2,7", "QS2=25,2,8", "QS2=35,2,28",
                     "KMT=0,0,0,0,192", "KMT=1,0,0,0,73", "KMT=2,0,0,0,83", "KMT=3,0,0,0,67", "KMT=4,0,0,0,89",
@@ -421,7 +421,7 @@ public class Worker : BackgroundService
                     "KMT=120,0,0,0,0", "KMT=121,0,0,0,0", "KMT=122,0,0,0,0", "KMT=123,0,0,0,66", "KMT=124,0,0,0,68",
                     "KMT=125,0,0,0,85", "KMT=126,0,0,0,74", "KMT=127,0,0,0,75", "KMT=128,0,0,0,76", "ENTERCHATMODE=1",
                     "ENTERCHATMODE2=1", "PREVINSTANCEGAME=0", "CLIENTVER=1"
-                }
+                })
             },
             new()
             {
@@ -449,7 +449,7 @@ public class Worker : BackgroundService
                 HairColorIndex = 2,
                 TextureId = 2,
                 FlagList = new[] { "rx:164482", "ry:52951", "wbx:164464", "lvup_armor:1", "wby:52942", "lvup_weapon:1" },
-                ClientInfo = new[]
+                ClientInfo = string.Join("|", new[]
                 {
                     "QS2=0,2,0", "QS2=1,2,2", "QS2=11,2,1", "QS2=24,2,7", "QS2=25,2,8", "QS2=35,2,28",
                     "KMT=0,0,0,0,192", "KMT=1,0,0,0,73", "KMT=2,0,0,0,83", "KMT=3,0,0,0,67", "KMT=4,0,0,0,89",
@@ -479,7 +479,7 @@ public class Worker : BackgroundService
                     "KMT=120,0,0,0,0", "KMT=121,0,0,0,0", "KMT=122,0,0,0,0", "KMT=123,0,0,0,66", "KMT=124,0,0,0,68",
                     "KMT=125,0,0,0,85", "KMT=126,0,0,0,74", "KMT=127,0,0,0,75", "KMT=128,0,0,0,76", "ENTERCHATMODE=1",
                     "ENTERCHATMODE2=1", "PREVINSTANCEGAME=0", "CLIENTVER=1"
-                }
+                })
             }
         };
         

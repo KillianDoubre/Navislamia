@@ -63,4 +63,56 @@ public class MonsterWorldStateTests
         state.IsAlive(InstanceId).Should().BeTrue();
         state.GetHp(InstanceId).Should().Be(100);
     }
+
+    [Test]
+    public void GetPosition_DefaultsToSpawnOrigin()
+    {
+        var state = BuildState(100);
+
+        state.GetPosition(InstanceId).Should().Be((1000f, 2000f));
+    }
+
+    [Test]
+    public void TryBeginWander_SchedulesOnFirstSight_ThenMovesWithinRadius()
+    {
+        var state = BuildState(100);
+        var now = DateTime.UtcNow;
+
+        state.TryBeginWander(InstanceId, now, out _).Should().BeFalse();
+
+        state.TryBeginWander(InstanceId, now.AddSeconds(10), out var destination).Should().BeTrue();
+        Distance(destination, (1000f, 2000f)).Should().BeLessThanOrEqualTo(150f);
+        state.GetPosition(InstanceId).Should().Be(destination);
+    }
+
+    [Test]
+    public void TryBeginWander_ReturnsFalse_ForDeadInstance()
+    {
+        var state = BuildState(100);
+        var now = DateTime.UtcNow;
+        state.Kill(InstanceId, now.AddSeconds(10));
+
+        state.TryBeginWander(InstanceId, now.AddSeconds(20), out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void Respawn_ReturnsMonsterToOrigin()
+    {
+        var state = BuildState(100);
+        var now = DateTime.UtcNow;
+        state.TryBeginWander(InstanceId, now, out _);
+        state.TryBeginWander(InstanceId, now.AddSeconds(10), out _).Should().BeTrue();
+
+        state.Kill(InstanceId, now.AddSeconds(11));
+        state.CollectRespawns(now.AddSeconds(12));
+
+        state.GetPosition(InstanceId).Should().Be((1000f, 2000f));
+    }
+
+    private static float Distance((float X, float Y) a, (float X, float Y) b)
+    {
+        var dx = a.X - b.X;
+        var dy = a.Y - b.Y;
+        return (float)System.Math.Sqrt(dx * dx + dy * dy);
+    }
 }

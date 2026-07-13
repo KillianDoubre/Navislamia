@@ -63,6 +63,15 @@ After `TS_SC_LOGIN_RESULT (4)` and player `TS_SC_ENTER (3)`, the server sends:
 10. `TS_SC_BELT_SLOT_INFO (216)`
 11. `TS_SC_GAME_TIME (1101)`
 12. `TS_SC_STATUS_CHANGE (500)`
+13. string `TS_SC_PROPERTY (507)` named `client_info`
+
+`client_info` is the Epic 7.3 character-level settings blob. It contains the quick-slot defaults,
+the complete `KMT` keyboard map and chat-mode flags as one pipe-delimited ASCII string. The server
+stores it in the Telecaster `Characters.ClientInfo` text column. Older rows with no value receive the
+default map during character loading. When the player changes a binding, the client sends the whole
+value back in `TS_CS_SET_PROPERTY (508)`, normally during logout, and the server persists it for the
+next login. Later-Epic properties such as `quick_slot`, `current_key` and `saved_key` are not used by
+this client build.
 
 The Epic 7.3 wear packet is 323 bytes including its seven-byte frame. It has a handle, 24 item codes,
 24 enhancement values, 24 item levels and 24 elemental-effect bytes. The appearance-code array starts
@@ -76,5 +85,6 @@ corrupts every item after the first one.
 ## Tests
 
 `GameCharacterPacketsTests` checks model mapping, wear size and slots, inventory offsets, progression
-packet fields and frame checksums. `CharacterDefaultsTests` checks all three starter jobs and the
+packet fields and frame checksums. `GameStatPacketsTests` checks the numeric and string property
+layouts. `CharacterDefaultsTests` checks all three starter jobs, the complete Epic 7.3 key map and the
 automatic repair of existing characters.

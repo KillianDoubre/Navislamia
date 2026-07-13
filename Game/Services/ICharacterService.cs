@@ -18,6 +18,8 @@ public interface ICharacterService
 
     Task DeleteCharacterByNameAsync(string characterName);
 
+    Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo);
+
     void SaveChanges();
 
 }

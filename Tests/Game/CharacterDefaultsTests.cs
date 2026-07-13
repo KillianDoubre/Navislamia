@@ -33,6 +33,7 @@ public class CharacterDefaultsTests
         character.JobDepth.Should().Be(JobDepth.Base);
         character.PreviousJobs.Should().Equal((Job)0, (Job)0, (Job)0);
         character.JobLvs.Should().Equal(0, 0, 0);
+        character.ClientInfo.Should().Be(CharacterDefaults.DefaultClientInfo);
     }
 
     [Test]
@@ -47,13 +48,23 @@ public class CharacterDefaultsTests
             Jlv = 18,
             JobDepth = JobDepth.First,
             PreviousJobs = new[] { Job.Rogue, (Job)0, (Job)0 },
-            JobLvs = new[] { 10, 0, 0 }
+            JobLvs = new[] { 10, 0, 0 },
+            ClientInfo = CharacterDefaults.DefaultClientInfo
         };
 
         CharacterDefaults.Apply(character).Should().BeFalse();
 
         character.CurrentJob.Should().Be(Job.Fighter);
         character.Jlv.Should().Be(18);
+    }
+
+    [Test]
+    public void DefaultClientInfo_ContainsTheCompleteEpic73KeyMap()
+    {
+        CharacterDefaults.DefaultClientInfo.Should().StartWith("QS2=0,2,0|QS2=1,2,2");
+        CharacterDefaults.DefaultClientInfo.Should().Contain("KMT=0,0,0,0,192");
+        CharacterDefaults.DefaultClientInfo.Should().Contain("KMT=128,0,0,0,76");
+        CharacterDefaults.DefaultClientInfo.Should().EndWith("CLIENTVER=1");
     }
 
     [Test]

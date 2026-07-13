@@ -95,6 +95,19 @@ public class CharacterService : ICharacterService
         _characterRepository.Delete(entity);
     }
 
+    public async Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo)
+    {
+        var character = _characterRepository.GetCharacterByName(characterName);
+        if (character is null)
+        {
+            return false;
+        }
+
+        character.ClientInfo = clientInfo;
+        await _characterRepository.SaveChangesAsync();
+        return true;
+    }
+
     public async void SaveChanges()
     {
         await _characterRepository.SaveChangesAsync();

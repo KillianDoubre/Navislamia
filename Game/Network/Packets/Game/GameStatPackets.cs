@@ -74,6 +74,50 @@ public static class GameStatPackets
         return p;
     }
 
+    public static byte[] BuildStringProperty(uint handle, string name, string value)
+    {
+        const int nameSize = 16;
+        const int stringOffset = HeaderSize + 4 + 1 + nameSize + 8;
+        var valueBytes = Encoding.ASCII.GetBytes(value ?? string.Empty);
+        var packet = new byte[stringOffset + valueBytes.Length + 1];
+        var span = packet.AsSpan();
+
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(0, 4), (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(4, 2), (ushort)GamePackets.TM_SC_PROPERTY);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(HeaderSize, 4), handle);
+
+        var nameBytes = Encoding.ASCII.GetBytes(name);
+        nameBytes.AsSpan(0, Math.Min(nameBytes.Length, nameSize - 1)).CopyTo(span.Slice(12, nameSize));
+        valueBytes.CopyTo(span.Slice(stringOffset, valueBytes.Length));
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static bool TryReadSetProperty(ReadOnlySpan<byte> packet, out string name, out string value)
+    {
+        const int nameOffset = HeaderSize;
+        const int nameSize = 16;
+        const int valueOffset = nameOffset + nameSize;
+        name = string.Empty;
+        value = string.Empty;
+
+        if (packet.Length < valueOffset + 1)
+        {
+            return false;
+        }
+
+        name = ReadNullTerminatedAscii(packet.Slice(nameOffset, nameSize));
+        value = ReadNullTerminatedAscii(packet.Slice(valueOffset));
+        return name.Length > 0;
+    }
+
+    private static string ReadNullTerminatedAscii(ReadOnlySpan<byte> value)
+    {
+        var terminator = value.IndexOf((byte)0);
+        return Encoding.ASCII.GetString(terminator >= 0 ? value.Slice(0, terminator) : value);
+    }
+
     private static void WriteChecksum(byte[] p)
     {
         byte c = 0;

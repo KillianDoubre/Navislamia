@@ -10,6 +10,7 @@ public class ConnectionInfo
     public uint TargetHandle { get; set; }
     public int CharacterHp { get; set; }
     public int CharacterLevel { get; set; }
+    public uint ClientClockOffset { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
     public readonly object MonsterVisibilityLock = new();

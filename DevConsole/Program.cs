@@ -43,6 +43,8 @@ public class Program
             Log.Logger.Verbose("Applied Telecaster migrations: {Migrations}\n", await telecaster.Database.GetAppliedMigrationsAsync());
         }
 
+        host.Services.GetRequiredService<MonsterMovementService>();
+
         await host.RunAsync();
         await Log.CloseAndFlushAsync();
     }
@@ -123,7 +125,9 @@ public class Program
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();
-        services.AddSingleton<INetworkService, NetworkService>();
+        services.AddSingleton<NetworkService>();
+        services.AddSingleton<INetworkService>(provider => provider.GetRequiredService<NetworkService>());
+        services.AddSingleton<MonsterMovementService>();
         services.AddSingleton<ICharacterService, CharacterService>();
         services.AddSingleton<IBannedWordsRepository, BannedWordsRepository>();
         services.AddSingleton<IStatService, StatService>();

@@ -82,7 +82,7 @@ public class Client : IDisposable
 
             case ClientType.Game:
                 {
-                    _networkService.AuthorizedGameClients.Remove(ConnectionInfo.AccountName);
+                    _networkService.AuthorizedGameClients.TryRemove(ConnectionInfo.AccountName, out _);
 
                     var logoutMsg = new Packet<TS_GA_CLIENT_LOGOUT>((ushort)AuthPackets.TS_GA_CLIENT_LOGOUT, new TS_GA_CLIENT_LOGOUT(ConnectionInfo.AccountName, (uint)ConnectionInfo.ContinuousPlayTime));
 
