@@ -87,6 +87,7 @@ public class CharacterEntity : Entity
 	public DateTime? OtpVerifiedAt { get; set; }
 	public string[] FlagList { get; set; } // Lua stuff e.g.ry:49481...
 	public string ClientInfo { get; set; }
+	public virtual ICollection<CharacterSkillEntity> Skills { get; set; }
 	
 	public virtual ICollection<ItemEntity> Items { get; set; }
 	public virtual ICollection<AuctionEntity> Sellers { get; set; }

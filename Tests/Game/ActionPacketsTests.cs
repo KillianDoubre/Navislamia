@@ -42,6 +42,30 @@ public class ActionPacketsTests
     }
 
     [Test]
+    public void TryReadLearnSkill_ReadsTheEpic73Layout()
+    {
+        var packet = new byte[17];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(7, 4), 0x40000123u);
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(11, 4), 1004);
+        packet[15] = 1;
+
+        GameActionPackets.TryReadLearnSkill(packet, out var request).Should().BeTrue();
+        request.Handle.Should().Be(0x40000123u);
+        request.SkillId.Should().Be(1004);
+        request.TargetLevel.Should().Be(1);
+    }
+
+    [Test]
+    public void TryReadLearnSkill_RejectsTruncatedOrNonZeroPadding()
+    {
+        GameActionPackets.TryReadLearnSkill(new byte[16], out _).Should().BeFalse();
+
+        var packet = new byte[17];
+        packet[16] = 1;
+        GameActionPackets.TryReadLearnSkill(packet, out _).Should().BeFalse();
+    }
+
+    [Test]
     public void ConnectionInfo_TargetHandleDefaultsToZero()
     {
         new ConnectionInfo().TargetHandle.Should().Be(0u);
@@ -76,6 +100,7 @@ public class ActionPacketsTests
             CharacterHp = 500,
             CharacterLevel = 25,
             CharacterRace = 3,
+            CharacterJob = 300,
             CharacterJobLevel = 12,
             CharacterExp = 1234,
             CharacterJp = 567,
@@ -92,6 +117,7 @@ public class ActionPacketsTests
         info.SpawnedMonsters[2] = 20;
         info.NpcDialogHandle = 10;
         info.NpcDialogTriggers.Add("Next()");
+        info.LearnedSkills[1004] = 1;
 
         info.ClearCharacterSession();
 
@@ -104,6 +130,7 @@ public class ActionPacketsTests
         info.CharacterHp.Should().Be(0);
         info.CharacterLevel.Should().Be(0);
         info.CharacterRace.Should().Be(0);
+        info.CharacterJob.Should().Be(0);
         info.CharacterJobLevel.Should().Be(0);
         info.CharacterExp.Should().Be(0);
         info.CharacterJp.Should().Be(0);
@@ -119,5 +146,6 @@ public class ActionPacketsTests
         info.SpawnedMonsters.Should().BeEmpty();
         info.NpcDialogHandle.Should().Be(0);
         info.NpcDialogTriggers.Should().BeEmpty();
+        info.LearnedSkills.Should().BeEmpty();
     }
 }

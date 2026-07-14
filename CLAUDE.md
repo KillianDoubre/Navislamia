@@ -41,6 +41,12 @@ The packet header is seven packed bytes: `uint Length`, `ushort ID`, `byte Check
 the sum of the first six header bytes. Fixed packets use packed structs; variable packets are built or
 parsed manually with little-endian primitives.
 
+Some client packets are header-only (exactly 7 bytes): `TM_CS_RETURN_LOBBY (23)`,
+`TM_CS_REQUEST_RETURN_LOBBY (25)` and `TM_CS_LOGOUT (27)`. Receive loops must therefore use
+`remainingData >= Marshal.SizeOf<Header>()`; the historical `>` comparison silently dropped a
+header-only packet whenever it arrived alone in a TCP read, which made return-to-lobby hang
+nondeterministically (it only worked when packet 23 was coalesced with other traffic).
+
 Client-to-auth and client-to-game traffic uses the community client's custom XRC4 key configured in
 both appsettings files. The `/notenc` auth path still uses XRC4 transport encryption. Passwords in
 `TS_CA_ACCOUNT` are DES-ECB encrypted with the `MERONG` passphrase.
@@ -196,6 +202,33 @@ consumed without a response because the server has already applied the level. Th
 through `CharacterService.SaveProgressAsync`. The exp curve comes from 9.4 data and may differ slightly
 from the 7.3 client's own table.
 
+Job level is server-driven too. The JLv-up button sends `TM_CS_JOB_LEVEL_UP` (`410`); the server spends
+JP and raises `CharacterJobLevel` by one. The per-JLv JP cost is `LevelResource.JLvs[0]` (the `jp_0`
+column, the first-job cost, small enough to fit `int`; `jp_1..jp_3` overflow `int` at higher levels and
+are not imported). `LevelingService.ApplyJobLevelUp` uses the pure `JobLevelCurve.NextCost`, which
+returns the cost for the current JLv or `0` when the tier is capped (`jp_0` drops to `0` around JLv 10).
+JP is consumed, not a cumulative threshold. The response sequence mirrors the reference server: the exp
+update carrying the new JP, the `job_level` property (`TS_SC_PROPERTY`, which the skill window reads to
+refresh), then `TS_SC_RESULT` tagged with request 410 and the target handle as value (which triggers the
+client-side flow; failures answer `NotEnoughJP` or `LimitMax`). Do not send `TS_SC_LEVEL_UPDATE` here.
+Only the first job tier is wired; higher tiers need `jp_1..jp_3` in a `bigint` array. The job level
+persists through `SaveProgressAsync`.
+
+Skill learning is server-authoritative. Epic 7.3 sends `TM_CS_LEARN_SKILL` (`402`, 17 bytes) with the
+character handle, skill id and requested level. `SkillCatalog` validates that the request advances by
+exactly one level, belongs to the current job tree, satisfies character/JLv/skill prerequisites and
+does not exceed the configured maximum. It then derives the JP cost from
+`DevConsole/skill-catalog.73.json`; this immutable runtime index contains 1,339 job/skill definitions
+for the 42 classic jobs and is generated from `JobResource`, `SkillTreeResource` and `SkillJPResource`
+by `tools/Export-SkillCatalog.ps1`.
+
+JP and the learned level are committed together in Telecaster (`CharacterSkills`, unique on
+character/skill) before runtime state changes. On success the client receives `TS_SC_EXP_UPDATE`
+(`1003`) with the remaining JP, a one-record `TS_SC_SKILL_LIST` (`403`) and the result for request
+`402`. Login sends the complete learned list through `403`, followed by the existing empty added-skill
+marker `404`. The catalog uses the available 9.4 classic-job tables behind the Epic 7.3 wire format;
+the client only requests skills exposed by its own 7.3 resources. See `docs/skill-learning.md`.
+
 The death sequence lets the client play its death animation: the killing swing is followed by
 `TS_SC_STATUS_CHANGE` (`500`) with the dead flag (`1 << 8`), and the `TS_SC_LEAVE` that removes the
 corpse is deferred by `DeathAnimationSeconds` (6 s) through a pending-leave list on the combat tick
@@ -222,7 +255,8 @@ and applied to `start_time` so the walk does not teleport. Walk speed is a place
   taming; damage, attack speed and walk speed are placeholders
 - NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
   teleportation and quest mutation are not executed yet
-- Advanced cosmetics, equipment changes and learned-skill persistence are not implemented
+- Skill learning and persistence work; casting, passive application and skill effects are not implemented
+- Advanced cosmetics and equipment changes are not implemented
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work

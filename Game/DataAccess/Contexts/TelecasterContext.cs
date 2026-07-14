@@ -10,6 +10,7 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<AllianceEntity> Alliances { get; set; }
     public DbSet<AuctionEntity> Auctions { get; set; }
     public DbSet<CharacterEntity> Characters { get; set; }
+    public DbSet<CharacterSkillEntity> CharacterSkills { get; set; }
     public DbSet<DungeonEntity> Dungeons { get; set; }
     public DbSet<GuildEntity> Guilds { get; set; }
     public DbSet<ItemEntity> Items { get; set; }
@@ -61,6 +62,16 @@ public class TelecasterContext : SoftDeletionContext
             .WithOne(i => i.Character)
             .HasForeignKey(i => i.CharacterId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CharacterEntity>()
+            .HasMany(c => c.Skills)
+            .WithOne(skill => skill.Character)
+            .HasForeignKey(skill => skill.CharacterId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CharacterSkillEntity>()
+            .HasIndex(skill => new { skill.CharacterId, skill.SkillId })
+            .IsUnique();
         
         modelBuilder.Entity<CharacterEntity>()
             .HasOne(c => c.Party)

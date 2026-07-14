@@ -132,6 +132,24 @@ public class GameCharacterPacketsTests
     }
 
     [Test]
+    public void BuildSkillList_WritesTheEpic73SkillRecord()
+    {
+        var packet = GameCharacterPackets.BuildSkillList(0x11223344,
+            new Dictionary<int, byte> { [1004] = 2 });
+
+        packet.Length.Should().Be(28);
+        AssertFrame(packet, GamePackets.TM_SC_SKILL_LIST);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x11223344);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(11, 2)).Should().Be(1);
+        packet[13].Should().Be(0);
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(14, 4)).Should().Be(1004);
+        packet[18].Should().Be(2);
+        packet[19].Should().Be(2);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(20, 4)).Should().Be(0);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(24, 4)).Should().Be(0);
+    }
+
+    [Test]
     public void BuildAppearancePackets_WriteAllClientAppearanceFields()
     {
         var hair = GameCharacterPackets.BuildHairInfo(42, 205, 3, 0x00112233);

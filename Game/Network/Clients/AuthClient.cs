@@ -53,7 +53,7 @@ public class AuthClient : Client
     {
         var remainingData = bytesReceived;
 
-        while (remainingData > Marshal.SizeOf<Header>())
+        while (remainingData >= Marshal.SizeOf<Header>())
         {
             var header = new Header(Connection.Peek(Marshal.SizeOf<Header>()));
             var isValidMsg = header.Checksum == header.CalculateChecksum();

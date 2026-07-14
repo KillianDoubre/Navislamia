@@ -20,7 +20,9 @@ public interface ICharacterService
 
     Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo);
 
-    Task SaveProgressAsync(string characterName, int level, long exp, long jp, long gold, int chaos);
+    Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp);
+
+    Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos);
 
     void SaveChanges();
 

@@ -23,6 +23,8 @@ public class NetworkService : INetworkService
     public readonly INpcDialogService NpcDialogService;
     public readonly IMonsterSpawnService MonsterSpawnService;
     public readonly ICombatService CombatService;
+    public readonly ILevelingService LevelingService;
+    public readonly ISkillService SkillService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -39,7 +41,7 @@ public class NetworkService : INetworkService
         IStatService statService, IOptions<ServerOptions> serverOptions,
         INpcSpawnService npcSpawnService, INpcDialogService npcDialogService,
         IMonsterSpawnService monsterSpawnService,
-        ICombatService combatService)
+        ICombatService combatService, ILevelingService levelingService, ISkillService skillService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -49,6 +51,8 @@ public class NetworkService : INetworkService
         NpcDialogService = npcDialogService;
         MonsterSpawnService = monsterSpawnService;
         CombatService = combatService;
+        LevelingService = levelingService;
+        SkillService = skillService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
     }

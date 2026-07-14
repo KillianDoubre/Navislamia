@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Network.Packets;
+using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Serilog;
 
@@ -14,6 +16,7 @@ public class LevelingService : ILevelingService
     private readonly IStatService _statService;
 
     private long[] _cumulativeExp;
+    private int[] _jobJpCost;
     private int _maxLevel;
 
     public LevelingService(ILevelResourceRepository repository, IStatService statService)
@@ -50,6 +53,42 @@ public class LevelingService : ILevelingService
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", stats.MaxMp));
     }
 
+    public void ApplyJobLevelUp(GameClient client, uint targetHandle)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_JOB_LEVEL_UP;
+        var target = unchecked((int)targetHandle);
+
+        if (_jobJpCost == null)
+        {
+            client.SendResult(requestId, (ushort)ResultCode.NotActable, target);
+            return;
+        }
+
+        var info = client.ConnectionInfo;
+        var current = info.CharacterJobLevel < 1 ? 1 : info.CharacterJobLevel;
+        var cost = JobLevelCurve.NextCost(_jobJpCost, current);
+
+        if (cost <= 0)
+        {
+            client.SendResult(requestId, (ushort)ResultCode.LimitMax, target);
+            return;
+        }
+
+        if (info.CharacterJp < cost)
+        {
+            client.SendResult(requestId, (ushort)ResultCode.NotEnoughJP, target);
+            return;
+        }
+
+        info.CharacterJp -= cost;
+        info.CharacterJobLevel = current + 1;
+
+        var handle = info.CharacterHandle;
+        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(handle, info.CharacterExp, info.CharacterJp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "job_level", info.CharacterJobLevel));
+        client.SendResult(requestId, (ushort)ResultCode.Success, target);
+    }
+
     private void Load()
     {
         try
@@ -63,17 +102,22 @@ public class LevelingService : ILevelingService
 
             var maxLevel = levels.Max(level => level.Level);
             var cumulativeExp = new long[maxLevel + 1];
+            var jobJpCost = new int[maxLevel + 1];
             Array.Fill(cumulativeExp, long.MaxValue);
 
             foreach (var level in levels)
             {
-                if (level.Level >= 1 && level.Level <= maxLevel)
+                if (level.Level < 1 || level.Level > maxLevel)
                 {
-                    cumulativeExp[level.Level] = level.NormalExp;
+                    continue;
                 }
+
+                cumulativeExp[level.Level] = level.NormalExp;
+                jobJpCost[level.Level] = level.JLvs is { Length: > 0 } ? level.JLvs[0] : 0;
             }
 
             _cumulativeExp = cumulativeExp;
+            _jobJpCost = jobJpCost;
             _maxLevel = maxLevel;
             _logger.Information("Loaded {count} level thresholds (max level {max})", levels.Count, maxLevel);
         }

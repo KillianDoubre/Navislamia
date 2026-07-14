@@ -23,7 +23,8 @@ public class LevelResourceRepository : ILevelResourceRepository
             .Select(level => new LevelResourceEntity
             {
                 Level = level.Level,
-                NormalExp = level.NormalExp
+                NormalExp = level.NormalExp,
+                JLvs = level.JLvs
             })
             .ToList();
     }

@@ -11,6 +11,7 @@ public class ConnectionInfo
     public int CharacterHp { get; set; }
     public int CharacterLevel { get; set; }
     public int CharacterRace { get; set; }
+    public int CharacterJob { get; set; }
     public int CharacterJobLevel { get; set; }
     public long CharacterExp { get; set; }
     public long CharacterJp { get; set; }
@@ -26,6 +27,7 @@ public class ConnectionInfo
     public Dictionary<long, uint> SpawnedMonsters { get; } = new();
     public uint NpcDialogHandle { get; set; }
     public HashSet<string> NpcDialogTriggers { get; } = new();
+    public Dictionary<int, byte> LearnedSkills { get; } = new();
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }
@@ -65,6 +67,7 @@ public class ConnectionInfo
         CharacterHp = 0;
         CharacterLevel = 0;
         CharacterRace = 0;
+        CharacterJob = 0;
         CharacterJobLevel = 0;
         CharacterExp = 0;
         CharacterJp = 0;
@@ -76,6 +79,7 @@ public class ConnectionInfo
         Y = 0;
         Z = 0;
         NameToDelete = string.Empty;
+        LearnedSkills.Clear();
         ClearVisibleObjects();
     }
 

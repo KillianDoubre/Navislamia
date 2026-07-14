@@ -85,24 +85,32 @@ public class GameActions : IActions
             position = DefaultSpawn;
         }
 
-        var stats = _statService.Compute(character.Race, character.Lv > 0 ? character.Lv : 1);
+        var level = character.Lv > 0 ? character.Lv : 1;
+        var stats = _statService.Compute(character.Race, level);
         var hp = character.Hp > 0 ? character.Hp : stats.MaxHp;
         var mp = character.Mp > 0 ? character.Mp : stats.MaxMp;
 
-        client.ConnectionInfo.CharacterHandle = (uint)character.Id;
-        client.ConnectionInfo.CharacterName = character.CharacterName;
-        client.ConnectionInfo.CharacterHp = hp;
-        client.ConnectionInfo.CharacterLevel = character.Lv > 0 ? character.Lv : 1;
-        client.ConnectionInfo.CharacterRace = character.Race;
-        client.ConnectionInfo.CharacterJobLevel = character.Jlv;
-        client.ConnectionInfo.CharacterExp = character.Exp;
-        client.ConnectionInfo.CharacterJp = character.Jp;
-        client.ConnectionInfo.CharacterGold = character.Gold;
-        client.ConnectionInfo.CharacterChaos = character.Chaos;
-        client.ConnectionInfo.Layer = (byte)character.Layer;
-        client.ConnectionInfo.X = position[0];
-        client.ConnectionInfo.Y = position[1];
-        client.ConnectionInfo.Z = position[2];
+        var info = client.ConnectionInfo;
+        info.CharacterHandle = (uint)character.Id;
+        info.CharacterName = character.CharacterName;
+        info.CharacterHp = hp;
+        info.CharacterLevel = level;
+        info.CharacterRace = character.Race;
+        info.CharacterJob = (int)character.CurrentJob;
+        info.CharacterJobLevel = character.Jlv;
+        info.CharacterExp = character.Exp;
+        info.CharacterJp = character.Jp;
+        info.CharacterGold = character.Gold;
+        info.CharacterChaos = character.Chaos;
+        info.Layer = (byte)character.Layer;
+        info.X = position[0];
+        info.Y = position[1];
+        info.Z = position[2];
+        info.LearnedSkills.Clear();
+        foreach (var skill in character.Skills ?? Array.Empty<CharacterSkillEntity>())
+        {
+            info.LearnedSkills[skill.SkillId] = skill.Level;
+        }
 
         var result = new TS_SC_LOGIN_RESULT
         {
@@ -148,7 +156,7 @@ public class GameActions : IActions
             MaxHp = hp,
             Mp = mp,
             MaxMp = mp,
-            Level = character.Lv > 0 ? character.Lv : 1,
+            Level = level,
             Race = (byte)character.Race,
             SkinColor = (uint)character.SkinColor,
             IsFirstEnter = 1,
@@ -192,6 +200,12 @@ public class GameActions : IActions
         {
             client.Connection.Send(GameStatPackets.BuildProperty(handle, $"job_{i}", (int)character.PreviousJobs[i]));
             client.Connection.Send(GameStatPackets.BuildProperty(handle, $"jlv_{i}", character.JobLvs[i]));
+        }
+
+        if (client.ConnectionInfo.LearnedSkills.Count > 0)
+        {
+            var skills = client.ConnectionInfo.LearnedSkills.OrderBy(skill => skill.Key).ToArray();
+            client.Connection.Send(GameCharacterPackets.BuildSkillList(handle, skills));
         }
 
         client.Connection.Send(GameCharacterPackets.BuildEmptyAddedSkillList(handle));

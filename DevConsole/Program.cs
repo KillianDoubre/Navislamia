@@ -86,6 +86,7 @@ public class Program
         services.Configure<ServerOptions>(context.Configuration.GetSection("Server"));
         ConfigureMonsterSpawns(services, context);
         ConfigureNpcDialogs(services, context);
+        ConfigureSkillCatalog(services, context);
     }
 
     private static void ConfigureMonsterSpawns(IServiceCollection services, HostBuilderContext context)
@@ -131,6 +132,23 @@ public class Program
         });
     }
 
+    private static void ConfigureSkillCatalog(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "skill-catalog.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<SkillCatalogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("SkillCatalog")
+            .Deserialize<SkillCatalogOptions>() ?? new SkillCatalogOptions();
+
+        services.Configure<SkillCatalogOptions>(options => options.Jobs = catalog.Jobs);
+    }
+
     private static void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IGameModule, GameModule>();
@@ -144,6 +162,8 @@ public class Program
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
         services.AddSingleton<ILevelingService, LevelingService>();
+        services.AddSingleton<SkillCatalog>();
+        services.AddSingleton<ISkillService, SkillService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();

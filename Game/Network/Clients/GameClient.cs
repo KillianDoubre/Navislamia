@@ -18,6 +18,7 @@ public class GameClient : Client
     private readonly ILogger _logger = Log.ForContext<GameClient>();
     private readonly NetworkService _networkService;
     private int _returnToLobbyInProgress;
+    private int _learnSkillInProgress;
 
     public GameClient(Socket socket, NetworkService networkService) : base(networkService, ClientType.Game)
     {
@@ -241,11 +242,41 @@ public class GameClient : Client
         try
         {
             await _networkService.CharacterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
-                info.CharacterExp, info.CharacterJp, info.CharacterGold, info.CharacterChaos);
+                info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold, info.CharacterChaos);
         }
         catch (Exception exception)
         {
             _logger.Error(exception, "Could not save progress {operation} for {clientTag}", operation, ClientTag);
+        }
+    }
+
+    private async Task HandleLearnSkillAsync(byte[] packet)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
+        if (!GameActionPackets.TryReadLearnSkill(packet, out var request))
+        {
+            SendResult(requestId, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _learnSkillInProgress, 1, 0) != 0)
+        {
+            SendResult(requestId, (ushort)ResultCode.Pending, request.SkillId);
+            return;
+        }
+
+        try
+        {
+            await _networkService.SkillService.LearnAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process skill learning for {clientTag}", ClientTag);
+            SendResult(requestId, (ushort)ResultCode.Misc, request.SkillId);
+        }
+        finally
+        {
+            Volatile.Write(ref _learnSkillInProgress, 0);
         }
     }
 
@@ -259,7 +290,7 @@ public class GameClient : Client
     {
         var remainingData = bytesReceived;
 
-        while (remainingData > Marshal.SizeOf<Header>())
+        while (remainingData >= Marshal.SizeOf<Header>())
         {
             var header = new Header(Connection.Peek(Marshal.SizeOf<Header>()));
             var isValidMsg = header.Checksum == header.CalculateChecksum();
@@ -323,6 +354,18 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_ATTACK_REQUEST)
             {
                 HandleAttackRequest(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_JOB_LEVEL_UP)
+            {
+                _networkService.LevelingService.ApplyJobLevelUp(this, GameActionPackets.ReadTargetHandle(msgBuffer));
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_LEARN_SKILL)
+            {
+                _ = HandleLearnSkillAsync(msgBuffer);
                 continue;
             }
 

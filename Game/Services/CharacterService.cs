@@ -109,7 +109,35 @@ public class CharacterService : ICharacterService
         return true;
     }
 
-    public async Task SaveProgressAsync(string characterName, int level, long exp, long jp, long gold, int chaos)
+    public async Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp)
+    {
+        var character = _characterRepository.GetCharacterByName(characterName);
+        if (character is null)
+        {
+            return false;
+        }
+
+        character.Skills ??= new List<CharacterSkillEntity>();
+        var skill = character.Skills.FirstOrDefault(entry => entry.SkillId == skillId);
+        if (skill is null)
+        {
+            character.Skills.Add(new CharacterSkillEntity
+            {
+                SkillId = skillId,
+                Level = level
+            });
+        }
+        else
+        {
+            skill.Level = level;
+        }
+
+        character.Jp = remainingJp;
+        await _characterRepository.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos)
     {
         if (string.IsNullOrEmpty(characterName))
         {
@@ -126,6 +154,11 @@ public class CharacterService : ICharacterService
         {
             character.Lv = level;
             character.MaxReachedLv = Math.Max(character.MaxReachedLv, level);
+        }
+
+        if (jobLevel > 0)
+        {
+            character.Jlv = jobLevel;
         }
 
         character.Exp = exp;

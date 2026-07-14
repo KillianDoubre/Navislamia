@@ -98,14 +98,36 @@ public class CharacterDefaultsTests
             repository,
             A.Fake<ILogger<CharacterService>>());
 
-        await service.SaveProgressAsync("Character", 1, 100, 200, 300, 400);
+        await service.SaveProgressAsync("Character", 1, 5, 100, 200, 300, 400);
 
         character.Lv.Should().Be(1);
         character.MaxReachedLv.Should().Be(1);
+        character.Jlv.Should().Be(5);
         character.Exp.Should().Be(100);
         character.Jp.Should().Be(200);
         character.Gold.Should().Be(300);
         character.Chaos.Should().Be(400);
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_PersistsLearnedSkillAndRemainingJpTogether()
+    {
+        var character = new CharacterEntity
+        {
+            CharacterName = "Character",
+            Jp = 100,
+            Skills = new List<CharacterSkillEntity>()
+        };
+        var repository = A.Fake<ICharacterRepository>();
+        A.CallTo(() => repository.GetCharacterByName("Character")).Returns(character);
+        var service = new CharacterService(A.Fake<IStarterItemsRepository>(), repository,
+            A.Fake<ILogger<CharacterService>>());
+
+        (await service.SaveLearnedSkillAsync("Character", 1004, 1, 96)).Should().BeTrue();
+
+        character.Jp.Should().Be(96);
+        character.Skills.Should().ContainSingle(skill => skill.SkillId == 1004 && skill.Level == 1);
         A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
     }
 }

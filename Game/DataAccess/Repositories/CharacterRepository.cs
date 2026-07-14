@@ -22,7 +22,7 @@ public class CharacterRepository : ICharacterRepository
 
         if (withItems)
         {
-            query = query.Include(c => c.Items);
+            query = query.Include(c => c.Items).Include(c => c.Skills);
         }
         
         return await query.ToListAsync();

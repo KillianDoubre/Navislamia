@@ -59,7 +59,8 @@ After `TS_SC_LOGIN_RESULT (4)` and player `TS_SC_ENTER (3)`, the server sends:
 6. `TS_SC_GOLD_UPDATE (1001)`
 7. `TS_SC_LEVEL_UPDATE (1002)` and `TS_SC_EXP_UPDATE (1003)`
 8. numeric `TS_SC_PROPERTY (507)` packets, including current and previous jobs
-9. empty `TS_SC_ADDED_SKILL_LIST (404)` until learned skills are implemented
+9. `TS_SC_SKILL_LIST (403)` when the character has learned skills, then the empty
+   `TS_SC_ADDED_SKILL_LIST (404)` end marker
 10. `TS_SC_BELT_SLOT_INFO (216)`
 11. `TS_SC_GAME_TIME (1101)`
 12. `TS_SC_STATUS_CHANGE (500)`

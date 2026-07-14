@@ -164,6 +164,30 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    public static byte[] BuildSkillList(uint handle, IReadOnlyCollection<KeyValuePair<int, byte>> skills)
+    {
+        const int fixedPayloadSize = 7;
+        const int skillRecordSize = 14;
+        var packet = CreatePacket(GamePackets.TM_SC_SKILL_LIST,
+            HeaderSize + fixedPayloadSize + skills.Count * skillRecordSize);
+        var payload = packet.AsSpan(HeaderSize);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(payload, handle);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), checked((ushort)skills.Count));
+
+        var offset = fixedPayloadSize;
+        foreach (var skill in skills)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(offset, 4), skill.Key);
+            payload[offset + 4] = skill.Value;
+            payload[offset + 5] = skill.Value;
+            offset += skillRecordSize;
+        }
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildBeltSlotInfo(long[] beltSlots)
     {
         const int slotCount = 6;
