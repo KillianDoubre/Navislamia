@@ -38,6 +38,36 @@ public static class GameActionPackets
         return true;
     }
 
+    public readonly record struct EraseItemRequest(uint ItemHandle, long Count);
+
+    public static bool TryReadEraseItem(ReadOnlySpan<byte> packet, out EraseItemRequest[] requests)
+    {
+        const int recordSize = 12;
+        requests = null;
+
+        if (packet.Length < HeaderSize + 1)
+        {
+            return false;
+        }
+
+        var count = (sbyte)packet[HeaderSize];
+        if (count <= 0 || packet.Length < HeaderSize + 1 + count * recordSize)
+        {
+            return false;
+        }
+
+        requests = new EraseItemRequest[count];
+        for (var i = 0; i < count; i++)
+        {
+            var record = packet.Slice(HeaderSize + 1 + i * recordSize, recordSize);
+            requests[i] = new EraseItemRequest(
+                BinaryPrimitives.ReadUInt32LittleEndian(record.Slice(0, 4)),
+                BinaryPrimitives.ReadInt64LittleEndian(record.Slice(4, 8)));
+        }
+
+        return true;
+    }
+
     public static bool TryReadTakeItem(ReadOnlySpan<byte> packet, out uint itemHandle)
     {
         const int packetLength = HeaderSize + 8;

@@ -20,6 +20,8 @@ public interface ICharacterRepository
     
     void Delete(CharacterEntity entity);
 
+    void DeleteItem(ItemEntity item);
+
     /// <summary>
     /// Avoid using SaveChanges directly from context as it applies modifications directly to the database.
     /// Finish all required operations for a step then call this method

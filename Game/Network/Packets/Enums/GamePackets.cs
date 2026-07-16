@@ -26,6 +26,8 @@ public enum GamePackets : ushort
     TM_SC_WEAR_INFO = 202,
     TM_SC_ITEM_WEAR_INFO = 287,
     TM_SC_INVENTORY = 207,
+    TM_CS_ERASE_ITEM = 208,
+    TM_SC_ERASE_ITEM = 209,
     TM_CS_TAKE_ITEM = 204,
     TM_SC_TAKE_ITEM_RESULT = 210,
     TM_SC_BELT_SLOT_INFO = 216,

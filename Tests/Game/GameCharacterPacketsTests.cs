@@ -20,6 +20,21 @@ public class GameCharacterPacketsTests
     }
 
     [Test]
+    public void BuildEraseItem_LaysOutTheCountedTwelveByteResults()
+    {
+        var packet = GameCharacterPackets.BuildEraseItem(new[] { (0x80000111u, 4L), (0x80000222u, 1L) });
+
+        packet.Should().HaveCount(7 + 1 + 2 * 12);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4))
+            .Should().Be((ushort)GamePackets.TM_SC_ERASE_ITEM);
+        packet[7].Should().Be(2);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(8)).Should().Be(0x80000111u);
+        BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(12)).Should().Be(4);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(20)).Should().Be(0x80000222u);
+        BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(24)).Should().Be(1);
+    }
+
+    [Test]
     public void BuildItemWearInfo_LaysOutTheEpic73ItemWearRecord()
     {
         var packet = GameCharacterPackets.BuildItemWearInfo(itemHandle: 0x12345678u, wearPosition: -1,

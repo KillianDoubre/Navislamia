@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.Network.Packets.Game;
 
 namespace Navislamia.Game.Services;
 
@@ -32,6 +33,9 @@ public interface ICharacterService
     Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2);
 
     Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);
+
+    Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
+        IReadOnlyList<GameActionPackets.EraseItemRequest> requests);
 
     Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos);
 

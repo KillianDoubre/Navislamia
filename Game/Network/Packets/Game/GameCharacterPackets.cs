@@ -133,6 +133,24 @@ public static class GameCharacterPackets
         return packets;
     }
 
+    public static byte[] BuildEraseItem(IReadOnlyList<(uint Handle, long Count)> erased)
+    {
+        const int recordSize = 12;
+        var packet = CreatePacket(GamePackets.TM_SC_ERASE_ITEM, HeaderSize + 1 + erased.Count * recordSize);
+        var payload = packet.AsSpan(HeaderSize);
+        payload[0] = (byte)(sbyte)erased.Count;
+
+        for (var i = 0; i < erased.Count; i++)
+        {
+            var record = payload.Slice(1 + i * recordSize, recordSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(record.Slice(0, 4), erased[i].Handle);
+            BinaryPrimitives.WriteInt64LittleEndian(record.Slice(4, 8), erased[i].Count);
+        }
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildEquipSummon(long[] summonSlots)
     {
         const int slotCount = 6;

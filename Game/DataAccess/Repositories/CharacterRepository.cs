@@ -56,6 +56,11 @@ public class CharacterRepository : ICharacterRepository
         _context.Characters.Remove(entity);
     }
 
+    public void DeleteItem(ItemEntity item)
+    {
+        _context.Remove(item);
+    }
+
     public int CharacterCount(int accountId)
     {
         return _context.Characters.Count(c => c.AccountId == accountId);

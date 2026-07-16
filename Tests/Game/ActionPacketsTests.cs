@@ -153,6 +153,46 @@ public class ActionPacketsTests
     }
 
     [Test]
+    public void TryReadEraseItem_ReadsTheCountedTwelveByteRecords()
+    {
+        var packet = new byte[7 + 1 + 2 * 12];
+        packet[7] = 2;
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8, 4), 0x80000111u);
+        BinaryPrimitives.WriteInt64LittleEndian(packet.AsSpan(12, 8), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(20, 4), 0x80000222u);
+        BinaryPrimitives.WriteInt64LittleEndian(packet.AsSpan(24, 8), 1);
+
+        GameActionPackets.TryReadEraseItem(packet, out var requests).Should().BeTrue();
+        requests.Should().HaveCount(2);
+        requests[0].ItemHandle.Should().Be(0x80000111u);
+        requests[0].Count.Should().Be(4);
+        requests[1].ItemHandle.Should().Be(0x80000222u);
+        requests[1].Count.Should().Be(1);
+    }
+
+    [TestCase(2, 32)]
+    [TestCase(4, 56)]
+    public void TryReadEraseItem_MatchesTheLengthsObservedInGame(int items, int totalLength)
+    {
+        var packet = new byte[totalLength];
+        packet[7] = (byte)items;
+
+        GameActionPackets.TryReadEraseItem(packet, out var requests).Should().BeTrue();
+        requests.Should().HaveCount(items);
+    }
+
+    [Test]
+    public void TryReadEraseItem_RejectsATruncatedOrEmptyRequest()
+    {
+        var truncated = new byte[7 + 1 + 12];
+        truncated[7] = 2;
+        GameActionPackets.TryReadEraseItem(truncated, out _).Should().BeFalse();
+
+        var empty = new byte[7 + 1];
+        GameActionPackets.TryReadEraseItem(empty, out _).Should().BeFalse();
+    }
+
+    [Test]
     public void ConnectionInfo_TargetHandleDefaultsToZero()
     {
         new ConnectionInfo().TargetHandle.Should().Be(0u);

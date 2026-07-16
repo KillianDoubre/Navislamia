@@ -334,6 +334,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleEraseItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadEraseItem(packet, out var requests))
+        {
+            SendResult((ushort)GamePackets.TM_CS_ERASE_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.InventoryService.EraseAsync(this, requests);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process erase item for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleTakeItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadTakeItem(packet, out var itemHandle))
@@ -522,6 +540,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_TIMESYNC)
             {
                 HandleTimeSync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_ERASE_ITEM)
+            {
+                _ = HandleEraseItemAsync(msgBuffer);
                 continue;
             }
 

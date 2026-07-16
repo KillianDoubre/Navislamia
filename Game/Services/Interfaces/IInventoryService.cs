@@ -9,4 +9,6 @@ public interface IInventoryService
     Task ArrangeAsync(GameClient client, bool isStorage);
 
     Task SwapPositionsAsync(GameClient client, GameActionPackets.ChangeItemPositionRequest request);
+
+    Task EraseAsync(GameClient client, GameActionPackets.EraseItemRequest[] requests);
 }

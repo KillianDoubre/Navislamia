@@ -57,6 +57,30 @@ public class InventoryService : IInventoryService
         }
     }
 
+    public async Task EraseAsync(GameClient client, GameActionPackets.EraseItemRequest[] requests)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_ERASE_ITEM;
+        var target = unchecked((int)client.ConnectionInfo.CharacterHandle);
+
+        try
+        {
+            var erased = await _characterService.EraseItemsAsync(client.ConnectionInfo.CharacterName, requests);
+            if (erased.Count == 0)
+            {
+                client.SendResult(requestId, (ushort)ResultCode.NotExist, target);
+                return;
+            }
+
+            client.Connection.Send(GameCharacterPackets.BuildEraseItem(erased));
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not erase {count} items for {clientTag}", requests.Length,
+                client.ClientTag);
+            client.SendResult(requestId, (ushort)ResultCode.DBError, target);
+        }
+    }
+
     public async Task ArrangeAsync(GameClient client, bool isStorage)
     {
         var info = client.ConnectionInfo;

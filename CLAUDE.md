@@ -403,6 +403,26 @@ produces a nonsensical order.
 
 Storage is not implemented, so `is_storage = 1` answers `NotActable` for both packets.
 
+`TS_CS_ERASE_ITEM` (`208`) destroys items: a `count` byte @7 then that many 12-byte records of
+`item_handle` (uint32) + `count` (int64). A record whose count reaches the stack amount removes the
+`ItemEntity`; a smaller one decrements `Amount`. **Removing the item from `character.Items` is not
+enough** — `ItemEntity.CharacterId` is nullable, so EF orphans the row instead of deleting it; the
+repository's `DeleteItem` is what actually removes it. The bag is renumbered with
+`EnsureContiguousIndices` before saving. The answer is `TS_SC_ERASE_ITEM` (`209`, same counted
+12-byte layout, carrying the **erased** count), which since EPIC_7_2 replaces the plain `TS_SC_RESULT`
+this packet used to get. The client sends `208` **twice** per destroy action, so the second request
+finds nothing left and answers `NotExist`; the client ignores it.
+
+## Database access
+
+`CharacterRepository` is a singleton holding **one long-lived `TelecasterContext`**, and `GameClient`
+dispatches every packet handler fire-and-forget (`_ = HandleXxxAsync(...)`), so two packets can reach
+the context at the same time — EF then throws *"A second operation was started on this context
+instance"*. This is not hypothetical: the duplicate `208` above triggered it reliably.
+`CharacterService` is the only consumer of the repository and serializes every operation behind a
+`SemaphoreSlim`, so each read/mutate/`SaveChangesAsync` sequence is atomic against the shared context.
+Any new repository consumer must go through `CharacterService`, or the guarantee is gone.
+
 The original server's ordering could not be recovered exactly. The shipped `Game_bin` PDB proves the
 shape — `StructInventory::_ItemArrangeGreater(const StructItem*, const StructItem*)` is a comparator
 (so the sort is by item fields, not by name), `StructPlayer::ArrangeItem(bool)` returns a result code,
