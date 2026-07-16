@@ -183,6 +183,8 @@ public class Program
         services.AddSingleton<IJobLevelBonusRepository, JobLevelBonusRepository>();
         services.AddSingleton<IStatCatalog, StatCatalog>();
         services.AddSingleton<IItemStatCatalog, ItemStatCatalog>();
+        services.AddSingleton<ISkillResourceRepository, SkillResourceRepository>();
+        services.AddSingleton<ISkillPassiveCatalog, SkillPassiveCatalog>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();

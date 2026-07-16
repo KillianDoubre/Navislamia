@@ -211,6 +211,12 @@ JP is consumed, not a cumulative threshold. The response sequence mirrors the re
 update carrying the new JP, the `job_level` property (`TS_SC_PROPERTY`, which the skill window reads to
 refresh), then `TS_SC_RESULT` tagged with request 410 and the target handle as value (which triggers the
 client-side flow; failures answer `NotEnoughJP` or `LimitMax`). Do not send `TS_SC_LEVEL_UPDATE` here.
+**A JLv-up changes the base stats** through `JobLevelBonus`, so both `TS_SC_STAT_INFO` packets and the
+`max_hp`/`max_mp` properties are sent **after** that result — appended rather than inserted, so the
+sequence the client needs is untouched. Without them the stat window only caught up on the next world
+entry: the JLv/stat dependency arrived with the stat work while this trigger kept its old sequence.
+**Any change to what feeds the stats must revisit every trigger** (login, level-up, JLv-up,
+equip/unequip, skill learn).
 Only the first job tier is wired; higher tiers need `jp_1..jp_3` in a `bigint` array. The job level
 persists through `SaveProgressAsync`.
 
@@ -336,8 +342,10 @@ relog. The response order is: `TS_SC_ITEM_WEAR_INFO` for the displaced item (equ
 affected item, stat info, `TS_SC_RESULT` tagged with the request id, and finally the refreshed
 `TS_SC_WEAR_INFO` (a cleared slot falls back to the base body model through `InjectBaseModelIfEmpty`).
 
-Equipping recomputes the stats and refreshes the cached item effects on `ConnectionInfo`; see
-Character stats above.
+Equipping recomputes the stats and refreshes the cached item effects, the equipped weapon class and the
+passive effects on `ConnectionInfo` — a weapon change turns the gated masteries on and off, so all three
+are re-seeded together. The `max_hp`/`max_mp` properties travel with the two stat packets here too. See
+Character stats and Passive skills above.
 
 ## Character stats
 
@@ -414,6 +422,125 @@ and the `ItemResources` effect arrays (17 823 rows with a base effect, 12 635 wi
 were imported from the 9.4 SQL Server. `ItemResourceEntity` used to declare `BaseValues`/`OptValues` as
 `decimal[,]`, a multidimensional array Npgsql does not map — which is why those columns were empty; they
 are now flat `BaseVar1`/`BaseVar2`/`OptVar1`/`OptVar2`.
+
+## Passive skills
+
+Passive skills contribute to the stats, resolved at world entry and refreshed when a skill is learned.
+They reuse the stat machinery entirely: `StatBlock.Add`/`Amplify` and `StatCalculator` are unchanged, and
+`StatEffect` (formerly `ItemStatEffect`) carries item and passive contributions alike.
+
+```
+learned skill -> SkillResource.effect_type + var1..var20
+              -> pair (base, perLevel) per slot, the slot's stat fixed by the effect type
+              -> StatBlock
+amount = base + perLevel * skillLevel
+```
+
+**`SkillResource.var1..var20` are ten `(base, perLevel)` pairs, and the pair index selects the stat**,
+which the effect type determines. Proven by the tooltips: Body Training is `IncreaseHpMp` with pair 1 =
+`(0, 30)` and reads "Maximum HP increases"; Defense Training is `IncreaseBaseAttribute` with pair 1 =
+`(0, 3)` and reads "Defense power increases", while Mind Defense is the same effect type with **pair 2** =
+`(0, 3)` and reads "Increases magic defense power". `Creature HP Expansion` (pair 1) against
+`Creature MP Expansion` (pair 2) shows the same slot split independently.
+
+Supported effect types (`SkillPassiveCatalog.SlotTargets`), deliberately only the proven ones:
+
+| effect type | pair 1 | pair 2 |
+|---|---|---|
+| `WeaponMastery` (10001) | P. Atk | P. Atk Speed |
+| `IncreaseBaseAttribute` (10008) | P. Def | M. Def |
+| `IncreaseHpMp` (10021) | MAX HP | MAX MP |
+
+`WeaponMastery`'s **pair 2 is the attack speed**, proven three times with distinct values: Fighter's
+Combat Skill has `var3 = 5` and reads "Lv 1 also increases P. Atk. Spd. **by 5**", Archery Practice has
+`var3 = 15` and reads "**by 15**", and Sword Mastery pairs `(0, 1)` with "increases your physical attack
+**and attack speed**". A `(base, 0)` pair is therefore a flat bonus that does not scale with the level,
+which is what "Lv 1 also increases" means.
+
+**The weapon gate is uniform across every effect type, not a `WeaponMastery` special case.** A passive
+applies when `vf_is_not_need_weapon` is set **or** the equipped main-hand weapon matches one of its
+`vf_*` flags. That rule is what the data describes rather than an inference: all 81
+`IncreaseBaseAttribute` and all 15 `IncreaseHpMp` skills carry `vf_is_not_need_weapon = 1` and zero
+weapon bits, so Body Training and Defense Training are unconditional *because the data says so*, not
+because they are exempt. `WeaponMastery` is simply the only effect type that uses the other branch: 5 of
+its 21 skills are unconditional (Offense Training among them) and 16 are gated.
+
+`SkillWeaponGate` owns the mapping from `ItemResource.class` (`ItemType`) to `SkillWeaponFlag`, and
+`ConnectionInfo.EquippedWeapon` holds the main-hand class (`ItemWearType.Weapon`), seeded at login and
+refreshed on equip/unequip. **`vf_axe` is the two-handed axe**: there are three axe flags for the three
+axe `ItemType`s, exactly as `vf_spear` maps to `TwohandSpear`. Confirmed by the tooltips — Fighter's
+Combat Skill flags swords plus all three axes and reads "equipped **swords and axe**", while Kahuna's
+flags axes plus staves and reads "equipped **staff and axe**". `vf_shield_only` maps to nothing: no
+mastery sets it, and Shield Mastery is `IncreaseExtensionAttribute` (10009), which is unsupported.
+`DoubleSword`, `DoubleAxe` and `DoubleDagger` have **no items at all** in the 9.4 data, so those flags
+can never match.
+
+**Equipping a weapon changes the passives, so equip/unequip is a stat trigger like any other.**
+`EquipmentService.SendStatInfo` calls `StatService.Seed`, which re-resolves the weapon, the item effects
+and the passives together — do not split them.
+
+**Both stat packets and the `max_hp`/`max_mp` properties are sent on every refresh.** `MAX HP` does not
+travel in `TS_SC_STAT_INFO` — it is a property — so a passive raising it stays invisible until the next
+world entry if only the stat block is resent, while a passive raising Defence updates immediately. That
+asymmetry is what the learn, JLv-up and equip paths each got wrong in turn.
+
+**This data is a minefield and three obvious readings are wrong.**
+
+**`is_passive` does not mark a passive skill.** The real passives (Body Training, the masteries) have
+`is_passive = 0`. The 1,192 skills with `is_passive = 1` and a state are mostly timed debuffs applied to a
+target, and the ones that look permanent are **toggle auras** (`effect_type = 701 = ToggleAura`,
+`is_toggle = 1`): Power Support, Agile Style, Aura of Inspiration. **An aura must not contribute until the
+player switches it on**, which nothing tracks yet — `SkillResourceRepository` filters `!IsToggle` for
+exactly this reason. Do not reintroduce them through the state path.
+
+**There are two homonymous `effect_type` columns with different value spaces.**
+`SkillResource.effect_type` is the `SkillEffectType` enum (701 ToggleAura, 10001 WeaponMastery, 10021
+IncreaseHpMp, 30001+ damage, 32001+ on-hit triggers) — **this is the one that drives passives**.
+`StateResource.effect_type` is a different space where 1 is a flat add and 2 a percentage. Reading the
+repo's `SkillEffectType` against the state column makes `ParameterInc = 3` look wrong; it is not, it
+simply describes the other column.
+
+**`state_second = -1` marks a permanent state**, not `0` (which returns Fear, Poisoned, Stun — monster
+status effects). That matters for the buff slice, not here.
+
+Of the 608 player skills in the 7.3 catalog, 273 carry a `effect_type >= 10000`, but only **37 are stat
+passives** (the other 34 have `var1 >= 1000`, a state id — they apply a state on hit). Of those 37:
+
+- **`WeaponMastery` (10001) — all 21 are supported**, the 5 unconditional ones and the 16 gated on the
+  equipped weapon, see above. Three of the 5 unconditional ones (Natural Sorcery twice, Magical Training
+  Mastery) have all-zero vars and so resolve to nothing.
+- **`IncreaseExtensionAttribute` (10009), Shield Mastery — not supported.** Conditional on a shield.
+- **`AmplifyBaseAttribute` (10011), Avoidance Expert — cannot be supported.** Its tooltip says "Increases
+  evasion" but **every one of its 20 vars is zero**; there is no value to read.
+- `AmplifySummonHpMpSp` (10032) and `HuntingTraining` (10013), 5 skills, target the summon, not the
+  character.
+- `IncSkillCoolTimeOnAttack/OnBeingAttacked/OnKill` (10063-10065), 10 skills, are event triggers.
+
+`SkillPassiveCatalog` is frozen at startup like every other catalog and holds **117 skills** (101
+unconditional plus the 16 weapon-gated masteries); an unsupported effect type resolves to nothing.
+`ConnectionInfo.PassiveEffects` sits next to `ItemEffects` and `EquippedWeapon`, seeded at login, rebuilt
+by `StatService.RefreshPassives` on learn and by `Seed` on equip/unequip, which is why a new passive or a
+newly drawn weapon shows without a relog.
+
+**The 17 `vf_*` columns were imported after the fact**, and until then every one of them read `false` for
+all 2,689 skills — they were NOT NULL literals from the partial insert, exactly like
+`UseWithWeaponNotRequired` before it. `SkillResources` still has 90 NOT NULL columns with no default, so
+assume any column nobody has explicitly imported is lying. `vf_shield_only` was imported alongside the
+rest for that reason even though nothing reads it yet.
+
+**`SIT_ByItem` stays the item contribution only** — a passive is not an item.
+
+**Mace Mastery (21118) is a documented gap.** Its tooltip promises "physical **and magical** attack" but
+its only non-zero vars are `var2 = 30` (pair 1, attack) and an isolated `var8 = 120` — no mastery reads
+pair 4, and +120 magic attack per level is implausible next to +30 attack. It gets its attack bonus and
+no magic attack. Do not guess a stat for pair 4 without a second skill to cross-check it against.
+
+Data: `SkillResources` (2,689) and `StateResources` (1,949) imported from the 9.4 SQL Server into tables
+that existed but were empty. `SkillResources.Values` holds `var1..var20`. **`SkillResources.StateId` is a
+foreign key to `StateResources`, so states must be imported first** (no orphans exist). `SkillResources`
+has 90 NOT NULL columns with no default, so a partial insert must supply literals — generate that list by
+introspection rather than by hand. `StateResources` is imported and unused today; it is what the timed
+buff/aura slice will need.
 
 ## Client clock
 
@@ -513,6 +640,13 @@ instance"*. This is not hypothetical: the duplicate `208` above triggered it rel
 `SemaphoreSlim`, so each read/mutate/`SaveChangesAsync` sequence is atomic against the shared context.
 Any new repository consumer must go through `CharacterService`, or the guarantee is gone.
 
+**That shared context also masks missing `Include`s, which is a trap.** `GetCharacterByNameWithItems` used
+to `Include` only `Items`, yet `character.Skills` was still populated in the equip path — because login
+had already loaded it into the same context and EF's identity map returns that instance. Anything reading
+a navigation this way works by luck and breaks the day the load order changes. There is no lazy loading
+here: nothing registers `UseLazyLoadingProxies`, so a `virtual` navigation is only a promise. The method
+now includes `Skills` explicitly.
+
 The original server's ordering could not be recovered exactly. The shipped `Game_bin` PDB proves the
 shape — `StructInventory::_ItemArrangeGreater(const StructItem*, const StructItem*)` is a comparator
 (so the sort is by item fields, not by name), `StructPlayer::ArrangeItem(bool)` returns a result code,
@@ -548,13 +682,14 @@ referenced resource tables are still empty.
   on the ground by the player
 - NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
   teleportation and quest mutation are not executed yet
-- Skill learning and persistence work; casting, passive application and skill effects are not implemented
+- Skill learning, persistence and the **passive stat effects** work, including the 21 `WeaponMastery`
+  skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot, toggle auras need
+  an activation state, and casting, timed buffs/debuffs and damage skills are not implemented
 - Equipping and unequipping work and persist and now feed the stats, but item requirements (level, job,
   race) are still not validated
-- Stats cover race/job/JLv/level and equipment; **buffs, titles and passive skills contribute nothing
-  because nothing can apply one yet** (skill casting is not implemented, so the reference's `statBuffs`
-  slot would be zero by construction). Item `ParameterB` (63 items) is undecoded, and stats do not yet
-  drive combat — damage is still the monster's max HP divided by 3
+- Stats cover job/JLv/level, equipment and the supported passive skills; **timed buffs, auras and titles
+  contribute nothing because nothing can apply or toggle one yet**. Item `ParameterB` (63 items) is
+  undecoded, and stats do not yet drive combat — damage is still the monster's max HP divided by 3
 - Inventory sorting and drag-swap work; storage/warehouse is not implemented and the sort order follows
   the client's tab categories rather than the original server's comparator
 - The client clock is synchronized, but `TS_SC_GAME_TIME.game_time` (the in-world day/night clock) is

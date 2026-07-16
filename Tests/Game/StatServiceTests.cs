@@ -17,17 +17,24 @@ public class StatServiceTests
     private const int WornResourceId = 4001;
     private const int BaggedResourceId = 4002;
 
-    private static readonly ItemStatEffect WornEffect = new(StatTarget.Defence, 40f, false);
-    private static readonly ItemStatEffect BaggedEffect = new(StatTarget.Defence, 999f, false);
+    private static readonly StatEffect WornEffect = new(StatTarget.Defence, 40f, false);
+    private static readonly StatEffect BaggedEffect = new(StatTarget.Defence, 999f, false);
+
+    private const int PassiveSkillId = 4412;
+    private static readonly StatEffect PassiveEffect = new(StatTarget.AttackPointRight, 5f, false);
 
     private static StatService Create()
     {
         var itemStats = A.Fake<IItemStatCatalog>();
-        A.CallTo(() => itemStats.GetEffects(A<int>._)).Returns(Array.Empty<ItemStatEffect>());
+        A.CallTo(() => itemStats.GetEffects(A<int>._)).Returns(Array.Empty<StatEffect>());
         A.CallTo(() => itemStats.GetEffects(WornResourceId)).Returns(new[] { WornEffect });
         A.CallTo(() => itemStats.GetEffects(BaggedResourceId)).Returns(new[] { BaggedEffect });
 
-        return new StatService(StatCatalogTestFactory.Create(), itemStats);
+        var passives = A.Fake<ISkillPassiveCatalog>();
+        A.CallTo(() => passives.Resolve(A<int>._, A<int>._, A<ItemType?>._)).Returns(Array.Empty<StatEffect>());
+        A.CallTo(() => passives.Resolve(PassiveSkillId, 2, A<ItemType?>._)).Returns(new[] { PassiveEffect });
+
+        return new StatService(StatCatalogTestFactory.Create(), itemStats, passives);
     }
 
     private static CharacterEntity Character(int jobLevel = 0, List<ItemEntity> items = null,
@@ -138,5 +145,59 @@ public class StatServiceTests
 
         stats.MaxHp.Should().BeGreaterThan(0);
         stats.MoveSpeed.Should().Be(120);
+    }
+
+    [Test]
+    public void Compute_ResolvesTheLearnedPassiveSkillsAtTheirLevel()
+    {
+        var character = Character();
+        character.Skills = new List<CharacterSkillEntity>
+        {
+            new() { SkillId = PassiveSkillId, Level = 2 }
+        };
+
+        var withPassive = Create().Compute(character).Total.AttackPointRight;
+        var naked = Create().Compute(Character()).Total.AttackPointRight;
+
+        withPassive.Should().BeApproximately(naked + 5f, 0.01f);
+    }
+
+    [Test]
+    public void Compute_IgnoresASkillWithNoPassiveEntry()
+    {
+        var character = Character();
+        character.Skills = new List<CharacterSkillEntity>
+        {
+            new() { SkillId = 9999, Level = 3 }
+        };
+
+        Create().Compute(character).Total.AttackPointRight
+            .Should().Be(Create().Compute(Character()).Total.AttackPointRight);
+    }
+
+    [Test]
+    public void Seed_CachesThePassiveEffectsOnTheConnection()
+    {
+        var character = Character();
+        character.Skills = new List<CharacterSkillEntity>
+        {
+            new() { SkillId = PassiveSkillId, Level = 2 }
+        };
+        var info = new ConnectionInfo();
+
+        Create().Seed(info, character);
+
+        info.PassiveEffects.Should().Equal(PassiveEffect);
+    }
+
+    [Test]
+    public void RefreshPassives_RebuildsFromTheLearnedSkillsOnTheConnection()
+    {
+        var info = new ConnectionInfo();
+        info.LearnedSkills[PassiveSkillId] = 2;
+
+        Create().RefreshPassives(info);
+
+        info.PassiveEffects.Should().Equal(PassiveEffect);
     }
 }

@@ -43,6 +43,7 @@ public class CharacterRepository : ICharacterRepository
     {
         return _context.Characters
             .Include(c => c.Items)
+            .Include(c => c.Skills)
             .FirstOrDefault(c => c.CharacterName == characterName);
     }
 

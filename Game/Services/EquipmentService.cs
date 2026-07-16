@@ -123,6 +123,8 @@ public class EquipmentService : IEquipmentService
         var result = _statService.Compute(character);
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.Total, StatInfoType.Total));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)result.Total.MaxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)result.Total.MaxMp));
     }
 
     private static void SendItemWear(GameClient client, uint targetHandle, ItemEntity item)

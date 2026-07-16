@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Services.Stats;
 
@@ -12,6 +13,7 @@ public class ItemStatCatalogTests
     {
         return new ItemEffectFields(
             Id: 1,
+            ItemType: ItemType.Etc,
             BaseTypes: baseTypes ?? new short[4],
             BaseVar1: baseVar1 ?? new decimal[4],
             BaseVar2: new decimal[4],
@@ -27,8 +29,8 @@ public class ItemStatCatalogTests
                                 baseVar1: new decimal[] { 40, 12, 0, 0 });
 
         ItemStatCatalog.BuildEffects(resource).Should().Equal(
-            new ItemStatEffect(StatTarget.Defence, 40f, false),
-            new ItemStatEffect(StatTarget.AttackPointRight, 12f, false));
+            new StatEffect(StatTarget.Defence, 40f, false),
+            new StatEffect(StatTarget.AttackPointRight, 12f, false));
     }
 
     [Test]
@@ -39,8 +41,8 @@ public class ItemStatCatalogTests
                                 optVar2: new decimal[] { 20, 0, 0, 0 });
 
         ItemStatCatalog.BuildEffects(resource).Should().Equal(
-            new ItemStatEffect(StatTarget.AttackPointRight, 20f, false),
-            new ItemStatEffect(StatTarget.MagicPoint, 20f, false));
+            new StatEffect(StatTarget.AttackPointRight, 20f, false),
+            new StatEffect(StatTarget.MagicPoint, 20f, false));
     }
 
     [Test]
@@ -51,7 +53,7 @@ public class ItemStatCatalogTests
                                 optVar2: new decimal[] { 0.03m, 0, 0, 0 });
 
         ItemStatCatalog.BuildEffects(resource).Should().Equal(
-            new ItemStatEffect(StatTarget.MagicAvoid, 0.03f, true));
+            new StatEffect(StatTarget.MagicAvoid, 0.03f, true));
     }
 
     [Test]
@@ -82,8 +84,8 @@ public class ItemStatCatalogTests
                                 optVar1: new decimal[] { 1500, 800, 0, 0 });
 
         ItemStatCatalog.BuildEffects(resource).Should().Equal(
-            new ItemStatEffect(StatTarget.MaxHp, 1500f, false),
-            new ItemStatEffect(StatTarget.MaxMp, 800f, false));
+            new StatEffect(StatTarget.MaxHp, 1500f, false),
+            new StatEffect(StatTarget.MaxMp, 800f, false));
     }
 
     [Test]
@@ -96,7 +98,7 @@ public class ItemStatCatalogTests
     [Test]
     public void BuildEffects_ToleratesNullArrays()
     {
-        var resource = new ItemEffectFields(1, null, null, null, null, null, null);
+        var resource = new ItemEffectFields(1, ItemType.Etc, null, null, null, null, null, null);
 
         ItemStatCatalog.BuildEffects(resource).Should().BeEmpty();
     }

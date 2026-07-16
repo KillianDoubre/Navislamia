@@ -7,7 +7,8 @@ public readonly record struct StatCalculatorInput(
     int Job,
     IReadOnlyList<(int Job, int JobLevel)> JobHistory,
     int Level,
-    IReadOnlyList<ItemStatEffect> ItemEffects);
+    IReadOnlyList<StatEffect> ItemEffects,
+    IReadOnlyList<StatEffect> PassiveEffects = null);
 
 public readonly record struct CharacterStatResult(StatBlock Total, StatBlock ByItem);
 
@@ -33,9 +34,10 @@ public class StatCalculator
         var level = Math.Max(1, input.Level);
         SeedFromLevel(level, total);
 
+        ApplyEffects(total, input.ItemEffects, input.PassiveEffects);
+
         var byItem = new StatBlock();
-        ApplyItemEffects(input.ItemEffects, total);
-        ApplyItemEffects(input.ItemEffects, byItem);
+        ApplyEffects(byItem, input.ItemEffects, null);
 
         ApplyDerivedBonuses(total);
 
@@ -115,26 +117,37 @@ public class StatCalculator
         block.MaxChaos = DefaultMaxChaos;
     }
 
-    private static void ApplyItemEffects(IReadOnlyList<ItemStatEffect> effects, StatBlock block)
+    private static void ApplyEffects(StatBlock block, params IReadOnlyList<StatEffect>[] sources)
     {
-        if (effects is null)
+        foreach (var effects in sources)
         {
-            return;
-        }
-
-        foreach (var effect in effects)
-        {
-            if (!effect.IsPercent)
+            if (effects is null)
             {
-                block.Add(effect.Target, effect.Value);
+                continue;
+            }
+
+            foreach (var effect in effects)
+            {
+                if (!effect.IsPercent)
+                {
+                    block.Add(effect.Target, effect.Value);
+                }
             }
         }
 
-        foreach (var effect in effects)
+        foreach (var effects in sources)
         {
-            if (effect.IsPercent)
+            if (effects is null)
             {
-                block.Amplify(effect.Target, effect.Value);
+                continue;
+            }
+
+            foreach (var effect in effects)
+            {
+                if (effect.IsPercent)
+                {
+                    block.Amplify(effect.Target, effect.Value);
+                }
             }
         }
     }

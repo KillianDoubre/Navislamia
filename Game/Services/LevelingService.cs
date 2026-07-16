@@ -91,6 +91,20 @@ public class LevelingService : ILevelingService
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(handle, info.CharacterExp, info.CharacterJp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "job_level", info.CharacterJobLevel));
         client.SendResult(requestId, (ushort)ResultCode.Success, target);
+
+        SendStatRefresh(client, info, handle);
+    }
+
+    private void SendStatRefresh(GameClient client, ConnectionInfo info, uint handle)
+    {
+        var result = _statService.Compute(info);
+        var maxHp = (int)result.Total.MaxHp;
+        var maxMp = (int)result.Total.MaxMp;
+
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.Total, StatInfoType.Total));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", maxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
     }
 
     private void Load()

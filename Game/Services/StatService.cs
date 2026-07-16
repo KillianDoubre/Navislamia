@@ -11,11 +11,13 @@ public class StatService : IStatService
 {
     private readonly StatCalculator _calculator;
     private readonly IItemStatCatalog _itemStats;
+    private readonly ISkillPassiveCatalog _passives;
 
-    public StatService(IStatCatalog catalog, IItemStatCatalog itemStats)
+    public StatService(IStatCatalog catalog, IItemStatCatalog itemStats, ISkillPassiveCatalog passives)
     {
         _calculator = new StatCalculator(catalog);
         _itemStats = itemStats;
+        _passives = passives;
     }
 
     public CharacterStatResult Compute(CharacterEntity character)
@@ -24,7 +26,8 @@ public class StatService : IStatService
             (int)character.CurrentJob,
             BuildJobHistory(PreviousJobsOf(character), (int)character.CurrentJob, character.Jlv),
             character.Lv,
-            ResolveItemEffects(character)));
+            ResolveItemEffects(character),
+            ResolvePassiveEffects(character, ResolveEquippedWeapon(character))));
     }
 
     public CharacterStatResult Compute(ConnectionInfo info)
@@ -33,7 +36,8 @@ public class StatService : IStatService
             info.CharacterJob,
             BuildJobHistory(info.PreviousJobs, info.CharacterJob, info.CharacterJobLevel),
             info.CharacterLevel,
-            info.ItemEffects));
+            info.ItemEffects,
+            info.PassiveEffects));
     }
 
     public CharacterStatResult ComputeForNewCharacter(int race)
@@ -43,14 +47,78 @@ public class StatService : IStatService
             job,
             new[] { (job, 0) },
             1,
-            Array.Empty<ItemStatEffect>()));
+            Array.Empty<StatEffect>()));
     }
 
     public void Seed(ConnectionInfo info, CharacterEntity character)
     {
         info.PreviousJobs.Clear();
         info.PreviousJobs.AddRange(PreviousJobsOf(character));
+        info.EquippedWeapon = ResolveEquippedWeapon(character);
         info.ItemEffects = ResolveItemEffects(character);
+        info.PassiveEffects = ResolvePassiveEffects(character, info.EquippedWeapon);
+    }
+
+    public void RefreshPassives(ConnectionInfo info)
+    {
+        info.PassiveEffects = ResolveEffects(info.LearnedSkills, info.EquippedWeapon);
+    }
+
+    private ItemType? ResolveEquippedWeapon(CharacterEntity character)
+    {
+        if (character.Items is null)
+        {
+            return null;
+        }
+
+        foreach (var item in character.Items)
+        {
+            if (item.WearInfo == ItemWearType.Weapon)
+            {
+                return _itemStats.GetWeaponType((int)item.ItemResourceId);
+            }
+        }
+
+        return null;
+    }
+
+    private IReadOnlyList<StatEffect> ResolvePassiveEffects(CharacterEntity character, ItemType? equippedWeapon)
+    {
+        if (character.Skills is null)
+        {
+            return Array.Empty<StatEffect>();
+        }
+
+        List<StatEffect> effects = null;
+        foreach (var skill in character.Skills)
+        {
+            Append(_passives.Resolve(skill.SkillId, skill.Level, equippedWeapon), ref effects);
+        }
+
+        return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
+    }
+
+    private IReadOnlyList<StatEffect> ResolveEffects(IReadOnlyDictionary<int, byte> learnedSkills,
+        ItemType? equippedWeapon)
+    {
+        List<StatEffect> effects = null;
+        foreach (var (skillId, level) in learnedSkills)
+        {
+            Append(_passives.Resolve(skillId, level, equippedWeapon), ref effects);
+        }
+
+        return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
+    }
+
+    private static void Append(IReadOnlyList<StatEffect> resolved, ref List<StatEffect> effects)
+    {
+        if (resolved.Count == 0)
+        {
+            return;
+        }
+
+        effects ??= new List<StatEffect>();
+        effects.AddRange(resolved);
     }
 
     private static List<(int Job, int JobLevel)> PreviousJobsOf(CharacterEntity character)
@@ -84,14 +152,14 @@ public class StatService : IStatService
         return history;
     }
 
-    private IReadOnlyList<ItemStatEffect> ResolveItemEffects(CharacterEntity character)
+    private IReadOnlyList<StatEffect> ResolveItemEffects(CharacterEntity character)
     {
         if (character.Items is null)
         {
-            return Array.Empty<ItemStatEffect>();
+            return Array.Empty<StatEffect>();
         }
 
-        List<ItemStatEffect> effects = null;
+        List<StatEffect> effects = null;
         foreach (var item in character.Items)
         {
             if (item.WearInfo == ItemWearType.None)
@@ -105,10 +173,10 @@ public class StatService : IStatService
                 continue;
             }
 
-            effects ??= new List<ItemStatEffect>();
+            effects ??= new List<StatEffect>();
             effects.AddRange(itemEffects);
         }
 
-        return (IReadOnlyList<ItemStatEffect>)effects ?? Array.Empty<ItemStatEffect>();
+        return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
     }
 }

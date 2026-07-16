@@ -15,11 +15,13 @@ public class SkillService : ISkillService
     private readonly ILogger _logger = Log.ForContext<SkillService>();
     private readonly SkillCatalog _catalog;
     private readonly ICharacterService _characterService;
+    private readonly IStatService _statService;
 
-    public SkillService(SkillCatalog catalog, ICharacterService characterService)
+    public SkillService(SkillCatalog catalog, ICharacterService characterService, IStatService statService)
     {
         _catalog = catalog;
         _characterService = characterService;
+        _statService = statService;
 
         if (_catalog.JobCount == 0)
         {
@@ -71,5 +73,19 @@ public class SkillService : ISkillService
         client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
             new[] { new KeyValuePair<int, byte>(request.SkillId, request.TargetLevel) }));
         client.SendResult(RequestId, (ushort)ResultCode.Success, request.SkillId);
+
+        SendRefreshedStats(client, info);
+    }
+
+    private void SendRefreshedStats(GameClient client, ConnectionInfo info)
+    {
+        _statService.RefreshPassives(info);
+        var stats = _statService.Compute(info);
+        var handle = info.CharacterHandle;
+
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.Total, StatInfoType.Total));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.ByItem, StatInfoType.ByItem));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.Total.MaxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)stats.Total.MaxMp));
     }
 }

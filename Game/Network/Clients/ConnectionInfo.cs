@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.Network.Clients;
@@ -7,7 +8,9 @@ namespace Navislamia.Game.Network.Clients;
 public class ConnectionInfo
 {
     public List<(int Job, int JobLevel)> PreviousJobs { get; } = new();
-    public IReadOnlyList<ItemStatEffect> ItemEffects { get; set; } = Array.Empty<ItemStatEffect>();
+    public IReadOnlyList<StatEffect> ItemEffects { get; set; } = Array.Empty<StatEffect>();
+    public IReadOnlyList<StatEffect> PassiveEffects { get; set; } = Array.Empty<StatEffect>();
+    public ItemType? EquippedWeapon { get; set; }
     public string AccountName { get; set; }
     public List<string> CharacterList { get; set; } = new();
     public uint CharacterHandle { get; set; }
@@ -89,7 +92,9 @@ public class ConnectionInfo
         NameToDelete = string.Empty;
         LearnedSkills.Clear();
         PreviousJobs.Clear();
-        ItemEffects = Array.Empty<ItemStatEffect>();
+        ItemEffects = Array.Empty<StatEffect>();
+        PassiveEffects = Array.Empty<StatEffect>();
+        EquippedWeapon = null;
         ClearVisibleObjects();
     }
 

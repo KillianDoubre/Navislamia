@@ -16,12 +16,14 @@ public class ItemStatCatalog : IItemStatCatalog
     private const short AmpParameterB = (short)ItemEffectPassive.AmpParameterB;
 
     private readonly ILogger _logger = Log.ForContext<ItemStatCatalog>();
-    private readonly FrozenDictionary<int, IReadOnlyList<ItemStatEffect>> _effects;
+    private readonly FrozenDictionary<int, IReadOnlyList<StatEffect>> _effects;
+    private readonly FrozenDictionary<int, ItemType> _weaponTypes;
 
     public ItemStatCatalog(IItemResourceRepository repository)
     {
         var resources = repository.GetEffectFields();
-        var effects = new Dictionary<int, IReadOnlyList<ItemStatEffect>>(resources.Count);
+        var effects = new Dictionary<int, IReadOnlyList<StatEffect>>(resources.Count);
+        var weaponTypes = new Dictionary<int, ItemType>();
         foreach (var resource in resources)
         {
             var resolved = BuildEffects(resource);
@@ -29,27 +31,39 @@ public class ItemStatCatalog : IItemStatCatalog
             {
                 effects[resource.Id] = resolved;
             }
+
+            if (SkillWeaponGate.IsWeapon(resource.ItemType))
+            {
+                weaponTypes[resource.Id] = resource.ItemType;
+            }
         }
 
         _effects = effects.ToFrozenDictionary();
-        _logger.Debug("Loaded stat effects for {count} item resources", _effects.Count);
+        _weaponTypes = weaponTypes.ToFrozenDictionary();
+        _logger.Debug("Loaded stat effects for {count} item resources and {weapons} weapons", _effects.Count,
+            _weaponTypes.Count);
     }
 
-    public IReadOnlyList<ItemStatEffect> GetEffects(int itemResourceId)
+    public IReadOnlyList<StatEffect> GetEffects(int itemResourceId)
     {
-        return _effects.TryGetValue(itemResourceId, out var effects) ? effects : Array.Empty<ItemStatEffect>();
+        return _effects.TryGetValue(itemResourceId, out var effects) ? effects : Array.Empty<StatEffect>();
     }
 
-    public static IReadOnlyList<ItemStatEffect> BuildEffects(ItemEffectFields resource)
+    public ItemType? GetWeaponType(int itemResourceId)
     {
-        List<ItemStatEffect> effects = null;
+        return _weaponTypes.TryGetValue(itemResourceId, out var itemType) ? itemType : null;
+    }
+
+    public static IReadOnlyList<StatEffect> BuildEffects(ItemEffectFields resource)
+    {
+        List<StatEffect> effects = null;
         AppendSlots(resource.BaseTypes, resource.BaseVar1, resource.BaseVar2, ref effects);
         AppendSlots(resource.OptTypes, resource.OptVar1, resource.OptVar2, ref effects);
-        return (IReadOnlyList<ItemStatEffect>)effects ?? Array.Empty<ItemStatEffect>();
+        return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
     }
 
     private static void AppendSlots(short[] types, decimal[] var1, decimal[] var2,
-        ref List<ItemStatEffect> effects)
+        ref List<StatEffect> effects)
     {
         if (types is null || var1 is null || var2 is null)
         {
@@ -79,14 +93,14 @@ public class ItemStatCatalog : IItemStatCatalog
             var value = (float)var1[slot];
             if (target != StatTarget.None && value != 0f)
             {
-                effects ??= new List<ItemStatEffect>();
-                effects.Add(new ItemStatEffect(target, value, false));
+                effects ??= new List<StatEffect>();
+                effects.Add(new StatEffect(target, value, false));
             }
         }
     }
 
     private static void AppendParameter(bool isPercent, decimal mask, decimal amount,
-        ref List<ItemStatEffect> effects)
+        ref List<StatEffect> effects)
     {
         var value = (float)amount;
         if (mask <= 0 || mask > uint.MaxValue || value == 0f)
@@ -96,8 +110,8 @@ public class ItemStatCatalog : IItemStatCatalog
 
         foreach (var target in ParameterBitset.Decode((uint)mask))
         {
-            effects ??= new List<ItemStatEffect>();
-            effects.Add(new ItemStatEffect(target, value, isPercent));
+            effects ??= new List<StatEffect>();
+            effects.Add(new StatEffect(target, value, isPercent));
         }
     }
 

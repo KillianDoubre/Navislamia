@@ -27,8 +27,8 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
-            .Select(item => new ItemEffectFields((int)item.Id, item.BaseTypes, item.BaseVar1, item.BaseVar2,
-                item.OptTypes, item.OptVar1, item.OptVar2))
+            .Select(item => new ItemEffectFields((int)item.Id, item.ItemType, item.BaseTypes, item.BaseVar1,
+                item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
             .ToList();
     }
 }

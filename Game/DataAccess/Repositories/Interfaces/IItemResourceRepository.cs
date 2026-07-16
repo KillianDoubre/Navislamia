@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Navislamia.Game.DataAccess.Entities.Enums;
 
 namespace Navislamia.Game.DataAccess.Repositories.Interfaces;
 
@@ -6,6 +7,7 @@ public readonly record struct ItemSortFields(int Id, int Category, int Group, in
 
 public readonly record struct ItemEffectFields(
     int Id,
+    ItemType ItemType,
     short[] BaseTypes,
     decimal[] BaseVar1,
     decimal[] BaseVar2,

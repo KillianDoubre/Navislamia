@@ -1,8 +1,11 @@
 using System.Collections.Generic;
+using Navislamia.Game.DataAccess.Entities.Enums;
 
 namespace Navislamia.Game.Services.Stats;
 
 public interface IItemStatCatalog
 {
-    IReadOnlyList<ItemStatEffect> GetEffects(int itemResourceId);
+    IReadOnlyList<StatEffect> GetEffects(int itemResourceId);
+
+    ItemType? GetWeaponType(int itemResourceId);
 }

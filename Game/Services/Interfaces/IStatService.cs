@@ -13,4 +13,6 @@ public interface IStatService
     CharacterStatResult ComputeForNewCharacter(int race);
 
     void Seed(ConnectionInfo info, CharacterEntity character);
+
+    void RefreshPassives(ConnectionInfo info);
 }

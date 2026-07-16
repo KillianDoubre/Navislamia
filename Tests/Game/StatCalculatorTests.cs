@@ -16,13 +16,13 @@ public class StatCalculatorTests
     }
 
     private static StatCalculatorInput Input(int level = 1, int jobLevel = 0,
-        IReadOnlyList<ItemStatEffect> effects = null)
+        IReadOnlyList<StatEffect> effects = null)
     {
         return new StatCalculatorInput(
             Job: Job,
             JobHistory: new[] { (Job: Job, JobLevel: jobLevel) },
             Level: level,
-            ItemEffects: effects ?? Array.Empty<ItemStatEffect>());
+            ItemEffects: effects ?? Array.Empty<StatEffect>());
     }
 
     [Test]
@@ -97,7 +97,7 @@ public class StatCalculatorTests
     {
         var single = Calculator().Compute(Input(jobLevel: 10)).Total.Strength;
         var twice = Calculator().Compute(new StatCalculatorInput(Job,
-            new[] { (Job, 10), (Job, 10) }, 1, Array.Empty<ItemStatEffect>())).Total.Strength;
+            new[] { (Job, 10), (Job, 10) }, 1, Array.Empty<StatEffect>())).Total.Strength;
 
         twice.Should().BeApproximately(single + 10 * 0.5f, 0.01f);
     }
@@ -105,7 +105,7 @@ public class StatCalculatorTests
     [Test]
     public void Compute_ByItemHoldsOnlyTheItemContribution()
     {
-        var effects = new[] { new ItemStatEffect(StatTarget.Defence, 40f, false) };
+        var effects = new[] { new StatEffect(StatTarget.Defence, 40f, false) };
         var result = Calculator().Compute(Input(level: 5, effects: effects));
         var naked = Calculator().Compute(Input(level: 5));
 
@@ -118,7 +118,7 @@ public class StatCalculatorTests
     [Test]
     public void Compute_ItemStatBonusFeedsTheDerivedFormulas()
     {
-        var effects = new[] { new ItemStatEffect(StatTarget.Vitality, 10f, false) };
+        var effects = new[] { new StatEffect(StatTarget.Vitality, 10f, false) };
         var withItem = Calculator().Compute(Input(level: 5, effects: effects)).Total;
         var naked = Calculator().Compute(Input(level: 5)).Total;
 
@@ -131,8 +131,8 @@ public class StatCalculatorTests
     {
         var effects = new[]
         {
-            new ItemStatEffect(StatTarget.MaxHp, 0.10f, true),
-            new ItemStatEffect(StatTarget.MaxHp, 1000f, false)
+            new StatEffect(StatTarget.MaxHp, 0.10f, true),
+            new StatEffect(StatTarget.MaxHp, 1000f, false)
         };
 
         Calculator().Compute(Input(level: 5, effects: effects)).ByItem.MaxHp
@@ -154,5 +154,48 @@ public class StatCalculatorTests
     public void Compute_ClampsLevelToOne()
     {
         Calculator().Compute(Input(level: 0)).Total.HpRegenPoint.Should().Be(48 + 2);
+    }
+
+    [Test]
+    public void Compute_PassiveEffectsFeedTheDerivedFormulas()
+    {
+        var passives = new[] { new StatEffect(StatTarget.Vitality, 10f, false) };
+        var withPassive = Calculator().Compute(Input(level: 5) with { PassiveEffects = passives }).Total;
+        var naked = Calculator().Compute(Input(level: 5)).Total;
+
+        withPassive.MaxHp.Should().BeApproximately(naked.MaxHp + 33f * 10, 0.01f);
+        withPassive.Defence.Should().BeApproximately(naked.Defence + 1.6f * 10, 0.01f);
+    }
+
+    [Test]
+    public void Compute_PercentPassivesApplyAfterEveryFlatItemBonus()
+    {
+        var items = new[] { new StatEffect(StatTarget.BlockChance, 100f, false) };
+        var passives = new[] { new StatEffect(StatTarget.BlockChance, 0.10f, true) };
+
+        var result = Calculator().Compute(Input(level: 5, effects: items) with { PassiveEffects = passives })
+            .Total.BlockChance;
+
+        result.Should().BeApproximately(110f, 0.01f,
+            "a percent passive must see the flat item bonus, whatever the source order");
+    }
+
+    [Test]
+    public void Compute_PercentItemsApplyAfterEveryFlatPassive()
+    {
+        var items = new[] { new StatEffect(StatTarget.BlockChance, 0.10f, true) };
+        var passives = new[] { new StatEffect(StatTarget.BlockChance, 100f, false) };
+
+        Calculator().Compute(Input(level: 5, effects: items) with { PassiveEffects = passives })
+            .Total.BlockChance.Should().BeApproximately(110f, 0.01f);
+    }
+
+    [Test]
+    public void Compute_ByItemHoldsOnlyTheItemContributionNotThePassives()
+    {
+        var passives = new[] { new StatEffect(StatTarget.Defence, 40f, false) };
+
+        Calculator().Compute(Input(level: 5) with { PassiveEffects = passives }).ByItem.Defence
+            .Should().Be(0, "SIT_ByItem is the item bonus column, not every bonus");
     }
 }
