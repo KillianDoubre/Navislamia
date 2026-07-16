@@ -19,7 +19,7 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
-            .Select(item => new ItemSortFields((int)item.Id, (int)item.Group, (int)item.ItemType, item.Rank))
+            .Select(item => new ItemSortFields((int)item.Id, (int)item.ItemBaseType, (int)item.Group, item.Rank))
             .ToList();
     }
 }

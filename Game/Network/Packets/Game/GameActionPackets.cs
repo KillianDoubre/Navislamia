@@ -38,6 +38,19 @@ public static class GameActionPackets
         return true;
     }
 
+    public static bool TryReadTakeItem(ReadOnlySpan<byte> packet, out uint itemHandle)
+    {
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length < packetLength)
+        {
+            itemHandle = 0;
+            return false;
+        }
+
+        itemHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4));
+        return true;
+    }
+
     public static bool TryReadChangeItemPosition(ReadOnlySpan<byte> packet, out ChangeItemPositionRequest request)
     {
         const int packetLength = HeaderSize + 9;

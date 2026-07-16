@@ -234,6 +234,51 @@ The death sequence lets the client play its death animation: the killing swing i
 corpse is deferred by `DeathAnimationSeconds` (6 s) through a pending-leave list on the combat tick
 rather than sent immediately. Item drops are a later milestone that will hook the same death branch.
 
+## Item drops
+
+On death `CombatService` calls `GroundItemService.DropForMonster`, which rolls the monster's table and
+puts each result on the ground near the corpse. Gold stays automatic and is not part of this path.
+
+`DevConsole/monster-drops.73.json` is the runtime catalog (5,370 tables, 5,767 entries, 5,879 monsters;
+2,340 of the 2,457 spawning monsters have one). It is loaded like the spawn catalog — read with
+`System.Text.Json` in `Program.ConfigureMonsterDrops` and frozen by `MonsterDropCatalog` into a
+`FrozenDictionary` keyed by monster id, so a kill never queries the database. Regenerate it from the 9.4
+SQL Server; three traps are worth remembering, all silent if you get them wrong:
+
+- **`drop_percentage` is a probability in `[0, 1]`, not a percentage out of 100** (measured max exactly
+  `1.00`). `DropRoll.Roll` compares `random.NextDouble()` against it directly.
+- `MonsterDropTableResource.id` is a **monster id**, and `MonsterResource.drop_table_link_id` points at
+  the monster that *owns* the table, so 107 and 108 both read 106's.
+- Filtering on `drop_item_id_00 > 0` alone finds ~40 rows and looks empty; items are spread over ten
+  slots per row and 5,526 rows carry at least one.
+
+`DropGroupResource` has the same shape but nothing links to it — it is not part of monster drops.
+
+**The authentic rates are far too low to test against.** The median entry is a 1.78% chance and the median
+table yields **0.018 items per kill**, roughly one drop every 55 kills (mean 0.096). Absence of drops over
+a handful of kills is therefore the expected outcome, not a bug — check the `dropped {n} of {m} entries`
+log before suspecting the code. `GroundItemService.DropChanceMultiplier` scales every chance (clamped at
+1.0) and is currently **100 for testing**; set it back to `1` for authentic rates.
+
+A ground item is `TS_SC_ENTER` with `type = ET_StaticObject (2)` and `objType = EOT_Item (2)`, 70 bytes:
+the shared header through `objType`, then `code` as the 8-byte randomized `EncodedInt` (the `npc_id`
+encoding), `count` as uint64, and a `pick_up_order` block of `drop_time` plus three player handles and
+three party ids. Only `drop_time` and the first handle are filled; parties do not exist yet.
+
+`TS_CS_TAKE_ITEM` (`204`, Epic < 9.6.3) is `taker_handle` @7 + `item_handle` @11, 15 bytes. Pickup checks
+range (300 units), claims the item with an `Interlocked` compare-exchange so a double request cannot
+duplicate it, then writes a new `ItemEntity` at `max(Idx) + 1`. The reply order is
+`TS_SC_TAKE_ITEM_RESULT` (`210`: `item_handle` + `item_taker`, 15 bytes), then `TS_SC_LEAVE`, a one-record
+`TS_SC_INVENTORY` and the result. **`210` is what plays the pick-up animation** — its `item_taker` tells
+the client which actor to animate, which the generic `TS_SC_RESULT` cannot express, exactly like `287`
+against `202` for equipment. It is sent before the `LEAVE` so the animation starts before the object
+disappears. Items expire after 120 seconds through a 1 s tick.
+
+`GroundItemService` deliberately does **not** depend on `NetworkService`: `NetworkService` already
+injects the service, so taking the client list from it creates a DI cycle that only fails at runtime.
+Drops are therefore sent to the killer alone, and each `GroundItem` holds its owning `GameClient` the
+same way `CombatService.PendingLeave` does. Other players cannot see or take them.
+
 ## Monster movement
 
 Monsters visible to at least one player idle-wander: every 6-12 seconds they pick a random destination
@@ -313,22 +358,48 @@ arrangement survives. It runs from `CharacterDefaults.Apply` (the existing legac
 already persists once per load) and before any swap. There is no `TS_SC_ARRANGE_ITEM`: both ordering packets answer
 with `TS_SC_INVENTORY` (`207`) plus a `TS_SC_RESULT`. Sending a partial `207` is safe because the client
 merges item records by handle — login already streams the inventory in chunks, so a chunk cannot be a
-full replace. Only bag items (`WearInfo == None`) are renumbered; worn items keep their slot.
+full replace.
+
+**`index` and `wear_position` are independent fields of `TS_ITEM_INFO`, so a worn item still holds an
+inventory position** and the client keeps showing it in the bag. Every ordering path therefore covers
+*all* of a character's items; do not filter on `WearInfo == None`.
+
+**`index` is 1-based: the client treats `0` as unset and pushes that item to the end of the grid.**
+`InventoryArrange.FirstIndex` is `1` and every path — renumbering, the permutation check and pickup —
+starts there. Numbering from zero misplaces exactly one item, which reads as a random glitch rather than
+a bug: 16 of 17 items sit correctly and only the index-0 one jumps to the end. Diagnose ordering
+complaints by comparing `Items.Idx` in the database against the client grid; the packet order and the
+database agreed all along, only the base did not.
+
+`BuildInventory(CharacterEntity)` orders by `Idx` before sending. Login used to stream the EF load order
+(by primary key) while claiming `index` was authoritative — the two must not disagree.
 
 `TS_CS_CHANGE_ITEM_POSITION` (`218`, Epic < 9.6.3) is the drag-and-drop swap: `is_storage` (bool @7) +
 `item_handle_1` (uint32 @8) + `item_handle_2` (uint32 @12), 16 bytes. It carries no slot number, so it
 can only ever swap two existing items; the bag is a dense list rather than a sparse grid. Both handles
-must resolve to bag items, otherwise the answer is `NotExist`. `InventoryService.SwapPositionsAsync`
-exchanges the two `Idx` values and echoes the whole bag back through `207`, because the normalization
-that precedes the swap can renumber the other items too.
+must resolve to one of the character's items, worn or not, otherwise the answer is `NotExist`.
+`InventoryService.SwapPositionsAsync` exchanges the two `Idx` values and echoes every item back through
+`207`, because the normalization that precedes the swap can renumber the others too.
 
 `TS_CS_ARRANGE_ITEM` (`219`) is the inventory sort button: `is_storage` (bool @7), 8 bytes total.
-`InventoryArrange` packs the order into one `ulong` per resource — `group` (8 bits) `<< 48`, `item_type`
-`<< 40`, inverted `rank` `<< 32`, then the resource id in the low 32 bits — so the sort is a single
-integer comparison per pair, with the item id breaking ties to keep repeated arranges stable. Every key
-is precomputed once at startup by `ItemSortCatalog` into a `FrozenDictionary`, so the comparator never
-touches the database. Unknown resources get group 255 and sort last. The observed ranges make the packing
-safe: `group <= 140`, `item_type <= 7`, `rank <= 7`, `id <= 700000886`.
+`InventoryArrange` packs the order into one `ulong` per resource — category order (8 bits) `<< 48`,
+`group` `<< 40`, inverted `rank` `<< 32`, then the resource id in the low 32 bits — so the sort is a
+single integer comparison per pair, with the item id breaking ties to keep repeated arranges stable.
+Every key is precomputed once at startup by `ItemSortCatalog` into a `FrozenDictionary`, so the
+comparator never touches the database. Unknown resources sort last. The observed ranges make the packing
+safe: `group <= 140`, `rank <= 7`, `id <= 700000886`.
+
+The primary key is the client's own tab order — Equippable, Consumable, Cards, Creature, then everything
+else — which is `ItemResource`'s `type` column, mapped by `InventoryArrange.CategoryOrder`: `1`
+(25,338 of 25,340 rows wearable) is Equippable, `3` (holds group 99 Consumable) is Consumable, `2`
+(groups 10 and 13, Skillcard and Summoncard) is Cards, `6` (group 18, PetCage) is Creature, and `0`,
+`4`, `5`, `7` fall into Other. This mapping is inferred from what each `type` contains, not documented;
+no Quest category was found in the data, so quest items land in Other.
+
+**Beware the 9.4 `ItemResource` column names**: `class` is the `ItemType` enum (113 OnehandAxe, 200
+Armor, 401 Soulstone) and `type` is the coarse tab category, while `group` is the `ItemGroup` enum
+(1 Weapon, 2 Armor, 17 Bag). Mapping `type` onto `ItemType` compiles and imports cleanly but silently
+produces a nonsensical order.
 
 Storage is not implemented, so `is_storage = 1` answers `NotActable` for both packets.
 
@@ -351,23 +422,27 @@ sort button for a measured **30 s**, so the client is the stricter of the two an
 fires in normal play. The client's countdown only runs once the clock handshake above has completed;
 before it existed the button greyed permanently.
 
-`ItemResources` holds 33,142 rows imported from the 9.4 SQL Server `Arcadia.ItemResource`. Like
-`MonsterResource`, only the directly mapped scalar columns were imported; `RaceRestriction`, `SetPart`
-and `JobRestriction` are bitfields derived from `limit_*` columns and are left at zero, and the
+`ItemResources` holds 33,142 rows imported from the 9.4 SQL Server `Arcadia.ItemResource`, with `class`
+in `ItemType`, `type` in `ItemBaseType` (the tab category) and `group` in `Group`. Like `MonsterResource`,
+only the directly mapped scalar columns were imported; `RaceRestriction`, `SetPart` and `JobRestriction`
+are bitfields derived from `limit_*` columns and are left at zero, and the
 `NameId`/`SetId`/`SummonId`/`EffectId`/`SkillId`/`StateId` foreign keys are left null because the
 referenced resource tables are still empty.
 
 ## Current limitations
 
-- Monsters auto-attack (kill + respawn) and idle-wander, but have no aggro, chase, retaliation, loot or
-  taming; damage, attack speed and walk speed are placeholders
+- Monsters auto-attack (kill + respawn), idle-wander and drop items, but have no aggro, chase,
+  retaliation or taming; damage, attack speed and walk speed are placeholders
+- Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
+  client's `db_item.rdb` is unavailable, so a 9.4-only code will not render), and cannot be dropped back
+  on the ground by the player
 - NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
   teleportation and quest mutation are not executed yet
 - Skill learning and persistence work; casting, passive application and skill effects are not implemented
 - Equipping and unequipping work and persist, but equipment does not affect stats yet, and item
   requirements (level, job, race) are not validated
-- Inventory sorting and drag-swap work for the bag; storage/warehouse is not implemented and the sort
-  order is our own rather than the original one
+- Inventory sorting and drag-swap work; storage/warehouse is not implemented and the sort order follows
+  the client's tab categories rather than the original server's comparator
 - The client clock is synchronized, but `TS_SC_GAME_TIME.game_time` (the in-world day/night clock) is
   still zero, and movement still applies `ClientClockOffset` by hand rather than trusting the sync
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility

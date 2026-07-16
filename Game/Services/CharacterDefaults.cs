@@ -72,20 +72,15 @@ public static class CharacterDefaults
             changed = true;
         }
 
-        changed |= ApplyBagIndices(character);
+        changed |= ApplyItemIndices(character);
 
         return changed;
     }
 
-    private static bool ApplyBagIndices(CharacterEntity character)
+    private static bool ApplyItemIndices(CharacterEntity character)
     {
-        if (character.Items is null)
-        {
-            return false;
-        }
-
-        var bag = character.Items.Where(item => item.WearInfo == ItemWearType.None).ToArray();
-        return InventoryArrange.EnsureContiguousIndices(bag);
+        return character.Items is not null
+               && InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
     }
 
     private static string BuildDefaultClientInfo()

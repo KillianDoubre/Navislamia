@@ -87,6 +87,28 @@ public class Program
         ConfigureMonsterSpawns(services, context);
         ConfigureNpcDialogs(services, context);
         ConfigureSkillCatalog(services, context);
+        ConfigureMonsterDrops(services, context);
+    }
+
+    private static void ConfigureMonsterDrops(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "monster-drops.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<MonsterDropOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("MonsterDropCatalog")
+            .Deserialize<MonsterDropOptions>() ?? new MonsterDropOptions();
+
+        services.Configure<MonsterDropOptions>(options =>
+        {
+            options.Tables = catalog.Tables;
+            options.Monsters = catalog.Monsters;
+        });
     }
 
     private static void ConfigureMonsterSpawns(IServiceCollection services, HostBuilderContext context)
@@ -168,6 +190,8 @@ public class Program
         services.AddSingleton<IItemResourceRepository, ItemResourceRepository>();
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
+        services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
+        services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();

@@ -184,20 +184,44 @@ public class CharacterService : ICharacterService
             return null;
         }
 
-        var all = character.Items?.ToArray() ?? Array.Empty<ItemEntity>();
-        var bag = all.Where(item => item.WearInfo == ItemWearType.None).ToArray();
-        var keys = new ItemOrderKey[bag.Length];
-        for (var i = 0; i < bag.Length; i++)
+        var items = character.Items?.ToArray() ?? Array.Empty<ItemEntity>();
+        var keys = new ItemOrderKey[items.Length];
+        for (var i = 0; i < items.Length; i++)
         {
-            keys[i] = new ItemOrderKey(catalog.GetResourceKey(bag[i].ItemResourceId), bag[i].Id);
+            keys[i] = new ItemOrderKey(catalog.GetResourceKey(items[i].ItemResourceId), items[i].Id);
         }
 
-        if (InventoryArrange.Apply(bag, keys))
+        if (InventoryArrange.Apply(items, keys))
         {
             await _characterRepository.SaveChangesAsync();
         }
 
-        return all.Where(item => item.WearInfo != ItemWearType.None).Concat(bag).ToArray();
+        return items;
+    }
+
+    public async Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count)
+    {
+        var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+        if (character is null)
+        {
+            return null;
+        }
+
+        character.Items ??= new List<ItemEntity>();
+        var nextIndex = character.Items.Count == 0
+            ? InventoryArrange.FirstIndex
+            : character.Items.Max(item => item.Idx) + 1;
+        var added = new ItemEntity
+        {
+            ItemResourceId = itemResourceId,
+            Amount = Math.Max(1, count),
+            WearInfo = ItemWearType.None,
+            Idx = nextIndex
+        };
+
+        character.Items.Add(added);
+        await _characterRepository.SaveChangesAsync();
+        return added;
     }
 
     public async Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2)
@@ -208,19 +232,19 @@ public class CharacterService : ICharacterService
             return null;
         }
 
-        var bag = character.Items.Where(item => item.WearInfo == ItemWearType.None).ToArray();
-        var first = bag.FirstOrDefault(item => (uint)item.Id == itemHandle1);
-        var second = bag.FirstOrDefault(item => (uint)item.Id == itemHandle2);
+        var items = character.Items.ToArray();
+        var first = items.FirstOrDefault(item => (uint)item.Id == itemHandle1);
+        var second = items.FirstOrDefault(item => (uint)item.Id == itemHandle2);
         if (first is null || second is null || ReferenceEquals(first, second))
         {
             return null;
         }
 
-        InventoryArrange.EnsureContiguousIndices(bag);
+        InventoryArrange.EnsureContiguousIndices(items);
         (first.Idx, second.Idx) = (second.Idx, first.Idx);
         await _characterRepository.SaveChangesAsync();
 
-        return bag;
+        return items;
     }
 
     public async Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos)

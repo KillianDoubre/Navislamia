@@ -334,6 +334,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleTakeItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadTakeItem(packet, out var itemHandle))
+        {
+            SendResult((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.GroundItemService.TakeAsync(this, itemHandle);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process take item for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleChangeItemPositionAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadChangeItemPosition(packet, out var request))
@@ -504,6 +522,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_TIMESYNC)
             {
                 HandleTimeSync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_TAKE_ITEM)
+            {
+                _ = HandleTakeItemAsync(msgBuffer);
                 continue;
             }
 

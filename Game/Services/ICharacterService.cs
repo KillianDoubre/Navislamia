@@ -31,6 +31,8 @@ public interface ICharacterService
 
     Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2);
 
+    Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);
+
     Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos);
 
     void SaveChanges();

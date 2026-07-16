@@ -14,22 +14,36 @@ public readonly record struct ItemOrderKey(ulong ResourceKey, long ItemId) : ICo
 
 public static class InventoryArrange
 {
+    public const int FirstIndex = 1;
+
     private const int ByteMax = 255;
-    private const int GroupShift = 48;
-    private const int TypeShift = 40;
+    private const int CategoryShift = 48;
+    private const int GroupShift = 40;
     private const int RankShift = 32;
 
-    public static ulong BuildResourceKey(int group, int itemType, int rank, long resourceId)
+    public static int CategoryOrder(int category)
     {
+        return category switch
+        {
+            1 => 0,
+            3 => 1,
+            2 => 2,
+            6 => 3,
+            _ => 4
+        };
+    }
+
+    public static ulong BuildResourceKey(int category, int group, int rank, long resourceId)
+    {
+        var packedCategory = (ulong)ClampByte(CategoryOrder(category)) << CategoryShift;
         var packedGroup = (ulong)ClampByte(group) << GroupShift;
-        var packedType = (ulong)ClampByte(itemType) << TypeShift;
         var packedRank = (ulong)(ByteMax - ClampByte(rank)) << RankShift;
-        return packedGroup | packedType | packedRank | (uint)resourceId;
+        return packedCategory | packedGroup | packedRank | (uint)resourceId;
     }
 
     public static ulong BuildUnknownResourceKey(long resourceId)
     {
-        return BuildResourceKey(ByteMax, ByteMax, 0, resourceId);
+        return (((ulong)ByteMax << CategoryShift) | ((ulong)ByteMax << GroupShift)) | (uint)resourceId;
     }
 
     public static bool EnsureContiguousIndices(ItemEntity[] bag)
@@ -54,12 +68,12 @@ public static class InventoryArrange
         var changed = false;
         for (var i = 0; i < items.Length; i++)
         {
-            if (items[i].Idx == i)
+            if (items[i].Idx == i + FirstIndex)
             {
                 continue;
             }
 
-            items[i].Idx = i;
+            items[i].Idx = i + FirstIndex;
             changed = true;
         }
 
@@ -71,13 +85,13 @@ public static class InventoryArrange
         var seen = new bool[bag.Length];
         foreach (var item in bag)
         {
-            var index = item.Idx;
-            if (index < 0 || index >= bag.Length || seen[index])
+            var slot = item.Idx - FirstIndex;
+            if (slot < 0 || slot >= bag.Length || seen[slot])
             {
                 return false;
             }
 
-            seen[index] = true;
+            seen[slot] = true;
         }
 
         return true;

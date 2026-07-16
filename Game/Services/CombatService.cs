@@ -21,17 +21,19 @@ public class CombatService : ICombatService
     private readonly MonsterWorldState _worldState;
     private readonly IMonsterSpawnService _spawnService;
     private readonly ILevelingService _levelingService;
+    private readonly IGroundItemService _groundItemService;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
-        ILevelingService levelingService)
+        ILevelingService levelingService, IGroundItemService groundItemService)
     {
         _worldState = worldState;
         _spawnService = spawnService;
         _levelingService = levelingService;
+        _groundItemService = groundItemService;
         _ = RunAsync();
     }
 
@@ -159,6 +161,8 @@ public class CombatService : ICombatService
         if (targetHp <= 0)
         {
             _worldState.Kill(session.TargetInstanceId, now.AddSeconds(RespawnDelaySeconds));
+            client.Connection.Send(GameMovePackets.BuildStopMove(session.TargetHandle,
+                unchecked((uint)Environment.TickCount + info.ClientClockOffset), info.Layer));
             client.Connection.Send(GameCharacterPackets.BuildStatusChange(session.TargetHandle, MonsterDeadStatus));
 
             lock (_lock)
@@ -174,6 +178,8 @@ public class CombatService : ICombatService
                 });
             }
 
+            var (dropX, dropY) = _worldState.GetPosition(session.TargetInstanceId);
+            _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z);
             AwardKill(client, info, instance.Level);
             return;
         }

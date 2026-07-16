@@ -110,7 +110,8 @@ public static class GameCharacterPackets
 
     public static IReadOnlyList<byte[]> BuildInventory(CharacterEntity character)
     {
-        return BuildInventory(character.Items?.ToArray() ?? Array.Empty<ItemEntity>());
+        return BuildInventory(character.Items?.OrderBy(item => item.Idx).ToArray()
+                              ?? Array.Empty<ItemEntity>());
     }
 
     public static IReadOnlyList<byte[]> BuildInventory(ItemEntity[] items)

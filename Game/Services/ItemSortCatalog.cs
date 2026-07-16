@@ -16,7 +16,7 @@ public class ItemSortCatalog : IItemSortCatalog
         var keys = new Dictionary<int, ulong>(fields.Count);
         foreach (var field in fields)
         {
-            keys[field.Id] = InventoryArrange.BuildResourceKey(field.Group, field.ItemType, field.Rank, field.Id);
+            keys[field.Id] = InventoryArrange.BuildResourceKey(field.Category, field.Group, field.Rank, field.Id);
         }
 
         _resourceKeys = keys.ToFrozenDictionary();
