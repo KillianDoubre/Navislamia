@@ -164,6 +164,10 @@ public class Program
         services.AddSingleton<ILevelingService, LevelingService>();
         services.AddSingleton<SkillCatalog>();
         services.AddSingleton<ISkillService, SkillService>();
+        services.AddSingleton<IEquipmentService, EquipmentService>();
+        services.AddSingleton<IItemResourceRepository, ItemResourceRepository>();
+        services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
+        services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();

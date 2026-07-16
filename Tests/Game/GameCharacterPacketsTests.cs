@@ -20,6 +20,22 @@ public class GameCharacterPacketsTests
     }
 
     [Test]
+    public void BuildItemWearInfo_LaysOutTheEpic73ItemWearRecord()
+    {
+        var packet = GameCharacterPackets.BuildItemWearInfo(itemHandle: 0x12345678u, wearPosition: -1,
+            targetHandle: 0x40000001u, enhance: 7, elementalEffectType: 3);
+
+        packet.Length.Should().Be(22);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0, 4)).Should().Be(22);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)).Should().Be((ushort)GamePackets.TM_SC_ITEM_WEAR_INFO);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x12345678u);
+        BinaryPrimitives.ReadInt16LittleEndian(packet.AsSpan(11, 2)).Should().Be(-1);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(13, 4)).Should().Be(0x40000001u);
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(17, 4)).Should().Be(7);
+        packet[21].Should().Be(3);
+    }
+
+    [Test]
     public void BuildWearInfo_UsesTheClientCalibratedEpic73Models()
     {
         var character = new CharacterEntity

@@ -12,6 +12,8 @@ public interface ICharacterRepository
  
     CharacterEntity GetCharacterByName(string characterName);
 
+    CharacterEntity GetCharacterByNameWithItems(string characterName);
+
     bool CharacterExists(string characterName);
 
     int CharacterCount(int accountId);

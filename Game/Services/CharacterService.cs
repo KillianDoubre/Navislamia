@@ -137,6 +137,92 @@ public class CharacterService : ICharacterService
         return true;
     }
 
+    public async Task<ItemEntity> UnequipItemAsync(string characterName, ItemWearType position)
+    {
+        var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+        var item = character?.Items?.FirstOrDefault(entry => entry.WearInfo == position);
+        if (item is null)
+        {
+            return null;
+        }
+
+        item.WearInfo = ItemWearType.None;
+        await _characterRepository.SaveChangesAsync();
+        return item;
+    }
+
+    public async Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position)
+    {
+        var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+        var item = character?.Items?.FirstOrDefault(entry => (uint)entry.Id == itemHandle);
+        if (item is null)
+        {
+            return new EquipItemResult(EquipItemOutcome.NotFound, null, null, null);
+        }
+
+        if (item.WearInfo != ItemWearType.None)
+        {
+            return new EquipItemResult(EquipItemOutcome.AlreadyWorn, character, null, null);
+        }
+
+        var displaced = character.Items.FirstOrDefault(entry => entry.WearInfo == position);
+        if (displaced is not null)
+        {
+            displaced.WearInfo = ItemWearType.None;
+        }
+
+        item.WearInfo = position;
+        await _characterRepository.SaveChangesAsync();
+        return new EquipItemResult(EquipItemOutcome.Success, character, item, displaced);
+    }
+
+    public async Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog)
+    {
+        var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+        if (character is null)
+        {
+            return null;
+        }
+
+        var all = character.Items?.ToArray() ?? Array.Empty<ItemEntity>();
+        var bag = all.Where(item => item.WearInfo == ItemWearType.None).ToArray();
+        var keys = new ItemOrderKey[bag.Length];
+        for (var i = 0; i < bag.Length; i++)
+        {
+            keys[i] = new ItemOrderKey(catalog.GetResourceKey(bag[i].ItemResourceId), bag[i].Id);
+        }
+
+        if (InventoryArrange.Apply(bag, keys))
+        {
+            await _characterRepository.SaveChangesAsync();
+        }
+
+        return all.Where(item => item.WearInfo != ItemWearType.None).Concat(bag).ToArray();
+    }
+
+    public async Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2)
+    {
+        var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+        if (character?.Items is null)
+        {
+            return null;
+        }
+
+        var bag = character.Items.Where(item => item.WearInfo == ItemWearType.None).ToArray();
+        var first = bag.FirstOrDefault(item => (uint)item.Id == itemHandle1);
+        var second = bag.FirstOrDefault(item => (uint)item.Id == itemHandle2);
+        if (first is null || second is null || ReferenceEquals(first, second))
+        {
+            return null;
+        }
+
+        InventoryArrange.EnsureContiguousIndices(bag);
+        (first.Idx, second.Idx) = (second.Idx, first.Idx);
+        await _characterRepository.SaveChangesAsync();
+
+        return bag;
+    }
+
     public async Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos)
     {
         if (string.IsNullOrEmpty(characterName))

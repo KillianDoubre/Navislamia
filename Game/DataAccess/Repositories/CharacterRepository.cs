@@ -39,6 +39,13 @@ public class CharacterRepository : ICharacterRepository
         return _context.Characters.FirstOrDefault(c => c.CharacterName == characterName);
     }
 
+    public CharacterEntity GetCharacterByNameWithItems(string characterName)
+    {
+        return _context.Characters
+            .Include(c => c.Items)
+            .FirstOrDefault(c => c.CharacterName == characterName);
+    }
+
     public bool CharacterExists(string characterName)
     {
         return _context.Characters.Any(c => c.CharacterName == characterName);

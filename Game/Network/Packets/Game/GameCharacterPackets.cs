@@ -11,7 +11,7 @@ namespace Navislamia.Game.Network.Packets.Game;
 public static class GameCharacterPackets
 {
     private const int HeaderSize = 7;
-    private const int WearSlots = 24;
+    public const int WearSlots = 24;
     private const int InventoryItemSize = 85;
     private const int MaxInventoryItemsPerPacket = 45;
 
@@ -50,6 +50,22 @@ public static class GameCharacterPackets
         var packet = CreatePacket(GamePackets.TM_SC_SKIN_INFO, HeaderSize + 8);
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), handle);
         BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), skinColor);
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildItemWearInfo(uint itemHandle, short wearPosition, uint targetHandle, int enhance,
+        byte elementalEffectType)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_ITEM_WEAR_INFO, HeaderSize + 15);
+        var payload = packet.AsSpan(HeaderSize);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), itemHandle);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.Slice(4, 2), wearPosition);
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(6, 4), targetHandle);
+        BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(10, 4), enhance);
+        payload[14] = elementalEffectType;
+
         WriteChecksum(packet);
         return packet;
     }
@@ -94,7 +110,11 @@ public static class GameCharacterPackets
 
     public static IReadOnlyList<byte[]> BuildInventory(CharacterEntity character)
     {
-        var items = character.Items?.ToArray() ?? Array.Empty<ItemEntity>();
+        return BuildInventory(character.Items?.ToArray() ?? Array.Empty<ItemEntity>());
+    }
+
+    public static IReadOnlyList<byte[]> BuildInventory(ItemEntity[] items)
+    {
         var packets = new List<byte[]>(Math.Max(1, (items.Length + MaxInventoryItemsPerPacket - 1) / MaxInventoryItemsPerPacket));
 
         if (items.Length == 0)

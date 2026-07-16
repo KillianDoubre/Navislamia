@@ -211,6 +211,7 @@ public class GameActions : IActions
         client.Connection.Send(GameCharacterPackets.BuildEmptyAddedSkillList(handle));
         client.Connection.Send(GameCharacterPackets.BuildBeltSlotInfo(character.BeltItemIds));
         client.SendGameTime();
+        client.SendTimeSync();
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", hp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", mp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", stats.MaxHp));

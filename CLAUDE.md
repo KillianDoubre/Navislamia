@@ -249,6 +249,114 @@ against the client clock: `ConnectionInfo.ClientClockOffset` is captured from ea
 and applied to `start_time` so the walk does not teleport. Walk speed is a placeholder.
 `AuthorizedGameClients` is a `ConcurrentDictionary` so the movement thread can iterate it safely.
 
+## Equipment
+
+Both directions are wired, parsed by `GameActionPackets` and served by `EquipmentService`, which mirrors
+the reference `WorldSession::onPutOnItem` / `onPutOffItem`.
+
+`TS_CS_PUTON_ITEM` (`200`, Epic < 9.6.3) is 16 bytes: `position` (int8 @7), `item_handle` (uint32 @8),
+`target_handle` (uint32 @12). `TS_CS_PUTOFF_ITEM` (`201`) is 12 bytes: `position` (int8 @7),
+`target_handle` (uint32 @8). Only the player is supported: a `target_handle` that is neither `0` nor the
+character handle answers `NotExist` (summons are ignored). `position` is a raw client byte, so it is
+bounds-checked against the 24 wear slots before it reaches the database; an out-of-range slot answers
+`InvalidArgument` rather than persisting a `WearInfo` that `TS_SC_WEAR_INFO` would then skip, which would
+strand the item outside both the bag and the model.
+
+`CharacterService.EquipItemAsync` loads the character with its items, resolves the item by handle
+(`(uint)ItemEntity.Id`), clears any item already worn at the target slot (the displaced item returns to
+the bag), assigns `WearInfo` and persists both changes in one `SaveChangesAsync`. It returns an
+`EquipItemResult` carrying the outcome, the character and the equipped/displaced entities.
+`UnequipItemAsync` is the mirror and returns the cleared `ItemEntity`. An unknown handle answers
+`AccessDenied`, an item already worn `NotActable`, an empty slot `NotExist`.
+
+The client needs two different packets, and sending only one leaves half the UI stale:
+`TS_SC_ITEM_WEAR_INFO` (`287`, 22 bytes: `item_handle` @7, `wear_position` int16 @11, `target_handle`
+@13, `enhance` int32 @17, `elemental_effect_type` @21) updates the **inventory** record, while
+`TS_SC_WEAR_INFO` (`202`) rebuilds the **3D model**. `TS_SC_WEAR_INFO` only indexes slot to item code and
+never references the inventory item, so without `287` the item stays visually equipped in the bag until
+relog. The response order is: `TS_SC_ITEM_WEAR_INFO` for the displaced item (equip only), then for the
+affected item, stat info, `TS_SC_RESULT` tagged with the request id, and finally the refreshed
+`TS_SC_WEAR_INFO` (a cleared slot falls back to the base body model through `InjectBaseModelIfEmpty`).
+
+Stats are unchanged for now because `StatService` is level/race based and does not yet read equipment.
+
+## Client clock
+
+The client keeps its own notion of server time and every timed UI depends on it. Three packets feed it,
+all of them `ar_time_t`, which is a **millisecond tick, never a wall clock**: `TS_TIMESYNC` (`2`,
+bidirectional, `time`), `TS_SC_SET_TIME` (`10`, `int32 gap`) and `TS_SC_GAME_TIME` (`1101`, `t` +
+`game_time`).
+
+The handshake mirrors the reference `WorldSession::onTimeSync` and the server drives it entirely: this
+client **never initiates a `TS_TIMESYNC`**, it only answers one, immediately and one for one. So the
+server sends `TS_TIMESYNC` at world entry, each answer yields `gap = serverTick - clientTick` (the clock
+offset), and the server keeps asking until it holds four samples, then sends `TS_SC_SET_TIME` with their
+average. The whole exchange completes in milliseconds. Because the client never pings on its own, the
+clock is established once per session and never refreshed; sampling stops after `TS_SC_SET_TIME`.
+`GameClient.HandleTimeSync` also seeds `ConnectionInfo.ClientClockOffset` from the same gap, which is why
+the offset is now known at world entry instead of only after the first move request.
+
+Without this handshake nothing time-based on the client ever elapses: the inventory sort button greyed
+itself for `ITEM_ARRANGE_COOL_TIME` and never came back, survived closing the window, and only cleared
+by returning to character selection, because the countdown had no clock to run against. `TS_SC_GAME_TIME.t`
+used to carry unix seconds, which is the wrong base for an `ar_time_t`; it now carries the client tick
+like every other time field. `game_time` (the in-world day/night clock) is still `0`.
+
+## Inventory ordering
+
+Bag placement is the `index` field of `TS_ITEM_INFO`, the last field of the 85-byte inventory record
+(offset 81), persisted as `Items.Idx`. Nothing used to assign it, so every legacy row holds `Idx = 0`
+and the client placed bag items by packet arrival order. Degenerate indices make a swap a no-op (it
+exchanges `0` with `0` and reports success), so `InventoryArrange.EnsureContiguousIndices` renumbers a
+bag whose indices are not a permutation of `0..n-1`, keeping a valid permutation untouched so a player
+arrangement survives. It runs from `CharacterDefaults.Apply` (the existing legacy backfill hook, which
+already persists once per load) and before any swap. There is no `TS_SC_ARRANGE_ITEM`: both ordering packets answer
+with `TS_SC_INVENTORY` (`207`) plus a `TS_SC_RESULT`. Sending a partial `207` is safe because the client
+merges item records by handle — login already streams the inventory in chunks, so a chunk cannot be a
+full replace. Only bag items (`WearInfo == None`) are renumbered; worn items keep their slot.
+
+`TS_CS_CHANGE_ITEM_POSITION` (`218`, Epic < 9.6.3) is the drag-and-drop swap: `is_storage` (bool @7) +
+`item_handle_1` (uint32 @8) + `item_handle_2` (uint32 @12), 16 bytes. It carries no slot number, so it
+can only ever swap two existing items; the bag is a dense list rather than a sparse grid. Both handles
+must resolve to bag items, otherwise the answer is `NotExist`. `InventoryService.SwapPositionsAsync`
+exchanges the two `Idx` values and echoes the whole bag back through `207`, because the normalization
+that precedes the swap can renumber the other items too.
+
+`TS_CS_ARRANGE_ITEM` (`219`) is the inventory sort button: `is_storage` (bool @7), 8 bytes total.
+`InventoryArrange` packs the order into one `ulong` per resource — `group` (8 bits) `<< 48`, `item_type`
+`<< 40`, inverted `rank` `<< 32`, then the resource id in the low 32 bits — so the sort is a single
+integer comparison per pair, with the item id breaking ties to keep repeated arranges stable. Every key
+is precomputed once at startup by `ItemSortCatalog` into a `FrozenDictionary`, so the comparator never
+touches the database. Unknown resources get group 255 and sort last. The observed ranges make the packing
+safe: `group <= 140`, `item_type <= 7`, `rank <= 7`, `id <= 700000886`.
+
+Storage is not implemented, so `is_storage = 1` answers `NotActable` for both packets.
+
+The original server's ordering could not be recovered exactly. The shipped `Game_bin` PDB proves the
+shape — `StructInventory::_ItemArrangeGreater(const StructItem*, const StructItem*)` is a comparator
+(so the sort is by item fields, not by name), `StructPlayer::ArrangeItem(bool)` returns a result code,
+and `ITEM_ARRANGE_COOL_TIME` with `m_nLastInvenArrangedTime`/`m_nLastStorageArrangedTime` proves a
+per-inventory/storage cooldown — but that PDB does not match the shipped executable (RSDS GUID
+`8F49E0DD-…` against the PDB's `912BD391-…`, 9 sections against 6), so its addresses are unusable and
+the comparator body is unrecoverable without the matching build. The group/type/rank/id order is therefore our own choice.
+
+`ITEM_ARRANGE_COOL_TIME` itself was recovered: the constants live in the PDB as `S_CONSTANT` (`0x1107`)
+records, whose payload is the record kind, a type index and a numeric leaf, so the bytes preceding the
+name decode to the value. It is **3000 ms**, matching `InventoryService.ArrangeCooldown`; the decoding
+checks out against its neighbours (`MAX_ACCOUNT_LEN` 60, `MAX_BOOTH_ITEM_COUNT` 8,
+`DONATE_GOLD_UNIT_COUNT` 10000, `MAX_LAYER` 256). Spamming is refused with `ResultCode.CoolTime`.
+
+That 3 s is the **server's** anti-spam floor and is not what the player sees: the client greys its own
+sort button for a measured **30 s**, so the client is the stricter of the two and the server guard never
+fires in normal play. The client's countdown only runs once the clock handshake above has completed;
+before it existed the button greyed permanently.
+
+`ItemResources` holds 33,142 rows imported from the 9.4 SQL Server `Arcadia.ItemResource`. Like
+`MonsterResource`, only the directly mapped scalar columns were imported; `RaceRestriction`, `SetPart`
+and `JobRestriction` are bitfields derived from `limit_*` columns and are left at zero, and the
+`NameId`/`SetId`/`SummonId`/`EffectId`/`SkillId`/`StateId` foreign keys are left null because the
+referenced resource tables are still empty.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn) and idle-wander, but have no aggro, chase, retaliation, loot or
@@ -256,7 +364,12 @@ and applied to `start_time` so the walk does not teleport. Walk speed is a place
 - NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
   teleportation and quest mutation are not executed yet
 - Skill learning and persistence work; casting, passive application and skill effects are not implemented
-- Advanced cosmetics and equipment changes are not implemented
+- Equipping and unequipping work and persist, but equipment does not affect stats yet, and item
+  requirements (level, job, race) are not validated
+- Inventory sorting and drag-swap work for the bag; storage/warehouse is not implemented and the sort
+  order is our own rather than the original one
+- The client clock is synchronized, but `TS_SC_GAME_TIME.game_time` (the in-world day/night clock) is
+  still zero, and movement still applies `ClientClockOffset` by hand rather than trusting the sync
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work

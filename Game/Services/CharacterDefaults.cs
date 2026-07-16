@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 
@@ -71,7 +72,20 @@ public static class CharacterDefaults
             changed = true;
         }
 
+        changed |= ApplyBagIndices(character);
+
         return changed;
+    }
+
+    private static bool ApplyBagIndices(CharacterEntity character)
+    {
+        if (character.Items is null)
+        {
+            return false;
+        }
+
+        var bag = character.Items.Where(item => item.WearInfo == ItemWearType.None).ToArray();
+        return InventoryArrange.EnsureContiguousIndices(bag);
     }
 
     private static string BuildDefaultClientInfo()

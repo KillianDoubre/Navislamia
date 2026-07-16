@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Navislamia.Game.Network.Clients;
@@ -18,6 +19,8 @@ public class ConnectionInfo
     public long CharacterGold { get; set; }
     public int CharacterChaos { get; set; }
     public uint ClientClockOffset { get; set; }
+    public List<int> TimeSyncGaps { get; } = new();
+    public DateTime NextInventoryArrangeAt { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
     public readonly object NpcVisibilityLock = new();
@@ -74,6 +77,8 @@ public class ConnectionInfo
         CharacterGold = 0;
         CharacterChaos = 0;
         CharacterName = string.Empty;
+        TimeSyncGaps.Clear();
+        NextInventoryArrangeAt = default;
         Layer = 0;
         X = 0;
         Y = 0;

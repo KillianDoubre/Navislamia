@@ -66,6 +66,93 @@ public class ActionPacketsTests
     }
 
     [Test]
+    public void TryReadPutoffItem_ReadsPositionAndTargetHandle()
+    {
+        var packet = new byte[12];
+        packet[7] = 2;
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8, 4), 0x40000123u);
+
+        GameActionPackets.TryReadPutoffItem(packet, out var request).Should().BeTrue();
+        request.Position.Should().Be(2);
+        request.TargetHandle.Should().Be(0x40000123u);
+    }
+
+    [Test]
+    public void TryReadPutoffItem_RejectsTruncated()
+    {
+        GameActionPackets.TryReadPutoffItem(new byte[11], out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void TryReadPutonItem_ReadsPositionItemHandleAndTargetHandle()
+    {
+        var packet = new byte[16];
+        packet[7] = 5;
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8, 4), 0x80000456u);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(12, 4), 0x40000123u);
+
+        GameActionPackets.TryReadPutonItem(packet, out var request).Should().BeTrue();
+        request.Position.Should().Be(5);
+        request.ItemHandle.Should().Be(0x80000456u);
+        request.TargetHandle.Should().Be(0x40000123u);
+    }
+
+    [Test]
+    public void TryReadPutonItem_RejectsTruncated()
+    {
+        GameActionPackets.TryReadPutonItem(new byte[15], out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void TryReadPutonItem_ReadsNoneAsANegativePosition()
+    {
+        var packet = new byte[16];
+        packet[7] = 0xFF;
+
+        GameActionPackets.TryReadPutonItem(packet, out var request).Should().BeTrue();
+        request.Position.Should().Be(-1);
+    }
+
+    [Test]
+    public void TryReadArrangeItem_ReadsTheStorageFlagFromTheSingleBytePayload()
+    {
+        var inventory = new byte[8];
+        GameActionPackets.TryReadArrangeItem(inventory, out var isStorage).Should().BeTrue();
+        isStorage.Should().BeFalse();
+
+        var storage = new byte[8];
+        storage[7] = 1;
+        GameActionPackets.TryReadArrangeItem(storage, out isStorage).Should().BeTrue();
+        isStorage.Should().BeTrue();
+    }
+
+    [Test]
+    public void TryReadArrangeItem_RejectsAHeaderOnlyPacket()
+    {
+        GameActionPackets.TryReadArrangeItem(new byte[7], out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void TryReadChangeItemPosition_ReadsTheStorageFlagAndBothHandles()
+    {
+        var packet = new byte[16];
+        packet[7] = 0;
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8, 4), 0x80000111u);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(12, 4), 0x80000222u);
+
+        GameActionPackets.TryReadChangeItemPosition(packet, out var request).Should().BeTrue();
+        request.IsStorage.Should().BeFalse();
+        request.ItemHandle1.Should().Be(0x80000111u);
+        request.ItemHandle2.Should().Be(0x80000222u);
+    }
+
+    [Test]
+    public void TryReadChangeItemPosition_RejectsTruncated()
+    {
+        GameActionPackets.TryReadChangeItemPosition(new byte[15], out _).Should().BeFalse();
+    }
+
+    [Test]
     public void ConnectionInfo_TargetHandleDefaultsToZero()
     {
         new ConnectionInfo().TargetHandle.Should().Be(0u);

@@ -61,7 +61,55 @@ public class GameClient : Client
     public void SendGameTime()
     {
         var message = new Packet<TS_SC_GAME_TIME>((ushort)GamePackets.TM_SC_GAME_TIME,
-            new TS_SC_GAME_TIME { T = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(), GameTime = 0 });
+            new TS_SC_GAME_TIME { T = ClientTick(), GameTime = 0 });
+        Connection.Send(message.Data);
+    }
+
+    private uint ClientTick()
+    {
+        return unchecked((uint)Environment.TickCount + ConnectionInfo.ClientClockOffset);
+    }
+
+    public void SendTimeSync()
+    {
+        var message = new Packet<TS_TIMESYNC>((ushort)GamePackets.TM_TIMESYNC,
+            new TS_TIMESYNC { Time = (uint)Environment.TickCount });
+        Connection.Send(message.Data);
+    }
+
+    private void HandleTimeSync(byte[] packet)
+    {
+        const int sampleWindow = 4;
+
+        var clientTime = BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4));
+        var gap = unchecked((int)((uint)Environment.TickCount - clientTime));
+        ConnectionInfo.ClientClockOffset = unchecked((uint)-gap);
+
+        var gaps = ConnectionInfo.TimeSyncGaps;
+        gaps.Add(gap);
+        if (gaps.Count > sampleWindow)
+        {
+            gaps.RemoveAt(0);
+        }
+
+        if (gaps.Count < sampleWindow)
+        {
+            SendTimeSync();
+            return;
+        }
+
+        var total = 0L;
+        foreach (var sample in gaps)
+        {
+            total += sample;
+        }
+
+        var averageGap = (int)(total / gaps.Count);
+        _logger.Debug("Clock synchronized for {clientTag}: gap={averageGap}ms over {count} samples",
+            ClientTag, averageGap, gaps.Count);
+
+        var message = new Packet<TS_SC_SET_TIME>((ushort)GamePackets.TM_SC_SET_TIME,
+            new TS_SC_SET_TIME { Gap = averageGap });
         Connection.Send(message.Data);
     }
 
@@ -250,6 +298,78 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandlePutonItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadPutonItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_PUTON_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.EquipmentService.EquipAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process equip for {clientTag}", ClientTag);
+        }
+    }
+
+    private async Task HandleArrangeItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadArrangeItem(packet, out var isStorage))
+        {
+            SendResult((ushort)GamePackets.TM_CS_ARRANGE_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.InventoryService.ArrangeAsync(this, isStorage);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process arrange item for {clientTag}", ClientTag);
+        }
+    }
+
+    private async Task HandleChangeItemPositionAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadChangeItemPosition(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.InventoryService.SwapPositionsAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process change item position for {clientTag}", ClientTag);
+        }
+    }
+
+    private async Task HandlePutoffItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadPutoffItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_PUTOFF_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.EquipmentService.UnequipAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process unequip for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleLearnSkillAsync(byte[] packet)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
@@ -366,6 +486,36 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_LEARN_SKILL)
             {
                 _ = HandleLearnSkillAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_PUTON_ITEM)
+            {
+                _ = HandlePutonItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_PUTOFF_ITEM)
+            {
+                _ = HandlePutoffItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_TIMESYNC)
+            {
+                HandleTimeSync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_ARRANGE_ITEM)
+            {
+                _ = HandleArrangeItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION)
+            {
+                _ = HandleChangeItemPositionAsync(msgBuffer);
                 continue;
             }
 
