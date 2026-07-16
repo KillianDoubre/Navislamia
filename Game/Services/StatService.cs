@@ -1,59 +1,114 @@
+using System;
 using System.Collections.Generic;
 using Navislamia.Game.DataAccess.Entities.Enums;
-using Navislamia.Game.DataAccess.Repositories.Interfaces;
-using Serilog;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.Services;
 
 public class StatService : IStatService
 {
-    private readonly ILogger _logger = Log.ForContext<StatService>();
-    private readonly IStatResourceRepository _statResources;
+    private readonly StatCalculator _calculator;
+    private readonly IItemStatCatalog _itemStats;
 
-    private static readonly Dictionary<int, int> RaceStatId = new()
+    public StatService(IStatCatalog catalog, IItemStatCatalog itemStats)
     {
-        { (int)Race.Deva, 1 },
-        { (int)Race.Gaia, 2 },
-        { (int)Race.Asura, 3 },
-    };
-
-    public StatService(IStatResourceRepository statResources)
-    {
-        _statResources = statResources;
+        _calculator = new StatCalculator(catalog);
+        _itemStats = itemStats;
     }
 
-    public CharacterStats Compute(int race, int level)
+    public CharacterStatResult Compute(CharacterEntity character)
     {
-        if (level < 1) level = 1;
-
-        var statId = RaceStatId.TryGetValue(race, out var id) ? id : 0;
-        var row = statId > 0 ? _statResources.GetById(statId) : null;
-
-        short str, vit, dex, agi, intel, men, luk;
-        if (row != null)
-        {
-            str = (short)row.Strength; vit = (short)row.Vitality; dex = (short)row.Dexterity;
-            agi = (short)row.Agility; intel = (short)row.Intelligence; men = (short)row.Wisdom;
-            luk = (short)row.Luck;
-            _logger.Debug("StatService: race {race} lv {lv} using StatResource row {id}", race, level, statId);
-        }
-        else
-        {
-            (str, vit, dex, agi, intel, men, luk) = StaticBaseline(race);
-            _logger.Warning("StatService: race {race} lv {lv} StatResource row {id} missing, using static baseline",
-                race, level, statId);
-        }
-
-        var maxHp = 50 + vit * 10 + level * 20;
-        var maxMp = 30 + men * 8 + level * 10;
-        return new CharacterStats(statId, str, vit, dex, agi, intel, men, luk, maxHp, maxMp);
+        return _calculator.Compute(new StatCalculatorInput(
+            (int)character.CurrentJob,
+            BuildJobHistory(PreviousJobsOf(character), (int)character.CurrentJob, character.Jlv),
+            character.Lv,
+            ResolveItemEffects(character)));
     }
 
-    private static (short, short, short, short, short, short, short) StaticBaseline(int race) => race switch
+    public CharacterStatResult Compute(ConnectionInfo info)
     {
-        (int)Race.Deva => (10, 11, 11, 12, 13, 13, 10),
-        (int)Race.Gaia => (13, 13, 11, 11, 10, 11, 10),
-        (int)Race.Asura => (12, 11, 13, 13, 10, 10, 10),
-        _ => (11, 11, 11, 11, 11, 11, 10),
-    };
+        return _calculator.Compute(new StatCalculatorInput(
+            info.CharacterJob,
+            BuildJobHistory(info.PreviousJobs, info.CharacterJob, info.CharacterJobLevel),
+            info.CharacterLevel,
+            info.ItemEffects));
+    }
+
+    public CharacterStatResult ComputeForNewCharacter(int race)
+    {
+        var job = (int)CharacterDefaults.GetStarterJob(race);
+        return _calculator.Compute(new StatCalculatorInput(
+            job,
+            new[] { (job, 0) },
+            1,
+            Array.Empty<ItemStatEffect>()));
+    }
+
+    public void Seed(ConnectionInfo info, CharacterEntity character)
+    {
+        info.PreviousJobs.Clear();
+        info.PreviousJobs.AddRange(PreviousJobsOf(character));
+        info.ItemEffects = ResolveItemEffects(character);
+    }
+
+    private static List<(int Job, int JobLevel)> PreviousJobsOf(CharacterEntity character)
+    {
+        var previous = new List<(int Job, int JobLevel)>();
+        if (character.PreviousJobs is null || character.JobLvs is null)
+        {
+            return previous;
+        }
+
+        for (var i = 0; i < character.PreviousJobs.Length && i < character.JobLvs.Length; i++)
+        {
+            var job = (int)character.PreviousJobs[i];
+            if (job == 0 || character.JobLvs[i] == 0)
+            {
+                break;
+            }
+
+            previous.Add((job, character.JobLvs[i]));
+        }
+
+        return previous;
+    }
+
+    private static IReadOnlyList<(int Job, int JobLevel)> BuildJobHistory(
+        IReadOnlyList<(int Job, int JobLevel)> previous, int currentJob, int currentJobLevel)
+    {
+        var history = new List<(int Job, int JobLevel)>(previous.Count + 1);
+        history.AddRange(previous);
+        history.Add((currentJob, currentJobLevel));
+        return history;
+    }
+
+    private IReadOnlyList<ItemStatEffect> ResolveItemEffects(CharacterEntity character)
+    {
+        if (character.Items is null)
+        {
+            return Array.Empty<ItemStatEffect>();
+        }
+
+        List<ItemStatEffect> effects = null;
+        foreach (var item in character.Items)
+        {
+            if (item.WearInfo == ItemWearType.None)
+            {
+                continue;
+            }
+
+            var itemEffects = _itemStats.GetEffects((int)item.ItemResourceId);
+            if (itemEffects.Count == 0)
+            {
+                continue;
+            }
+
+            effects ??= new List<ItemStatEffect>();
+            effects.AddRange(itemEffects);
+        }
+
+        return (IReadOnlyList<ItemStatEffect>)effects ?? Array.Empty<ItemStatEffect>();
+    }
 }

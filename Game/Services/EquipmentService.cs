@@ -62,7 +62,7 @@ public class EquipmentService : IEquipmentService
             }
 
             SendItemWear(client, handle, result.Equipped);
-            SendStatInfo(client, info, handle);
+            SendStatInfo(client, info, handle, result.Character);
             client.SendResult(EquipRequestId, (ushort)ResultCode.Success, 0);
             client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, result.Character));
         }
@@ -100,7 +100,7 @@ public class EquipmentService : IEquipmentService
 
             var handle = info.CharacterHandle;
             SendItemWear(client, handle, item);
-            SendStatInfo(client, info, handle);
+            SendStatInfo(client, info, handle, item.Character);
             client.SendResult(UnequipRequestId, (ushort)ResultCode.Success, 0);
             client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, item.Character));
         }
@@ -117,10 +117,12 @@ public class EquipmentService : IEquipmentService
         return position >= 0 && position < GameCharacterPackets.WearSlots;
     }
 
-    private void SendStatInfo(GameClient client, ConnectionInfo info, uint handle)
+    private void SendStatInfo(GameClient client, ConnectionInfo info, uint handle, CharacterEntity character)
     {
-        var stats = _statService.Compute(info.CharacterRace, info.CharacterLevel);
-        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats));
+        _statService.Seed(info, character);
+        var result = _statService.Compute(character);
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.Total, StatInfoType.Total));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
     }
 
     private static void SendItemWear(GameClient client, uint targetHandle, ItemEntity item)

@@ -39,11 +39,13 @@ public class ItemResourceEntity : Entity
     public int AvailablePeriod { get; set; }
     public decimal ThrowRange { get; set; }
 
-    public short[] BaseTypes { get; set; } // = new short[4]; // Base item Type of type ItemEffectInstant or ItemEffectPassive
-    public decimal[,] BaseValues { get; set; } // = new decimal[4, 2];
-    
-    public short[] OptTypes { get; set; } // = new short[4]; // Extends Base item type by ItemEffectInstant or ItemEffectPassive
-    public decimal[,] OptValues { get; set; } // = new decimal[4,2];
+    public short[] BaseTypes { get; set; }
+    public decimal[] BaseVar1 { get; set; }
+    public decimal[] BaseVar2 { get; set; }
+
+    public short[] OptTypes { get; set; }
+    public decimal[] OptVar1 { get; set; }
+    public decimal[] OptVar2 { get; set; }
 
     // -> Might not work with "Enhances" as a navigational property check and confirm.
     // -> It will definetly work by splitting the id array into seperate ids and creating a realtion to each of them

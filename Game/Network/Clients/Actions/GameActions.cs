@@ -86,11 +86,13 @@ public class GameActions : IActions
         }
 
         var level = character.Lv > 0 ? character.Lv : 1;
-        var stats = _statService.Compute(character.Race, level);
-        var hp = character.Hp > 0 ? character.Hp : stats.MaxHp;
-        var mp = character.Mp > 0 ? character.Mp : stats.MaxMp;
+        var statResult = _statService.Compute(character);
+        var stats = statResult.Total;
+        var hp = (int)stats.MaxHp;
+        var mp = (int)stats.MaxMp;
 
         var info = client.ConnectionInfo;
+        _statService.Seed(info, character);
         info.CharacterHandle = (uint)character.Id;
         info.CharacterName = character.CharacterName;
         info.CharacterHp = hp;
@@ -176,7 +178,8 @@ public class GameActions : IActions
         client.Connection.Send(new Packet<TS_SC_ENTER_PLAYER>((ushort)GamePackets.TM_SC_ENTER, enter).Data);
 
         var handle = (uint)character.Id;
-        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats, StatInfoType.Total));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, statResult.ByItem, StatInfoType.ByItem));
         foreach (var inventoryPacket in GameCharacterPackets.BuildInventory(character))
         {
             client.Connection.Send(inventoryPacket);
@@ -214,8 +217,8 @@ public class GameActions : IActions
         client.SendTimeSync();
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", hp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", mp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", stats.MaxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", stats.MaxMp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.MaxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)stats.MaxMp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "stamina", character.Stamina));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_stamina", character.Stamina));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "permission", character.Permission));
@@ -342,7 +345,7 @@ public class GameActions : IActions
         }
 
         var selectedArmor = createMsg.Info.WearInfo[(int)ItemWearType.Armor];
-        var startingStats = _statService.Compute(createMsg.Info.Race, 1);
+        var startingStats = _statService.ComputeForNewCharacter(createMsg.Info.Race).Total;
 
         int defaultArmorId;
         int defaultWeaponId;
@@ -383,8 +386,8 @@ public class GameActions : IActions
             PreviousJobs = new Job[3],
             JobLvs = new int[3],
             Position = DefaultSpawn.ToArray(),
-            Hp = startingStats.MaxHp,
-            Mp = startingStats.MaxMp,
+            Hp = (int)startingStats.MaxHp,
+            Mp = (int)startingStats.MaxMp,
             Models = createMsg.Info.ModelId,
             HairColorIndex = createMsg.Info.HairColorIndex,
             HairColorRgb = unchecked((int)createMsg.Info.HairColorRGB),

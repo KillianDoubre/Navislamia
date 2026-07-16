@@ -41,16 +41,20 @@ public class LevelingService : ILevelingService
         }
 
         info.CharacterLevel = newLevel;
-        var stats = _statService.Compute(info.CharacterRace, newLevel);
-        info.CharacterHp = stats.MaxHp;
+        var result = _statService.Compute(info);
+        var stats = result.Total;
+        var maxHp = (int)stats.MaxHp;
+        var maxMp = (int)stats.MaxMp;
+        info.CharacterHp = maxHp;
 
         var handle = info.CharacterHandle;
         client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(handle, newLevel, info.CharacterJobLevel));
-        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", stats.MaxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", stats.MaxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", stats.MaxMp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", stats.MaxMp));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats, StatInfoType.Total));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", maxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", maxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", maxMp));
     }
 
     public void ApplyJobLevelUp(GameClient client, uint targetHandle)

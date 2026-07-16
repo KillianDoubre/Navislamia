@@ -666,20 +666,13 @@ public class Worker : BackgroundService
     
             var mappedItem = _mapper.Map<ItemResourceEntity>(item);
     
-            // multi dimensional arrays cannot be instantiated inside the mapper, gotta do it seperatly like down below
             var baseTypes = new[] { item.base_type_0, item.base_type_1, item.base_type_2, item.base_type_3 };
-            var baseValues = new[,]
-            {
-                { item.base_var1_0, item.base_var2_0 }, { item.base_var1_1, item.base_var2_1 },
-                { item.base_var1_2, item.base_var2_2 }, { item.base_var1_3, item.base_var2_3 }
-            };
-    
+            var baseVar1 = new[] { item.base_var1_0, item.base_var1_1, item.base_var1_2, item.base_var1_3 };
+            var baseVar2 = new[] { item.base_var2_0, item.base_var2_1, item.base_var2_2, item.base_var2_3 };
+
             var optTypes = new[] { item.opt_type_0, item.opt_type_1, item.opt_type_2, item.opt_type_3 };
-            var optValues = new[,]
-            {
-                { item.opt_var1_0, item.opt_var2_0 }, { item.opt_var1_1, item.opt_var2_1 },
-                { item.opt_var1_2, item.opt_var2_2 }, { item.opt_var1_3, item.opt_var2_3 }
-            };
+            var optVar1 = new[] { item.opt_var1_0, item.opt_var1_1, item.opt_var1_2, item.opt_var1_3 };
+            var optVar2 = new[] { item.opt_var2_0, item.opt_var2_1, item.opt_var2_2, item.opt_var2_3 };
 
             var enhanceIds = new long [] { item.enhance_0_id, item.enhance_1_id };
             var enhanceValues = new[,]
@@ -726,9 +719,11 @@ public class Worker : BackgroundService
             }
     
             mappedItem.BaseTypes = baseTypes;
-            mappedItem.BaseValues = baseValues;
+            mappedItem.BaseVar1 = baseVar1;
+            mappedItem.BaseVar2 = baseVar2;
             mappedItem.OptTypes = optTypes;
-            mappedItem.OptValues = optValues;
+            mappedItem.OptVar1 = optVar1;
+            mappedItem.OptVar2 = optVar2;
             mappedItem.RaceRestriction = itemRaceRestriction;
             mappedItem.JobRestriction = itemJobRestriction;
             mappedItem.EnhanceValues = enhanceValues;

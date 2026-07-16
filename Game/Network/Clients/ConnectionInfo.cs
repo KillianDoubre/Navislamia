@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.Network.Clients;
 
 public class ConnectionInfo
 {
+    public List<(int Job, int JobLevel)> PreviousJobs { get; } = new();
+    public IReadOnlyList<ItemStatEffect> ItemEffects { get; set; } = Array.Empty<ItemStatEffect>();
     public string AccountName { get; set; }
     public List<string> CharacterList { get; set; } = new();
     public uint CharacterHandle { get; set; }
@@ -85,6 +88,8 @@ public class ConnectionInfo
         Z = 0;
         NameToDelete = string.Empty;
         LearnedSkills.Clear();
+        PreviousJobs.Clear();
+        ItemEffects = Array.Empty<ItemStatEffect>();
         ClearVisibleObjects();
     }
 

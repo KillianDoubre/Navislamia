@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Navislamia.Game.DataAccess.Contexts;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Navislamia.Game.Migrations.Arcadia
+namespace Navislamia.Game.DataAccess.Migrations.Arcadia
 {
     [DbContext(typeof(ArcadiaContext))]
-    partial class ArcadiaContextModelSnapshot : ModelSnapshot
+    [Migration("20260716140149_AddJobResourceAndJobLevelBonus")]
+    partial class AddJobResourceAndJobLevelBonus
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -252,11 +255,7 @@ namespace Navislamia.Game.Migrations.Arcadia
                     b.Property<short[]>("BaseTypes")
                         .HasColumnType("smallint[]");
 
-                    b.Property<decimal[]>("BaseVar1")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric[]");
-
-                    b.Property<decimal[]>("BaseVar2")
+                    b.Property<decimal[,]>("BaseValues")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric[]");
 
@@ -333,11 +332,7 @@ namespace Navislamia.Game.Migrations.Arcadia
                     b.Property<short[]>("OptTypes")
                         .HasColumnType("smallint[]");
 
-                    b.Property<decimal[]>("OptVar1")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric[]");
-
-                    b.Property<decimal[]>("OptVar2")
+                    b.Property<decimal[,]>("OptValues")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric[]");
 
@@ -429,9 +424,7 @@ namespace Navislamia.Game.Migrations.Arcadia
                         {
                             t.HasCheckConstraint("CK_ItemResourceEntity_BaseTypes_MaxSize4", "cardinality(\"BaseTypes\") <= 4");
 
-                            t.HasCheckConstraint("CK_ItemResourceEntity_BaseVar1_MaxSize4", "cardinality(\"BaseVar1\") <= 4");
-
-                            t.HasCheckConstraint("CK_ItemResourceEntity_BaseVar2_MaxSize4", "cardinality(\"BaseVar2\") <= 4");
+                            t.HasCheckConstraint("CK_ItemResourceEntity_BaseValues_MaxSize8", "cardinality(\"BaseValues\") <= 8");
 
                             t.HasCheckConstraint("CK_ItemResourceEntity_EnhanceIds_MaxSize2", "cardinality(\"EnhanceIds\") <= 2");
 
@@ -439,9 +432,7 @@ namespace Navislamia.Game.Migrations.Arcadia
 
                             t.HasCheckConstraint("CK_ItemResourceEntity_OptTypes_MaxSize4", "cardinality(\"OptTypes\") <= 4");
 
-                            t.HasCheckConstraint("CK_ItemResourceEntity_OptVar1_MaxSize4", "cardinality(\"OptVar1\") <= 4");
-
-                            t.HasCheckConstraint("CK_ItemResourceEntity_OptVar2_MaxSize4", "cardinality(\"OptVar2\") <= 4");
+                            t.HasCheckConstraint("CK_ItemResourceEntity_OptValues_MaxSize8", "cardinality(\"OptValues\") <= 8");
                         });
                 });
 

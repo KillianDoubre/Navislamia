@@ -18,7 +18,7 @@ public class GroundItemService : IGroundItemService
     private const int LifetimeSeconds = 120;
     private const float ScatterRadius = 30f;
     private const float PickupRange = 300f;
-    private const double DropChanceMultiplier = 100;
+    private const double DropChanceMultiplier = 1;
     private const ushort TakeRequestId = (ushort)GamePackets.TM_CS_TAKE_ITEM;
 
     private readonly ILogger _logger = Log.ForContext<GroundItemService>();

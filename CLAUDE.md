@@ -254,11 +254,24 @@ SQL Server; three traps are worth remembering, all silent if you get them wrong:
 
 `DropGroupResource` has the same shape but nothing links to it — it is not part of monster drops.
 
+Each entry is rolled **independently**, so a monster can drop several items at once. That is the correct
+reading of the data, not a shortcut: 2,337 tables have drop probabilities summing above 1, which rules out
+a weighted "pick one" selection. In practice multi-drop is rare because of the data itself — **only 224 of
+5,879 monsters have more than one entry** (5,134 of 5,370 tables hold exactly one, the richest holds 7),
+since the ten item slots per row are almost always used one at a time (`drop_item_id_01` carries 5,311
+items, `drop_item_id_00` only 41). A single entry can still drop a **stack**: 267 entries roll a count up
+to 30-50, through `Random.Next(min, max + 1)` whose upper bound is exclusive.
+
 **The authentic rates are far too low to test against.** The median entry is a 1.78% chance and the median
-table yields **0.018 items per kill**, roughly one drop every 55 kills (mean 0.096). Absence of drops over
-a handful of kills is therefore the expected outcome, not a bug — check the `dropped {n} of {m} entries`
-log before suspecting the code. `GroundItemService.DropChanceMultiplier` scales every chance (clamped at
-1.0) and is currently **100 for testing**; set it back to `1` for authentic rates.
+table yields **0.018 items per kill**, roughly one drop every 56 kills (mean 0.22, inflated by a few
+stack-dropping tables). Absence of drops over a handful of kills is therefore the expected outcome, not a
+bug — check the `dropped {n} of {m} entries` log before suspecting the code.
+`GroundItemService.DropChanceMultiplier` scales every chance (clamped at 1.0) and is **1, the authentic
+rate**; raise it (100 works well) to make drops observable while testing.
+
+The catalog reconciles exactly against the 9.4 source: 5,800 filled item slots minus the **33 entries that
+carry an item but a zero chance** — excluded because they can never fire — gives the 5,767 entries it
+holds. The 156 rows that do not become tables are the Epic 7.3 filter applied at generation.
 
 A ground item is `TS_SC_ENTER` with `type = ET_StaticObject (2)` and `objType = EOT_Item (2)`, 70 bytes:
 the shared header through `objType`, then `code` as the 8-byte randomized `EncodedInt` (the `npc_id`
@@ -323,7 +336,84 @@ relog. The response order is: `TS_SC_ITEM_WEAR_INFO` for the displaced item (equ
 affected item, stat info, `TS_SC_RESULT` tagged with the request id, and finally the refreshed
 `TS_SC_WEAR_INFO` (a cleared slot falls back to the base body model through `InjectBaseModelIfEmpty`).
 
-Stats are unchanged for now because `StatService` is level/race based and does not yet read equipment.
+Equipping recomputes the stats and refreshes the cached item effects on `ConnectionInfo`; see
+Character stats above.
+
+## Character stats
+
+Stats are computed server-side by the pure `StatCalculator`, ported from `rzgame`'s
+`Character::updateStats` and `StatBase.cpp` (in the local rzu clone). **Base stats come from the job,
+not the race, and grow with job level, not character level**; character level drives the advanced
+stats:
+
+```
+job -> JobResource.stat_id -> StatResource            = base str/vit/dex/agi/int/men/luk
+     + JobLevelBonus over the current and previous jobs
+level -> seeds the 34 advanced stats (attack=level, attackSpeed=100, moveSpeed=120, ...)
+     + worn item passives
+     + stat-derived bonuses (attack += 2.8*str, defence += 1.6*vit, maxHp += 33*vit, ...)
+```
+
+`JobLevelBonus` splits the job level into **chunks of 20** (0-19, 20-39, 40+), the last chunk absorbing
+the remainder, and the bonus is `sum(chunk[i] * perLevel[i]) + default`. **The per-level values are
+`decimal(10,3)`, not integers** (0.34 to 5.88; a typical first job is 0.5 str per JLv). rzgame declares
+them `int32_t`, which against this 9.4 schema truncates every bonus to zero — its struct targets another
+data version. The same applies to its column names: the real schema has `stati_id` and `avable_job_0..3`,
+typos frozen into the shipped tables.
+
+**Two `rzgame` bugs are deliberately not reproduced.** It assigns `statBase = stats` *before* adding the
+derived bonuses and then adds them to a discarded copy, so the packet it sends omits every derived
+bonus. `nAccuracyLeft` is downstream of the same snapshot; we take the evident intent and mirror the
+main hand (`AccuracyLeft = AccuracyRight`).
+
+`TS_SC_STAT_INFO` (`1000`) is 96 bytes: handle, 8 int16 base fields, **34 int16 attributes** and a
+`type` byte. Every attribute is int16 at Epic 7.3 — the int32 widenings all start at 9.3 or later. Two
+ordering traps: `nMaxWeight` sits **after `nAttackRange`** (the earlier slot in the rzu macro is gated
+`>= EPIC_9_7_0`), and the `unknown` field before `nAttackSpeed` is `>= EPIC_9_7_0` and absent.
+**The client expects two packets**: `SIT_Total` (0) and `SIT_ByItem` (1), the latter carrying the worn
+item contribution alone — that is what feeds the bonus column. Sending only the total leaves it empty.
+
+Equipment passives come from `ItemResource.base_type[4]`/`opt_type[4]` with their `var1`/`var2`. Only
+worn items (`WearInfo != None`) contribute. `base_type` on wearables is entirely `ItemEffectPassive`;
+`opt_type` is a **mixed space** — on a consumable it holds `ItemEffectInstant` use-effects (IncHp,
+AddState, SummonPet), on equipment extra passives — so only values resolving to a known
+`ItemEffectPassive` are applied and everything else is ignored.
+
+`IncParameterA` (96) and `AmpParameterA` (98) are the dominant opt effects on equipment (9 811
+occurrences): **`var1` is a bitmask of target parameters and `var2` the amount**, `Inc` flat and `Amp` a
+percentage (`tooltip_state_7153` is `"#@bitset_text@# #@value@#"`, `7154` the same with `%`). The bit
+table is `StringResource_EN.tooltip_bitset_7101..7152`: **bit `n` maps to entry `7101 + n`** — bits 0-6
+are Strength, Vitality, **Agility, Dexterity** (that order), Int., Wisdom, Luck, then P.Atk, M.Atk,
+P.Def, M.Def, Atk Spd, Cast Spd, Mov. Spd, Accuracy, M. Acc, Critical Rate, Block Per., Block Def.,
+Evasion, M. Res., MAX HP, MAX MP, MAX SP, HP/MP Recov., SP Recov., HP/MP Regen., Max. Wt., then the
+resistances. Bits 26, 30 and 31 have no Epic 7.3 field and resolve to nothing.
+
+**That mapping is validated by the data, not assumed**: every multi-bit mask in the 9.4 tables is
+coherent under it — `63` is the six stats without Luck (the 1 328 "+N all stats" items), `384` is
+P.Atk+M.Atk, `1536` P.Def+M.Def, `50331648` HP+MP Recov., `402653184` HP+MP Regen., `65536` Critical
+Rate alone with var2 in 1..15. Confirmed end to end in game data: item 101221 decodes to
+`AttackPointRight=77, AttackSpeed=-5, Critical=2`.
+
+`ParameterB` (97/99) is **not decoded and is a documented gap**: the bit table holds 52 entries so B can
+address 20 bits, yet the data contains a bit-28 mask. It covers **63 items** out of 33 142, all late-9.4
+accessories (ids 422205+) unlikely to exist in the 7.3 client. The lever for a future attempt is the
+client's `db_item.rdb`, which is also what blocks Epic 7.3 drop filtering.
+
+`StatCatalog` (job/stat reference data) and `ItemStatCatalog` (item id -> precomputed effect list) are
+frozen at startup like `ItemSortCatalog`, so a stat computation never queries the database.
+`ConnectionInfo` caches the previous jobs and the resolved worn-item effects, seeded at login and
+refreshed on equip/unequip, which is what lets `LevelingService` recompute from the connection alone.
+The current job level stays out of that cache so a JLv-up cannot desynchronise it.
+
+**HP/MP are set to the maximum on world entry.** The max formula changed, so a stored value can exceed
+it; this discards nothing because current HP is never persisted during play (`SaveProgressAsync` writes
+exp, jp, gold, chaos and level, never `Hp`), leaving `Characters.Hp` stale from character creation.
+
+Data lives in Postgres `Arcadia`: `StatResources` (3 899), `JobResources` (42), `JobLevelBonuses` (42),
+and the `ItemResources` effect arrays (17 823 rows with a base effect, 12 635 with an opt effect). All
+were imported from the 9.4 SQL Server. `ItemResourceEntity` used to declare `BaseValues`/`OptValues` as
+`decimal[,]`, a multidimensional array Npgsql does not map — which is why those columns were empty; they
+are now flat `BaseVar1`/`BaseVar2`/`OptVar1`/`OptVar2`.
 
 ## Client clock
 
@@ -451,16 +541,20 @@ referenced resource tables are still empty.
 
 ## Current limitations
 
-- Monsters auto-attack (kill + respawn), idle-wander and drop items, but have no aggro, chase,
-  retaliation or taming; damage, attack speed and walk speed are placeholders
+- Monsters auto-attack (kill + respawn), idle-wander and drop items at authentic rates, but have no
+  aggro, chase, retaliation or taming; damage, attack speed and walk speed are placeholders
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
   client's `db_item.rdb` is unavailable, so a 9.4-only code will not render), and cannot be dropped back
   on the ground by the player
 - NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
   teleportation and quest mutation are not executed yet
 - Skill learning and persistence work; casting, passive application and skill effects are not implemented
-- Equipping and unequipping work and persist, but equipment does not affect stats yet, and item
-  requirements (level, job, race) are not validated
+- Equipping and unequipping work and persist and now feed the stats, but item requirements (level, job,
+  race) are still not validated
+- Stats cover race/job/JLv/level and equipment; **buffs, titles and passive skills contribute nothing
+  because nothing can apply one yet** (skill casting is not implemented, so the reference's `statBuffs`
+  slot would be zero by construction). Item `ParameterB` (63 items) is undecoded, and stats do not yet
+  drive combat — damage is still the monster's max HP divided by 3
 - Inventory sorting and drag-swap work; storage/warehouse is not implemented and the sort order follows
   the client's tab categories rather than the original server's comparator
 - The client clock is synchronized, but `TS_SC_GAME_TIME.game_time` (the in-world day/night clock) is

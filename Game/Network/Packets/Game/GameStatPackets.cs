@@ -2,15 +2,21 @@ using System;
 using System.Buffers.Binary;
 using System.Text;
 using Navislamia.Game.Network.Packets.Enums;
-using Navislamia.Game.Services;
+using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.Network.Packets.Game;
+
+public enum StatInfoType : byte
+{
+    Total = 0,
+    ByItem = 1
+}
 
 public static class GameStatPackets
 {
     private const int HeaderSize = 7;
 
-    public static byte[] BuildStatInfo(uint handle, CharacterStats stats)
+    public static byte[] BuildStatInfo(uint handle, StatBlock stats, StatInfoType type)
     {
         const int baseCount = 8;
         const int attribCount = 34;
@@ -23,11 +29,31 @@ public static class GameStatPackets
         BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_SC_STAT_INFO);
         BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), handle);
 
-        var baseStats = new short[]
+        var baseStats = new[]
         {
             (short)stats.StatId,
-            stats.Strength, stats.Vitality, stats.Dexterity, stats.Agility,
-            stats.Intelligence, stats.Mentality, stats.Luck
+            (short)stats.Strength, (short)stats.Vitality, (short)stats.Dexterity, (short)stats.Agility,
+            (short)stats.Intelligence, (short)stats.Wisdom, (short)stats.Luck
+        };
+
+        var attributes = new[]
+        {
+            (short)stats.Critical, (short)stats.CriticalPower,
+            (short)stats.AttackPointRight, (short)stats.AttackPointLeft,
+            (short)stats.Defence, (short)stats.BlockDefence,
+            (short)stats.MagicPoint, (short)stats.MagicDefence,
+            (short)stats.AccuracyRight, (short)stats.AccuracyLeft,
+            (short)stats.MagicAccuracy, (short)stats.Avoid, (short)stats.MagicAvoid,
+            (short)stats.BlockChance, (short)stats.MoveSpeed,
+            (short)stats.AttackSpeed, (short)stats.AttackRange, (short)stats.MaxWeight,
+            (short)stats.CastingSpeed, (short)stats.CoolTimeSpeed, (short)stats.ItemChance,
+            (short)stats.HpRegenPercentage, (short)stats.HpRegenPoint,
+            (short)stats.MpRegenPercentage, (short)stats.MpRegenPoint,
+            (short)stats.PerfectBlock,
+            (short)stats.MagicalDefIgnore, (short)stats.MagicalDefIgnoreRatio,
+            (short)stats.PhysicalDefIgnore, (short)stats.PhysicalDefIgnoreRatio,
+            (short)stats.MagicalPenetration, (short)stats.MagicalPenetrationRatio,
+            (short)stats.PhysicalPenetration, (short)stats.PhysicalPenetrationRatio
         };
 
         var o = 11;
@@ -37,13 +63,13 @@ public static class GameStatPackets
             o += 2;
         }
 
-        for (var i = 0; i < attribCount; i++)
+        foreach (var v in attributes)
         {
-            BinaryPrimitives.WriteInt16LittleEndian(p.AsSpan(o, 2), 0);
+            BinaryPrimitives.WriteInt16LittleEndian(p.AsSpan(o, 2), v);
             o += 2;
         }
 
-        p[o] = 0;
+        p[o] = (byte)type;
 
         WriteChecksum(p);
         return p;

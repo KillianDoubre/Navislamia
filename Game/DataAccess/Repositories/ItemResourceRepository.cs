@@ -22,4 +22,13 @@ public class ItemResourceRepository : IItemResourceRepository
             .Select(item => new ItemSortFields((int)item.Id, (int)item.ItemBaseType, (int)item.Group, item.Rank))
             .ToList();
     }
+
+    public IReadOnlyList<ItemEffectFields> GetEffectFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemEffectFields((int)item.Id, item.BaseTypes, item.BaseVar1, item.BaseVar2,
+                item.OptTypes, item.OptVar1, item.OptVar2))
+            .ToList();
+    }
 }

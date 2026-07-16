@@ -1,12 +1,16 @@
-namespace Navislamia.Game.Services;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Services.Stats;
 
-public record CharacterStats(
-    int StatId,
-    short Strength, short Vitality, short Dexterity, short Agility,
-    short Intelligence, short Mentality, short Luck,
-    int MaxHp, int MaxMp);
+namespace Navislamia.Game.Services;
 
 public interface IStatService
 {
-    CharacterStats Compute(int race, int level);
+    CharacterStatResult Compute(CharacterEntity character);
+
+    CharacterStatResult Compute(ConnectionInfo info);
+
+    CharacterStatResult ComputeForNewCharacter(int race);
+
+    void Seed(ConnectionInfo info, CharacterEntity character);
 }

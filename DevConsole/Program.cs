@@ -12,6 +12,7 @@ using Navislamia.Game.DataAccess.Contexts;
 using Navislamia.Game.DataAccess.Extensions;
 using Navislamia.Game.DataAccess.Repositories;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Services.Stats;
 using Navislamia.Game.Maps;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Interfaces;
@@ -178,6 +179,10 @@ public class Program
         services.AddSingleton<ICharacterRepository, CharacterRepository>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
+        services.AddSingleton<IJobResourceRepository, JobResourceRepository>();
+        services.AddSingleton<IJobLevelBonusRepository, JobLevelBonusRepository>();
+        services.AddSingleton<IStatCatalog, StatCatalog>();
+        services.AddSingleton<IItemStatCatalog, ItemStatCatalog>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();

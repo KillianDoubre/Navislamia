@@ -21,6 +21,8 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<SkillResourceEntity> SkillResources { get; set; }
     public DbSet<StateResourceEntity> StateResources { get; set; }
     public DbSet<StatResourceEntity> StatResources { get; set; }
+    public DbSet<JobResourceEntity> JobResources { get; set; }
+    public DbSet<JobLevelBonusEntity> JobLevelBonuses { get; set; }
     public DbSet<ModelEffectResourceEntity> ModelEffectResources { get; set; }
     public DbSet<BannedWordsResourceEntity> BannedWordsResources { get; set; }
     public DbSet<NpcResourceEntity> NpcResources { get; set; }
@@ -113,21 +115,35 @@ public class ArcadiaContext : SoftDeletionContext
         
         modelBuilder.Entity<ItemResourceEntity>().ToTable(i => i
                 .HasCheckConstraint(
-                    $"CK_{nameof(ItemResourceEntity)}_{nameof(ItemResourceEntity.BaseValues)}_MaxSize8",
-                    $"cardinality(\"{nameof(ItemResourceEntity.BaseValues)}\") <= 8"))
-            .Property(i => i.BaseValues)
+                    $"CK_{nameof(ItemResourceEntity)}_{nameof(ItemResourceEntity.BaseVar1)}_MaxSize4",
+                    $"cardinality(\"{nameof(ItemResourceEntity.BaseVar1)}\") <= 4"))
+            .Property(i => i.BaseVar1)
             .HasPrecision(12, 2);
-        
+
+        modelBuilder.Entity<ItemResourceEntity>().ToTable(i => i
+                .HasCheckConstraint(
+                    $"CK_{nameof(ItemResourceEntity)}_{nameof(ItemResourceEntity.BaseVar2)}_MaxSize4",
+                    $"cardinality(\"{nameof(ItemResourceEntity.BaseVar2)}\") <= 4"))
+            .Property(i => i.BaseVar2)
+            .HasPrecision(12, 2);
+
         modelBuilder.Entity<ItemResourceEntity>().ToTable(i => i
             .HasCheckConstraint(
                 $"CK_{nameof(ItemResourceEntity)}_{nameof(ItemResourceEntity.OptTypes)}_MaxSize4",
                 $"cardinality(\"{nameof(ItemResourceEntity.OptTypes)}\") <= 4"));
-        
+
         modelBuilder.Entity<ItemResourceEntity>().ToTable(i => i
                 .HasCheckConstraint(
-                    $"CK_{nameof(ItemResourceEntity)}_{nameof(ItemResourceEntity.OptValues)}_MaxSize8",
-                    $"cardinality(\"{nameof(ItemResourceEntity.OptValues)}\") <= 8"))
-            .Property(i => i.OptValues)
+                    $"CK_{nameof(ItemResourceEntity)}_{nameof(ItemResourceEntity.OptVar1)}_MaxSize4",
+                    $"cardinality(\"{nameof(ItemResourceEntity.OptVar1)}\") <= 4"))
+            .Property(i => i.OptVar1)
+            .HasPrecision(12, 2);
+
+        modelBuilder.Entity<ItemResourceEntity>().ToTable(i => i
+                .HasCheckConstraint(
+                    $"CK_{nameof(ItemResourceEntity)}_{nameof(ItemResourceEntity.OptVar2)}_MaxSize4",
+                    $"cardinality(\"{nameof(ItemResourceEntity.OptVar2)}\") <= 4"))
+            .Property(i => i.OptVar2)
             .HasPrecision(12, 2);
 
         modelBuilder.Entity<ItemResourceEntity>().ToTable(i => i

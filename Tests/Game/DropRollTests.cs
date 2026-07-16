@@ -16,9 +16,18 @@ public class DropRollTests
 
         public SequenceRandom(params double[] values) => _doubles = new Queue<double>(values);
 
+        public int? NextMin { get; private set; }
+
+        public int? NextMax { get; private set; }
+
         public override double NextDouble() => _doubles.Dequeue();
 
-        public override int Next(int minValue, int maxValue) => minValue;
+        public override int Next(int minValue, int maxValue)
+        {
+            NextMin = minValue;
+            NextMax = maxValue;
+            return minValue;
+        }
     }
 
     [Test]
@@ -59,6 +68,28 @@ public class DropRollTests
         var entries = new[] { new DropEntry(100, 1.0, 3, 3) };
 
         DropRoll.Roll(entries, new SequenceRandom(0.0)).Single().Count.Should().Be(3);
+    }
+
+    [Test]
+    public void Roll_RollsAStackWithAnInclusiveUpperBound()
+    {
+        var random = new SequenceRandom(0.0);
+
+        DropRoll.Roll(new[] { new DropEntry(100, 1.0, 30, 50) }, random).Single().Count.Should().Be(30);
+        random.NextMin.Should().Be(30);
+        random.NextMax.Should().Be(51, "Random.Next excludes the upper bound, so 50 must stay reachable");
+    }
+
+    [Test]
+    public void Roll_CanDropSeveralItemsFromOneMonster()
+    {
+        var entries = new[]
+        {
+            new DropEntry(100, 0.5, 1, 1),
+            new DropEntry(200, 0.5, 1, 1)
+        };
+
+        DropRoll.Roll(entries, new SequenceRandom(0.1, 0.2)).Should().HaveCount(2);
     }
 
     [Test]
