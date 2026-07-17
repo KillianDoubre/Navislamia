@@ -15,4 +15,6 @@ public interface IStatService
     void Seed(ConnectionInfo info, CharacterEntity character);
 
     void RefreshPassives(ConnectionInfo info);
+
+    void RefreshBuffs(ConnectionInfo info);
 }

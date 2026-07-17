@@ -40,21 +40,8 @@ public class CombatService : ICombatService
     public void StartAttack(GameClient client, uint targetHandle)
     {
         var info = client.ConnectionInfo;
-        long targetInstanceId = -1;
-
-        lock (info.MonsterVisibilityLock)
-        {
-            foreach (var pair in info.SpawnedMonsters)
-            {
-                if (pair.Value == targetHandle)
-                {
-                    targetInstanceId = pair.Key;
-                    break;
-                }
-            }
-        }
-
-        if (targetInstanceId < 0 || !_worldState.IsAlive(targetInstanceId))
+        if (!info.TryResolveMonster(targetHandle, out var targetInstanceId)
+            || !_worldState.IsAlive(targetInstanceId))
         {
             return;
         }
@@ -152,39 +139,72 @@ public class CombatService : ICombatService
             return;
         }
 
-        var damage = Math.Max(1, instance.Hp / DamageHpDivisor);
-        var targetHp = _worldState.ApplyDamage(session.TargetInstanceId, damage);
+        var damage = GetHitDamage(session.TargetInstanceId);
+        var targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, damage);
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle, session.TargetHandle,
             AttackDelayMs, AttackDelayMs, GameAttackPackets.ActionAttack, damage, targetHp, info.CharacterHp));
 
         if (targetHp <= 0)
         {
-            _worldState.Kill(session.TargetInstanceId, now.AddSeconds(RespawnDelaySeconds));
-            client.Connection.Send(GameMovePackets.BuildStopMove(session.TargetHandle,
-                unchecked((uint)Environment.TickCount + info.ClientClockOffset), info.Layer));
-            client.Connection.Send(GameCharacterPackets.BuildStatusChange(session.TargetHandle, MonsterDeadStatus));
-
-            lock (_lock)
-            {
-                _lastAttacker[session.TargetInstanceId] = client;
-                _sessions.Remove(client);
-                _pendingLeaves.Add(new PendingLeave
-                {
-                    Client = client,
-                    InstanceId = session.TargetInstanceId,
-                    Handle = session.TargetHandle,
-                    LeaveAt = now.AddSeconds(DeathAnimationSeconds)
-                });
-            }
-
-            var (dropX, dropY) = _worldState.GetPosition(session.TargetInstanceId);
-            _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z);
-            AwardKill(client, info, instance.Level);
             return;
         }
 
         session.NextSwingAt = now.AddMilliseconds(AttackDelayMs);
+    }
+
+    public int GetHitDamage(long instanceId)
+    {
+        return _worldState.TryGetInstance(instanceId, out var instance)
+            ? Math.Max(1, instance.Hp / DamageHpDivisor)
+            : 0;
+    }
+
+    public int ApplyDamage(GameClient client, long instanceId, uint targetHandle, int damage)
+    {
+        if (!_worldState.TryGetInstance(instanceId, out var instance))
+        {
+            return 0;
+        }
+
+        var info = client.ConnectionInfo;
+        var targetHp = _worldState.ApplyDamage(instanceId, damage);
+        if (targetHp > 0)
+        {
+            return targetHp;
+        }
+
+        var now = DateTime.UtcNow;
+        _worldState.Kill(instanceId, now.AddSeconds(RespawnDelaySeconds));
+
+        // A corpse keeps no debuff, and a respawn must not inherit one either.
+        foreach (var state in _worldState.ClearStates(instanceId))
+        {
+            client.Connection.Send(GameSkillPackets.BuildStateRemoval(targetHandle, state.StateHandle,
+                (uint)state.StateId));
+        }
+
+        client.Connection.Send(GameMovePackets.BuildStopMove(targetHandle,
+            unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
+        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, MonsterDeadStatus));
+
+        lock (_lock)
+        {
+            _lastAttacker[instanceId] = client;
+            _sessions.Remove(client);
+            _pendingLeaves.Add(new PendingLeave
+            {
+                Client = client,
+                InstanceId = instanceId,
+                Handle = targetHandle,
+                LeaveAt = now.AddSeconds(DeathAnimationSeconds)
+            });
+        }
+
+        var (dropX, dropY) = _worldState.GetPosition(instanceId);
+        _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z);
+        AwardKill(client, info, instance.Level);
+        return targetHp;
     }
 
     private void AwardKill(GameClient client, ConnectionInfo info, int monsterLevel)

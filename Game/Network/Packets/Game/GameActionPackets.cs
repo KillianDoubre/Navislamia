@@ -9,6 +9,9 @@ public static class GameActionPackets
 
     public readonly record struct LearnSkillRequest(uint Handle, int SkillId, byte TargetLevel);
 
+    public readonly record struct SkillRequest(ushort SkillId, uint Caster, uint Target, float X, float Y,
+        float Z, sbyte Layer, byte SkillLevel);
+
     public readonly record struct PutoffItemRequest(sbyte Position, uint TargetHandle);
 
     public readonly record struct PutonItemRequest(sbyte Position, uint ItemHandle, uint TargetHandle);
@@ -94,6 +97,27 @@ public static class GameActionPackets
             packet[HeaderSize] != 0,
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1, 4)),
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 5, 4)));
+        return true;
+    }
+
+    public static bool TryReadSkill(ReadOnlySpan<byte> packet, out SkillRequest request)
+    {
+        const int packetLength = HeaderSize + 24;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new SkillRequest(
+            BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(HeaderSize, 2)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 2, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 6, 4)),
+            BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 10, 4)),
+            BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 14, 4)),
+            BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 18, 4)),
+            (sbyte)packet[HeaderSize + 22],
+            packet[HeaderSize + 23]);
         return true;
     }
 

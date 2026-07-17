@@ -34,7 +34,10 @@ public class StatServiceTests
         A.CallTo(() => passives.Resolve(A<int>._, A<int>._, A<ItemType?>._)).Returns(Array.Empty<StatEffect>());
         A.CallTo(() => passives.Resolve(PassiveSkillId, 2, A<ItemType?>._)).Returns(new[] { PassiveEffect });
 
-        return new StatService(StatCatalogTestFactory.Create(), itemStats, passives);
+        var states = A.Fake<IStateCatalog>();
+        A.CallTo(() => states.Resolve(A<int>._, A<int>._)).Returns(Array.Empty<StatEffect>());
+
+        return new StatService(StatCatalogTestFactory.Create(), itemStats, passives, states);
     }
 
     private static CharacterEntity Character(int jobLevel = 0, List<ItemEntity> items = null,

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.Services;
@@ -12,12 +13,15 @@ public class StatService : IStatService
     private readonly StatCalculator _calculator;
     private readonly IItemStatCatalog _itemStats;
     private readonly ISkillPassiveCatalog _passives;
+    private readonly IStateCatalog _states;
 
-    public StatService(IStatCatalog catalog, IItemStatCatalog itemStats, ISkillPassiveCatalog passives)
+    public StatService(IStatCatalog catalog, IItemStatCatalog itemStats, ISkillPassiveCatalog passives,
+        IStateCatalog states)
     {
         _calculator = new StatCalculator(catalog);
         _itemStats = itemStats;
         _passives = passives;
+        _states = states;
     }
 
     public CharacterStatResult Compute(CharacterEntity character)
@@ -37,7 +41,8 @@ public class StatService : IStatService
             BuildJobHistory(info.PreviousJobs, info.CharacterJob, info.CharacterJobLevel),
             info.CharacterLevel,
             info.ItemEffects,
-            info.PassiveEffects));
+            info.PassiveEffects,
+            info.BuffEffects));
     }
 
     public CharacterStatResult ComputeForNewCharacter(int race)
@@ -57,11 +62,36 @@ public class StatService : IStatService
         info.EquippedWeapon = ResolveEquippedWeapon(character);
         info.ItemEffects = ResolveItemEffects(character);
         info.PassiveEffects = ResolvePassiveEffects(character, info.EquippedWeapon);
+        RefreshBuffs(info);
     }
 
     public void RefreshPassives(ConnectionInfo info)
     {
         info.PassiveEffects = ResolveEffects(info.LearnedSkills, info.EquippedWeapon);
+    }
+
+    public void RefreshBuffs(ConnectionInfo info)
+    {
+        ActiveBuff[] active;
+        lock (info.BuffLock)
+        {
+            if (info.ActiveBuffs.Count == 0)
+            {
+                info.BuffEffects = Array.Empty<StatEffect>();
+                return;
+            }
+
+            // Snapshot and get out: the expiry tick wants this lock, and resolving is pure work.
+            active = info.ActiveBuffs.ToArray();
+        }
+
+        List<StatEffect> effects = null;
+        foreach (var buff in active)
+        {
+            Append(_states.Resolve(buff.StateId, buff.StateLevel), ref effects);
+        }
+
+        info.BuffEffects = (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
     }
 
     private ItemType? ResolveEquippedWeapon(CharacterEntity character)

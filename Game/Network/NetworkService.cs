@@ -28,6 +28,7 @@ public class NetworkService : INetworkService
     public readonly IEquipmentService EquipmentService;
     public readonly IInventoryService InventoryService;
     public readonly IGroundItemService GroundItemService;
+    public readonly ISkillCastService SkillCastService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -46,7 +47,7 @@ public class NetworkService : INetworkService
         IMonsterSpawnService monsterSpawnService,
         ICombatService combatService, ILevelingService levelingService, ISkillService skillService,
         IEquipmentService equipmentService, IInventoryService inventoryService,
-        IGroundItemService groundItemService)
+        IGroundItemService groundItemService, ISkillCastService buffService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -61,6 +62,7 @@ public class NetworkService : INetworkService
         EquipmentService = equipmentService;
         InventoryService = inventoryService;
         GroundItemService = groundItemService;
+        SkillCastService = buffService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
     }

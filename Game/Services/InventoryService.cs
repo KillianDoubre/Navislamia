@@ -14,7 +14,11 @@ namespace Navislamia.Game.Services;
 public class InventoryService : IInventoryService
 {
     private const ushort ArrangeRequestId = (ushort)GamePackets.TM_CS_ARRANGE_ITEM;
-    private static readonly TimeSpan ArrangeCooldown = TimeSpan.FromSeconds(3);
+
+    // ITEM_ARRANGE_COOL_TIME is 3000 in the shipped PDB, and an ar_time tick is 10 ms: 30 seconds,
+    // which is exactly what the client greys its sort button for. The two were never in conflict.
+    private static readonly TimeSpan ArrangeCooldown =
+        TimeSpan.FromSeconds(3000d / ServerClock.TicksPerSecond);
 
     private readonly ILogger _logger = Log.ForContext<InventoryService>();
     private readonly ICharacterService _characterService;

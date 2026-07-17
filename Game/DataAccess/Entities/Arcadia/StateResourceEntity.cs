@@ -14,7 +14,7 @@ public class StateResourceEntity : Entity
 	public StateTimeType StateTimeType { get; set; }
 	public StateGroup StateGroup { get; set; }
 	public ElementalType ElementalType { get; set; }
-	public SkillEffectType EffectType { get; set; }
+	public StateEffectType EffectType { get; set; }
 	public StateBaseEffect BaseEffect { get; set; }
 	
 	public bool IsHarmful { get; set; }

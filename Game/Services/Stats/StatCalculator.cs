@@ -8,7 +8,8 @@ public readonly record struct StatCalculatorInput(
     IReadOnlyList<(int Job, int JobLevel)> JobHistory,
     int Level,
     IReadOnlyList<StatEffect> ItemEffects,
-    IReadOnlyList<StatEffect> PassiveEffects = null);
+    IReadOnlyList<StatEffect> PassiveEffects = null,
+    IReadOnlyList<StatEffect> BuffEffects = null);
 
 public readonly record struct CharacterStatResult(StatBlock Total, StatBlock ByItem);
 
@@ -34,7 +35,7 @@ public class StatCalculator
         var level = Math.Max(1, input.Level);
         SeedFromLevel(level, total);
 
-        ApplyEffects(total, input.ItemEffects, input.PassiveEffects);
+        ApplyEffects(total, input.ItemEffects, input.PassiveEffects, input.BuffEffects);
 
         var byItem = new StatBlock();
         ApplyEffects(byItem, input.ItemEffects, null);

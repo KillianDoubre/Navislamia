@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Navislamia.Game.DataAccess.Contexts;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.DataAccess.Repositories;
@@ -52,6 +53,37 @@ public class SkillResourceRepository : ISkillResourceRepository
             .AsEnumerable()
             .Select(row => new SkillPassiveFields(row.Id, row.EffectType, row.Vars, WeaponFlagsOf(row),
                 row.WeaponNotRequired))
+            .ToList();
+    }
+
+    public IReadOnlyList<CastableSkillRow> GetCastableSkills()
+    {
+        var effectTypes = BuffCatalog.CastableEffectTypes;
+
+        return _context.SkillResources
+            .AsNoTracking()
+            .Where(skill => effectTypes.Contains((int)skill.EffectType)
+                            && skill.IsValid != SkillState.Invalid)
+            .Select(skill => new CastableSkillRow(
+                (int)skill.Id,
+                (int)skill.EffectType,
+                skill.IsHarmful,
+                (int)skill.Target,
+                (int?)skill.StateId,
+                skill.ToggleGroup,
+                skill.Values,
+                skill.StateSecond,
+                skill.StateSecondPerLevel,
+                skill.StateLevelBase,
+                skill.StateLevelPerSkill,
+                skill.CostMp,
+                skill.CostMpPerSkl,
+                skill.DelayCast,
+                skill.DelayCastPerSkl,
+                skill.DelayCommon,
+                skill.DelayCooltime,
+                skill.DelayCooltimePerSkl,
+                skill.RequiredLevel))
             .ToList();
     }
 

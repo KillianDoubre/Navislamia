@@ -100,7 +100,7 @@ public class MonsterMovementService
         foreach (var client in clients)
         {
             var info = client.ConnectionInfo;
-            var startTime = unchecked((uint)Environment.TickCount + info.ClientClockOffset);
+            var startTime = unchecked(ServerClock.Now + info.ClientClockOffset);
 
             lock (info.MonsterVisibilityLock)
             {

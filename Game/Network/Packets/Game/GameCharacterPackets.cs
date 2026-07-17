@@ -8,6 +8,12 @@ using Navislamia.Game.Network.Packets.Enums;
 
 namespace Navislamia.Game.Network.Packets.Game;
 
+public readonly record struct SkillListEntry(
+    int SkillId,
+    byte Level,
+    uint TotalCoolTimeTicks,
+    uint RemainCoolTimeTicks);
+
 public static class GameCharacterPackets
 {
     private const int HeaderSize = 7;
@@ -205,6 +211,16 @@ public static class GameCharacterPackets
 
     public static byte[] BuildSkillList(uint handle, IReadOnlyCollection<KeyValuePair<int, byte>> skills)
     {
+        return BuildSkillList(handle,
+            skills.Select(skill => new SkillListEntry(skill.Key, skill.Value, 0, 0)).ToArray());
+    }
+
+    /// <summary>
+    /// <c>TS_SC_SKILL_LIST</c> (403). Cooldowns reach the client through this packet, not a dedicated one:
+    /// the reference server re-sends the skill after a successful cast for exactly that reason.
+    /// </summary>
+    public static byte[] BuildSkillList(uint handle, IReadOnlyCollection<SkillListEntry> skills)
+    {
         const int fixedPayloadSize = 7;
         const int skillRecordSize = 14;
         var packet = CreatePacket(GamePackets.TM_SC_SKILL_LIST,
@@ -217,9 +233,11 @@ public static class GameCharacterPackets
         var offset = fixedPayloadSize;
         foreach (var skill in skills)
         {
-            BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(offset, 4), skill.Key);
-            payload[offset + 4] = skill.Value;
-            payload[offset + 5] = skill.Value;
+            BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(offset, 4), skill.SkillId);
+            payload[offset + 4] = skill.Level;
+            payload[offset + 5] = skill.Level;
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(offset + 6, 4), skill.TotalCoolTimeTicks);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(offset + 10, 4), skill.RemainCoolTimeTicks);
             offset += skillRecordSize;
         }
 

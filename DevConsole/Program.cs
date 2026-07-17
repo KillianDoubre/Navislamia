@@ -12,6 +12,7 @@ using Navislamia.Game.DataAccess.Contexts;
 using Navislamia.Game.DataAccess.Extensions;
 using Navislamia.Game.DataAccess.Repositories;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Stats;
 using Navislamia.Game.Maps;
 using Navislamia.Game.Network;
@@ -45,6 +46,7 @@ public class Program
         }
 
         host.Services.GetRequiredService<MonsterMovementService>();
+        host.Services.GetRequiredService<ISkillCastService>();
 
         await host.RunAsync();
         await Log.CloseAndFlushAsync();
@@ -185,6 +187,10 @@ public class Program
         services.AddSingleton<IItemStatCatalog, ItemStatCatalog>();
         services.AddSingleton<ISkillResourceRepository, SkillResourceRepository>();
         services.AddSingleton<ISkillPassiveCatalog, SkillPassiveCatalog>();
+        services.AddSingleton<IStateResourceRepository, StateResourceRepository>();
+        services.AddSingleton<IStateCatalog, StateCatalog>();
+        services.AddSingleton<IBuffCatalog, BuffCatalog>();
+        services.AddSingleton<ISkillCastService, SkillCastService>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();

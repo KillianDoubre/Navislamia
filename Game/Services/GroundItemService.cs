@@ -79,7 +79,7 @@ public class GroundItemService : IGroundItemService
 
             _items[item.Handle] = item;
 
-            var dropTime = unchecked((uint)Environment.TickCount + info.ClientClockOffset);
+            var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
             killer.Connection.Send(GameSpawnPackets.BuildEnterItem(item.Handle, item.X, item.Y, item.Z,
                 item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle));
         }

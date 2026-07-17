@@ -524,9 +524,23 @@ newly drawn weapon shows without a relog.
 
 **The 17 `vf_*` columns were imported after the fact**, and until then every one of them read `false` for
 all 2,689 skills — they were NOT NULL literals from the partial insert, exactly like
-`UseWithWeaponNotRequired` before it. `SkillResources` still has 90 NOT NULL columns with no default, so
-assume any column nobody has explicitly imported is lying. `vf_shield_only` was imported alongside the
-rest for that reason even though nothing reads it yet.
+`UseWithWeaponNotRequired` before it. `vf_shield_only` was imported alongside the rest for that reason
+even though nothing reads it yet.
+
+**That trap cost four rounds before it was fixed at the root.** An audit of every scalar column found that
+only `Id`, `IsValid`, `EffectType`, `IsPassive`, `StateId`, `StateSecond`, `StateLevelBase`,
+`StateLevelPerSkill` and `Values` held real data; every cost, delay, target, range and flag was a literal.
+The fourth casualty was a scope decision: "none of the 111 buffs are harmful" came from querying
+`IsHarmful` — an empty column — and once imported, **22 of them are harmful**. `IsToggle` was empty too,
+so the `!IsToggle` filter documented above as the guard against toggle auras **protected nothing**; the
+effect-type allowlist was always the real guard.
+
+`tools/Import-SkillResourceColumns.ps1` now imports **every mappable scalar column in one pass** (94 of
+them), deriving EF property → source column by introspection and refusing to run if a required column is
+unmapped. Two traps it encodes: **a nullable column here is always a foreign key id where `0` means
+"none"** and must be written `NULL` (no `StateResource` has id 0); and **`TextId`/`TooltipId`/
+`DescriptionId` cannot be imported at all** because they reference the empty `StringResources`. Prefer
+extending that script over hand-patching the next column.
 
 **`SIT_ByItem` stays the item contribution only** — a passive is not an item.
 
@@ -542,12 +556,222 @@ has 90 NOT NULL columns with no default, so a partial insert must supply literal
 introspection rather than by hand. `StateResources` is imported and unused today; it is what the timed
 buff/aura slice will need.
 
+## Skill casting
+
+Six castable families, all through `SkillCastService` and one `SkillCastKind` dispatch. **`SkillService`
+*learns* a skill, `SkillCastService` *casts* it** — the latter was called `BuffService` while buffs were
+all it did, which stopped being true. `BuffCatalog` classifies every skill once at startup, so the cast
+path switches on an enum instead of re-deriving effect types per request; its `default` branch logs
+rather than falling back to buff behaviour, so a future kind cannot be silently mishandled. Specs: `docs/superpowers/specs/2026-07-16-buff-casting-design.md`,
+`2026-07-17-auras-heals-debuffs-design.md` and `2026-07-17-offensive-skills-design.md`.
+
+| kind | effect_type | target | what it does |
+|---|---|---|---|
+| `Buff` | 301, 302, `!is_harmful` | caster-inclusive | timed state on the caster |
+| `Aura` | 701, 702 | any | untimed state, toggled off by recasting |
+| `Heal` | 501, 505 | 1 (`Target`) | restores HP from the caster's magic attack |
+| `Debuff` | 301, 302, `is_harmful` | 1 (`Target`) | timed state on a visible monster |
+| `PhysicalAttack` | 30001 | 1 (`Target`) | damages a visible monster |
+| `MagicAttack` | 231 | 1 (`Target`) | same, tagged `SHT_MAGIC_DAMAGE` |
+
+The cast sequence is the same for all six: `ST_Casting` (mp cost + cast delay) → the effect → `ST_Fire`
+→ `ST_Complete` → `TS_SC_SKILL_LIST` for the cooldown. Only a buff or an aura refreshes the caster's stat
+packets; a heal moves HP (a property), and a debuff or an attack lands on a monster.
+
+### Buffs
+
+A player casts a learned buff on themselves and the client plays it, shows the icon with its countdown,
+applies the stats and lets it expire.
+
+**A region buff is a self buff while playing solo**, which is why 302 is in: the region around the caster
+contains only the caster. It is applied to the caster alone and never expanded — invisible until a party
+exists. Asuran Haste is a 302 and was unreachable when the scope was 301 only.
+
+**The target decides who the buff lands on, and getting this wrong buffs the wrong unit.** Supported
+`SkillTarget`s are the ones containing the caster: `Target` (1), `RegionWith` (2), `SelfWithSummon` (45)
+and `PartyWithSummon` (51, a solo party being just the caster). Refused: `RegionWithout` (3), which
+excludes the caster by definition, and `Summon` (31) / `PartySummon` (32), which target a summon that
+nothing models. **The first cut ignored `target` entirely, so its 12 summon buffs would have buffed the
+player.**
+
+**rzu is authoritative for the wire format, the reference emulator for the logic, and nothing else.** The
+emulator writes `hp_cost`/`mp_cost`/`caster_mp` as int16, which is the `< EPIC_7_3` variant — **at 7.3 they
+are int32**, the same version boundary as `ATTACK_INFO`.
+
+`TS_CS_SKILL` (`400`, Epic < 9.6.3) is 31 bytes: `skill_id` u16@7, `caster` @9, `target` @13, `x`/`y`/`z`
+@17/21/25, `layer` i8@29, `skill_level` i8@30.
+
+`TS_SC_SKILL` (`401`) is **57 bytes** for a buff: 41 fixed bytes then a **9-byte union region** —
+`tm` + `nErrorCode` + 3 pad for `ST_Casting`/`ST_CastingUpdate`/`ST_Complete`, or the FIRE header
+(`bMultiple`, `range`, `target_count`, `fire_count`, `hits` count = exactly 9) followed by `45 × hits`
+bytes, one fixed 45-byte stride per hit. **A buff fires with `hits = 0`**: the emulator's `EF_ADD_STATE`
+branch never fills `m_vResultList`, unlike `TOGGLE_AURA`. The buff travels in `TS_SC_STATE`.
+
+`TS_SC_STATE` (`505`) is **63 bytes**: `handle` @7, `state_handle` u16@11, `state_code` @13,
+`state_level` u16@17, `end_time` @19, `start_time` @23, `state_value` @27, `state_string_value[32]` @31.
+**`state_level` sits after `state_code` at this epic**; rzu only moves it before from 9.5.2. Removal is
+the same packet with level/end/start zeroed. An aura would send `end_time = -1`.
+
+The sequence mirrors `Skill::ProcSkill`: `ST_Casting` (mp cost + cast delay) → state + `ST_Fire` → stat
+refresh → `ST_Complete`. **The cooldown reaches the client through `TS_SC_SKILL_LIST` (`403`)**, whose
+`TS_SKILL_INFO` record already reserved `total_cool_time`/`remain_cool_time`; there is no dedicated
+cooldown packet. A failed cast answers one `ST_Casting` with a non-zero `nErrorCode`.
+
+**Every duration column in `SkillResource` is in seconds and needs `× 100` to become ar_time ticks** —
+`state_second` *and* every `delay_*`. The reference loader is explicit: `delay_cast`,
+`delay_cast_per_skl`, `delay_common`, `delay_cooltime` and `delay_cooltime_mode` are each read as
+`GetFloat() * 100`. All the conversions live in `BuffCurve`, which holds every formula:
+`duration = (state_second + state_second_per_level × lvl) × 100`,
+`state_level = state_level_base + state_level_per_skl × lvl`, `mp = cost_mp + cost_mp_per_skl × lvl`,
+`cooldown = (delay_cooltime + delay_cooltime_per_skl × lvl) × 100`.
+
+**This shipped wrong once.** I read `delay_cooltime` as already-ticks because its max of 10800 would
+otherwise be a three-hour cooldown, which felt implausible — and wrote up "the column names say which unit
+is which" as though it were a finding. Deep Evasion then had a **1.2 s cooldown in-client instead of
+120 s**, which the user caught immediately. The loader had the answer all along, one file away from the
+logic I was already reading. **Plausibility is not evidence; find the line that converts the value.**
+
+`StateResource.value_0..value_17` are **six `(mask, base, perLevel)` triplets** and
+`amount = base + perLevel × state_level`, which the emulator's `SEF_PARAMETER_INC` branch applies in
+exactly that order. **Triplets 0, 1, 4 and 5 are ParameterA and triplets 2 and 3 are ParameterB** — the
+same A/B split as items, and B stays undecoded and skipped. So `StateCatalog` reuses `ParameterBitset`,
+`StatEffect`, `StateEffectTemplate` and `StatCalculator` unchanged; buffs are just a third effect source
+next to items and passives. **`SIT_ByItem` stays items only.**
+
+**`StateResource.effect_type` was typed `SkillEffectType` on the entity, which is the homonym trap made
+concrete** — it is a different value space (0 Misc, 1 flat add, 2 percentage). It now has its own
+`StateEffectType` enum. Only a minority of the castable buffs carry a state with effect 1 or 2 and move
+the stats; the rest carry mechanics nothing models (double attack, additional damage) and **still get
+their state, icon and countdown while contributing no stats** — the same rule as an unsupported passive
+effect type.
+
+`BuffCatalog` and `StateCatalog` are frozen at startup. `ConnectionInfo` holds `ActiveBuffs` (guarded by
+`BuffLock`, since the expiry tick and the client thread both touch it), `BuffEffects`, `SkillCooldowns`
+and `NextStateHandle`. `SkillCastService` runs a 500 ms expiry tick and, like `GroundItemService`, **must not
+inject `NetworkService`** — that is the DI cycle that only throws at runtime. A recast replaces the active
+instance of the same state, reusing its `state_handle`; `state_type` (`SG_NORMAL`/`SG_DUPLICATE`/
+`SG_DEPENDENCE`) is not mapped, so real stacking rules are not modelled.
+
+**`ConnectionInfo.CharacterMp` did not exist** — MP was only ever sent as a property, never tracked — so
+casting had nothing to spend. It is seeded at login and on level-up alongside `CharacterHp`.
+
+`state_code` is the `StateResource` id and the client resolves the icon and name from its own
+`db_state.rdb`, like `npc_id` and item codes: **a 9.4-only state id renders nothing**, the same
+unresolved 7.3 gap as ground items.
+
+**Percentage values are ratios, not percent numbers.** A `ParameterAmp` state or an `AmpParameterA` item
+carries `0.05` for "+5%", and `StatBlock.Amplify` does `stat * (1 + ratio)` exactly like the reference's
+`stat.strength = amp * stat.strength + stat.strength`. The client's tooltip is what multiplies by 100.
+Confirmed in the data: item amp values run 0.01–0.50, and the states reachable from castable skills run
+−0.50 to +0.50.
+
+### Toggle auras
+
+`effect_type` 701/702, 46 player skills. **An aura is a buff with no duration and an off switch**: all 46
+carry `state_second = -1`, which is the aura marker, and `TurnOnAura` applies an ordinary state with
+`bIsAura`, which puts **`end_time = -1`** on the wire (`uint.MaxValue` here). The expiry tick must skip
+them; nothing but the player removes an aura.
+
+**`toggle_group` is the mutual-exclusion key and is what makes this a toggle.** `m_vAura` is keyed by
+group, not by skill, so **one aura per group at a time**: recasting the same aura turns it off, and
+casting a different aura of the same group swaps it (`AuraToggle.Resolve`). Group `0` is a real group,
+not "no group" — auras that share it exclude each other, which is the reference behaviour.
+
+**`TS_SC_AURA` (`407`) is the dedicated packet**, 14 bytes: `caster` @7, `skill_id` u16@11, `status`
+byte@13. Same recurring pattern as `287` vs `202` and `210` vs the generic result — the client is told
+*the aura is on* separately from *the skill fired*.
+
+Auras are what finally make the rule below true: **an aura must not contribute until it is switched on**,
+which is exactly what V13.1 got wrong by applying 32 of them at login. The aura's state feeds
+`ConnectionInfo.ActiveBuffs` like any buff, so `StateCatalog` moves the stats with no new code. No upkeep
+cost is modelled: the reference charges the mp once, at cast.
+
+### Heals
+
+`effect_type` 501 (`AddHp`) and 505 (`AddHpMp`) with `target = 1`, cast on the caster. `502` (`AddMp`) has
+no player skill in this catalog. The formula is `HEALING_SKILL_FUNCTOR` verbatim, in `HealCurve`:
+
+```
+heal = magicPoint * (var0 + var1 * lvl) + var2 + var3 * lvl + enhance * var6
+     + targetMaxHp * (var4 + var5 * lvl + var7 * lvl)
+```
+
+**`var[i]` is our `Values[i + 1]`.** Enhancement is not modelled, so the `var6` term is zero. Verified
+against the data: skill 3202 (`0.3 / 0 / 80 / 140`) heals 250 at level 1 with 100 magic attack.
+
+**This is the first formula in the project where a character stat produces a gameplay outcome** —
+`magicPoint` comes straight from the `StatBlock` the stat/passive/buff slices built. Everything computed
+before this was inert.
+
+**A heal is also the first packet to carry a real FIRE hit.** There is no separate packet for the healed
+amount, so `ST_Fire` carries one `HIT_DETAILS`: `type` u8 = `SHT_ADD_HP` (20), `hTarget` u32,
+`target_stat` i32 (HP **after**), `nIncStat` i32 (amount). **Each hit occupies a fixed 45-byte stride**,
+zero-filled then overwritten, so a one-hit `ST_Fire` is **102 bytes** (48 + 9 + 45). The FIRE header is
+`bMultiple` @48, `range` @49, `target_count` @53, `fire_count` @54, `hits` @55 — writing `target_count`
+inside `range` is a mistake a golden offset test caught here. Do not copy the reference's serializer for
+this: its `SRT_ADD_HP` case **falls through to `SRT_REBIRTH`** on a missing `break` and writes five extra
+fields into the padding. rzu says two int32.
+
+### Debuffs
+
+`effect_type` 301/302 with `is_harmful` and `target = 1`, 21 player skills. Mechanically the buff path
+with a different owner: the state lives in **`MonsterWorldState`** next to HP and respawn deadlines,
+sparse like they are, and `CombatService`'s death branch calls `ClearStates` — a corpse keeps no debuff
+and a respawn inherits none. The target must be a **visible monster of that client**, resolved through
+`ConnectionInfo.SpawnedMonsters` under `MonsterVisibilityLock` exactly like `CombatService.StartAttack`,
+so a debuff can never touch an object the client cannot see.
+
+**A debuff is visible and inert, and that is the honest description.** Monsters carry only `Id`, `Level`,
+`Hp` and `Race` — there is no monster stat block, so a state lowering defence lowers nothing. Only 9 of
+the 29 harmful `AddState` skills even carry a stat state; the rest are mechanics nothing models. This
+slice delivers the icon, the countdown and the plumbing, and becomes real the day monsters get stats and
+combat reads them. `probability_on_hit` is imported but resistance is not modelled: a debuff always lands.
+Whether this client renders a state icon on a monster at all is **unverified**.
+
+### Offensive skills
+
+`effect_type` 30001 (`PhysicalSingleDamage`, 36 player skills) and 231 (`MagicSingleDamage`, 19), both
+`is_harmful` and `target = 1`. The multi-hit (30011, 232) and region (261, 271) variants need several hit
+records or area resolution and are out.
+
+**One damage rule, one death path.** `CombatService` owns damage, death, the corpse, drops, reward and
+respawn; the cast path must never reimplement any of it. `ICombatService` exposes `GetHitDamage` and
+`ApplyDamage`, `ProcessSwing` is refactored onto them, and `SkillCastService` calls them — so an auto-attack
+and a skill deal **the same damage through the same code**, and the whole death sequence behaves
+identically for free. `SkillCastService` depends on `ICombatService`, never the reverse.
+
+**The damage hit's payload differs from the heal's**, inside the same 45-byte stride: `type` u8@0,
+`hTarget` @1, `target_hp` i32@5, then **`damage_type` as a single byte @9** and `damage` i32@10, then
+`flag` and `elemental_damage[7]`. `HIT_ADD_STAT` (a heal) instead writes two adjacent int32 from offset 5,
+so the two diverge at byte 9. No `TS_SC_ATTACK_EVENT` is sent for a skill: the client reads the damage
+from the `ST_Fire` hit, and the death animation still comes from the shared path's `TS_SC_STATUS_CHANGE`.
+
+The target must be a **visible monster of that client** and **alive** — casting at a corpse answers
+`NotActable`. **`cast_range` is not enforced**: the column is imported (max 22 for these families) but its
+unit is unverified against a world whose coordinates run in the tens of thousands, and the client already
+gates the cast. A wrong conversion would refuse legitimate casts, so this stays a documented gap, like
+resistance.
+
+**The damage formula is still the placeholder** (max HP / 3), deliberately unchanged here.
+
 ## Client clock
 
 The client keeps its own notion of server time and every timed UI depends on it. Three packets feed it,
-all of them `ar_time_t`, which is a **millisecond tick, never a wall clock**: `TS_TIMESYNC` (`2`,
-bidirectional, `time`), `TS_SC_SET_TIME` (`10`, `int32 gap`) and `TS_SC_GAME_TIME` (`1101`, `t` +
-`game_time`).
+all of them `ar_time_t`: `TS_TIMESYNC` (`2`, bidirectional, `time`), `TS_SC_SET_TIME` (`10`, `int32 gap`)
+and `TS_SC_GAME_TIME` (`1101`, `t` + `game_time`).
+
+**`ar_time_t` is a 10 ms tick, never a wall clock.** `ServerClock` is the single place that defines it
+(`Environment.TickCount / 10`, `TicksPerSecond = 100`) and everything on the wire goes through it. Three
+independent confirmations: rzgame's `typedef ar_time_t rztime_t; // unit [10ms] since first call`; the
+reference emulator's `GetArTime() = ms / 10`; and the client itself, since `ITEM_ARRANGE_COOL_TIME = 3000`
+greys the sort button for a measured 30 s.
+
+This file used to call it a millisecond tick, and **nothing broke for a long time because no feature
+depended on the unit**: movement, drops and combat all derive `start_time` from the client's own tick via
+`ConnectionInfo.ClientClockOffset` and never add a duration. That also hid a real defect — an offset
+between two clocks ticking at different rates is only valid at the instant it is captured, and movement
+survived purely because `TS_CS_MOVE_REQUEST` re-captures it constantly. Buffs were the first feature to
+need a duration, which is what exposed it.
 
 The handshake mirrors the reference `WorldSession::onTimeSync` and the server drives it entirely: this
 client **never initiates a `TS_TIMESYNC`**, it only answers one, immediately and one for one. So the
@@ -657,14 +881,19 @@ the comparator body is unrecoverable without the matching build. The group/type/
 
 `ITEM_ARRANGE_COOL_TIME` itself was recovered: the constants live in the PDB as `S_CONSTANT` (`0x1107`)
 records, whose payload is the record kind, a type index and a numeric leaf, so the bytes preceding the
-name decode to the value. It is **3000 ms**, matching `InventoryService.ArrangeCooldown`; the decoding
-checks out against its neighbours (`MAX_ACCOUNT_LEN` 60, `MAX_BOOTH_ITEM_COUNT` 8,
-`DONATE_GOLD_UNIT_COUNT` 10000, `MAX_LAYER` 256). Spamming is refused with `ResultCode.CoolTime`.
+name decode to the value. It is **3000**, and the decoding checks out against its neighbours
+(`MAX_ACCOUNT_LEN` 60, `MAX_BOOTH_ITEM_COUNT` 8, `DONATE_GOLD_UNIT_COUNT` 10000, `MAX_LAYER` 256).
+Spamming is refused with `ResultCode.CoolTime`.
 
-That 3 s is the **server's** anti-spam floor and is not what the player sees: the client greys its own
-sort button for a measured **30 s**, so the client is the stricter of the two and the server guard never
-fires in normal play. The client's countdown only runs once the clock handshake above has completed;
-before it existed the button greyed permanently.
+**3000 is in ar_time ticks, so it is 30 seconds** — exactly the delay measured on the client's own greyed
+sort button. `InventoryService.ArrangeCooldown` derives it from `ServerClock.TicksPerSecond` rather than
+hardcoding it. This file previously read the constant as 3000 **milliseconds** and explained the gap away
+with "the server floor is 3 s, the client is simply stricter at 30 s". There was never a gap: one
+constant, one clock, read in the wrong unit. Two numbers that refuse to reconcile are a measurement worth
+trusting, not an inconsistency to narrate around.
+
+The client's countdown only runs once the clock handshake above has completed; before it existed the
+button greyed permanently.
 
 `ItemResources` holds 33,142 rows imported from the 9.4 SQL Server `Arcadia.ItemResource`, with `class`
 in `ItemType`, `type` in `ItemBaseType` (the tab category) and `group` in `Group`. Like `MonsterResource`,
@@ -676,20 +905,28 @@ referenced resource tables are still empty.
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander and drop items at authentic rates, but have no
-  aggro, chase, retaliation or taming; damage, attack speed and walk speed are placeholders
+  aggro, chase, retaliation or taming; damage, attack speed and walk speed are placeholders. **An
+  offensive skill deals the same placeholder damage as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
   client's `db_item.rdb` is unavailable, so a 9.4-only code will not render), and cannot be dropped back
   on the ground by the player
 - NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
   teleportation and quest mutation are not executed yet
 - Skill learning, persistence and the **passive stat effects** work, including the 21 `WeaponMastery`
-  skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot, toggle auras need
-  an activation state, and casting, timed buffs/debuffs and damage skills are not implemented
+  skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot
+- **Casting works for buffs, toggle auras, heals, monster debuffs and single-target offensive skills**
+  (physical 30001 and magic 231): MP cost, cooldown, cast delay, duration, expiry, damage, death and
+  reward. **Debuffs are visible but inert** — monsters have no stat block. Not implemented: multi-hit and
+  region offensive skills, `cast_range`, expanding a region buff beyond the caster, buffing other players
+  (no party), summon buffs, resurrection, region heals, debuff resistance, `state_type` stacking rules,
+  cast interruption and buff persistence across sessions
 - Equipping and unequipping work and persist and now feed the stats, but item requirements (level, job,
   race) are still not validated
-- Stats cover job/JLv/level, equipment and the supported passive skills; **timed buffs, auras and titles
-  contribute nothing because nothing can apply or toggle one yet**. Item `ParameterB` (63 items) is
-  undecoded, and stats do not yet drive combat — damage is still the monster's max HP divided by 3
+- Stats cover job/JLv/level, equipment, the supported passive skills, active buffs and toggled auras;
+  **titles still contribute nothing because nothing can grant one**. `ParameterB` is undecoded for both
+  items (63) and states. **Stats still barely drive gameplay**: a heal reads `magicPoint`, but combat
+  ignores them entirely — damage is the monster's max HP divided by 3 and attack speed is fixed, so an
+  attack-speed buff changes nothing
 - Inventory sorting and drag-swap work; storage/warehouse is not implemented and the sort order follows
   the client's tab categories rather than the original server's comparator
 - The client clock is synchronized, but `TS_SC_GAME_TIME.game_time` (the in-world day/night clock) is

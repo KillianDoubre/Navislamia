@@ -9,6 +9,7 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Network.Packets.Interfaces;
+using Navislamia.Game.Services;
 using Serilog;
 
 namespace Navislamia.Game.Network.Clients;
@@ -67,13 +68,13 @@ public class GameClient : Client
 
     private uint ClientTick()
     {
-        return unchecked((uint)Environment.TickCount + ConnectionInfo.ClientClockOffset);
+        return unchecked(ServerClock.Now + ConnectionInfo.ClientClockOffset);
     }
 
     public void SendTimeSync()
     {
         var message = new Packet<TS_TIMESYNC>((ushort)GamePackets.TM_TIMESYNC,
-            new TS_TIMESYNC { Time = (uint)Environment.TickCount });
+            new TS_TIMESYNC { Time = ServerClock.Now });
         Connection.Send(message.Data);
     }
 
@@ -82,7 +83,7 @@ public class GameClient : Client
         const int sampleWindow = 4;
 
         var clientTime = BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4));
-        var gap = unchecked((int)((uint)Environment.TickCount - clientTime));
+        var gap = unchecked((int)(ServerClock.Now - clientTime));
         ConnectionInfo.ClientClockOffset = unchecked((uint)-gap);
 
         var gaps = ConnectionInfo.TimeSyncGaps;
@@ -141,7 +142,7 @@ public class GameClient : Client
 
         Connection.Send(packet);
 
-        ConnectionInfo.ClientClockOffset = unchecked(curTime - (uint)Environment.TickCount);
+        ConnectionInfo.ClientClockOffset = unchecked(curTime - ServerClock.Now);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         SyncVisibleObjects();
@@ -245,6 +246,7 @@ public class GameClient : Client
         try
         {
             _networkService.CombatService.StopAttack(this);
+            _networkService.SkillCastService.Unregister(this);
             await SaveProgressSafelyAsync("while disconnecting");
         }
         catch (Exception exception)
@@ -406,6 +408,24 @@ public class GameClient : Client
         }
     }
 
+    private void HandleSkill(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadSkill(packet, out var request))
+        {
+            return;
+        }
+
+        try
+        {
+            _networkService.SkillCastService.Cast(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process skill {skillId} for {clientTag}", request.SkillId,
+                ClientTag);
+        }
+    }
+
     private async Task HandleLearnSkillAsync(byte[] packet)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
@@ -522,6 +542,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_LEARN_SKILL)
             {
                 _ = HandleLearnSkillAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_SKILL)
+            {
+                HandleSkill(msgBuffer);
                 continue;
             }
 

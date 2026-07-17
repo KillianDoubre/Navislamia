@@ -46,6 +46,7 @@ public class LevelingService : ILevelingService
         var maxHp = (int)stats.MaxHp;
         var maxMp = (int)stats.MaxMp;
         info.CharacterHp = maxHp;
+        info.CharacterMp = maxMp;
 
         var handle = info.CharacterHandle;
         client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(handle, newLevel, info.CharacterJobLevel));

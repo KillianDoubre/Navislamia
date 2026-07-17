@@ -96,6 +96,7 @@ public class GameActions : IActions
         info.CharacterHandle = (uint)character.Id;
         info.CharacterName = character.CharacterName;
         info.CharacterHp = hp;
+        info.CharacterMp = mp;
         info.CharacterLevel = level;
         info.CharacterRace = character.Race;
         info.CharacterJob = (int)character.CurrentJob;
@@ -213,6 +214,7 @@ public class GameActions : IActions
 
         client.Connection.Send(GameCharacterPackets.BuildEmptyAddedSkillList(handle));
         client.Connection.Send(GameCharacterPackets.BuildBeltSlotInfo(character.BeltItemIds));
+        _networkService.SkillCastService.Register(client);
         client.SendGameTime();
         client.SendTimeSync();
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", hp));

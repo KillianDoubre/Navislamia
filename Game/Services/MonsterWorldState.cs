@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Services.Buffs;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -26,6 +27,11 @@ public class MonsterWorldState
     private readonly Dictionary<long, DateTime> _respawnAt = new();
     private readonly Dictionary<long, (float X, float Y)> _position = new();
     private readonly Dictionary<long, DateTime> _nextMoveAt = new();
+
+    // Sparse like every other map here: almost no monster ever carries a state.
+    private readonly Dictionary<long, List<ActiveBuff>> _states = new();
+    private static readonly IReadOnlyList<ActiveBuff> EmptyStates = Array.Empty<ActiveBuff>();
+    private ushort _nextStateHandle;
 
     private SpatialIndex<MonsterInstance> _index;
     private Dictionary<long, MonsterInstance> _byId;
@@ -55,6 +61,109 @@ public class MonsterWorldState
         lock (_stateLock)
         {
             return _respawnAt.Count == 0 ? EmptyDead : new HashSet<long>(_respawnAt.Keys);
+        }
+    }
+
+    /// <summary>
+    /// Applies a state to a monster, replacing any active instance of the same state and reusing its
+    /// handle. Returns the applied buff so the caller can put its handle on the wire.
+    /// </summary>
+    public ActiveBuff AddState(long instanceId, int stateId, int skillId, int stateLevel, uint startTick,
+        uint endTick)
+    {
+        lock (_stateLock)
+        {
+            if (!_states.TryGetValue(instanceId, out var states))
+            {
+                states = new List<ActiveBuff>();
+                _states[instanceId] = states;
+            }
+
+            var existing = states.FindIndex(state => state.StateId == stateId);
+            ushort handle;
+            if (existing >= 0)
+            {
+                handle = states[existing].StateHandle;
+                states.RemoveAt(existing);
+            }
+            else
+            {
+                handle = ++_nextStateHandle;
+            }
+
+            var buff = new ActiveBuff(handle, stateId, skillId, stateLevel, startTick, endTick);
+            states.Add(buff);
+            return buff;
+        }
+    }
+
+    public IReadOnlyList<ActiveBuff> GetStates(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            return _states.TryGetValue(instanceId, out var states) && states.Count > 0
+                ? states.ToArray()
+                : EmptyStates;
+        }
+    }
+
+    /// <summary>Removes every state whose deadline has passed, across all monsters.</summary>
+    public IReadOnlyList<(long InstanceId, ActiveBuff State)> RemoveExpiredStates(uint now)
+    {
+        lock (_stateLock)
+        {
+            if (_states.Count == 0)
+            {
+                return Array.Empty<(long, ActiveBuff)>();
+            }
+
+            List<(long, ActiveBuff)> expired = null;
+            List<long> emptied = null;
+            foreach (var (instanceId, states) in _states)
+            {
+                for (var i = states.Count - 1; i >= 0; i--)
+                {
+                    if (unchecked((int)(now - states[i].EndTick)) < 0)
+                    {
+                        continue;
+                    }
+
+                    expired ??= new List<(long, ActiveBuff)>();
+                    expired.Add((instanceId, states[i]));
+                    states.RemoveAt(i);
+                }
+
+                if (states.Count == 0)
+                {
+                    // Keep the map sparse: a monster that once had a state must not keep an empty list.
+                    emptied ??= new List<long>();
+                    emptied.Add(instanceId);
+                }
+            }
+
+            if (emptied is not null)
+            {
+                foreach (var instanceId in emptied)
+                {
+                    _states.Remove(instanceId);
+                }
+            }
+
+            return (IReadOnlyList<(long, ActiveBuff)>)expired ?? Array.Empty<(long, ActiveBuff)>();
+        }
+    }
+
+    /// <summary>Drops every state of one monster: a corpse keeps no debuff.</summary>
+    public IReadOnlyList<ActiveBuff> ClearStates(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            if (!_states.Remove(instanceId, out var states) || states.Count == 0)
+            {
+                return EmptyStates;
+            }
+
+            return states.ToArray();
         }
     }
 
