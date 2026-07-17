@@ -25,10 +25,16 @@ public class BuffCatalog : IBuffCatalog
     public const int ToggleDifferentialAura = 702;
     public const int PhysicalSingleDamage = 30001;
 
+    /// <summary>
+    /// EF_ACTIVATE_FIELD_PROP (0x251D). This is how a portal is used: the client casts the prop's
+    /// activate skill at the prop's handle.
+    /// </summary>
+    public const int ActivateFieldProp = 9501;
+
     public static readonly int[] CastableEffectTypes =
     {
         MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, ToggleAura, ToggleDifferentialAura,
-        PhysicalSingleDamage
+        PhysicalSingleDamage, ActivateFieldProp
     };
 
     /// <summary>
@@ -90,8 +96,10 @@ public class BuffCatalog : IBuffCatalog
             return false;
         }
 
-        // A buff, an aura and a debuff ARE a state; a heal and an attack carry their effect themselves.
-        if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack)
+        // A buff, an aura and a debuff ARE a state; a heal, an attack and a prop activation carry
+        // their effect themselves.
+        if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
+                or SkillCastKind.ActivateProp)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -125,6 +133,14 @@ public class BuffCatalog : IBuffCatalog
         if (row.EffectType is ToggleAura or ToggleDifferentialAura)
         {
             kind = SkillCastKind.Aura;
+            return true;
+        }
+
+        // The prop itself decides what the cast does, so the target is a prop handle rather than one
+        // of the SkillTargets, and no state is involved.
+        if (row.EffectType == ActivateFieldProp)
+        {
+            kind = SkillCastKind.ActivateProp;
             return true;
         }
 

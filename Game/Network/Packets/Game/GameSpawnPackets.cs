@@ -13,6 +13,7 @@ public static class GameSpawnPackets
     private const byte ObjectTypeNpc = 1;
     private const byte ObjectTypeItem = 2;
     private const byte ObjectTypeMonster = 3;
+    private const byte ObjectTypeFieldProp = 6;
 
     public static byte[] BuildEnterNpc(uint handle, float x, float y, float z, byte layer,
         int hp, int level, byte race, int npcId)
@@ -60,6 +61,54 @@ public static class GameSpawnPackets
         BinaryPrimitives.WriteUInt64LittleEndian(span.Slice(34, 8), (ulong)Math.Max(1, count));
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(42, 4), dropTime);
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(46, 4), ownerHandle);
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildEnterFieldProp(uint handle, float x, float y, float z, byte layer,
+        int propId, float zOffset, float rotateX, float rotateY, float rotateZ,
+        float scaleX, float scaleY, float scaleZ, bool lockHeight, float lockHeightValue)
+    {
+        const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 4 + 4 + 12 + 12 + 1 + 4;
+        var packet = new byte[length];
+        var span = packet.AsSpan();
+
+        WriteHeader(span, length, GamePackets.TM_SC_ENTER);
+        packet[7] = EnterTypeStaticObject;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(8, 4), handle);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(12, 4), x);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(16, 4), y);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(20, 4), z);
+        packet[24] = layer;
+        packet[25] = ObjectTypeFieldProp;
+
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(26, 4), (uint)propId);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(30, 4), zOffset);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(34, 4), rotateX);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(38, 4), rotateY);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(42, 4), rotateZ);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(46, 4), scaleX);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(50, 4), scaleY);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(54, 4), scaleZ);
+        packet[58] = (byte)(lockHeight ? 1 : 0);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(59, 4), lockHeightValue);
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildWarp(float x, float y, float z, sbyte layer)
+    {
+        const int length = HeaderSize + 12 + 1;
+        var packet = new byte[length];
+        var span = packet.AsSpan();
+
+        WriteHeader(span, length, GamePackets.TM_SC_WARP);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(7, 4), x);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(11, 4), y);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(15, 4), z);
+        packet[19] = (byte)layer;
 
         WriteChecksum(packet);
         return packet;

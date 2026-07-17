@@ -13,6 +13,7 @@ public class CipherConnection : Connection, IConnection
 {
     private readonly Xrc4Cipher _sendCipher = new();
     private readonly Xrc4Cipher _receiveCipher = new();
+    private readonly object _sendCipherLock = new();
 
     /// <summary>
     /// Creates a new instance of the cipher connection wrapper abstraction
@@ -56,13 +57,23 @@ public class CipherConnection : Connection, IConnection
     }
 
     /// <summary>
-    /// Adds an encoded message to the send queue 
+    /// Encodes a message and queues it.
     /// </summary>
+    /// <remarks>
+    /// XRC4 is a stream cipher, so the keystream advances per message and the client decodes in the
+    /// order the server encoded. Encoding and queueing therefore have to be one atomic step: the combat
+    /// tick, the movement tick, the cast tick and the client's own thread all send on the same
+    /// connection, and two of them interleaving here would both consume the keystream out of order and
+    /// queue in an order that no longer matches it, which the client cannot decode.
+    /// </remarks>
     /// <param name="buffer">Message data to be sent</param>
     public override void Send(byte[] buffer)
     {
-        _sendCipher.Encode(buffer, buffer, buffer.Length);
+        lock (_sendCipherLock)
+        {
+            _sendCipher.Encode(buffer, buffer, buffer.Length);
 
-        SendQueue.Enqueue(buffer);
+            base.Send(buffer);
+        }
     }
 }

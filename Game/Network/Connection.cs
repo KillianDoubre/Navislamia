@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Buffers;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
-using System.Collections.Concurrent;
 using System.Threading;
+using System.Threading.Channels;
 
 using Navislamia.Game.Network.Interfaces;
 
@@ -24,7 +26,16 @@ public class Connection : IConnection
     private int _dataLength = 0;
     internal readonly byte[] ReceiveBuffer = new byte[32768];
 
-    internal readonly ConcurrentQueue<byte[]> SendQueue = new();
+    /// <summary>
+    /// Outgoing messages. A channel rather than a polled queue: the send loop parks on
+    /// <c>WaitToReadAsync</c> and wakes the moment something is queued, and it collapses a burst into
+    /// one wake-up instead of one per message.
+    /// </summary>
+    private readonly Channel<byte[]> _sendChannel =
+        Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
+
+    /// <summary>Caps how much of a burst is copied into one pooled buffer before it is flushed.</summary>
+    private const int MaxSendBatchBytes = 64 * 1024;
 
     internal readonly CancellationTokenSource CancellationTokenSource = new();
     private CancellationToken _cancellationToken;
@@ -195,42 +206,100 @@ public class Connection : IConnection
     }
 
     /// <summary>
-    /// Adds a message to the send queue 
+    /// Queues a message for sending. Derived connections must route through here rather than touch the
+    /// channel, or their messages are queued without ever waking the send loop.
     /// </summary>
     /// <param name="buffer">Message data to be sent</param>
     public virtual void Send(byte[] buffer)
     {
-        SendQueue.Enqueue(buffer);
+        _sendChannel.Writer.TryWrite(buffer);
     }
 
     /// <summary>
-    /// Loop through the send queue and send any available data as long as the connection hasn't been disconnected
+    /// Drains queued messages onto the socket, coalescing whatever is already queued into a single
+    /// write.
     /// </summary>
-    /// <returns>Nothing</returns>
+    /// <remarks>
+    /// This used to poll: it drained the queue, then slept 100 ms unconditionally, so anything queued
+    /// just after a drain waited up to 100 ms before leaving the server. Every object entering the
+    /// player's view paid that, which is what made things pop in late while walking. It also spun at
+    /// 100% CPU on a disconnect with a non-empty queue, because the disconnect branch skipped the
+    /// dequeue and the queue therefore never emptied.
+    /// <para>
+    /// Coalescing is safe and is what the wire already looks like: TCP is a byte stream and the client
+    /// splits messages by the header length, which is why a lone header-only packet only ever arrived
+    /// coalesced with other traffic.
+    /// </para>
+    /// </remarks>
     protected async Task SendLoop()
     {
-        while (true)
+        var pending = new List<byte[]>();
+
+        try
         {
-            while (!SendQueue.IsEmpty)
+            while (await _sendChannel.Reader.WaitToReadAsync(_cancellationToken))
             {
                 if (_disconnectSignaled)
                 {
-                    continue;
+                    return;
                 }
 
-                if (!SendQueue.TryDequeue(out var sendBuffer))
+                pending.Clear();
+                var total = 0;
+
+                while (total < MaxSendBatchBytes && _sendChannel.Reader.TryRead(out var buffer))
                 {
-                    continue;
+                    pending.Add(buffer);
+                    total += buffer.Length;
                 }
-                    
-                var sentBytes = await _socket.SendAsync(sendBuffer, SocketFlags.None);
-                if (sentBytes > 0)
+
+                if (total > 0)
                 {
-                    OnDataSent(sentBytes);
+                    await SendBatchAsync(pending, total);
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception)
+        {
+            // The socket is gone; CheckForDisconnect owns tearing the connection down.
+        }
+    }
 
-            await Task.Delay(100, _cancellationToken);
+    private async Task SendBatchAsync(List<byte[]> pending, int total)
+    {
+        int sentBytes;
+
+        if (pending.Count == 1)
+        {
+            sentBytes = await _socket.SendAsync(pending[0], SocketFlags.None);
+        }
+        else
+        {
+            var batch = ArrayPool<byte>.Shared.Rent(total);
+
+            try
+            {
+                var offset = 0;
+                foreach (var buffer in pending)
+                {
+                    Buffer.BlockCopy(buffer, 0, batch, offset, buffer.Length);
+                    offset += buffer.Length;
+                }
+
+                sentBytes = await _socket.SendAsync(batch.AsMemory(0, total), SocketFlags.None);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(batch);
+            }
+        }
+
+        if (sentBytes > 0)
+        {
+            OnDataSent?.Invoke(sentBytes);
         }
     }
 

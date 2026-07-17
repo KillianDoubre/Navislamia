@@ -13,6 +13,7 @@ public enum GamePackets : ushort
     TM_SC_MOVE = 8,
     TM_SC_LEAVE = 9,
     TM_SC_SET_TIME = 10,
+    TM_SC_WARP = 12,
     TM_CS_QUERY = 13,
     TM_CS_CHAT_REQUEST = 20,
     TM_SC_CHAT_LOCAL = 21,

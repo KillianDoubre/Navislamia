@@ -17,7 +17,8 @@ public enum SkillCastKind
     Heal,
     Debuff,
     PhysicalAttack,
-    MagicAttack
+    MagicAttack,
+    ActivateProp
 }
 
 public readonly record struct CastableBuffFields(

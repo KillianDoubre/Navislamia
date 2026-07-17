@@ -37,7 +37,8 @@ public interface ICharacterService
     Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests);
 
-    Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos);
+    Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold,
+        int chaos, float x, float y);
 
     void SaveChanges();
 

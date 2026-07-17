@@ -326,7 +326,8 @@ public class CharacterService : ICharacterService
         });
     }
 
-    public Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold, int chaos)
+    public Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp,
+        long gold, int chaos, float x, float y)
     {
         if (string.IsNullOrEmpty(characterName))
         {
@@ -356,6 +357,14 @@ public class CharacterService : ICharacterService
             character.Jp = jp;
             character.Gold = gold;
             character.Chaos = chaos;
+
+            // Without this a warp is undone by the next login: the position was never persisted
+            // during play, so the character always reloaded where it last logged in.
+            if (x > 0 && y > 0)
+            {
+                character.Position = new[] { (int)x, (int)y, 0 };
+            }
+
             await _characterRepository.SaveChangesAsync();
         });
     }

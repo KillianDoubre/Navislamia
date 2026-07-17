@@ -45,9 +45,18 @@ public class ConnectionInfo
     public byte Layer { get; set; }
     public readonly object NpcVisibilityLock = new();
     public readonly object MonsterVisibilityLock = new();
+    public readonly object PropVisibilityLock = new();
     public Dictionary<long, uint> SpawnedNpcs { get; } = new();
     public Dictionary<uint, long> SpawnedNpcIdsByHandle { get; } = new();
     public Dictionary<long, uint> SpawnedMonsters { get; } = new();
+
+    /// <summary>
+    /// Visible field props, both ways: a prop is activated by casting at its handle, so resolution
+    /// must be O(1) and must never reach a prop outside this client's visible set.
+    /// </summary>
+    public Dictionary<long, uint> SpawnedProps { get; } = new();
+
+    public Dictionary<uint, long> SpawnedPropInstancesByHandle { get; } = new();
 
     /// <summary>
     /// Resolves a client-visible monster handle back to its instance id, so nothing can act on an object
@@ -120,6 +129,23 @@ public class ConnectionInfo
         lock (MonsterVisibilityLock)
         {
             SpawnedMonsters.Clear();
+        }
+
+        lock (PropVisibilityLock)
+        {
+            SpawnedProps.Clear();
+            SpawnedPropInstancesByHandle.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Resolves a client-visible prop handle back to its instance id.
+    /// </summary>
+    public bool TryResolveProp(uint handle, out long instanceId)
+    {
+        lock (PropVisibilityLock)
+        {
+            return SpawnedPropInstancesByHandle.TryGetValue(handle, out instanceId);
         }
     }
 

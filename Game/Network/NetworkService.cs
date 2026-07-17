@@ -10,6 +10,7 @@ using Navislamia.Game.Network.Interfaces;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Interfaces;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.Interfaces;
 
 namespace Navislamia.Game.Network;
 
@@ -28,6 +29,7 @@ public class NetworkService : INetworkService
     public readonly IEquipmentService EquipmentService;
     public readonly IInventoryService InventoryService;
     public readonly IGroundItemService GroundItemService;
+    public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
@@ -47,7 +49,8 @@ public class NetworkService : INetworkService
         IMonsterSpawnService monsterSpawnService,
         ICombatService combatService, ILevelingService levelingService, ISkillService skillService,
         IEquipmentService equipmentService, IInventoryService inventoryService,
-        IGroundItemService groundItemService, ISkillCastService buffService)
+        IGroundItemService groundItemService, ISkillCastService buffService,
+        IFieldPropService fieldPropService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -62,6 +65,7 @@ public class NetworkService : INetworkService
         EquipmentService = equipmentService;
         InventoryService = inventoryService;
         GroundItemService = groundItemService;
+        FieldPropService = fieldPropService;
         SkillCastService = buffService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;

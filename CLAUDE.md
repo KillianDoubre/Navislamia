@@ -71,6 +71,40 @@ as 23. Sending result 23 before the user confirms invokes the final scene handle
 `TS_SC_CHARACTER_LIST (2004)` normally. This SFrame keeps the same game connection throughout the
 exchange; no delayed response, reconnect or temporary transfer session is involved.
 
+## Sending and object streaming
+
+`Connection` queues outgoing messages on an unbounded `Channel` and the send loop parks on
+`WaitToReadAsync`, draining whatever is queued into **one** socket write through a pooled buffer.
+
+**It used to poll**: it drained the queue and then slept 100 ms unconditionally, so anything queued
+just after a drain waited **up to 100 ms** before leaving the server. Everything paid it — every object
+entering the view, every combat event — which is what made objects pop in late while walking. The same
+loop also **spun at 100% CPU** whenever a disconnect was signalled with a non-empty queue, because the
+disconnect branch `continue`d without dequeuing, so the queue never emptied. Coalescing is safe and is
+what the wire already looked like: TCP is a byte stream and the client splits messages by the header
+length, which is exactly why a lone header-only packet only ever arrived coalesced with other traffic.
+
+**A derived connection must route through `base.Send`**, never touch the channel: `CipherConnection`
+used to enqueue directly, so a signal added to the base would have left its messages queued forever.
+Its `Send` now holds a lock across encode-and-queue, because **XRC4 is a stream cipher**: the combat,
+movement and cast ticks and the client's own thread all send on one connection, and two of them
+interleaving would consume the keystream out of order *and* queue in an order that no longer matches
+it — undecodable, and rare enough to look like a random disconnect.
+
+`WorldObjectStreamer.Stream` is the single visibility loop behind `NpcSpawnService`,
+`MonsterSpawnService` and `FieldPropService`: enter what came into view, `TS_SC_LEAVE` what left, keep
+the handle maps in step. Its `canEnter` predicate is what lets a **dead monster stay visible without
+being re-streamed** — the corpse outlives the death, and its `TS_SC_LEAVE` is deferred by the combat
+tick. Three hand-written copies of this loop had already drifted: only two maintained a
+handle-to-id map.
+
+**The streaming volume is not a bottleneck and measurements say so**: at most 104 monsters and 87 props
+are in view at once (medians 13 and 2), so a worst-case burst is ~13 KB. `SpatialIndex` is a real grid
+keyed on the 540-unit view, so a query touches ~9 cells whatever the world holds, and monster
+position/HP are read from `MonsterWorldState` only for a monster that is actually entering. **Terrain
+squares and map decoration are client-side**: they are loaded from the client's own `data.00X`
+archives and the server sends nothing for them, so no server change can make them load faster.
+
 ## World entry and movement
 
 `GameActions.OnLogin` sends the login result and player enter packet, followed by the Epic 7.3
@@ -754,6 +788,83 @@ resistance.
 
 **The damage formula is still the placeholder** (max HP / 3), deliberately unchanged here.
 
+## Teleporters and field props
+
+**The portals in the world are not NPCs.** No teleporter NPC exists within 24 839 units of the spawn
+point (94454, 126040, Lost Island), so a double-click on a portal is not `TS_CS_CONTACT`. They are
+**field props**: map objects carrying an id, a position and a script.
+
+**A prop is used by casting a skill on it.** Double-click makes the client cast the prop's
+`FieldPropResource.activate_id` at the prop's handle — an ordinary `TS_CS_SKILL` (`400`). The effect is
+`EF_ACTIVATE_FIELD_PROP = 0x251D = 9501` (`SkillResources` 6901-6910); **538 of 763 props use skill
+6904**. `BuffCatalog` classifies it as `SkillCastKind.ActivateProp`, so the cast path stays one
+dispatch. **A prop's activate skill is never learned** — the client casts it because the prop
+advertises it — so the learned-skill gate is skipped for this kind and the level is 1; the prop itself
+is the authorisation. `FieldPropUsage` ports `FieldProp::IsUsable` (level, race, job); of the four
+`activation_condition` kinds only the learned-skill one is checkable, and the others (quest, item
+count, worn item) **refuse** rather than let a gated prop through.
+
+**The `limit_*` race bits are an allow-list, and the reference server reads them backwards.** It tests
+one exclusion per race (`race != GAIA && (limit & LIMIT_GAIA)` refuses), but **all 454 spawned props
+carry `limit = 15388`** — every race and every class bit set — so at least two of its three tests fail
+whatever the race, and *every prop in the world becomes unusable for everyone*. Porting that faithfully
+is exactly what shipped first, and the client answered "You may not use this skill on that target" on
+every portal. A field that refuses everyone is not describing an exclusion: the only reading the data
+supports is an allow-list, under which all-bits-set means everyone. The field discriminates nothing
+here and is kept only for a future data set.
+
+A prop enters as `TS_SC_ENTER` (`3`), **63 bytes**: the 26-byte prefix the ground items already use,
+then `FIELD_PROP_INFO` (37) — `prop_id` u32 @26, `fZOffset` @30, `fRotateX/Y/Z` @34/38/42,
+`fScaleX/Y/Z` @46/50/54, `bLockHeight` @58, `fLockHeight` @59. `type = ET_StaticObject (2)` and
+**`objType = EOT_FieldProp (6)`** — rzu is the authority; the emulator's internal `OBJ_STATIC = 0` is a
+different enum and must not reach the wire.
+
+**`TS_SC_WARP` is id `12`** at this epic (`< EPIC_9_6_3`): `x`/`y`/`z` floats + `layer` int8, 20 bytes.
+`WarpService` mirrors `World::WarpBegin`/`WarpEnd`: stop the attack, `TS_SC_LEAVE` **every** visible
+object and clear the visible sets, set the position, warp, then re-sync NPCs/monsters/props. Skipping
+the leaves strands the old zone's objects at the new one. `SaveProgressAsync` now writes
+`Characters.Position`, **which it never did** — without it a warp is undone by the next login.
+
+Scripts are resolved as a catalog lookup, never executed as Lua, the same rule as NPC dialog triggers.
+`PropScript` supports `common_warp_gate(x, y)` (175 props, destination in clear, arrival jittered by
+`rand(0,10)` like the reference), `enter_dungeon(id)`/`exit_dungeon(id)` (28) and `RunTeleport(cost, x,
+y)` for NPC dialogs. **203 of the 3 189 props teleport**; the rest stream, are visible, and answer
+`NotActable`.
+
+**`enter_dungeon` is an approximation, not the original rule.** Its Lua is not in the corpus
+(`/tmp/rappelz-ela-all` defines `common_warp_gate` but not `enter_dungeon`), and `DungeonResource`
+123000 — the Lost Island portal — is a **level-180 raid dungeon** with `raid_opening_time`/
+`raid_closing_time`, party and guild requirements. We warp to `raid_start_pos` and model **none** of
+that gating. `RunTeleport`'s `cost` argument is `0` in all 9 dialogs and is not charged.
+
+### Extracting the prop positions
+
+Positions live only in the client's `Resource/NewMap/*.qpf` files, inside `data.00X`; the database has
+none. `tools/Export-FieldProps` reads them with `DataCore` and writes `DevConsole/field-props.73.json`
+(3 189 spawns, 454 templates, 21 dungeons), loaded with `System.Text.Json` like the spawn and drop
+catalogs — never through the configuration provider.
+
+**Three traps, all silent — they corrupt rather than fail:**
+
+- **The client's XOR key differs from `DataCore`'s `DefaultKey` at 5 indices**: `key[40]=0x4a`,
+  `[80]=0x9d`, `[87]=0x2d`, `[163]=0x21`, `[236]=0xa9`. With the stock key ~1 byte in 100 decodes
+  wrong and yields *plausible* text: `TILE_LENGTH=41` instead of the true **42**, and 11 of 85
+  `MAPFILE` lines unreadable. Recovered from the data (modal raw byte per `offset % 256` over `.rdb`
+  entries, where plaintext zeros dominate) and confirmed independently — indices 163 and 236 reproduce
+  exactly the XOR deltas measured on the corrupted text. Only sample genuinely encrypted files: most
+  extensions are stored plain and their modal byte is `0x00`.
+- **The key must be set after constructing `Core`** (its constructor resets it) **and before `Load`**:
+  the index in `data.000` is itself ciphered, so loading it with the wrong key corrupts entry offsets,
+  which then read as garbage.
+- **`.qpf` files are version 3 with a 49-byte stride** — a **9-byte tail**, not the 7 the reference
+  emulator uses for v2. Following it literally gives NaN coordinates. Verified as `(len - 26) / count
+  = 49.000` across all 83 files, and the reader asserts the stride per file.
+
+Geometry: `MapLength = SEGMENTCOUNT_PER_MAP × TILE_LENGTH × TILECOUNT_PER_SEGMENT = 64 × 42 × 6 =
+16128`; a prop's absolute position is its file-local `x`/`y` plus `mapX/mapY × 16128`. The exporter
+**asserts `MapLength == 16128`** — that assert is what catches a wrong key. It also refuses to write
+unless 3 189 spawns over 454 ids resolve with 0 unresolved, 0 NaN and 0 out-of-world.
+
 ## Client clock
 
 The client keeps its own notion of server time and every timed UI depends on it. Three packets feed it,
@@ -910,8 +1021,12 @@ referenced resource tables are still empty.
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
   client's `db_item.rdb` is unavailable, so a 9.4-only code will not render), and cannot be dropped back
   on the ground by the player
-- NPC dialogs render their original text and static follow-up pages; gameplay actions such as shops,
-  teleportation and quest mutation are not executed yet
+- NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
+  warp**; other gameplay actions such as shops and quest mutation are not executed yet
+- **Field props stream and warp gates work**: 203 of 3 189 props teleport. Not modelled: `use_count`,
+  `regen_time`, `life_time`, prop drop tables, `casting_time` interruption, and the quest/item/worn
+  activation conditions (those props refuse). **`enter_dungeon` warps to `raid_start_pos` while
+  ignoring the raid schedule and the party/guild requirements** — instance dungeons do not exist
 - Skill learning, persistence and the **passive stat effects** work, including the 21 `WeaponMastery`
   skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot
 - **Casting works for buffs, toggle auras, heals, monster debuffs and single-target offensive skills**

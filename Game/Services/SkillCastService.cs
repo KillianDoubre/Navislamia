@@ -8,6 +8,8 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Buffs;
+using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Props;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -43,16 +45,20 @@ public class SkillCastService : ISkillCastService
     private readonly IStatService _statService;
     private readonly MonsterWorldState _monsterState;
     private readonly ICombatService _combatService;
+    private readonly IFieldPropCatalog _fieldPropCatalog;
+    private readonly IWarpService _warpService;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
     public SkillCastService(IBuffCatalog catalog, IStatService statService, MonsterWorldState monsterState,
-        ICombatService combatService)
+        ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService)
     {
         _catalog = catalog;
         _statService = statService;
         _monsterState = monsterState;
         _combatService = combatService;
+        _fieldPropCatalog = fieldPropCatalog;
+        _warpService = warpService;
 
         if (_catalog.Count == 0)
         {
@@ -86,13 +92,13 @@ public class SkillCastService : ISkillCastService
         var info = client.ConnectionInfo;
         var now = ServerClock.Now;
 
-        if (!TryValidate(info, request, now, out var fields, out var targetInstanceId, out var error))
+        if (!TryValidate(info, request, now, out var fields, out var targetInstanceId, out var skillLevel,
+                out var error))
         {
             SendCastFailed(client, request, error);
             return;
         }
 
-        var skillLevel = info.LearnedSkills[request.SkillId];
         var mpCost = BuffCurve.MpCost(fields, skillLevel);
         var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
 
@@ -124,6 +130,9 @@ public class SkillCastService : ISkillCastService
             case SkillCastKind.MagicAttack:
                 hit = ApplyAttack(client, fields, request.Target, targetInstanceId);
                 break;
+            case SkillCastKind.ActivateProp:
+                ActivateProp(client, targetInstanceId);
+                break;
             default:
                 // Every kind is handled above; a new one must not silently behave like a buff.
                 _logger.Error("Skill {skillId} has unhandled kind {kind}", request.SkillId, fields.Kind);
@@ -148,11 +157,46 @@ public class SkillCastService : ISkillCastService
             request.SkillId, skillLevel);
     }
 
+    /// <summary>
+    /// Carries out a prop's script. Validation has already resolved the prop and proven the action is
+    /// supported, so this only has to move the player.
+    /// </summary>
+    private void ActivateProp(GameClient client, long instanceId)
+    {
+        if (!TryGetPropTemplate(instanceId, out var template))
+        {
+            return;
+        }
+
+        var action = template.Action;
+
+        switch (action.Kind)
+        {
+            case PropActionKind.CommonWarpGate:
+            case PropActionKind.RunTeleport:
+                // The reference scatters arrivals so a crowd does not stack on one point.
+                _warpService.Warp(client,
+                    action.X + Random.Shared.Next(0, 11),
+                    action.Y + Random.Shared.Next(0, 11));
+                break;
+
+            case PropActionKind.EnterDungeon:
+            case PropActionKind.ExitDungeon:
+                if (_fieldPropCatalog.TryGetDungeonStart(action.DungeonId, out var x, out var y))
+                {
+                    _warpService.Warp(client, x, y);
+                }
+
+                break;
+        }
+    }
+
     private bool TryValidate(ConnectionInfo info, GameActionPackets.SkillRequest request, uint now,
-        out CastableBuffFields fields, out long targetInstanceId, out ResultCode error)
+        out CastableBuffFields fields, out long targetInstanceId, out byte skillLevel, out ResultCode error)
     {
         fields = default;
         targetInstanceId = -1;
+        skillLevel = 0;
 
         if (request.Caster != info.CharacterHandle || request.Caster == 0)
         {
@@ -166,19 +210,64 @@ public class SkillCastService : ISkillCastService
             return false;
         }
 
-        if (!info.LearnedSkills.TryGetValue(request.SkillId, out var learnedLevel) || learnedLevel == 0)
-        {
-            error = ResultCode.AccessDenied;
-            return false;
-        }
-
         if (!_catalog.TryGet(request.SkillId, out fields))
         {
             error = ResultCode.AccessDenied;
             return false;
         }
 
-        if (TargetsAMonster(fields.Kind))
+        // A prop's activate skill is never learned: the client casts it because the prop advertises
+        // it, so the learned list is the wrong gate and the prop itself is the authorisation.
+        if (fields.Kind == SkillCastKind.ActivateProp)
+        {
+            skillLevel = 1;
+
+            if (!TryValidateProp(info, request, out targetInstanceId, out error))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!info.LearnedSkills.TryGetValue(request.SkillId, out skillLevel) || skillLevel == 0)
+            {
+                error = ResultCode.AccessDenied;
+                return false;
+            }
+
+            if (!TryValidateTarget(info, request, fields.Kind, out targetInstanceId, out error))
+            {
+                return false;
+            }
+        }
+
+        if (info.SkillCooldowns.TryGetValue(request.SkillId, out var readyAt)
+            && unchecked((int)(now - readyAt)) < 0)
+        {
+            error = ResultCode.CoolTime;
+            return false;
+        }
+
+        if (info.CharacterMp < BuffCurve.MpCost(fields, skillLevel))
+        {
+            error = ResultCode.NotEnoughMP;
+            return false;
+        }
+
+        error = ResultCode.Success;
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the cast target for every kind but a prop: a visible, living monster for the kinds
+    /// that need one, and the caster for the rest.
+    /// </summary>
+    private bool TryValidateTarget(ConnectionInfo info, GameActionPackets.SkillRequest request,
+        SkillCastKind kind, out long targetInstanceId, out ResultCode error)
+    {
+        targetInstanceId = -1;
+
+        if (TargetsAMonster(kind))
         {
             if (!info.TryResolveMonster(request.Target, out targetInstanceId))
             {
@@ -199,21 +288,45 @@ public class SkillCastService : ISkillCastService
             return false;
         }
 
-        if (info.SkillCooldowns.TryGetValue(request.SkillId, out var readyAt)
-            && unchecked((int)(now - readyAt)) < 0)
+        error = ResultCode.Success;
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the cast target to a prop this client can see, and applies the reference server's
+    /// FieldProp::IsUsable checks.
+    /// </summary>
+    private bool TryValidateProp(ConnectionInfo info, GameActionPackets.SkillRequest request,
+        out long instanceId, out ResultCode error)
+    {
+        if (!info.TryResolveProp(request.Target, out instanceId)
+            || !TryGetPropTemplate(instanceId, out var template))
         {
-            error = ResultCode.CoolTime;
+            error = ResultCode.NotExist;
             return false;
         }
 
-        if (info.CharacterMp < BuffCurve.MpCost(fields, learnedLevel))
+        if (template.ActivateSkillId != request.SkillId
+            || !FieldPropUsage.IsUsable(template, info)
+            || !FieldPropUsage.CanAct(template, _fieldPropCatalog))
         {
-            error = ResultCode.NotEnoughMP;
+            error = ResultCode.NotActable;
             return false;
         }
 
         error = ResultCode.Success;
         return true;
+    }
+
+    private bool TryGetPropTemplate(long instanceId, out FieldPropTemplate template)
+    {
+        if (_fieldPropCatalog.TryGetInstance(instanceId, out var instance))
+        {
+            return _fieldPropCatalog.TryGetTemplate(instance.PropId, out template);
+        }
+
+        template = default;
+        return false;
     }
 
     private static bool TargetsAMonster(SkillCastKind kind)

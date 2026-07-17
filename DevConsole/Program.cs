@@ -19,6 +19,8 @@ using Navislamia.Game.Network;
 using Navislamia.Game.Network.Interfaces;
 using Navislamia.Game.Scripting;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Props;
 using Serilog;
 using Serilog.Exceptions;
 
@@ -91,6 +93,33 @@ public class Program
         ConfigureNpcDialogs(services, context);
         ConfigureSkillCatalog(services, context);
         ConfigureMonsterDrops(services, context);
+        ConfigureFieldProps(services, context);
+    }
+
+    /// <summary>
+    /// Read directly with System.Text.Json like the spawn and drop catalogs: flattening these arrays
+    /// through the configuration provider costs tens of seconds at startup.
+    /// </summary>
+    private static void ConfigureFieldProps(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "field-props.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<FieldPropOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("FieldPropCatalog")
+            .Deserialize<FieldPropOptions>() ?? new FieldPropOptions();
+
+        services.Configure<FieldPropOptions>(options =>
+        {
+            options.Templates = catalog.Templates;
+            options.Spawns = catalog.Spawns;
+            options.Dungeons = catalog.Dungeons;
+        });
     }
 
     private static void ConfigureMonsterDrops(IServiceCollection services, HostBuilderContext context)
@@ -208,6 +237,9 @@ public class Program
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();
+        services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
+        services.AddSingleton<IFieldPropService, FieldPropService>();
+        services.AddSingleton<IWarpService, WarpService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();

@@ -169,6 +169,7 @@ public class GameClient : Client
     {
         _networkService.NpcSpawnService.Sync(this);
         _networkService.MonsterSpawnService.Sync(this);
+        _networkService.FieldPropService.Sync(this);
     }
 
     private void HandleTargeting(byte[] buffer)
@@ -292,7 +293,8 @@ public class GameClient : Client
         try
         {
             await _networkService.CharacterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
-                info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold, info.CharacterChaos);
+                info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
+                info.CharacterChaos, info.X, info.Y);
         }
         catch (Exception exception)
         {

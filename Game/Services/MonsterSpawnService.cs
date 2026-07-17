@@ -23,43 +23,21 @@ public class MonsterSpawnService : IMonsterSpawnService
         {
             var info = client.ConnectionInfo;
             var inRange = _worldState.WithinRange(info.X, info.Y, WorldVisibility.ViewRange);
-            var inRangeIds = new HashSet<long>(inRange.Count);
+            var dead = _worldState.GetDeadInstances();
 
-            lock (info.MonsterVisibilityLock)
-            {
-                var dead = _worldState.GetDeadInstances();
-
-                foreach (var monster in inRange)
+            WorldObjectStreamer.Stream(client, info.MonsterVisibilityLock, inRange,
+                monster => monster.InstanceId,
+                (monster, handle) =>
                 {
-                    var spawned = info.SpawnedMonsters.ContainsKey(monster.InstanceId);
-
-                    if (dead.Contains(monster.InstanceId))
-                    {
-                        if (spawned)
-                        {
-                            inRangeIds.Add(monster.InstanceId);
-                        }
-
-                        continue;
-                    }
-
-                    inRangeIds.Add(monster.InstanceId);
-
-                    if (spawned)
-                    {
-                        continue;
-                    }
-
-                    var handle = WorldObjectHandle.Next();
+                    // Only read for a monster that is actually entering, so the state lock is not
+                    // touched once per visible monster per sync.
                     var (x, y) = _worldState.GetPosition(monster.InstanceId);
-                    client.Connection.Send(GameSpawnPackets.BuildEnterMonster(handle, x, y, monster.Z,
-                        info.Layer, _worldState.GetHp(monster.InstanceId), monster.Level, monster.Race,
-                        monster.MonsterId, monster.FaceDirection));
-                    info.SpawnedMonsters[monster.InstanceId] = handle;
-                }
-
-                SpawnedObjectSet.DespawnMissing(client.Connection, info.SpawnedMonsters, inRangeIds);
-            }
+                    return GameSpawnPackets.BuildEnterMonster(handle, x, y, monster.Z, info.Layer,
+                        _worldState.GetHp(monster.InstanceId), monster.Level, monster.Race,
+                        monster.MonsterId, monster.FaceDirection);
+                },
+                info.SpawnedMonsters,
+                canEnter: monster => !dead.Contains(monster.InstanceId));
         }
         catch (Exception ex)
         {

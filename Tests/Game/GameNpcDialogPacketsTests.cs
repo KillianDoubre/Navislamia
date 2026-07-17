@@ -1,11 +1,13 @@
 using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
+using FakeItEasy;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.Interfaces;
 
 namespace Tests.Game;
 
@@ -90,7 +92,7 @@ public class GameNpcDialogPacketsTests
         catalog.Dialogs["NPC_lost_island_colbai_contact"].Text.Should().Be("@91000438");
         catalog.Dialogs["NPC_lost_island_colbai_contact"].Menu.Should().ContainSingle()
             .Which.Label.Should().Be("@90010002");
-        var compileCatalog = () => new NpcDialogService(Options.Create(catalog));
+        var compileCatalog = () => new NpcDialogService(Options.Create(catalog), A.Fake<IWarpService>());
         compileCatalog.Should().NotThrow();
     }
 

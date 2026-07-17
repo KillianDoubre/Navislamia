@@ -5,6 +5,8 @@ using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Props;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -15,9 +17,11 @@ public class NpcDialogService : INpcDialogService
     private readonly ILogger _logger = Log.ForContext<NpcDialogService>();
     private readonly FrozenDictionary<int, string> _contacts;
     private readonly FrozenDictionary<string, CompiledDialog> _dialogs;
+    private readonly IWarpService _warpService;
 
-    public NpcDialogService(IOptions<NpcDialogOptions> options)
+    public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService)
     {
+        _warpService = warpService;
         _contacts = CompileContacts(options.Value.Npcs);
         _dialogs = CompileDialogs(options.Value.Dialogs);
         _logger.Information("Loaded {npcCount} NPC dialog links and {dialogCount} dialog definitions",
@@ -84,6 +88,21 @@ public class NpcDialogService : INpcDialogService
             }
 
             npcHandle = info.NpcDialogHandle;
+        }
+
+        // A teleport trigger carries its destination in the trigger itself, so it is resolved rather
+        // than looked up as a follow-up dialog page. The guard above already proved the current
+        // dialog advertised it.
+        var action = PropScript.Parse(trigger);
+        if (action.Kind == PropActionKind.RunTeleport)
+        {
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+            }
+
+            _warpService.Warp(client, action.X, action.Y);
+            return;
         }
 
         var function = ReadFunctionName(trigger);

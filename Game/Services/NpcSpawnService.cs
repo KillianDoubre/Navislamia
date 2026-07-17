@@ -44,29 +44,17 @@ public class NpcSpawnService : INpcSpawnService
             var info = client.ConnectionInfo;
             var inRange = GetIndex()?.WithinRange(info.X, info.Y, WorldVisibility.ViewRange)
                 ?? Array.Empty<NpcResourceEntity>();
-            var inRangeIds = new HashSet<long>(inRange.Count);
+
+            WorldObjectStreamer.Stream(client, info.NpcVisibilityLock, inRange,
+                npc => npc.Id,
+                (npc, handle) => GameSpawnPackets.BuildEnterNpc(handle, npc.X, npc.Y, npc.Z,
+                    info.Layer, npc.Hp, npc.Level, (byte)npc.RaceId, (int)npc.Id),
+                info.SpawnedNpcs,
+                info.SpawnedNpcIdsByHandle);
 
             lock (info.NpcVisibilityLock)
             {
-                foreach (var npc in inRange)
-                {
-                    inRangeIds.Add(npc.Id);
-
-                    if (info.SpawnedNpcs.ContainsKey(npc.Id))
-                    {
-                        continue;
-                    }
-
-                    var handle = WorldObjectHandle.Next();
-                    client.Connection.Send(GameSpawnPackets.BuildEnterNpc(handle, npc.X, npc.Y, npc.Z,
-                        info.Layer, npc.Hp, npc.Level, (byte)npc.RaceId, (int)npc.Id));
-                    info.SpawnedNpcs[npc.Id] = handle;
-                    info.SpawnedNpcIdsByHandle[handle] = npc.Id;
-                }
-
-                SpawnedObjectSet.DespawnMissing(client.Connection, info.SpawnedNpcs, inRangeIds,
-                    info.SpawnedNpcIdsByHandle);
-
+                // An open dialog dies with the NPC leaving the view.
                 if (info.NpcDialogHandle != 0 &&
                     !info.SpawnedNpcIdsByHandle.ContainsKey(info.NpcDialogHandle))
                 {
