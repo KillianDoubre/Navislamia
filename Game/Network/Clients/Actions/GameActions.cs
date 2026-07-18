@@ -96,6 +96,7 @@ public class GameActions : IActions
         info.CharacterHandle = (uint)character.Id;
         info.CharacterName = character.CharacterName;
         info.CharacterHp = hp;
+        info.CharacterMaxHp = hp;
         info.CharacterMp = mp;
         info.CharacterLevel = level;
         info.CharacterRace = character.Race;

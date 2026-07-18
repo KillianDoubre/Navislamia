@@ -204,7 +204,14 @@ sends a response. `GameActionPackets` holds the pure offset parsers.
 
 Double-clicking a monster sends `TS_CS_ATTACK_REQUEST` (`100`, Epic < 9.6.3): `handle` @7 +
 `target_handle` @11. The server drives auto-attack: `CombatService` runs a 100 ms `PeriodicTimer`
-loop that swings every 1200 ms, sending `TS_SC_ATTACK_EVENT` (`101`). For Epic 7.3
+loop that swings every 1200 ms, sending `TS_SC_ATTACK_EVENT` (`101`). **The swing is gated on
+`CombatRange.InReach`** — the player's current position against the monster's — so a swing out of reach
+holds and re-checks every 200 ms while the client walks the player in, rather than landing a hit from
+across the view. **`CombatRange.MeleeReach` is the single real reach both directions share**: player
+attacks used to have no range gate at all while monster attacks gated at a flat placeholder, and that
+asymmetry read as an inconsistent attack range — a player could hit a monster that could not hit back.
+The reach is now the reference's own value (see Monster AI): `(12 × attack_range) / 100` plus both body
+radii, `size × 12 × scale` each. For Epic 7.3
 (`version >= EPIC_7_3`) every `ATTACK_INFO` field is int32 and there is no `flag_padding`, so one
 swing is 83 bytes (`ATTACK_INFO` = 61) and a `count = 0` `AEAA_EndAttack` is 22 bytes. The client
 plays the death animation when `target_hp` reaches 0; there is no `TS_SC_DEAD` in this version.
@@ -279,39 +286,34 @@ rather than sent immediately. Item drops are a later milestone that will hook th
 On death `CombatService` calls `GroundItemService.DropForMonster`, which rolls the monster's table and
 puts each result on the ground near the corpse. Gold stays automatic and is not part of this path.
 
-`DevConsole/monster-drops.73.json` is the runtime catalog (5,370 tables, 5,767 entries, 5,879 monsters;
-2,340 of the 2,457 spawning monsters have one). It is loaded like the spawn catalog — read with
-`System.Text.Json` in `Program.ConfigureMonsterDrops` and frozen by `MonsterDropCatalog` into a
-`FrozenDictionary` keyed by monster id, so a kill never queries the database. Regenerate it from the 9.4
-SQL Server; three traps are worth remembering, all silent if you get them wrong:
+`DevConsole/monster-drops.73.json` is the runtime catalog (5,395 tables, 5,767 direct entries, 51,643
+group-reference entries, 6,221 drop groups, 6,330 monsters). It is loaded like the spawn catalog — read
+with `System.Text.Json` in `Program.ConfigureMonsterDrops` and frozen by `MonsterDropCatalog` into a
+`FrozenDictionary` keyed by monster id, so a kill never queries the database. Regenerate it with
+`tools/export_monster_drops.py`. Traps, all silent if you get them wrong:
 
 - **`drop_percentage` is a probability in `[0, 1]`, not a percentage out of 100** (measured max exactly
   `1.00`). `DropRoll.Roll` compares `random.NextDouble()` against it directly.
 - `MonsterDropTableResource.id` is a **monster id**, and `MonsterResource.drop_table_link_id` points at
-  the monster that *owns* the table, so 107 and 108 both read 106's.
-- Filtering on `drop_item_id_00 > 0` alone finds ~40 rows and looks empty; items are spread over ten
-  slots per row and 5,526 rows carry at least one.
+  the monster that *owns* the table, so 107 and 108 both read 106's. The table also has a `sub_id`, so a
+  monster's full table is **every row with that id across sub_ids**, ten slots each.
+- **A negative `drop_item_id` is a reference to `DropGroupResource`, keyed by the negative id itself**,
+  not junk — and it is where the drops actually live. **56,584 of the ~62,000 entries are group
+  references** (only 5,800 are direct items), so filtering them out — which the first cut did — throws
+  away ~91% of all drops and is exactly why monsters almost never dropped anything. A group is a weighted
+  **pick exactly one**: its `drop_percentage` columns are the weights and sum to `1.00`. Groups nest (a
+  group member can be another negative group ref, 6,022 of them), so resolution loops until a positive
+  item falls out — the reference's `SelectItemIDFromDropGroup` inside `do … while (id < 0)`. Of the group
+  ids a table reaches (incl. nested), 7 are empty/missing; a reference to one simply drops nothing.
 
-`DropGroupResource` has the same shape but nothing links to it — it is not part of monster drops.
-
-Each entry is rolled **independently**, so a monster can drop several items at once. That is the correct
-reading of the data, not a shortcut: 2,337 tables have drop probabilities summing above 1, which rules out
-a weighted "pick one" selection. In practice multi-drop is rare because of the data itself — **only 224 of
-5,879 monsters have more than one entry** (5,134 of 5,370 tables hold exactly one, the richest holds 7),
-since the ten item slots per row are almost always used one at a time (`drop_item_id_01` carries 5,311
-items, `drop_item_id_00` only 41). A single entry can still drop a **stack**: 267 entries roll a count up
-to 30-50, through `Random.Next(min, max + 1)` whose upper bound is exclusive.
-
-**The authentic rates are far too low to test against.** The median entry is a 1.78% chance and the median
-table yields **0.018 items per kill**, roughly one drop every 56 kills (mean 0.22, inflated by a few
-stack-dropping tables). Absence of drops over a handful of kills is therefore the expected outcome, not a
-bug — check the `dropped {n} of {m} entries` log before suspecting the code.
-`GroundItemService.DropChanceMultiplier` scales every chance (clamped at 1.0) and is **1, the authentic
-rate**; raise it (100 works well) to make drops observable while testing.
-
-The catalog reconciles exactly against the 9.4 source: 5,800 filled item slots minus the **33 entries that
-carry an item but a zero chance** — excluded because they can never fire — gives the 5,767 entries it
-holds. The 156 rows that do not become tables are the Epic 7.3 filter applied at generation.
+The roll is **two-stage**, mirroring `Monster::procDropItem`: each slot rolls its own `drop_percentage`
+independently (a monster can drop from several slots at once — 2,337 tables sum above 1, which rules out a
+table-level pick-one); when a slot fires, a **positive** id drops that item with a rolled count, and a
+**negative** id resolves its group by weight — once per rolled count, so a slot with `count = 6-20` drops
+that many separate group picks. This is why a typical spawn monster now drops on **~78% of kills** at the
+authentic rate, several items each (piles of low-value materials), rather than the ~2% the direct-only
+catalog produced. `GroundItemService.DropChanceMultiplier` still scales every chance (clamped at 1.0) and
+stays **1, the authentic rate** — no longer a testing knob, since drops are plentiful without it.
 
 A ground item is `TS_SC_ENTER` with `type = ET_StaticObject (2)` and `objType = EOT_Item (2)`, 70 bytes:
 the shared header through `objType`, then `code` as the 8-byte randomized `EncodedInt` (the `npc_id`
@@ -344,8 +346,74 @@ shared destination, then broadcasts the move to each client that sees it using t
 returns to its origin. The `SpatialIndex` keeps culling on spawn positions (wander radius is far
 smaller than the view range), while enter and move packets use the current position. Movement is timed
 against the client clock: `ConnectionInfo.ClientClockOffset` is captured from each `TS_CS_MOVE_REQUEST`
-and applied to `start_time` so the walk does not teleport. Walk speed is a placeholder.
-`AuthorizedGameClients` is a `ConcurrentDictionary` so the movement thread can iterate it safely.
+and applied to `start_time` so the walk does not teleport. `AuthorizedGameClients` is a
+`ConcurrentDictionary` so the movement thread can iterate it safely.
+
+**Position is interpolated over time, not snapped.** `MonsterWorldState.BeginMove` records a move
+(`start`, `dest`, `speed`, `startTick`) and `GetPosition` interpolates it with the exact reference math
+(`MonsterMovement`, ported from `ArMoveVector::SetMove`/`Step`): a move takes `length × 30 / speed`
+ar_time ticks and the position advances linearly. The server broadcasts `TS_SC_MOVE` with the **same**
+start tick and speed it interpolates with, so its notion of where a monster is matches the animation the
+client plays. It used to snap the stored position straight to the destination each 500 ms wander (and
+each chase tick), so the server thought a monster had already arrived while the client was still
+walking — which is what read as jittery, teleporting movement. `MoveOrder` is the returned
+destination/speed/start-tick the caller broadcasts.
+
+## Monster AI
+
+Monsters fight back and hunt. `MonsterAiService` runs a 300 ms loop like `MonsterMovementService`
+(it holds `NetworkService` only for the client list, never reaches back into it): acquire, then act on
+every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Acquire`/`Chase`/
+`Attack`/`Drop`), which is what the tests exercise; the service is the I/O shell.
+
+- **Retaliation**: when a player's swing lands without killing, `CombatService.ApplyDamage` calls
+  `MonsterWorldState.SetAggro(instanceId, client)`. **Every** monster retaliates, aggressive or not.
+- **Aggro on sight**: a monster with `FirstAttack` (the `f_fisrt_attack` column — a frozen source typo
+  — set on 5 478 of 8 164) and no target takes a player it is streamed to and within `visibleRange`.
+- **Chase**: while the target is beyond the melee reach and the monster is within `chaseRange` of home,
+  it steps toward the player via `TS_SC_MOVE` (`8`), the same echo wander uses; an aggro'd monster
+  **does not idle-wander** (`TryBeginWander` skips it). A new chase move is only issued when the desired
+  destination has drifted past `ChaseReissueThreshold` from the one already in flight — otherwise the
+  client would get a fresh move every 300 ms tick and stutter.
+- **Attack**: within the melee reach and off cooldown, `TS_SC_ATTACK_EVENT` (`101`) with the monster as
+  attacker and the player as target; the player loses `maxHp / 100` HP (**test formula**, floored so
+  HP never drops below 1 — **there is no player death or respawn**), sent as the `hp` property. **A
+  monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
+  freezes it at its current position and a `TS_SC_MOVE` stop is sent, so it does not slide through the
+  swing (the reference's `SetMove(current, current, speed 0)` before `Attack`). The player is planted
+  the same way — `CombatService` sends a stop-move for the player when a swing lands, only ever in
+  reach where the client has already stopped them, so it reinforces rather than fights the client.
+- **Drop**: the target leaves view or pulls the monster past `chaseRange` from home → aggro clears and
+  the monster **walks back to the position it held when it acquired, at twice the chase speed**, as one
+  uninterrupted move — `ReturnHome` flags it and idle wander is suppressed until it arrives, otherwise a
+  fresh wander destination hijacks the return the instant the target drops (which read as the monster
+  not really going home). `SetAggro` records the return position; `TryGetAggroHome` returns it. `Kill`
+  clears aggro (a corpse chases nothing); disconnect and warp call `ICombatService.DropAggro(client)` so
+  nothing chases a ghost.
+
+**The aggro target lives in `MonsterWorldState`** next to HP/respawn/states, sparse like they are, so
+it is the single source of mutable monster state and the movement/AI/combat threads share one lock.
+A monster's handle differs per client, so the attack and move packets use *that client's*
+`SpawnedMonsters` handle; aggro targets exactly one player, unambiguous while the world is
+single-player.
+
+**The ranges are scaled, and the scale is not uniform** — the same trap as `cast_range`.
+`MonsterAiRules` ports the reference: **chase range is `12 × chase_range`** (`Monster::GetChaseRange`,
+so 100 → 1200 world units), visible range reuses `12 ×` (the reference's aggro path is an empty stub),
+clamped to the client view. **Attack range is the reference's real value**, in `CombatRange.MeleeReach`:
+`(12 × attack_range) / 100` (`Unit::GetRealAttackRange`) plus both body radii, where a unit's size is
+`size × 12 × scale` (`Object::GetUnitSize`) and the player uses the default `1 × 12 × 1 = 12`. The
+body-size term dominates the tiny weapon term, so a small monster reaches ~12 units and a big one
+(`size` up to 12.45, `scale` up to 7) hundreds — **big monsters really do hit from farther**. The same
+per-monster reach gates both the monster's attack and the player's swing, keeping them symmetric.
+`run_speed → move speed` stays a placeholder; `GroupFirstAttack` is imported but group aggro is not
+modelled.
+
+`CharacterMaxHp` was added to `ConnectionInfo` next to `CharacterHp`, seeded at the same two points HP
+is set to max (login and level-up), because the test damage reads it. The AI columns were NOT NULL
+literals until `tools/Import-MonsterResourceColumns.ps1` backfilled `FirstAttack`, `GroupFirstAttack`,
+`VisibleRange`, `ChaseRange`, `AttackRange`, `RunSpeed`, `Size` and `Scale` from the 9.4 source — the
+same import trap the skill columns hit. See `docs/superpowers/specs/2026-07-17-monster-ai-design.md`.
 
 ## Equipment
 
@@ -1015,9 +1083,12 @@ referenced resource tables are still empty.
 
 ## Current limitations
 
-- Monsters auto-attack (kill + respawn), idle-wander and drop items at authentic rates, but have no
-  aggro, chase, retaliation or taming; damage, attack speed and walk speed are placeholders. **An
-  offensive skill deals the same placeholder damage as a swing**, through the same `ICombatService` path
+- Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
+  hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
+  modelled: taming, group aggro (`GroupFirstAttack`), pathfinding, and **player death** — monster
+  damage is the `maxHp/100` test formula floored at 1 HP. Damage-to-monster, attack speed, walk speed
+  and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
+  as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
   client's `db_item.rdb` is unavailable, so a 9.4-only code will not render), and cannot be dropped back
   on the ground by the player

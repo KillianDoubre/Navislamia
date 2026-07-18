@@ -109,6 +109,73 @@ public class DropRollTests
     }
 
     [Test]
+    public void Roll_ResolvesANegativeEntryToAGroupItemByWeight()
+    {
+        var entries = new[] { new DropEntry(-700307, 1.0, 1, 1) };
+        var groups = new Dictionary<int, DropGroupEntry[]>
+        {
+            [-700307] = new[]
+            {
+                new DropGroupEntry(700112, 0.075, 1, 1),
+                new DropGroupEntry(700212, 0.125, 1, 1),
+                new DropGroupEntry(700401, 0.80, 1, 1)
+            }
+        };
+
+        // Slot fires (0.0), then the group pick lands in the last (80%) band (0.5 of total 1.0).
+        DropRoll.Roll(entries, groups, new SequenceRandom(0.0, 0.5)).Single().ItemId.Should().Be(700401);
+        // A pick low in the range lands on the first member.
+        DropRoll.Roll(entries, groups, new SequenceRandom(0.0, 0.01)).Single().ItemId.Should().Be(700112);
+    }
+
+    [Test]
+    public void Roll_FollowsNestedGroupReferences()
+    {
+        var entries = new[] { new DropEntry(-1, 1.0, 1, 1) };
+        var groups = new Dictionary<int, DropGroupEntry[]>
+        {
+            [-1] = new[] { new DropGroupEntry(-2, 1.0, 1, 1) },
+            [-2] = new[] { new DropGroupEntry(555, 1.0, 1, 1) }
+        };
+
+        DropRoll.Roll(entries, groups, new SequenceRandom(0.0, 0.5, 0.5)).Single().ItemId.Should().Be(555);
+    }
+
+    [Test]
+    public void Roll_SamplesAGroupOncePerRolledCount()
+    {
+        // Slot fires with count 3, so the group is picked three times.
+        var entries = new[] { new DropEntry(-9, 1.0, 3, 3) };
+        var groups = new Dictionary<int, DropGroupEntry[]>
+        {
+            [-9] = new[] { new DropGroupEntry(700, 1.0, 1, 1) }
+        };
+
+        DropRoll.Roll(entries, groups, new SequenceRandom(0.0, 0.5, 0.5, 0.5)).Should().HaveCount(3);
+    }
+
+    [Test]
+    public void Roll_DropsNothingWhenAReferencedGroupIsMissing()
+    {
+        var entries = new[] { new DropEntry(-404, 1.0, 1, 1) };
+
+        DropRoll.Roll(entries, new Dictionary<int, DropGroupEntry[]>(), new SequenceRandom(0.0))
+            .Should().BeEmpty();
+    }
+
+    [Test]
+    public void TryResolveGroup_GivesUpOnACircularReference()
+    {
+        var groups = new Dictionary<int, DropGroupEntry[]>
+        {
+            [-1] = new[] { new DropGroupEntry(-1, 1.0, 1, 1) }
+        };
+
+        DropRoll.TryResolveGroup(-1, groups, new SequenceRandom(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5),
+            out _).Should().BeFalse();
+    }
+
+    [Test]
     public void Catalog_ResolvesMonstersThroughTheirDropTableLink()
     {
         var options = new MonsterDropOptions

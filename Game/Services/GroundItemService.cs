@@ -46,7 +46,7 @@ public class GroundItemService : IGroundItemService
         IReadOnlyList<DroppedItem> rolled;
         lock (_random)
         {
-            rolled = DropRoll.Roll(entries, _random, DropChanceMultiplier);
+            rolled = DropRoll.Roll(entries, _catalog.Groups, _random, DropChanceMultiplier);
         }
 
         _logger.Debug("Monster {monsterId} dropped {dropped} of {entries} entries", monsterId, rolled.Count,

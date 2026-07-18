@@ -48,6 +48,7 @@ public class Program
         }
 
         host.Services.GetRequiredService<MonsterMovementService>();
+        host.Services.GetRequiredService<MonsterAiService>();
         host.Services.GetRequiredService<ISkillCastService>();
 
         await host.RunAsync();
@@ -139,6 +140,7 @@ public class Program
         services.Configure<MonsterDropOptions>(options =>
         {
             options.Tables = catalog.Tables;
+            options.Groups = catalog.Groups;
             options.Monsters = catalog.Monsters;
         });
     }
@@ -246,6 +248,7 @@ public class Program
         services.AddSingleton<NetworkService>();
         services.AddSingleton<INetworkService>(provider => provider.GetRequiredService<NetworkService>());
         services.AddSingleton<MonsterMovementService>();
+        services.AddSingleton<MonsterAiService>();
         services.AddSingleton<ICharacterService, CharacterService>();
         services.AddSingleton<IBannedWordsRepository, BannedWordsRepository>();
         services.AddSingleton<IStatService, StatService>();

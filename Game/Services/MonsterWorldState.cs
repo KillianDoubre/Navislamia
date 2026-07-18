@@ -3,10 +3,18 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Services.Buffs;
 using Serilog;
 
 namespace Navislamia.Game.Services;
+
+/// <summary>
+/// A move the server started: the destination, the speed byte, and the server tick it began at. The
+/// caller broadcasts <c>TS_SC_MOVE</c> with this start tick (plus each client's clock offset) and speed
+/// so every client interpolates the same path the server does.
+/// </summary>
+public readonly record struct MoveOrder(float DestX, float DestY, byte Speed, uint StartTick);
 
 public class MonsterWorldState
 {
@@ -25,13 +33,24 @@ public class MonsterWorldState
 
     private readonly Dictionary<long, int> _currentHp = new();
     private readonly Dictionary<long, DateTime> _respawnAt = new();
-    private readonly Dictionary<long, (float X, float Y)> _position = new();
+
+    // A monster's active move, interpolated over time exactly as the client does, so the server's
+    // notion of where a monster is matches the animation the client is playing. Replaces the old
+    // snap-to-destination, which jumped the server position ahead of the walk and read as jitter.
+    private readonly Dictionary<long, Movement> _movement = new();
     private readonly Dictionary<long, DateTime> _nextMoveAt = new();
+
+    // Monsters walking home after dropping aggro: idle wander must leave them alone until they arrive,
+    // otherwise a fresh wander destination hijacks the return the moment the target is dropped.
+    private readonly HashSet<long> _returningHome = new();
 
     // Sparse like every other map here: almost no monster ever carries a state.
     private readonly Dictionary<long, List<ActiveBuff>> _states = new();
     private static readonly IReadOnlyList<ActiveBuff> EmptyStates = Array.Empty<ActiveBuff>();
     private ushort _nextStateHandle;
+
+    // A monster's single aggro target, sparse like the rest: only a monster in combat carries one.
+    private readonly Dictionary<long, AggroTarget> _aggro = new();
 
     private SpatialIndex<MonsterInstance> _index;
     private Dictionary<long, MonsterInstance> _byId;
@@ -182,24 +201,132 @@ public class MonsterWorldState
     {
         lock (_stateLock)
         {
-            if (_position.TryGetValue(instanceId, out var position))
+            return CurrentPosition(instanceId);
+        }
+    }
+
+    /// <summary>The current position, interpolated from the active move; assumes the state lock is held.</summary>
+    private (float X, float Y) CurrentPosition(long instanceId)
+    {
+        if (!_movement.TryGetValue(instanceId, out var move))
+        {
+            return Origin(instanceId);
+        }
+
+        return MonsterMovement.PositionAt(move.StartX, move.StartY, move.DestX, move.DestY,
+            move.StartTick, move.EndTick, ServerClock.Now);
+    }
+
+    /// <summary>
+    /// Starts a move from the monster's current position toward a destination, interpolated over time
+    /// like the client. Returns the order so the caller can broadcast the matching <c>TS_SC_MOVE</c>
+    /// with the same start tick and speed.
+    /// </summary>
+    public MoveOrder BeginMove(long instanceId, float destX, float destY, byte speed)
+    {
+        lock (_stateLock)
+        {
+            return BeginMoveLocked(instanceId, destX, destY, speed);
+        }
+    }
+
+    private MoveOrder BeginMoveLocked(long instanceId, float destX, float destY, byte speed)
+    {
+        var (startX, startY) = CurrentPosition(instanceId);
+        var length = CombatRange.Distance(startX, startY, destX, destY);
+        var start = ServerClock.Now;
+        var end = MonsterMovement.EndTick(start, length, speed);
+
+        _movement[instanceId] = new Movement(startX, startY, destX, destY, speed, start, end);
+        return new MoveOrder(destX, destY, speed, start);
+    }
+
+    public bool IsMoving(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            return IsMovingLocked(instanceId);
+        }
+    }
+
+    private bool IsMovingLocked(long instanceId)
+    {
+        return _movement.TryGetValue(instanceId, out var move)
+            && unchecked((int)(ServerClock.Now - move.EndTick)) < 0;
+    }
+
+    /// <summary>
+    /// Freezes the monster at its current position, so it stands still to attack rather than sliding
+    /// through the swing on a chase move that is still playing. Returns where it stopped.
+    /// </summary>
+    public (float X, float Y) StopMove(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            var (x, y) = CurrentPosition(instanceId);
+            var now = ServerClock.Now;
+            _movement[instanceId] = new Movement(x, y, x, y, 0, now, now);
+            return (x, y);
+        }
+    }
+
+    /// <summary>
+    /// Walks the monster back to a position and suppresses idle wander until it arrives, so the return
+    /// is one uninterrupted walk rather than being hijacked by a fresh wander destination.
+    /// </summary>
+    public MoveOrder ReturnHome(long instanceId, float homeX, float homeY, byte speed)
+    {
+        lock (_stateLock)
+        {
+            var order = BeginMoveLocked(instanceId, homeX, homeY, speed);
+            _returningHome.Add(instanceId);
+            return order;
+        }
+    }
+
+    public bool TryGetMoveDestination(long instanceId, out float x, out float y)
+    {
+        lock (_stateLock)
+        {
+            if (_movement.TryGetValue(instanceId, out var move))
             {
-                return position;
+                x = move.DestX;
+                y = move.DestY;
+                return true;
             }
         }
 
-        return Origin(instanceId);
+        x = 0f;
+        y = 0f;
+        return false;
     }
 
-    public bool TryBeginWander(long instanceId, DateTime now, out (float X, float Y) destination)
+    public bool TryBeginWander(long instanceId, DateTime now, byte speed, out MoveOrder order)
     {
-        destination = default;
+        order = default;
 
         lock (_stateLock)
         {
             if (_respawnAt.ContainsKey(instanceId))
             {
                 return false;
+            }
+
+            // A monster in combat is driven by the AI service, not the idle wander.
+            if (_aggro.ContainsKey(instanceId))
+            {
+                return false;
+            }
+
+            // A monster still walking home after a drop is left alone until it arrives.
+            if (_returningHome.Contains(instanceId))
+            {
+                if (IsMovingLocked(instanceId))
+                {
+                    return false;
+                }
+
+                _returningHome.Remove(instanceId);
             }
 
             if (!_nextMoveAt.TryGetValue(instanceId, out var next))
@@ -220,11 +347,10 @@ public class MonsterWorldState
 
             var angle = Random.Shared.NextDouble() * Math.PI * 2;
             var distance = WanderRadiusMin + Random.Shared.NextDouble() * (WanderRadiusMax - WanderRadiusMin);
-            destination = (
-                instance.X + (float)(Math.Cos(angle) * distance),
-                instance.Y + (float)(Math.Sin(angle) * distance));
+            var destX = instance.X + (float)(Math.Cos(angle) * distance);
+            var destY = instance.Y + (float)(Math.Sin(angle) * distance);
 
-            _position[instanceId] = destination;
+            order = BeginMoveLocked(instanceId, destX, destY, speed);
             _nextMoveAt[instanceId] = now.AddMilliseconds(NextInterval());
             return true;
         }
@@ -264,8 +390,144 @@ public class MonsterWorldState
         {
             _currentHp[instanceId] = 0;
             _respawnAt[instanceId] = respawnAt;
+            // A corpse chases nothing and a respawn inherits no target, the same rule as its states.
+            _aggro.Remove(instanceId);
+            _returningHome.Remove(instanceId);
         }
     }
+
+    /// <summary>
+    /// Points a monster at a player. An existing target on the same client keeps its attack cooldown
+    /// so retaliation cannot reset the swing timer; a new target may strike at once. The position the
+    /// monster held when it first acquired is remembered, so on drop it walks back to exactly where it
+    /// was rather than to its spawn origin.
+    /// </summary>
+    public void SetAggro(long instanceId, GameClient enemy)
+    {
+        lock (_stateLock)
+        {
+            if (_aggro.TryGetValue(instanceId, out var current) && current.Enemy == enemy)
+            {
+                return;
+            }
+
+            var (homeX, homeY) = CurrentPosition(instanceId);
+            _aggro[instanceId] = new AggroTarget(enemy, 0, homeX, homeY);
+            // Re-acquiring cancels any in-progress return home.
+            _returningHome.Remove(instanceId);
+        }
+    }
+
+    /// <summary>The position a monster held before it aggroed, to return to when it drops the target.</summary>
+    public bool TryGetAggroHome(long instanceId, out float x, out float y)
+    {
+        lock (_stateLock)
+        {
+            if (_aggro.TryGetValue(instanceId, out var target))
+            {
+                x = target.HomeX;
+                y = target.HomeY;
+                return true;
+            }
+        }
+
+        x = 0f;
+        y = 0f;
+        return false;
+    }
+
+    public bool TryGetAggro(long instanceId, out GameClient enemy, out uint nextAttackTick)
+    {
+        lock (_stateLock)
+        {
+            if (_aggro.TryGetValue(instanceId, out var target))
+            {
+                enemy = target.Enemy;
+                nextAttackTick = target.NextAttackTick;
+                return true;
+            }
+        }
+
+        enemy = null;
+        nextAttackTick = 0;
+        return false;
+    }
+
+    /// <summary>A snapshot of every monster currently in combat, for the AI tick to act on.</summary>
+    public IReadOnlyList<(long InstanceId, GameClient Enemy, uint NextAttackTick)> SnapshotAggro()
+    {
+        lock (_stateLock)
+        {
+            if (_aggro.Count == 0)
+            {
+                return Array.Empty<(long, GameClient, uint)>();
+            }
+
+            var snapshot = new List<(long, GameClient, uint)>(_aggro.Count);
+            foreach (var pair in _aggro)
+            {
+                snapshot.Add((pair.Key, pair.Value.Enemy, pair.Value.NextAttackTick));
+            }
+
+            return snapshot;
+        }
+    }
+
+    public void SetNextAttack(long instanceId, uint nextAttackTick)
+    {
+        lock (_stateLock)
+        {
+            if (_aggro.TryGetValue(instanceId, out var target))
+            {
+                _aggro[instanceId] = target with { NextAttackTick = nextAttackTick };
+            }
+        }
+    }
+
+    public void ClearAggro(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            _aggro.Remove(instanceId);
+        }
+    }
+
+    /// <summary>
+    /// Drops every target pointing at a leaving client and returns the affected monsters, so a
+    /// disconnected or warped player leaves nothing chasing a ghost.
+    /// </summary>
+    public IReadOnlyList<long> ClearAggroFor(GameClient enemy)
+    {
+        lock (_stateLock)
+        {
+            List<long> cleared = null;
+            foreach (var pair in _aggro)
+            {
+                if (pair.Value.Enemy == enemy)
+                {
+                    (cleared ??= new List<long>()).Add(pair.Key);
+                }
+            }
+
+            if (cleared == null)
+            {
+                return Array.Empty<long>();
+            }
+
+            foreach (var id in cleared)
+            {
+                _aggro.Remove(id);
+            }
+
+            return cleared;
+        }
+    }
+
+    private readonly record struct AggroTarget(GameClient Enemy, uint NextAttackTick,
+        float HomeX, float HomeY);
+
+    private readonly record struct Movement(
+        float StartX, float StartY, float DestX, float DestY, byte Speed, uint StartTick, uint EndTick);
 
     public IReadOnlyList<long> CollectRespawns(DateTime now)
     {
@@ -294,8 +556,9 @@ public class MonsterWorldState
             {
                 _respawnAt.Remove(id);
                 _currentHp.Remove(id);
-                _position.Remove(id);
+                _movement.Remove(id);
                 _nextMoveAt.Remove(id);
+                _returningHome.Remove(id);
             }
 
             return respawned;

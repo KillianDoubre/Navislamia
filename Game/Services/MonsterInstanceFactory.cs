@@ -108,7 +108,9 @@ public static class MonsterInstanceFactory
             instances.Add(new MonsterInstance(
                 instanceId++, monsterId,
                 random.Next(left, right + 1), random.Next(top, bottom + 1), 0f,
-                resource.Level, resource.Hp, race, faceDirection));
+                resource.Level, resource.Hp, race, faceDirection,
+                resource.FirstAttack != 0, resource.VisibleRange, resource.ChaseRange,
+                (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale));
         }
     }
 

@@ -34,7 +34,14 @@ public class MonsterResourceRepository : IMonsterResourceRepository
                 Id = resource.Id,
                 Level = resource.Level,
                 Hp = resource.Hp,
-                Race = resource.Race
+                Race = resource.Race,
+                FirstAttack = resource.FirstAttack,
+                VisibleRange = resource.VisibleRange,
+                ChaseRange = resource.ChaseRange,
+                AttackRange = resource.AttackRange,
+                RunSpeed = resource.RunSpeed,
+                Size = resource.Size,
+                Scale = resource.Scale
             })
             .ToList();
     }

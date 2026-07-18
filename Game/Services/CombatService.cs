@@ -12,6 +12,9 @@ public class CombatService : ICombatService
 {
     private const int TickIntervalMs = 100;
     private const ushort AttackDelayMs = 1200;
+
+    /// <summary>How soon an out-of-reach swing re-checks range while the client walks the player in.</summary>
+    private const int RangeRetryMs = 200;
     private const int RespawnDelaySeconds = 10;
     private const int DamageHpDivisor = 3;
     private const int DeathAnimationSeconds = 6;
@@ -74,6 +77,11 @@ public class CombatService : ICombatService
         }
 
         client.Connection.Send(GameAttackPackets.BuildEndAttack(session.AttackerHandle, session.TargetHandle));
+    }
+
+    public void DropAggro(GameClient client)
+    {
+        _worldState.ClearAggroFor(client);
     }
 
     private async Task RunAsync()
@@ -139,8 +147,25 @@ public class CombatService : ICombatService
             return;
         }
 
+        // Gate the swing on the same real reach the monster attacks at, so a player cannot hit from
+        // across the view while the monster cannot hit back. Out of reach, hold and re-check soon — the
+        // client is walking the player in — rather than land a hit or stop the attack.
+        var (monsterX, monsterY) = _worldState.GetPosition(session.TargetInstanceId);
+        var reach = CombatRange.MeleeReach(instance.AttackRange, instance.Size, instance.Scale);
+        if (!CombatRange.InReach(info.X, info.Y, monsterX, monsterY, reach))
+        {
+            session.NextSwingAt = now.AddMilliseconds(RangeRetryMs);
+            return;
+        }
+
         var damage = GetHitDamage(session.TargetInstanceId);
         var targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, damage);
+
+        // Plant the player during the swing, the same rule the monster follows: a unit stands still to
+        // attack. Only ever sent in reach, where the client has already stopped the player at the
+        // target, so it reinforces rather than fights the client.
+        client.Connection.Send(GameMovePackets.BuildStopMove(session.AttackerHandle,
+            unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle, session.TargetHandle,
             AttackDelayMs, AttackDelayMs, GameAttackPackets.ActionAttack, damage, targetHp, info.CharacterHp));
@@ -171,6 +196,9 @@ public class CombatService : ICombatService
         var targetHp = _worldState.ApplyDamage(instanceId, damage);
         if (targetHp > 0)
         {
+            // The monster fights back. Every monster retaliates, aggressive or not; the AI service
+            // takes it from here (Kill clears the aggro on death below).
+            _worldState.SetAggro(instanceId, client);
             return targetHp;
         }
 

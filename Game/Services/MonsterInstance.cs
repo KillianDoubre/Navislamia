@@ -9,4 +9,10 @@ public readonly record struct MonsterInstance(
     int Level,
     int Hp,
     byte Race,
-    float FaceDirection);
+    float FaceDirection,
+    bool FirstAttack,
+    int VisibleRange,
+    int ChaseRange,
+    float AttackRange,
+    float Size,
+    float Scale);

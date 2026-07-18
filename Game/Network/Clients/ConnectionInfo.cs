@@ -29,6 +29,7 @@ public class ConnectionInfo
     public uint CharacterHandle { get; set; }
     public uint TargetHandle { get; set; }
     public int CharacterHp { get; set; }
+    public int CharacterMaxHp { get; set; }
     public int CharacterMp { get; set; }
     public int CharacterLevel { get; set; }
     public int CharacterRace { get; set; }
@@ -154,6 +155,7 @@ public class ConnectionInfo
         CharacterHandle = 0;
         TargetHandle = 0;
         CharacterHp = 0;
+        CharacterMaxHp = 0;
         CharacterMp = 0;
         CharacterLevel = 0;
         CharacterRace = 0;

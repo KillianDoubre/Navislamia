@@ -247,6 +247,7 @@ public class GameClient : Client
         try
         {
             _networkService.CombatService.StopAttack(this);
+            _networkService.CombatService.DropAggro(this);
             _networkService.SkillCastService.Unregister(this);
             await SaveProgressSafelyAsync("while disconnecting");
         }

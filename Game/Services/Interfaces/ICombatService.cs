@@ -8,6 +8,12 @@ public interface ICombatService
     void StopAttack(GameClient client);
 
     /// <summary>
+    /// Drops every monster's aggro on a leaving player, so a disconnect or a warp leaves nothing
+    /// chasing a ghost. The monsters return home on the next AI tick.
+    /// </summary>
+    void DropAggro(GameClient client);
+
+    /// <summary>
     /// The damage a hit deals to a monster. Currently a placeholder — the monster's max HP divided by
     /// three — and deliberately the same value for an auto-attack and a skill, so combat has one rule
     /// until the stats drive it.

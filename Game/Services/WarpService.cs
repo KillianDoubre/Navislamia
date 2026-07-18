@@ -37,6 +37,7 @@ public class WarpService : IWarpService
             // The current target is about to be a world away, so the swing loop has to stop before
             // the position changes rather than keep hitting across the map.
             _combatService.StopAttack(client);
+            _combatService.DropAggro(client);
             info.TargetHandle = 0;
 
             LeaveEverything(client);

@@ -61,12 +61,12 @@ public class MonsterMovementService
             return;
         }
 
-        List<(long Id, float X, float Y)> moves = null;
+        List<(long Id, MoveOrder Order)> moves = null;
         foreach (var id in activeIds)
         {
-            if (_worldState.TryBeginWander(id, now, out var destination))
+            if (_worldState.TryBeginWander(id, now, WalkSpeed, out var order))
             {
-                (moves ??= new List<(long, float, float)>()).Add((id, destination.X, destination.Y));
+                (moves ??= new List<(long, MoveOrder)>()).Add((id, order));
             }
         }
 
@@ -95,20 +95,21 @@ public class MonsterMovementService
         return activeIds;
     }
 
-    private static void Broadcast(List<GameClient> clients, List<(long Id, float X, float Y)> moves)
+    private static void Broadcast(List<GameClient> clients, List<(long Id, MoveOrder Order)> moves)
     {
         foreach (var client in clients)
         {
             var info = client.ConnectionInfo;
-            var startTime = unchecked(ServerClock.Now + info.ClientClockOffset);
 
             lock (info.MonsterVisibilityLock)
             {
-                foreach (var move in moves)
+                foreach (var (id, order) in moves)
                 {
-                    if (info.SpawnedMonsters.TryGetValue(move.Id, out var handle))
+                    if (info.SpawnedMonsters.TryGetValue(id, out var handle))
                     {
-                        client.Connection.Send(GameMovePackets.BuildMove(handle, startTime, info.Layer, WalkSpeed, move.X, move.Y));
+                        var startTime = unchecked(order.StartTick + info.ClientClockOffset);
+                        client.Connection.Send(GameMovePackets.BuildMove(handle, startTime, info.Layer,
+                            order.Speed, order.DestX, order.DestY));
                     }
                 }
             }
