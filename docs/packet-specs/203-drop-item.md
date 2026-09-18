@@ -440,3 +440,105 @@ Deux observations de provenance, à ne pas confondre avec des preuves de protoco
   `ITEM_FLAG_SUMMON = 0x80000000` de NGemity. Elle restera inerte tant que rien n'écrit ce bit
   (`AddItemAsync` ne pose aucun flag).
 ```
+
+## 11. Implémentation (navis-dev, 2026-09-18)
+
+### 11.1 Fichiers touchés
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_DROP_ITEM = 203` (après `TM_SC_WEAR_INFO = 202`) et `TM_SC_DROP_RESULT = 205` (après `TM_CS_TAKE_ITEM = 204`) |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `DropItemRequest(uint ItemHandle, int Count)` et `TryReadDropItem` : 15 octets, `packet.Length < HeaderSize + 8` refusé |
+| `Game/Network/Packets/Game/GameCharacterPackets.cs` | `BuildDropResult(uint itemHandle, bool isAccepted)` : 12 octets, `Length` = 12, id 205, handle à 7, octet à 11, checksum |
+| `Game/Network/Clients/GameClient.cs` | bras `TM_CS_DROP_ITEM` dans la chaîne de réception (juste après `TM_CS_TAKE_ITEM`) et `HandleDropItemAsync` |
+| `Game/Services/Interfaces/IGroundItemService.cs` | `Task DropFromInventoryAsync(GameClient client, uint itemHandle, int count)` |
+| `Game/Services/GroundItemService.cs` | implémentation du drop de joueur + `SendDropResult` |
+| `Game/Services/GroundItemDropRules.cs` | règles pures : `IsBoundSummonCard`, `ResolveDropCount`, `SummonFlagMask` |
+| `Game/Services/ICharacterService.cs`, `CharacterService.cs` | `GetItemByHandleAsync(characterName, handle)` — lecture seule sous le même verrou d'accès que les autres opérations |
+| `Game/DataAccess/Repositories/Interfaces/IItemResourceRepository.cs`, `ItemResourceRepository.cs` | `ItemGroupFields(Id, Group)` et `GetGroupFields()` — projection `ItemResources.Id/Group` |
+| `Game/Services/Interfaces/IItemGroupCatalog.cs`, `Game/Services/ItemGroupCatalog.cs` | `TryGetGroup(long resourceId, out ItemGroup group)`, dictionnaire figé construit au démarrage |
+| `DevConsole/Program.cs` | `services.AddSingleton<IItemGroupCatalog, ItemGroupCatalog>();` |
+| `Tests/Game/DropItemPacketsTests.cs`, `Tests/Game/GroundItemDropRulesTests.cs` | tests d'offsets et de règles |
+
+Ordre effectif des envois en cas de succès : `TM_SC_ENTER` (objet au sol, `BuildEnterItem`), puis
+`TM_SC_ERASE_ITEM` (209, `BuildEraseItem`), puis `TM_SC_DROP_RESULT` (205, `isAccepted = 1`) ; en cas
+de refus, le 205 seul avec `isAccepted = 0`. Toute exception du chemin (lecture de l'objet, retrait)
+se traduit par un 205 refusé, jamais par une exception remontée à la boucle de réception : la trame
+malformée, elle, répond `TS_SC_RESULT` `InvalidArgument` par convention des voisins du dépôt.
+
+### 11.2 Piège : `ItemFlag.Summon` est un index de bit, pas le masque NGemity
+
+Un test écrit d'abord `IsBoundSummonCard(ItemFlag.Summon, ItemGroup.Summoncard)` a **échoué** (attendu
+`true`, obtenu `false`) : le membre vaut `31`, qui n'a pas le bit 31. L'énumération du dépôt
+(`Enums/ItemFlag.cs`) mélange en réalité deux familles de NGemity :
+
+- `FlagBits` (masques retail, `ItemTemplate.hpp` : `ITEM_FLAG_CARD = 0x01`, `ITEM_FLAG_FULL = 0x02`,
+  … `ITEM_FLAG_TAMING = 0x20000000`, `ITEM_FLAG_SUMMON = 0x80000000`) ;
+- `ItemFlag` de NGemity, que son propre commentaire dit « actually the idx for the ItemBase::flaglist,
+  not the retail bitset ».
+
+Le dépôt nomme ses membres d'après `FlagBits` mais leur donne les **index** de bits de la seconde
+famille (`Card = 0`, `Summon = 31`), plus un sentinelle `None = -1`. Une garde écrite
+`flag & (uint)ItemFlag.Summon` ne se déclencherait donc jamais, et `flag == ItemFlag.Summon` ne
+correspondrait pas au champ client. La garde livrée lit le **bitset retail** :
+`unchecked((uint)flag) & 0x80000000u`, ce qui est cohérent à la fois avec NGemity
+(`FlagBits::ITEM_FLAG_SUMMON`) et avec le sens du champ `flag` du client, où le dépôt écrit
+`unchecked((uint)item.Flag)` (`GameCharacterPackets.cs:311`, offset 34 des records d'inventaire).
+
+`ItemFlag.None = -1` est exclu explicitement **avant** le test de bit : lu comme `uint`, il vaut
+`0xFFFFFFFF` et déclencherait la garde sur toute carte d'invocation sans flag. Deux tests couvrent ce
+piège (`IsBoundSummonCard_DoesNotTreatTheNoneSentinelAsEveryBit`,
+`IsBoundSummonCard_ReadsTheStoredFlagAsTheRetailBitsetNotAsTheEnumIndex`).
+
+Correction à porter au bloc de §10 : « `ItemFlag.Summon = 31` » est l'**index** du bit, la valeur à
+tester est `0x80000000`. Nuance sans effet aujourd'hui (la garde est inerte) mais décisive le jour où
+un producteur écrira ce champ.
+
+### 11.3 Réserve : quelle représentation `ItemEntity.Flag` stocke réellement
+
+Aucun producteur du dépôt n'écrit `ItemEntity.Flag` (vérifié : `grep` sur `Game/` — seul l'écrivain
+vers le client, offset 34, lit le champ ; `AddItemAsync` ne pose aucun flag, et la valeur par défaut
+d'un `enum` est `Card = 0`, donc bit 31 clair). Le choix « bitset retail » ci-dessus suit NGemity et
+le sens client du champ ; il n'est **pas** établi par une donnée 7.3 observée. Corollaire à vérifier
+côté client quand un producteur existera : un item dont `Flag` vaudrait `ItemFlag.None` enverrait
+`0xFFFFFFFF` dans le champ `flag` de son record d'inventaire — tous les bits posés. À trancher par
+Killian (voir §12).
+
+### 11.4 Invariant énumération / dispatch
+
+`TM_CS_DROP_ITEM` (203) est un paquet **montant** : il a son bras dans la chaîne de réception et ne
+peut donc plus atteindre le `switch` final de `GameClient.cs`. `TM_SC_DROP_RESULT` (205) est
+**descendant** : il est déclaré dans `GamePackets` (le gating rzu l'exige, §4) sans bras de dispatch,
+exactement comme `TM_SC_WEAR_INFO` (202), `TM_SC_INVENTORY` (207), `TM_SC_ERASE_ITEM` (209),
+`TM_SC_TAKE_ITEM_RESULT` (210), `TM_SC_HIDE_EQUIP_INFO` (222) ou `TM_SC_EMOTION` (1201) déjà présents
+sur `master`. Un client qui émettrait un id descendant reste dans la situation préexistante décrite
+par le profil (« `Unknown Packet Type` ») : ce paquet n'aggrave pas l'existant et ne le corrige pas
+non plus — un durcissement global de la chaîne de réception est hors périmètre.
+
+### 11.5 Vérifications exécutées
+
+| Commande | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | code de sortie **0**, 0 erreur |
+| `dotnet test Tests/Tests.csproj` | code de sortie **0**, **383 réussis / 383**, 0 échec (366 avant cette tâche) |
+| `git log --oneline origin/master..master` | vide |
+| `git branch --show-current` | `hermes/packet-203-drop-item` |
+
+Défaut trouvé et corrigé par les tests : la première rédaction de la garde et de son test confondait
+index et masque (§11.2). Aucune autre correction : le premier `dotnet test` complet après
+implémentation a signalé exactement ce test-là.
+
+## 12. A VERIFIER PAR KILLIAN (ajouts du dev)
+
+1. **Représentation de `ItemEntity.Flag`** (§11.2 et §11.3) : le dépôt lit/écrit ce champ comme le
+   bitset retail de NGemity, alors que ses membres d'énumération portent des index de bits et que
+   `None = -1` vaut tous les bits. La garde livrée choisit le bitset ; aucune donnée 7.3 observée ne
+   le confirme. Ce qu'il faudrait : la valeur stockée pour une carte d'invocation liée dans une base
+   retail, ou l'arbitrage explicite « `ItemEntity.Flag` est un bitset » à inscrire dans `CLAUDE.md`.
+2. **`ItemFlag.None` sur le fil** : un item sans flag enverrait `0xFFFFFFFF` au client dans le champ
+   `flag` du record d'inventaire (offset 34). Aucun producteur n'écrit `None` aujourd'hui ; à
+   vérifier côté client le jour où l'un d'eux le fera.
+3. **`docs/packet-specs/` n'est pas référencé par `CLAUDE.md`** (constat de §9, toujours vrai) : le
+   bloc de §10 est le premier renvoi prévu, à recopier dans la description de la MR par le QA. Le dev
+   n'écrit pas `CLAUDE.md`.
+
