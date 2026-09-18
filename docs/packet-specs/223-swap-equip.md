@@ -20,8 +20,9 @@ Convention de nommage : le dépôt nomme les membres d'enum `TM_*` (nomenclature
 
 - aucune chaîne `SWAP_EQUIP` / `SwapEquip` dans `SFrame.exe` ni dans `data.000`
   (relevé `strings -n 4 SFrame.exe | grep -i swap` → 6 occurrences, toutes sans
-  rapport : `PNG_WRITE_SWAP_SUPPORTED`, `UCS-2-SWAPPED`, `ERROR_SWAPERROR`,
-  `INITIALIZE SYMMETRIC SWAPPING`, `ACTIVATE SYMMETRIC SWAPPING`) ;
+  rapport : `PNG_WRITE_SWAP_SUPPORTED`, `UCS-2-SWAPPED`, `UCS-4-SWAPPED`,
+  `ERROR_SWAPERROR`, `INHIBIT SYMMETRIC SWAPPING`,
+  `ACTIVATE SYMMETRIC SWAPPING`) ;
 - aucun identifiant d'UI, de message ou de classe (`SUIEquipmentWnd`,
   `SUIPopupEquip`, `SUIJewelEquipWnd`, `SUIEquipCreatureWnd`,
   `AUSIMSG_HIDE_EQUIP_INFO`, `MSG_EQUIP_SUMMON` existent ; rien d'équivalent
@@ -176,7 +177,7 @@ Aucun écart de taille, d'ordre de champs ni d'id.
 |---|---|---|
 | Navislamia | `6a982c81e6c87eb6dfca37fe3baf432d811ad1c7` | `op_codes.md:72`, `Game/Network/Packets/Enums/GamePackets.cs:39-40`, `Game/Network/Packets/Header.cs:9-24`, `Game/Network/Clients/GameClient.cs:664-682`, `CLAUDE.md:40-48,997-1002` |
 | rzu | `87c1e83bf84efe29bb6405e8e6da80349712f3fa` | `librzu/src/packets/GameClient/TS_CS_SWAP_EQUIP.h` (7,9-12), `TS_CS_RETURN_LOBBY.h:5-11`, `TS_SC_HIDE_EQUIP_INFO.h:5-13`, `TS_CS_PUTON_ITEM.h:8-12` ; fichier créé par `d7c58ee6927b0a8391a22500c7edfc39153d36d3` (« add all known GS packets as of 9.4 », 2017-02-07) |
-| NGemity (RZEmulator) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | `shared/Server/Packets/GameClient/TS_CS_SWAP_EQUIP.h:6-9`, `shared/Server/ClientPackets.h:88`, `shared/Server/Packets/GameClient/TS_CS_LOGOUT.h:6-8`, `Chihiro/src/Network/GameNetwork/WorldSession.cpp:92-164`, `WorldSession.h:58-120` |
+| NGemity (RZEmulator) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | `shared/Server/Packets/GameClient/TS_CS_SWAP_EQUIP.h:6-9`, `shared/Server/ClientPackets.h:88`, `shared/Server/Packets/GameClient/TS_CS_LOGOUT.h:6-8`, `Chihiro/src/Network/GameNetwork/WorldSession.cpp:92-164`, `WorldSession.h:59-122` |
 | Client Epic 7.3 | `SFrame.exe`, 9 841 664 octets, SHA-256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` | lecture statique seule (§2, §7.2, annexe) |
 
 ## Annexe — reproductibilité des relevés client
