@@ -333,23 +333,115 @@ l'appariement alias → commande, lui, n'a été lu que sur ce client.
 Convention de citation client : `SFrame.exe` désigne le numéro de ligne du dump
 `strings -n 4 SFrame.exe` ; les `.rdb` sont cités par leur octet de début dans le fichier.
 
-## 9. Ce que le dev doit produire
+## 9. Implémentation — navis-dev
 
-Statut : à faire par `navis-dev`, sur cette branche.
+Statut : implémenté sur `hermes/packet-1202-emotion`, commit `a401fc9` (base de la fiche `975041f`).
+Périmètre tenu : enum + dispatch, lecture de la 1202, écho de la 1201 vers l'acteur. Aucune table
+d'émotion, aucune borne de valeur, aucun `TM_SC_RESULT`, aucune diffusion.
 
-- [ ] `TM_SC_EMOTION = 1201`, `TM_CS_EMOTION = 1202` dans `GamePackets` **et** la branche de
-      dispatch, dans le même commit.
-- [ ] Lecture de la 1202 (11 octets, `emotion` à 7), garde de taille, journalisation au niveau
+### 9.1 Checklist de la fiche, satisfaite point par point
+
+- [x] `TM_SC_EMOTION = 1201`, `TM_CS_EMOTION = 1202` dans `GamePackets` **et** la branche de
+      dispatch, dans le même commit (`a401fc9`).
+- [x] Lecture de la 1202 (11 octets, `emotion` à 7), garde de taille, journalisation au niveau
       Debug comme les autres handlers.
-- [ ] Émission de la 1201 (15 octets, `handle` à 7 = `ConnectionInfo.CharacterHandle`, `emotion`
+- [x] Émission de la 1201 (15 octets, `handle` à 7 = `ConnectionInfo.CharacterHandle`, `emotion`
       à 11), avec checksum.
-- [ ] Aucune table d'émotions, aucune borne de valeur inventée, aucun `TM_SC_RESULT`.
-- [ ] Tests d'offsets pour les deux trames (`Tests/Game/…`), sans baisser le compte de tests.
-- [ ] Aucun commit sur `master` locale.
+- [x] Aucune table d'émotions, aucune borne de valeur inventée, aucun `TM_SC_RESULT`.
+- [x] Tests d'offsets pour les deux trames (`Tests/Game/EmotionPacketsTests.cs`), sans baisser le
+      compte de tests (366 → 383).
+- [x] Aucun commit sur `master` locale.
 
-Baseline relevée sur `master` (`6a982c81`) avant la rédaction de cette fiche :
+### 9.2 Fichiers livrés
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_EMOTION = 1201` et `TM_CS_EMOTION = 1202`, insérés entre `TM_SC_GAME_TIME` (1101) et `TM_SC_DIALOG` (3000), donc dans la zone 12xx |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TryReadEmotion(packet, out int emotion)` : lecture du seul champ, garde de taille |
+| `Game/Network/Packets/Game/GameCharacterPackets.cs` | `BuildEmotion(handle, emotion)` : la trame de 15 octets |
+| `Game/Network/Clients/GameClient.cs` | `HandleEmotion(buffer)` et le bras de dispatch sur `TM_CS_EMOTION`, dans le même commit |
+| `Tests/Game/EmotionPacketsTests.cs` | offsets des deux trames, garde de taille, écho verbatim |
+| `docs/packet-specs/1202-emotion.md` | cette fiche |
+
+Le bras de dispatch reprend la chaîne existante (`if (header.ID == …) { …; continue; }`, placé avant
+`TM_CS_CHAT_REQUEST`) plutôt que d'entrer dans le `switch` final : il est donc atteint avant le
+`_ => throw new Exception("Unknown Packet Type")` (`GameClient.cs:681`). Enum et dispatch ont été
+modifiés ensemble, comme l'exige le critère transversal n° 4 : un membre ajouté à l'enum sans bras
+casserait la boucle de réception.
+
+### 9.3 Offsets livrés et tests
+
+- Requête : **11** = 7 (en-tête) + 4 (`emotion`, int32, @7). Aucun autre champ : ni `count`, ni
+  chaîne, ni alignement.
+- Réponse : **15** = 7 + 4 (`handle`, uint32, @7) + 4 (`emotion`, int32, @11), l'ordre de rzu et de
+  NGemity.
+- `handle` = `ConnectionInfo.CharacterHandle`, c'est-à-dire le `(uint)character.Id` posé à l'entrée
+  dans le monde.
+- Trame de moins de 11 octets : journal `Warning`, aucune trame émise, aucune lecture hors borne.
+  La boucle de réception ne garantit que `Length`/`Checksum`, la garde métier appartient au handler,
+  comme `TryReadArrangeItem` (`GameActionPackets.cs:31-33`).
+
+Tests livrés (`EmotionPacketsTests`, 17 cas) : `EmotionIds_AreTheEpic73Ones`,
+`ClientPacket_UsesTheEpic73Layout`, `TryReadEmotion_ReadsTheValueAtOffsetSeven`,
+`TryReadEmotion_ReturnsTheRawValue` (0, 1, 14, 999, -1), `TryReadEmotion_RejectsAShortFrame`
+(0, 7 et 10 octets), `AnswerPacket_LaysOutHandleThenEmotion`,
+`AnswerPacket_EchoesTheRequestedEmotionVerbatim` (0, 1, 14, 999, -1).
+
+### 9.4 Réponses émises
+
+| Cas | Réponse |
+| --- | --- |
+| trame ≥ 11 octets | `TM_SC_EMOTION` (1201), 15 octets : `handle` = handle de session, `emotion` = valeur reçue |
+| trame < 11 octets | aucune trame, un `Warning` en journal |
+| toute autre valeur | rien de plus : pas de `TM_SC_RESULT`, pas d'envoi aux autres clients |
+
+### 9.5 Ce qui n'est pas porté, et pourquoi
+
+1. **Table émotion → animation, et borne d'intervalle** : §7b. Le domaine n'est pas établi ; le
+   client 7.3 résout la valeur seul. Une borne inventée refuserait des émotions légitimes.
+2. **`TM_SC_RESULT` pour 1202** : §7d. Rien n'en identifie un, et la 1201 suffit à faire jouer
+   l'animation et le message local.
+3. **Diffusion aux autres joueurs** : §7c et §5.4. Aucune visibilité joueur↔joueur n'existe ; une
+   diffusion globale référencerait un handle inconnu des autres clients.
+4. **La variante `CHAT_REQUEST` + `CHAT_EMOTION`** : §7a, non tranché. La partie prouvée
+   (1202 → 1201) est la seule écrite.
+
+### 9.6 Réserves
+
+1. **L'émetteur n'est pas tranché** (§7a) : le code est écrit pour 1202. Si une capture réseau montre
+   que la 7.3 émet un `CHAT_REQUEST` de type `CHAT_EMOTION`, ce bras 1202 restera simplement inerte
+   — il ne casse rien puisque le dispatch ne lève jamais — et le sujet relèvera d'une fiche séparée.
+2. **La portée réelle de la 1201 n'est pas établie** (§7c). L'écho vers l'acteur est le seul envoi
+   dont on sache qu'il ne référence pas un handle inconnu ; l'élargir exige d'abord une visibilité
+   joueur↔joueur, tâche distincte.
+3. **Le domaine des valeurs n'est pas établi** (§7b) : ni test ni garde ne suppose 1…14. Une valeur
+   hors intervalle est relayée telle quelle — c'est testé avec 0, 999 et -1.
+4. **Aucun test automatique ne couvre le bras de dispatch** : `GameClient` dépend d'une socket et
+   aucun test du dépôt ne l'instancie. Le lien enum ↔ dispatch est tenu par la revue, comme pour 221.
+5. **Handle nul hors session** : `ConnectionInfo.CharacterHandle` vaut 0 avant l'entrée dans le
+   monde, donc une 1202 reçue avant celle-ci produirait un écho à `handle = 0`. Aucun refus n'a été
+   inventé pour ce cas, que le client 7.3 ne peut pas produire puisqu'il ne parle au serveur de jeu
+   qu'après le login.
+6. **Aucune persistance** : la 1202 ne touche à aucune écriture d'état, donc à aucune base.
+
+### 9.7 Vérifications relevées
+
+```
+dotnet build Navislamia.sln -c Debug     → code 0, 0 erreur, 160 avertissements
+dotnet test Tests/Tests.csproj           → code 0, 383 réussis / 383, 0 échec, 0 ignoré
+git log --oneline origin/master..master  → (aucune ligne : aucun commit sur master locale)
+```
+
+Soit `366 + 17` tests : le compte ne baisse pas.
+
+Baseline de la fiche, sur `master` (`6a982c81`) avant sa rédaction :
 `dotnet build Navislamia.sln -c Debug` → code 0, 0 erreur, 160 avertissements ;
 `dotnet test Tests/Tests.csproj` → code 0, **366** tests passés, 0 échec.
+
+Point relevé au passage, à traiter par l'opérateur : sur `master`, `CLAUDE.md` **ne contient aucune
+mention** de `docs/packet-specs` ni des fiches de paquet. Le repère annoncé (« `CLAUDE.md` pointe
+déjà vers le répertoire des fiches ») n'existe donc pas dans ce fichier ; le renvoi vers
+`docs/packet-specs/` reste à ajouter en même temps que le bloc §10.
 
 ## 10. Bloc prêt à coller dans `CLAUDE.md`
 
@@ -368,13 +460,18 @@ Baseline relevée sur `master` (`6a982c81`) avant la rédaction de cette fiche :
   la réémet telle quelle — **ne jamais** écrire de table émotion → animation ni de borne
   d'intervalle : l'ordre des ids n'est pas établi (l'asset d'interface est dans les archives
   `data.001..008`, absentes).
-- Aucun traitement dans NGemity ni dans rzu (0 occurrence) : rien à porter. Ne pas confondre avec
-  `CHAT_EMOTION` (0x5, type de chat reçu par la passerelle, `IrcClient.cpp:189`), qui n'est pas le
-  véhicule de l'émotion.
+- Le serveur répond par un simple **écho** : `handle` = `ConnectionInfo.CharacterHandle`,
+  `emotion` inchangée, checksum recalculé. **Aucun `TM_SC_RESULT`** n'est identifié pour 1202, et
+  aucun refus n'est inventé sur la valeur.
+- La boucle de réception ne garantit que `Length`/`Checksum` : la garde de taille (11 octets) est
+  dans le handler, et elle répond par un `Warning` seul.
 - Portée : Navislamia n'a **aucune** visibilité joueur↔joueur (`TS_SC_ENTER_PLAYER` n'est envoyé
   qu'au client qui entre, `GameActions.cs:180`) : n'émettre que vers l'acteur tant qu'elle n'existe
   pas.
+- Aucun traitement dans NGemity ni dans rzu (0 occurrence) : rien à porter. Ne pas confondre avec
+  `CHAT_EMOTION` (0x5, type de chat reçu par la passerelle, `IrcClient.cpp:189`), qui n'est pas le
+  véhicule de l'émotion.
 - Restes ouverts (voir la fiche) : le client émet-il 1202 ou un `CHAT_REQUEST` de type
-  `CHAT_EMOTION` ; la portée réelle de la 1201 ; un accusé `TM_SC_RESULT` éventuel.
+  `CHAT_EMOTION` ; la portée réelle de la 1201.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 ```
