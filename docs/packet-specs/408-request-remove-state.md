@@ -436,3 +436,56 @@ Deux conventions de citation, pour que les chiffres soient vérifiables :
   `NotExist` ; le contenu réel de `state_time_type` dans l'Arcadia de Killian doit porter le bit 32
   pour les états visés, sinon la garde refuserait tout.
 ```
+
+## 11. Implémentation (dev)
+
+Commits `dae34fa` (paquet et service) et `438ebb9` (tests) sur la même branche
+`hermes/packet-408-request-remove-state`, construits et testés en conteneur
+(`dotnet build Navislamia.sln -c Debug` code 0, `dotnet test Tests/Tests.csproj`
+code 0, **381 tests** — 366 avant, 15 ajoutés).
+
+Fichiers touchés :
+
+| Fichier | Ce qui a été fait |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_REQUEST_REMOVE_STATE = 408`, entre `TM_SC_AURA` (407) et `TM_CS_JOB_LEVEL_UP` (410) |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `RemoveStateRequest(uint Target, int StateCode)` + `TryReadRemoveState` |
+| `Game/Network/Clients/GameClient.cs` | branche de dispatch 408 + `HandleRemoveState` (longueur invalide → `InvalidArgument`, exception → `Misc`) |
+| `Game/Services/ISkillCastService.cs` / `SkillCastService.cs` | `RemoveState(client, request)` |
+| `Game/Services/Buffs/StateRemoval.cs` (nouveau) | règle pure : handle, état présent, drapeau, groupe d'aura |
+| `Game/Services/Stats/IStateCatalog.cs` / `StateCatalog.cs` | `IsEraseOnRequest`, adossé à une seconde projection |
+| `Game/DataAccess/Repositories/Interfaces/IStateResourceRepository.cs` / `StateResourceRepository.cs` | `StateFlagFields` + `GetEraseOnRequestStateIds` |
+| `Tests/Game/ActionPacketsTests.cs`, `StateRemovalTests.cs` (nouveau), `StateCatalogTests.cs` | 4 + 9 + 2 tests |
+
+**Offsets confirmés à l'implémentation.** Trame de 15 octets exactement :
+`length` `uint32` à 0 (= 15), `id` `uint16` à 4 (= 408), `checksum` à 6 (non
+touché par le parseur), `target` `uint32` à 7, `state_code` `int32` à 11. Le
+parseur refuse **toute** autre longueur (14 comme 16) : le cadre est à taille
+fixe, l'ID 408 suffit à l'identifier, et un 408 plus long est un cadre malformé
+plutôt qu'une trame à champ supplémentaire. Contrairement aux autres parseurs
+d'action (`packet.Length < packetLength`), la comparaison est donc une égalité.
+
+**Le drapeau `EraseOnRequest` (§5.3 point 6).** `GetEraseOnRequestStateIds`
+projette `Id` et `StateTimeType` puis teste le bit en mémoire : la table est
+petite, et un prédicat bitwise sur une énumération mappée n'a pas été jugé
+digne d'un risque de traduction EF Core. `StateCatalog` en fait un `FrozenSet`
+distinct de la carte des effets de stat — c'est le piège (a) de §9 : un état
+annulable dont l'effet n'est pas décodé n'a **aucune** entrée dans la carte des
+effets, mais doit rester annulable, car `ActiveBuffs` contient tous les états
+appliqués. Un test le fige explicitement
+(`IsEraseOnRequest_DoesNotDependOnTheStatEffectMap`).
+
+**Décision : réussite annoncée par `TS_SC_RESULT` 408 `Success`.** §5.3 point 10
+ne statue que sur les échecs ; §5.3 point 2 et §6 point 6 rappellent que le
+dépôt répond toujours par un résultat aux requêtes d'action. La réponse utile
+reste `TM_SC_STATE` (505) : le résultat est informatif, et le seul effet visible
+pour le joueur vient du retrait de l'icône. Aucune intuition sur la réaction du
+client 7.3 à un résultat taggé 408 en réussite (§7.7) : si le jeu se comportait
+mal, la ligne est isolée dans `SkillCastService.RemoveState`.
+
+**Aucun champ `NON ÉTABLI` deviné** : la cible est refusée dès qu'elle n'est pas
+le handle du joueur (décision de §5.3 point 4, y compris pour un handle de
+créature tierce), aucune valeur sentinelle « tous les états » n'est reconnue,
+et la présence du bit 32 dans l'Arcadia de Killian reste à vérifier en jeu —
+`A VERIFIER PAR KILLIAN`.
+
