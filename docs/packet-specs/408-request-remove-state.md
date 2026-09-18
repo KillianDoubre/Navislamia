@@ -88,6 +88,13 @@ validation de trame tient en une comparaison.
 
 Précisions de lecture :
 
+- **Seconde source indépendante** : NGemity déclare le même paquet avec la même disposition —
+  `reference/ngemity/shared/Server/Packets/GameClient/TS_CS_REQUEST_REMOVE_STATE.h:6-10` porte
+  `_(simple)(uint32_t, target)`, `_(simple)(int32_t, state_code)` et
+  `CREATE_PACKET(TS_CS_REQUEST_REMOVE_STATE, 408)`. NGemity écrit `uint32_t` là où rzu a `ar_handle_t`
+  (même `strong_typedef<uint32_t>`, donc même 4 octets sur le fil) et ne versionne pas l'id : sur la
+  taille, l'ordre des champs et l'id, les deux références **concordent**. Cette déclaration vit dans
+  `reference/ngemity/shared/`, c'est-à-dire **hors** du serveur `Chihiro` (voir §5.1).
 - `ar_handle_t` est un `strong_typedef<ar_handle_t, uint32_t>`
   (`librzu/src/lib/Packet/GameTypes.h:40`) : **4 octets** sur le fil, sérialisé sans padding
   (les types « simple » de rzu sont écrits dans l'ordre de déclaration). C'est le même handle que
@@ -127,7 +134,9 @@ retiré. **Ne pas confondre avec `TS_SC_STATE` (505), dont le `state_level` a r�
 ### 5.1 Ce que NGemity en fait : rien
 
 `reference/ngemity/Chihiro` (commit `38ceb2c6065fabf6ff4ba71d52f955f362c6c839`) **ne déclare aucun
-handler** pour ce paquet : `grep -rn "TS_CS_REQUEST_REMOVE_STATE" .` ne renvoie aucune occurrence, et
+handler** pour ce paquet : `grep -rn "TS_CS_REQUEST_REMOVE_STATE" .` **exécuté depuis `Chihiro`** ne
+renvoie aucune occurrence — la seule déclaration du paquet vit hors du serveur, dans
+`reference/ngemity/shared/Server/Packets/GameClient/` (§3) —, et
 la liste des handlers de session (`src/Network/GameNetwork/WorldSession.cpp:118-141`, dont
 `WorldSession::onCancelAction`) n'en contient pas. Le paquet tombe donc dans le journal « paquet
 inconnu » de `WorldSession` et n'a **aucun effet** (ni mutation d'état, ni réponse).
@@ -191,7 +200,8 @@ librzu/` ne renvoie que ce fichier. rzu tranche l'id, la taille, l'ordre des cha
    (`test %ecx,%ecx; je` à `0x00596ff2`).
 5. **Résolution de `state_code`.** Chercher l'entrée de `ConnectionInfo.ActiveBuffs`
    (`Game/Network/Clients/ConnectionInfo.cs:20`, sous `BuffLock`, l. 18) dont **`StateId`** égale
-   `state_code`. Introuvable → `ResultCode.NotExist` (précédent : `GroundItemService.cs:103`).
+   `state_code`. Introuvable → `ResultCode.NotExist` (précédent : `GroundItemService.cs:103-104`,
+   `SendResult(TakeRequestId, ResultCode.NotExist)`).
    `ActiveBuff` (`Game/Services/Buffs/ActiveBuff.cs:3-9`) est le seul registre des états du
    personnage : il porte `StateHandle` (UID d'instance), `StateId` (le code), `SkillId`,
    `StateLevel`, `StartTick`, `EndTick`. Les états du monstre vivent à part, dans
@@ -238,8 +248,10 @@ librzu/` ne renvoie que ce fichier. rzu tranche l'id, la taille, l'ordre des cha
    active par groupe », `Game/Services/Buffs/AuraToggle.cs:22-33`). **Sans ce point, une aura
    annulée par la fenêtre d'états laisserait le client et le serveur désaccordés.**
 10. **Réponse en cas d'échec.** Aucune paire de réponse dédiée n'existe : le dépôt répond
-    `SendResult(requestId, code)` (`GameClient.cs:56-60`, `TS_SC_RESULT` = 0, 8 octets de charge :
-    `request_msg_id` u16, `result` u16, `value` i32). C'est la convention des voisins
+    `SendResult(requestId, code)` (`GameClient.cs:56-60`) — membre d'énumération `TM_SC_RESULT = 0`
+    (`Game/Network/Packets/Enums/GamePackets.cs:5`) portant la structure `TS_SC_RESULT`, 8 octets de
+    charge : `RequestMsgID` u16, `Result` u16, `Value` i32
+    (`Game/Network/Packets/Game/TS_SC_RESULT.cs:8-10`). C'est la convention des voisins
     (`GameClient.cs:310`, `:443`, `:454`). Réserve : rien n'établit la réaction du client 7.3 à un
     `TS_SC_RESULT` taggé 408 (§7.7) — le refus doit donc être **sans effet de bord**, jamais
     dépendant de l'affichage côté client.
@@ -377,7 +389,7 @@ Deux conventions de citation, pour que les chiffres soient vérifiables :
 ## 9. Note de livraison
 
 - Branche : `hermes/packet-408-request-remove-state`, créée depuis `master`
-  `6a982c81e6c87eb6dfca37fe3baf432d811ad1c7`. Le commit de cette fiche ne touche que
+  `6a982c81e6c87eb6dfca37fe3baf432d811ad1c7`. Les commits de cette fiche ne touchent que
   `docs/packet-specs/408-request-remove-state.md` et `.gitignore`.
 - `.gitignore` : `/docs/*` ignore le répertoire ; l'exception `!/docs/packet-specs/` est ajoutée
   après `!/docs/npc-dialogs.md`, comme sur les branches sœurs `hermes/packet-221-hide-equip-info`,
