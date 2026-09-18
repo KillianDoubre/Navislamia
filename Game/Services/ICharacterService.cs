@@ -30,6 +30,8 @@ public interface ICharacterService
 
     Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog);
 
+    Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle);
+
     Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2);
 
     Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);

@@ -157,6 +157,15 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    public static byte[] BuildUseItemResult(uint itemHandle, uint targetHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_USE_ITEM_RESULT, HeaderSize + 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), targetHandle);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildEquipSummon(long[] summonSlots)
     {
         const int slotCount = 6;
