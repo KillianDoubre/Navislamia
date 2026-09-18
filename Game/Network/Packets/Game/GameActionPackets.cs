@@ -167,4 +167,21 @@ public static class GameActionPackets
             packet[HeaderSize + 8]);
         return packet[HeaderSize + 9] == 0;
     }
+
+    /// <summary>
+    /// TM_CS_HIDE_EQUIP_INFO (221) carries a single raw mask: the client names no bit and the
+    /// reference servers do not decode it, so every bit is kept as sent.
+    /// </summary>
+    public static bool TryReadHideEquipInfo(ReadOnlySpan<byte> packet, out uint hideEquipFlag)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length < packetLength)
+        {
+            hideEquipFlag = 0;
+            return false;
+        }
+
+        hideEquipFlag = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
 }
