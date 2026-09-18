@@ -31,4 +31,12 @@ public class ItemResourceRepository : IItemResourceRepository
                 item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
             .ToList();
     }
+
+    public IReadOnlyList<ItemGroupFields> GetGroupFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemGroupFields((int)item.Id, item.Group))
+            .ToList();
+    }
 }

@@ -15,9 +15,13 @@ public readonly record struct ItemEffectFields(
     decimal[] OptVar1,
     decimal[] OptVar2);
 
+public readonly record struct ItemGroupFields(int Id, ItemGroup Group);
+
 public interface IItemResourceRepository
 {
     IReadOnlyList<ItemSortFields> GetSortFields();
 
     IReadOnlyList<ItemEffectFields> GetEffectFields();
+
+    IReadOnlyList<ItemGroupFields> GetGroupFields();
 }

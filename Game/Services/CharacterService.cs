@@ -201,6 +201,12 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle)
+    {
+        return RunExclusiveAsync(() => Task.FromResult(FindByHandle(
+            _characterRepository.GetCharacterByNameWithItems(characterName)?.Items, itemHandle)));
+    }
+
     public Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog)
     {
         return RunExclusiveAsync(async () =>
