@@ -97,7 +97,7 @@ Ce que fait `Chihiro` (NGemity, commit `38ceb2c`) :
 
 - le paquet est **déclaré** (`shared/Server/ClientPackets.h:88`,
   `shared/Server/Packets/GameClient/TS_CS_SWAP_EQUIP.h:9`) ;
-- il n'a **aucun handler** : `WorldSession.h:58-120` n'expose pas de
+- il n'a **aucun handler** : `WorldSession.h:59-122` n'expose pas de
   `onSwapEquip`, et `worldPacketHandler[]` (`WorldSession.cpp:92-137`) ne
   contient aucune entrée pour cet id ;
 - il n'est **pas** dans la liste `ignoredPackets[]`
