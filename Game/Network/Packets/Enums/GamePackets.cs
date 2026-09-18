@@ -62,6 +62,10 @@ public enum GamePackets : ushort
 
     TM_CS_GAME_TIME = 1100,
     TM_SC_GAME_TIME = 1101,
+
+    TM_SC_EMOTION = 1201,
+    TM_CS_EMOTION = 1202,
+
     TM_SC_DIALOG = 3000,
     TM_CS_DIALOG = 3001,
     TM_CS_CONTACT = 3002,
