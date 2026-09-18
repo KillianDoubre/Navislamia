@@ -282,3 +282,124 @@ repère annoncé (« `CLAUDE.md` pointe déjà vers le répertoire des fiches »
 Baseline relevée sur `master` (`6a982c81e6c87eb6dfca37fe3baf432d811ad1c7`) avant la fiche :
 `dotnet build Navislamia.sln -c Debug` code **0** (0 erreur, 160 avertissements) ;
 `dotnet test Tests/Tests.csproj` code **0**, **366 tests** réussis sur 366.
+
+## 9. Implémentation — navis-dev
+
+Statut : implémenté sur `hermes/packet-253-use-item`, commit `c8a29d7` (base de la fiche `1e014ce`).
+Périmètre tenu : lire la trame, juger l'objet, répondre. Aucun effet d'objet, aucune consommation,
+aucune écriture d'état.
+
+### 9.1 Fichiers livrés
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_USE_ITEM = 253` (zone CS, tri numérique) et `TM_SC_USE_ITEM_RESULT = 283` (zone SC) |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `UseItemRequest(uint ItemHandle, uint TargetHandle)` et `TryReadUseItem` |
+| `Game/Network/Packets/Game/GameCharacterPackets.cs` | `BuildUseItemResult(itemHandle, targetHandle)` : 15 octets |
+| `Game/Network/Clients/GameClient.cs` | `HandleUseItemAsync` + bras de dispatch sur `TM_CS_USE_ITEM` |
+| `Game/Services/ItemUseService.cs`, `Game/Services/Interfaces/IItemUseService.cs` | résolution de l'objet, arbitrage, double réponse |
+| `Game/Services/ItemUseRules.cs` | `CheckUseLevel` : règle de niveau pure |
+| `Game/Services/ItemUseCatalog.cs`, `Game/Services/Interfaces/IItemUseCatalog.cs` | `use_min_level` / `use_max_level` chargés une fois depuis `IItemResourceRepository.GetUseFields()` |
+| `Game/DataAccess/Repositories/ItemResourceRepository.cs` + interface | `ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel)` et `GetUseFields()` |
+| `Game/Services/CharacterService.cs`, `Game/Services/ICharacterService.cs` | `GetItemByHandleAsync(characterName, handle)` : l'objet est cherché **dans les objets du personnage** (la possession est donc prouvée par la résolution) |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | `IItemUseService` et `IItemUseCatalog` enregistrés et injectés |
+| `Tests/Game/UseItemPacketsTests.cs`, `Tests/Game/ItemUseTests.cs` | offsets du paquet et règle de niveau |
+
+### 9.2 Offsets livrés et tests
+
+- Requête : **47** = 7 (en-tête) + 4 (`item_handle` @7) + 4 (`target_handle` @11) + 32 (`szParameter` @15).
+  Le paramètre est consommé **pour sa taille seulement** : son contenu n'est pas interprété (§7.3).
+  Une trame de moins de 47 octets est refusée (`InvalidArgument`) sans lecture hors borne.
+- Réponse : **15** = 7 + 4 (`item_handle` @7) + 4 (`target_handle` @11), l'ordre du rzu.
+
+Tests : `UseItemIds_MatchTheEpic73Protocol`, `TryReadUseItem_ReadsTheEpic73Layout`,
+`TryReadUseItem_ReadsTheSelfTargetFrame`, `TryReadUseItem_RejectsAFrameShorterThanTheParameter`,
+`BuildUseItemResult_LaysOutTheFifteenByteAnswer`, plus `ItemUseTests` (catalogue et règle).
+
+### 9.3 Réponses émises
+
+| Cas | Réponse | `Value` |
+| --- | --- | --- |
+| trame < 47 octets | `TS_SC_RESULT` (253) `InvalidArgument` | 0 |
+| handle inconnu ou non possédé | `TS_SC_RESULT` (253) `NotExist` | `item_handle` |
+| niveau < `use_min_level` | `TS_SC_RESULT` (253) `LimitMin` | `item_handle` |
+| `use_max_level != 0` et niveau > plafond | `TS_SC_RESULT` (253) `LimitMax` | `item_handle` |
+| succès | `TS_SC_RESULT` (253) `Success` **puis** `TM_SC_USE_ITEM_RESULT` (283) | `item_handle` |
+| erreur de lecture base | `TS_SC_RESULT` (253) `DBError` | `item_handle` |
+
+L'ordre des deux trames du succès est celui de NGemity (`WorldSession.cpp:1336`, puis `:1375`) et
+celui du §5.3-6 : l'accusé générique d'abord, le résultat d'utilisation ensuite.
+
+### 9.4 Ce qui n'est pas porté, et pourquoi
+
+1. **`NotActable` (déplacement)** : le seul chemin NGemity est
+   `flaglist[FLAG_MOVE] == 0 && IsMoving(ct)` (`WorldSession.cpp:1332-1335`). Le dépôt n'expose aucun
+   état de déplacement et le §6 l'exclut. Aucun refus `NotActable` n'est donc émis ; le code de
+   réponse reste disponible pour la tâche qui apportera cet état.
+2. **`AccessDenied` sur le type d'objet** : le contrôle NGemity (`WorldSession.cpp:1327-1330`) est
+   neutralisé par le `&& false /*!item->IsUsingItem()*/` : la condition est **toujours fausse**, donc
+   la référence n'émet jamais ce refus. Le porter créerait un refus que NGemity lui-même ne produit
+   pas.
+3. **Cool-down** (`TS_RESULT_COOL_TIME`, `Player::IsUseableItem` :2090-2092) : le dépôt n'a aucun
+   état de cool-time d'objet et `TM_SC_ITEM_COOL_TIME` (217) n'est pas émis.
+4. **Niveaux de cible** (`target_min_level` / `target_max_level`) et résolution générique de la
+   cible : §6 et §7-7.
+5. **Effets** (`base_type` / `opt_type`), **consommation d'un exemplaire** et écriture d'état :
+   hors périmètre §5.3-8.
+6. **`ItemUseFlag`** : jamais lu (§7-6), la valeur réellement importée n'étant pas documentée.
+
+### 9.5 Réserves
+
+1. **Catalogue vide.** Si la base Arcadia n'est pas présente ou n'est pas importée,
+   `TryGetLevels` renvoie `false` et l'utilisation n'est pas filtrée. Choix assumé et symétrique du
+   §6 : refuser un objet qu'on ne sait pas juger serait un refus non prouvé. Le pendant à vérifier
+   côté données est la sémantique de `use_min_level = 0`.
+2. **Ordre plafond/plancher.** NGemity teste le plafond avant le plancher
+   (`IsUseableItem` :2094-2100) : sur un gabarit contradictoire (`use_min_level` > `use_max_level`)
+   c'est `LimitMax` qui sort. Comportement conservé, testé, mais non tranché par le client.
+3. **Handle d'objet.** Le service résout `(uint)item.Id` par `FindByHandle`, comme tous les paquets
+   d'objet montants du dépôt ; l'identité côté client reste non prouvée par le binaire (§7-8).
+4. **`szParameter`** : taille seulement, contenu ignoré (§7.3) — donc `GrantSkill` reste interdit
+   tant que la skill list (403) n'existe pas.
+5. **Ordre des deux trames du succès non testé automatiquement** : `ItemUseService` dépend de
+   `GameClient` (socket), aucun test du dépôt n'instancie ce type. L'ordre est fixé par le code et
+   la référence, pas par un test.
+6. **Base de données non sollicitée en test** : `ItemUseCatalog` est testé avec un
+   `IItemResourceRepository` simulé. Aucun test n'exerce `GetUseFields()` contre une vraie base,
+   conformément à la règle « build et tests seulement » du conteneur.
+
+### 9.6 Vérifications relevées
+
+```
+dotnet build Navislamia.sln -c Debug     → code 0, 0 erreur, 160 avertissements
+dotnet test Tests/Tests.csproj           → code 0, 378 réussis / 378, 0 échec, 0 ignoré
+git log --oneline origin/master..master  → (aucune ligne : aucun commit sur master locale)
+```
+
+Soit `366 + 12` tests : le compte ne baisse pas.
+
+## 10. Bloc prêt à coller dans `CLAUDE.md`
+
+`CLAUDE.md` est protégé par Hermes côté worker : il est livré ici et dans la description de la MR,
+à coller par l'opérateur.
+
+```markdown
+### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
+
+- Trame cliente de **47** octets : en-tête 7, `item_handle` à 7, `target_handle` à 11,
+  `szParameter` sur 32 octets à 15. Le paramètre est consommé pour sa taille seulement : son
+  contenu n'est pas établi.
+- Réponse en **deux** trames, dans cet ordre : `TS_SC_RESULT` (253, `Success`, `item_handle`) puis
+  `TM_SC_USE_ITEM_RESULT` (283), qui réémet les deux handles.
+- Seul le niveau de l'objet est jugé : `use_min_level` → `LimitMin`, `use_max_level` → `LimitMax`,
+  le plafond testé avant le plancher comme dans NGemity `Player::IsUseableItem`. Un handle inconnu
+  ou non possédé donne `NotExist`.
+- `ItemUseFlag` n'est pas lu : la valeur réellement importée n'est pas documentée dans le dépôt.
+  Ne jamais l'utiliser comme masque binaire sans arbitrage.
+- Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
+  (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
+- Les effets de l'objet, la consommation d'un exemplaire et l'état ne sont pas touchés : le paquet
+  est lu, jugé, répondu.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+```
+
