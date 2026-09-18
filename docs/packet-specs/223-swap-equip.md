@@ -180,6 +180,82 @@ Aucun écart de taille, d'ordre de champs ni d'id.
 | NGemity (RZEmulator) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | `shared/Server/Packets/GameClient/TS_CS_SWAP_EQUIP.h:6-9`, `shared/Server/ClientPackets.h:88`, `shared/Server/Packets/GameClient/TS_CS_LOGOUT.h:6-8`, `Chihiro/src/Network/GameNetwork/WorldSession.cpp:92-164`, `WorldSession.h:59-122` |
 | Client Epic 7.3 | `SFrame.exe`, 9 841 664 octets, SHA-256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` | lecture statique seule (§2, §7.2, annexe) |
 
+## 9. Implémentation (navis-dev)
+
+État : **implémenté** sur la branche `hermes/packet-223-swap-equip`.
+
+| Fichier | Changement |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | ajout de `TM_CS_SWAP_EQUIP = 223`, entre `TM_SC_HIDE_EQUIP_INFO (222)` et `TM_SC_SKIN_INFO (224)` |
+| `Game/Network/Clients/GameClient.cs` | branche « log + `continue` » dans `OnDataReceived`, juste après celle de `TM_CS_LOGOUT` et **avant** le `switch` final |
+| `Tests/Game/SwapEquipTests.cs` | 5 tests : offsets du frame et dispatch réel |
+
+Décisions d'implémentation :
+
+- **Aucun parseur, aucun `Packet<T>`** : le corps est vide, il n'y a rien à désérialiser.
+  Le registre `GameActions._actions` (`GameActions.cs:32`) n'est pas utilisé — il sert les paquets
+  de lobby désérialisés par le `switch` et exigerait un type de paquet inexistant ici.
+- **Aucune réponse** : le serveur journalise en `Debug`
+  (`TM_CS_SWAP_EQUIP (223) Length: 7 received from …`) puis `continue`. Pas de
+  `TS_SC_RESULT` tagué 223 (section 7, point 4).
+- **Aucune validation de `Length`** : NGemity ne vérifie rien non plus, et la boucle de réception
+  lit déjà exactement `header.Length` octets ; ajouter un contrôle inventerait une règle absente
+  des deux références.
+- La branche est placée **avant** le `switch` final : c'est la condition pour qu'un membre de
+  `GamePackets` ne fasse pas lever `Unknown Packet Type` dans la boucle de réception.
+
+### Tests (offsets vérifiés)
+
+`dotnet test Tests/Tests.csproj` : **371 réussis, 0 échec** (366 avant ce paquet).
+
+| Test | Ce qui est vérifié |
+|---|---|
+| `ClientPacket_IsTheSevenByteHeaderOnlyEpic73Frame` | `Length == 7` aux offsets 0-3, `ID == 223` aux offsets 4-5, `Checksum == somme des octets 0..5` à l'offset 6, longueur totale **exactement 7** |
+| `ClientPacket_HasNoFieldBehindTheHeader` | `Marshal.SizeOf<Header>() == 7` et `Header.Length == 7` → **aucun champ après l'offset 6** |
+| `EnumMember_SitsBetweenItsNeighbours` | `222 < 223 < 224` |
+| `OnDataReceived_ConsumesThePacketWithoutThrowing` | la boucle réelle (`GameClient.OnDataReceived`) consomme le frame sans lever, sans rien envoyer (`Connection.Send` jamais appelé) et sans octet résiduel dans le tampon |
+| `OnDataReceived_ConsumesTheHeaderOnlyPacketWhenItIsCoalescedWithAnotherOne` | idem pour 223 suivi d'un keepalive `TM_NONE` dans le même segment TCP (piège du `>` historique de la boucle) |
+
+Les deux derniers tests pilotent un `GameClient` réel construit avec `NetworkService` sur doublures
+`FakeItEasy` et une connexion en mémoire (`FrameConnection`, sous-classe de `Connection` qui
+surcharge `Peek`/`Read`/`Send`). Si la branche de dispatch disparaissait, ils échoueraient sur
+`System.Exception: Unknown Packet Type`.
+
+### Critère « enum et dispatch modifiés ensemble »
+
+Relevé reproductible, sur les 74 membres de `GamePackets` après ce paquet :
+
+```
+for n in $(grep -oE '^\s*TM_[A-Z_]+' Game/Network/Packets/Enums/GamePackets.cs | tr -d ' '); do
+  grep -q "GamePackets\.$n" Game/Network/Clients/GameClient.cs || echo "ABSENT: $n"
+done
+```
+
+Seuls des membres **serveur → client** ressortent : 30 des 35 `TM_SC_*` et `TM_EQUIP_SUMMON`. Les
+5 autres `TM_SC_*` (`TM_SC_RESULT`, `TM_SC_MOVE`, `TM_SC_SET_TIME`, `TM_SC_GAME_TIME`,
+`TM_SC_DISCONNECT_DESC`) n'apparaissent dans `GameClient.cs` que du côté émission, jamais comme
+branche de réception. Aucun membre client → serveur n'atteint le `switch` final.
+
+### Réserve livrée
+
+Le paquet ne change aucun comportement de jeu observable : il garantit seulement qu'un envoi de
+223 par le client ne casse pas la boucle de réception. Les quatre points de la section 7 restent
+ouverts et n'ont **pas** été tranchés par le code.
+
+### Bloc prêt à coller dans `CLAUDE.md`
+
+Le dev n'écrit pas `CLAUDE.md` (fichier d'instructions protégé par Hermes) ; le QA colle ce bloc,
+de préférence à la suite du paragraphe sur les paquets sans charge utile de `## Protocol fundamentals` :
+
+```markdown
+`TM_CS_SWAP_EQUIP` (`223`) is a header-only client packet: 7 bytes, no payload, no response.
+Neither reference implementation declares a field or an answer for it, and nothing in the Epic 7.3
+client names it, so the server only logs it and continues. It still needs an explicit branch in
+`GameClient.OnDataReceived`, ahead of the final `switch`, because an id present in `GamePackets`
+that reaches that `switch` throws `Unknown Packet Type` **inside the receive loop**. See
+`docs/packet-specs/223-swap-equip.md`.
+```
+
 ## Annexe — reproductibilité des relevés client
 
 Aucun exécutable client n'a été lancé : `SFrame.exe` n'est lu qu'en statique.
