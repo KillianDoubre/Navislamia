@@ -180,33 +180,34 @@ Aucun écart de taille, d'ordre de champs ni d'id.
 | NGemity (RZEmulator) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | `shared/Server/Packets/GameClient/TS_CS_SWAP_EQUIP.h:6-9`, `shared/Server/ClientPackets.h:88`, `shared/Server/Packets/GameClient/TS_CS_LOGOUT.h:6-8`, `Chihiro/src/Network/GameNetwork/WorldSession.cpp:92-164`, `WorldSession.h:59-122` |
 | Client Epic 7.3 | `SFrame.exe`, 9 841 664 octets, SHA-256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` | lecture statique seule (§2, §7.2, annexe) |
 
-## 9. Implémentation (navis-dev)
+## 9. Implémentation — navis-dev
 
-État : **implémenté** sur la branche `hermes/packet-223-swap-equip`.
+Statut : implémenté sur `hermes/packet-223-swap-equip`, commits `82dbf62` (code et tests) puis
+`17bb6cc` (cette section). Périmètre tenu : consommer la trame sans casser la boucle de réception,
+ne rien répondre. Aucune sémantique d'équipement, aucune écriture d'état.
 
-| Fichier | Changement |
+### 9.1 Fichiers livrés
+
+| Fichier | Rôle |
 |---|---|
-| `Game/Network/Packets/Enums/GamePackets.cs` | ajout de `TM_CS_SWAP_EQUIP = 223`, entre `TM_SC_HIDE_EQUIP_INFO (222)` et `TM_SC_SKIN_INFO (224)` |
-| `Game/Network/Clients/GameClient.cs` | branche « log + `continue` » dans `OnDataReceived`, juste après celle de `TM_CS_LOGOUT` et **avant** le `switch` final |
-| `Tests/Game/SwapEquipTests.cs` | 5 tests : offsets du frame et dispatch réel |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_SWAP_EQUIP = 223`, entre `TM_SC_HIDE_EQUIP_INFO (222)` et `TM_SC_SKIN_INFO (224)` |
+| `Game/Network/Clients/GameClient.cs` | branche « log `Debug` + `continue` » dans `OnDataReceived`, juste après celle de `TM_CS_LOGOUT` et **avant** le `switch` final |
+| `Tests/Game/SwapEquipTests.cs` | offsets de la trame et dispatch réel (5 tests) |
 
-Décisions d'implémentation :
+Aucun parseur et aucun `Packet<T>` : le corps est vide, il n'y a rien à désérialiser. Le registre
+`GameActions._actions` (`GameActions.cs:32`) n'est pas utilisé — il sert les paquets de lobby
+désérialisés par le `switch` et exigerait ici un type de paquet inexistant.
 
-- **Aucun parseur, aucun `Packet<T>`** : le corps est vide, il n'y a rien à désérialiser.
-  Le registre `GameActions._actions` (`GameActions.cs:32`) n'est pas utilisé — il sert les paquets
-  de lobby désérialisés par le `switch` et exigerait un type de paquet inexistant ici.
-- **Aucune réponse** : le serveur journalise en `Debug`
-  (`TM_CS_SWAP_EQUIP (223) Length: 7 received from …`) puis `continue`. Pas de
-  `TS_SC_RESULT` tagué 223 (section 7, point 4).
-- **Aucune validation de `Length`** : NGemity ne vérifie rien non plus, et la boucle de réception
-  lit déjà exactement `header.Length` octets ; ajouter un contrôle inventerait une règle absente
-  des deux références.
+### 9.2 Offsets livrés, dispatch et tests
+
+- Requête : **7** = 7 (en-tête) + **aucun champ** (section 3 ; `_DEF(_)` vide chez rzu et NGemity).
+  `Length` vaut donc toujours 7 et aucun octet n'existe au-delà de l'offset 6.
+- Aucune validation de `Length` : NGemity n'en fait aucune, et la boucle de réception lit déjà
+  exactement `header.Length` octets ; contrôler inventerait une règle absente des deux références.
 - La branche est placée **avant** le `switch` final : c'est la condition pour qu'un membre de
   `GamePackets` ne fasse pas lever `Unknown Packet Type` dans la boucle de réception.
 
-### Tests (offsets vérifiés)
-
-`dotnet test Tests/Tests.csproj` : **371 réussis, 0 échec** (366 avant ce paquet).
+Tests livrés :
 
 | Test | Ce qui est vérifié |
 |---|---|
@@ -221,9 +222,27 @@ Les deux derniers tests pilotent un `GameClient` réel construit avec `NetworkSe
 surcharge `Peek`/`Read`/`Send`). Si la branche de dispatch disparaissait, ils échoueraient sur
 `System.Exception: Unknown Packet Type`.
 
-### Critère « enum et dispatch modifiés ensemble »
+### 9.3 Réponses émises
 
-Relevé reproductible, sur les 74 membres de `GamePackets` après ce paquet :
+**Aucune.** NGemity ne répond pas à 223 (section 5.3) et le dépôt n'a pas de `TS_SC_RESULT` à
+taguer 223 : en émettre un serait une invention. Le seul effet observable est une ligne de log
+`Debug` (`TM_CS_SWAP_EQUIP (223) Length: 7 received from …`).
+
+### 9.4 Ce qui n'est pas porté, et pourquoi
+
+1. **Sémantique du paquet** : aucune référence n'établit ce qu'un « swap equip » change côté
+   serveur (section 7, point 1). Aucune permutation d'objets équipés, aucune écriture
+   d'équipement, aucune réutilisation de `EquipmentService` n'a donc été introduite.
+2. **Émission réelle par le client 7.3** : non prouvée (section 7, point 2), mais l'absence de
+   preuve d'émission n'autorise pas à laisser l'id non traité — c'est précisément ce qui casserait
+   la boucle de réception s'il était émis.
+3. **Corps non vide** : si le client 7.3 envoyait des octets après l'offset 6, ils seraient
+   consommés par `header.Length` sans être interprétés (section 7, point 3).
+4. **`TS_SC_RESULT` tagué 223** : aucun élément dans les références (section 7, point 4).
+
+### 9.5 Réserves
+
+- Relevé reproductible, sur les 74 membres de `GamePackets` après ce paquet :
 
 ```
 for n in $(grep -oE '^\s*TM_[A-Z_]+' Game/Network/Packets/Enums/GamePackets.cs | tr -d ' '); do
@@ -236,16 +255,29 @@ Seuls des membres **serveur → client** ressortent : 30 des 35 `TM_SC_*` et `TM
 `TM_SC_DISCONNECT_DESC`) n'apparaissent dans `GameClient.cs` que du côté émission, jamais comme
 branche de réception. Aucun membre client → serveur n'atteint le `switch` final.
 
-### Réserve livrée
+- Le paquet ne change aucun comportement de jeu observable : il garantit seulement qu'un envoi de
+  223 par le client ne casse pas la boucle de réception. Les quatre points NON ÉTABLI de la
+  section 7 restent ouverts et n'ont **pas** été tranchés par le code.
+- Les deux tests de dispatch instancient un `GameClient` réel (`NetworkService` sur doublures
+  `FakeItEasy`, connexion en mémoire). C'est le premier test du dépôt qui exerce cette boucle :
+  il ne couvre que le chemin 223 et le keepalive, pas les autres paquets.
 
-Le paquet ne change aucun comportement de jeu observable : il garantit seulement qu'un envoi de
-223 par le client ne casse pas la boucle de réception. Les quatre points de la section 7 restent
-ouverts et n'ont **pas** été tranchés par le code.
+### 9.6 Vérifications relevées
 
-### Bloc prêt à coller dans `CLAUDE.md`
+```
+dotnet build Navislamia.sln -c Debug     → code 0, 0 erreur, 160 avertissements
+dotnet test Tests/Tests.csproj           → code 0, 371 réussis / 371, 0 échec, 0 ignoré
+git log --oneline origin/master..master  → (aucune ligne : aucun commit sur master locale)
+git status --porcelain                   → (aucune ligne : arbre de travail propre)
+```
 
-Le dev n'écrit pas `CLAUDE.md` (fichier d'instructions protégé par Hermes) ; le QA colle ce bloc,
-de préférence à la suite du paragraphe sur les paquets sans charge utile de `## Protocol fundamentals` :
+Soit `366 + 5` tests : le compte ne baisse pas.
+
+## 10. Bloc prêt à coller dans `CLAUDE.md`
+
+`CLAUDE.md` est protégé par Hermes côté worker : le bloc est livré ici et dans la description de la
+MR, à coller par l'opérateur, de préférence à la suite du paragraphe sur les paquets sans charge
+utile de `## Protocol fundamentals` :
 
 ```markdown
 `TM_CS_SWAP_EQUIP` (`223`) is a header-only client packet: 7 bytes, no payload, no response.
