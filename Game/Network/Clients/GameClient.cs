@@ -667,6 +667,17 @@ public class GameClient : Client
                 continue;
             }
 
+            // Header-only client packet with no known payload and no response in either reference
+            // implementation. It must still be consumed here, because an id defined in GamePackets
+            // that reaches the final switch below throws "Unknown Packet Type" inside the receive
+            // loop. See docs/packet-specs/223-swap-equip.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_SWAP_EQUIP)
+            {
+                _logger.Debug("TM_CS_SWAP_EQUIP ({id}) Length: {length} received from {clientTag}",
+                    header.ID, header.Length, ClientTag);
+                continue;
+            }
+
             IPacket msg = header.ID switch
             {
                 (ushort)GamePackets.TM_CS_VERSION => new Packet<TM_CS_VERSION>(msgBuffer),

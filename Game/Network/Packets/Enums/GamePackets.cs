@@ -37,6 +37,7 @@ public enum GamePackets : ushort
     TM_CS_ARRANGE_ITEM = 219,
     TM_SC_HAIR_INFO = 220,
     TM_SC_HIDE_EQUIP_INFO = 222,
+    TM_CS_SWAP_EQUIP = 223,
     TM_SC_SKIN_INFO = 224,
     TM_EQUIP_SUMMON = 303,
     TM_CS_SKILL = 400,
