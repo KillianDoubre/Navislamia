@@ -113,12 +113,16 @@ Ce que le serveur Navislamia doit faire :
 1. **Ajouter le membre d'enum** `TM_CS_SWAP_EQUIP = 223` à `GamePackets`
    (`Game/Network/Packets/Enums/GamePackets.cs`, entre `222` et `224`).
 2. **Ajouter la branche correspondante dans la même modification.** Le dispatch
-   de `GameClient` est un enchaînement de `if` terminé par
+   des paquets de jeu est un enchaînement de `if` dans `GameClient` terminé par
    `IPacket msg = header.ID switch { … _ => throw new Exception("Unknown Packet Type") }`
    (`Game/Network/Clients/GameClient.cs:670-682`). Un membre d'enum sans branche
    fait donc **lever une exception dans la boucle de lecture**. Le paquet étendu
    doit être consommé avant ce `switch`, sur le modèle de `TM_CS_LOGOUT`
-   (`GameClient.cs:664-668`) : journaliser puis `continue`.
+   (`GameClient.cs:664-668`) : journaliser puis `continue`. Attention : le
+   registre `GameActions._actions` (`Game/Network/Clients/Actions/GameActions.cs:32,43-50`)
+   ne concerne que les paquets de connexion/lobby et exige un
+   `Packet<T>` désérialisé par le `switch` ; ce n'est pas l'endroit où poser un
+   bras sans charge utile.
 3. **Ne rien répondre.** Aucune des deux références ne répond à 223, et le
    client 7.3 n'a ni nom ni handler pour cet id : un
    `TS_SC_RESULT` tagué 223 serait une invention. Si Killian veut malgré tout
