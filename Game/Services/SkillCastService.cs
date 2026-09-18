@@ -10,6 +10,7 @@ using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.Props;
+using Navislamia.Game.Services.Stats;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -43,6 +44,7 @@ public class SkillCastService : ISkillCastService
     private readonly ILogger _logger = Log.ForContext<SkillCastService>();
     private readonly IBuffCatalog _catalog;
     private readonly IStatService _statService;
+    private readonly IStateCatalog _stateCatalog;
     private readonly MonsterWorldState _monsterState;
     private readonly ICombatService _combatService;
     private readonly IFieldPropCatalog _fieldPropCatalog;
@@ -50,11 +52,13 @@ public class SkillCastService : ISkillCastService
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
-    public SkillCastService(IBuffCatalog catalog, IStatService statService, MonsterWorldState monsterState,
+    public SkillCastService(IBuffCatalog catalog, IStatService statService, IStateCatalog stateCatalog,
+        MonsterWorldState monsterState,
         ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService)
     {
         _catalog = catalog;
         _statService = statService;
+        _stateCatalog = stateCatalog;
         _monsterState = monsterState;
         _combatService = combatService;
         _fieldPropCatalog = fieldPropCatalog;
@@ -155,6 +159,72 @@ public class SkillCastService : ISkillCastService
 
         _logger.Debug("{clientTag} cast {kind} {skillId} level {level}", client.ClientTag, fields.Kind,
             request.SkillId, skillLevel);
+    }
+
+    /// <summary>
+    /// Cancels one of the player's own states on the client's request. The notification is the same
+    /// <c>TM_SC_STATE</c> removal the expiry tick already sends, and an aura is switched off as an aura:
+    /// the toggle group is dropped and <c>TM_SC_AURA</c> goes out at <c>false</c>.
+    /// </summary>
+    /// <remarks>
+    /// Refusals answer a <c>TS_SC_RESULT</c> tagged 408 and change nothing: no packet pairs with this
+    /// request, and nothing establishes how the client 7.3 renders such a result.
+    /// </remarks>
+    public void RemoveState(GameClient client, GameActionPackets.RemoveStateRequest request)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE;
+        var info = client.ConnectionInfo;
+        var handle = info.CharacterHandle;
+
+        ActiveBuff removed;
+        int toggleGroup;
+        ResultCode error;
+
+        // Resolve and mutate under one lock: the expiry tick walks the same list, and the index is only
+        // valid while it is held.
+        lock (info.BuffLock)
+        {
+            if (!StateRemoval.TryResolve(request.Target, handle, request.StateCode, info.ActiveBuffs,
+                    info.ActiveAuras, _stateCatalog.IsEraseOnRequest(request.StateCode), out var plan,
+                    out error))
+            {
+                removed = default;
+                toggleGroup = 0;
+            }
+            else
+            {
+                removed = plan.Buff;
+                toggleGroup = plan.ToggleGroup;
+                info.ActiveBuffs.RemoveAt(plan.Index);
+
+                // One aura per group: cancelling an aura-based state must undo the toggle, not only the icon.
+                if (toggleGroup != 0)
+                {
+                    info.ActiveAuras.Remove(toggleGroup);
+                }
+            }
+        }
+
+        if (error != ResultCode.Success)
+        {
+            _logger.Debug("{clientTag} could not cancel state {stateCode}: {error}", client.ClientTag,
+                request.StateCode, error);
+            client.SendResult(requestId, (ushort)error);
+            return;
+        }
+
+        if (toggleGroup != 0)
+        {
+            client.Connection.Send(GameSkillPackets.BuildAura(handle, (ushort)removed.SkillId, false));
+        }
+
+        client.Connection.Send(GameSkillPackets.BuildStateRemoval(handle, removed.StateHandle,
+            (uint)removed.StateId));
+        SendStatRefresh(client, info);
+        client.SendResult(requestId, (ushort)ResultCode.Success);
+
+        _logger.Debug("{clientTag} cancelled state {stateCode} through the state window", client.ClientTag,
+            request.StateCode);
     }
 
     /// <summary>
