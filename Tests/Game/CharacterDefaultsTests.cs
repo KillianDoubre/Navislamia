@@ -168,6 +168,47 @@ public class CharacterDefaultsTests
         A.CallTo(() => repository.SaveChangesAsync()).MustNotHaveHappened();
     }
 
+    [Test]
+    public async Task CharacterService_RemoveItem_RefusesWhatTheRuleRejectsWithoutTouchingTheStack()
+    {
+        var item = new ItemEntity { Id = 7, Amount = 5, Idx = 1, WearInfo = ItemWearType.Weapon };
+        var (service, repository) = ServiceWithItems(item);
+
+        var removal = await service.RemoveItemAsync("Character", 7,
+            entry => entry.WearInfo == ItemWearType.None ? 1 : 0);
+
+        removal.Item.Should().BeSameAs(item);
+        removal.Removed.Should().Be(0);
+        item.Amount.Should().Be(5);
+        A.CallTo(() => repository.DeleteItem(A<ItemEntity>._)).MustNotHaveHappened();
+        A.CallTo(() => repository.SaveChangesAsync()).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task CharacterService_RemoveItem_TakesTheResolvedUnitsAndDeletesAnEmptiedStack()
+    {
+        var partial = new ItemEntity { Id = 7, Amount = 5, Idx = 1 };
+        var whole = new ItemEntity { Id = 8, Amount = 2, Idx = 2 };
+        var (service, repository) = ServiceWithItems(partial, whole);
+
+        (await service.RemoveItemAsync("Character", 7, _ => 3)).Removed.Should().Be(3);
+        partial.Amount.Should().Be(2);
+
+        (await service.RemoveItemAsync("Character", 8, _ => 9)).Removed.Should().Be(2);
+        A.CallTo(() => repository.DeleteItem(whole)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_RemoveItem_ReportsAnUnknownHandle()
+    {
+        var (service, _) = ServiceWithItems(new ItemEntity { Id = 7, Amount = 1, Idx = 1 });
+
+        var removal = await service.RemoveItemAsync("Character", 99, _ => 1);
+
+        removal.Item.Should().BeNull();
+        removal.Removed.Should().Be(0);
+    }
+
     private static (CharacterService, ICharacterRepository) ServiceWithItems(params ItemEntity[] items)
     {
         var character = new CharacterEntity { CharacterName = "Character", Items = items.ToList() };

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
@@ -91,11 +92,11 @@ public class GroundItemService : IGroundItemService
 
     /// <summary>
     /// <c>TM_CS_DROP_ITEM</c> (203). The item is created at the character's exact position (no
-    /// dispersion, unlike monster drops) and lives as long as a monster drop. The inventory erase runs
-    /// through <see cref="ICharacterService.EraseItemsAsync"/>, the established removal path, which
-    /// clamps the count and reports what it really removed: the ground spawn carries that count and the
-    /// acknowledgement is <c>true</c> only when something was removed. NGemity answers <c>true</c> even
-    /// when its own removal failed — a defect this implementation does not reproduce.
+    /// dispersion, unlike monster drops) and lives as long as a monster drop. The refusals and the clamp
+    /// are judged inside <see cref="ICharacterService.RemoveItemAsync"/>, atomically with the removal,
+    /// which reports what it really removed: the ground spawn and the erase notification carry that
+    /// count and the acknowledgement is <c>true</c> only when something was removed. NGemity answers
+    /// <c>true</c> even when its own removal failed — a defect this implementation does not reproduce.
     /// </summary>
     public async Task DropFromInventoryAsync(GameClient client, uint itemHandle, int count)
     {
@@ -109,48 +110,22 @@ public class GroundItemService : IGroundItemService
 
         try
         {
-            var item = await _characterService.GetItemByHandleAsync(info.CharacterName, itemHandle);
-            if (item is null)
+            // The rules are judged inside the removal, under the database gate, so an equip handled
+            // between a separate read and the erase cannot slip a worn item through.
+            var removal = await _characterService.RemoveItemAsync(info.CharacterName, itemHandle,
+                item => ResolveDropCount(item, count));
+            if (removal.Removed <= 0)
             {
                 SendDropResult(client, itemHandle, false);
                 return;
             }
 
-            if (GroundItemDropRules.IsEquipped(item.WearInfo))
-            {
-                SendDropResult(client, itemHandle, false);
-                return;
-            }
-
-            ItemGroup? group = _itemGroups.TryGetGroup(item.ItemResourceId, out var knownGroup)
-                ? knownGroup
-                : null;
-            if (GroundItemDropRules.IsBoundSummonCard(item.Flag, group))
-            {
-                SendDropResult(client, itemHandle, false);
-                return;
-            }
-
-            var requested = GroundItemDropRules.ResolveDropCount(count, item.Amount);
-            if (requested <= 0)
-            {
-                SendDropResult(client, itemHandle, false);
-                return;
-            }
-
-            var erased = await _characterService.EraseItemsAsync(info.CharacterName,
-                new[] { new GameActionPackets.EraseItemRequest(itemHandle, requested) });
-            if (erased.Count == 0)
-            {
-                SendDropResult(client, itemHandle, false);
-                return;
-            }
-
+            var item = removal.Item;
             var dropped = new GroundItem
             {
                 Handle = WorldObjectHandle.Next(),
                 ItemCode = (int)item.ItemResourceId,
-                Count = erased[0].Count,
+                Count = removal.Removed,
                 X = info.X,
                 Y = info.Y,
                 Z = info.Z,
@@ -165,7 +140,7 @@ public class GroundItemService : IGroundItemService
             var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
             client.Connection.Send(GameSpawnPackets.BuildEnterItem(dropped.Handle, dropped.X, dropped.Y,
                 dropped.Z, dropped.Layer, dropped.ItemCode, dropped.Count, dropTime, dropped.OwnerHandle));
-            client.Connection.Send(GameCharacterPackets.BuildEraseItem(erased));
+            client.Connection.Send(GameCharacterPackets.BuildEraseItem(new[] { (itemHandle, removal.Removed) }));
             SendDropResult(client, itemHandle, true);
 
             _logger.Debug("{clientTag} dropped {count} of item {itemHandle} as ground item {handle}",
@@ -228,6 +203,26 @@ public class GroundItemService : IGroundItemService
                 client.ClientTag);
             client.SendResult(TakeRequestId, (ushort)ResultCode.DBError, 0);
         }
+    }
+
+    /// <summary>
+    /// Units a drop may take off <paramref name="item"/>, or <c>0</c> to refuse: a worn item and a bound
+    /// summon card are refused, a request larger than the stack is clamped.
+    /// </summary>
+    private long ResolveDropCount(ItemEntity item, int requested)
+    {
+        if (GroundItemDropRules.IsEquipped(item.WearInfo))
+        {
+            return 0;
+        }
+
+        ItemGroup? group = _itemGroups.TryGetGroup(item.ItemResourceId, out var knownGroup) ? knownGroup : null;
+        if (GroundItemDropRules.IsBoundSummonCard(item.Flag, group))
+        {
+            return 0;
+        }
+
+        return GroundItemDropRules.ResolveDropCount(requested, item.Amount);
     }
 
     private static void SendDropResult(GameClient client, uint itemHandle, bool isAccepted)

@@ -1150,8 +1150,9 @@ referenced resource tables are still empty.
 - **Réponses** : `TM_SC_DROP_RESULT` (205), **12 octets** — `item_handle` recopié puis `isAccepted`
   `uint8` — précédé en cas de succès de `TM_SC_ENTER` (70 octets, objet au sol, `BuildEnterItem`) puis
   de `TM_SC_ERASE_ITEM` (209, 20 octets pour une paire `handle`/`count`, `BuildEraseItem`). Le retrait
-  passe par `CharacterService.EraseItemsAsync`, qui borne le compte et renvoie ce qui a réellement été
-  retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
+  passe par `CharacterService.RemoveItemAsync`, qui juge les refus et borne le compte **dans la même
+  section exclusive** que le retrait (un équipement traité entre deux ne peut pas s'intercaler), et
+  renvoie ce qui a réellement été retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
   `popItem` a échoué — défaut à ne pas répliquer). Aucun `TS_SC_RESULT` de succès, aucun 254/255.
 - L'objet lâché n'est **visible et ramassable que par le joueur qui l'a lâché** :
   `TakeAsync` exige `ReferenceEquals(item.Owner, client)` et `ConnectionInfo` ne suit aucun objet au

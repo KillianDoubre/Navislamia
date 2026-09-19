@@ -206,7 +206,9 @@ Rien : rzu ne porte aucune logique serveur pour ce paquet (aucune référence ho
    (`GameCharacterPackets.cs:297`) — donc `((uint)item.Flag & 0x80000000u) != 0`. Attention :
    `ItemFlag.None = -1` (`Enums/ItemFlag.cs:5`) et `AddItemAsync` ne pose aucun flag
    (`CharacterService.cs:289-295`) : la garde ne se déclenchera que si le bit est un jour écrit.
-7. **Retrait d'inventaire.** Ne pas réinventer un chemin : réutiliser `CharacterService.EraseItemsAsync`
+7. **Retrait d'inventaire.** *(Implémentation : remplacé par `CharacterService.RemoveItemAsync`, qui
+   partage `RemoveAmount` avec ce chemin mais juge les refus sous le même verrou — voir §7.6.)*
+   Ne pas réinventer un chemin : réutiliser `CharacterService.EraseItemsAsync`
    (`CharacterService.cs:230-270`) avec une `EraseItemRequest(handle, count)` — c'est **le** chemin de
    retrait établi du dépôt (utilisé par `InventoryService.EraseAsync`, `InventoryService.cs:64-86`),
    il borne déjà le compte, gère la pile partielle (`item.Amount -= removed`), supprime l'entité quand
@@ -344,7 +346,10 @@ cette tâche**, et à ne pas maquiller par une diffusion partielle non testable.
    7.3 puisse émettre un 203 sur un objet porté. Décision (Killian) : **refuser** —
    `GroundItemDropRules.IsEquipped(item.WearInfo)` → `205 { handle, 0 }`, avant tout retrait. Sans ce
    refus, la ligne serait supprimée alors que rien sur ce chemin n'envoie 202 ni 287 : le modèle et les
-   stats garderaient l'objet porté jusqu'à la reconnexion. Garde non sourcée, assumée.
+   stats garderaient l'objet porté jusqu'à la reconnexion. Garde non sourcée, assumée. Elle est
+   évaluée par `CharacterService.RemoveItemAsync`, sous le même verrou que le retrait : lire l'objet
+   puis appeler `EraseItemsAsync` laissait un `TS_CS_PUTON_ITEM` (200) s'intercaler entre la
+   vérification et la suppression.
 7. **Refus « état » / « encombrement ».** Aucun `ResultCode` (`NotActable`, `TooHeavy`,
    `NotActableInSecroute`…) n'est fondé pour ce paquet : NGemity ne produit que `isAccepted` 0/1, et le
    205 n'a aucun champ pour un motif. La fiche ne fixe donc aucun motif de refus.
@@ -424,8 +429,9 @@ Deux observations de provenance, à ne pas confondre avec des preuves de protoco
 - **Réponses** : `TM_SC_DROP_RESULT` (205), **12 octets** — `item_handle` recopié puis `isAccepted`
   `uint8` — précédé en cas de succès de `TM_SC_ENTER` (70 octets, objet au sol, `BuildEnterItem`) puis
   de `TM_SC_ERASE_ITEM` (209, 20 octets pour une paire `handle`/`count`, `BuildEraseItem`). Le retrait
-  passe par `CharacterService.EraseItemsAsync`, qui borne le compte et renvoie ce qui a réellement été
-  retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
+  passe par `CharacterService.RemoveItemAsync`, qui juge les refus et borne le compte **dans la même
+  section exclusive** que le retrait (un équipement traité entre deux ne peut pas s'intercaler), et
+  renvoie ce qui a réellement été retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
   `popItem` a échoué — défaut à ne pas répliquer). Aucun `TS_SC_RESULT` de succès, aucun 254/255.
 - L'objet lâché n'est **visible et ramassable que par le joueur qui l'a lâché** :
   `TakeAsync` exige `ReferenceEquals(item.Owner, client)` et `ConnectionInfo` ne suit aucun objet au
