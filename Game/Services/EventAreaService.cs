@@ -155,6 +155,15 @@ public class EventAreaService : IEventAreaService
     /// crossing parity); <c>PolygonF.Contains</c> only compares against the vertices and would answer
     /// "yes" for a point nowhere near the area.
     /// </summary>
-    private static bool IsInside(EventAreaInfo area, ConnectionInfo session) =>
-        area?.Area != null && area.Area.IsIncluded(session.X, session.Y);
+    private static bool IsInside(EventAreaInfo area, ConnectionInfo session)
+    {
+        // ReferenceEquals, not `!= null`: PolygonF overloads == with a body that compares against
+        // null through the same operator, so any `polygon != null` recurses until the stack dies.
+        if (area == null || ReferenceEquals(area.Area, null))
+        {
+            return false;
+        }
+
+        return area.Area.IsIncluded(session.X, session.Y);
+    }
 }
