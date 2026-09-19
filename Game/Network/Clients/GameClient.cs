@@ -687,6 +687,16 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_SC_WEATHER_INFO is a server to client packet: the 7.3 client never sends it. An incoming one
+            // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below — exactly like TM_SC_REGION_ACK above.
+            if (header.ID == (ushort)GamePackets.TM_SC_WEATHER_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_WEATHER_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_ATTACK_REQUEST)
             {
                 HandleAttackRequest(msgBuffer);

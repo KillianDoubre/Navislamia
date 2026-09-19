@@ -494,7 +494,7 @@ Livrée sur `hermes/packet-socle-meteo-monde`, en trois commits : les paquets
 |---|---|
 | `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_WEATHER_INFO = 902` et `TM_CS_GET_WEATHER_INFO = 903` après `TM_CS_CHANGE_LOCATION = 900`. Ni 1902/1903 (§4), ni 901. |
 | `Game/Network/Packets/Game/GameWeatherPackets.cs` | `BuildWeatherInfo` (13 o : `Length` 0, `ID` 4, `Checksum` 6, `region_id` 7, `weather_id` 11) et `TryReadGetWeatherInfo` (11 o exactement, sinon refus). |
-| `Game/Network/Clients/GameClient.cs` | `SendWeatherInfo`, `HandleGetWeatherInfo` et le bras de dispatch `TM_CS_GET_WEATHER_INFO` **avant** le `switch` final. |
+| `Game/Network/Clients/GameClient.cs` | `SendWeatherInfo`, `HandleGetWeatherInfo` et le bras de dispatch `TM_CS_GET_WEATHER_INFO` **avant** le `switch` final, plus un bras « 902 entrante anormale » journalisée et abandonnée (même traitement que `TM_SC_REGION_ACK`) : membre d'énumération montant, la 902 ne peut pas atteindre le `throw` final. |
 | `Game/Network/Clients/Actions/GameActions.cs` | `client.SendWeatherInfo(0, 0)` juste après `SendGameTime()`/`SendTimeSync()` (§5.3.5, rzu). |
 | `Game/Network/Clients/ConnectionInfo.cs` | `CurrentLocationId` (avec `Layer` et les coordonnées), remis à 0 par `ClearCharacterSession`. |
 | `Game/DataAccess/Entities/Arcadia/WorldLocationEntity.cs` | `Id`, `X`, `Y`, `LocationType`, `TimeId`, `WeatherId`, `WeatherRatio`, `WeatherChangeTime` — types de `ArcadiaSchemaPSQL.sql:1674-1687`. |
