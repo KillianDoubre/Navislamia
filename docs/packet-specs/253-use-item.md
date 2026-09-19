@@ -297,11 +297,11 @@ aucune écriture d'état.
 | `Game/Network/Packets/Game/GameActionPackets.cs` | `UseItemRequest(uint ItemHandle, uint TargetHandle)` et `TryReadUseItem` |
 | `Game/Network/Packets/Game/GameCharacterPackets.cs` | `BuildUseItemResult(itemHandle, targetHandle)` : 15 octets |
 | `Game/Network/Clients/GameClient.cs` | `HandleUseItemAsync` + bras de dispatch sur `TM_CS_USE_ITEM` |
-| `Game/Services/ItemUseService.cs`, `Game/Services/Interfaces/IItemUseService.cs` | résolution de l'objet, arbitrage, double réponse |
-| `Game/Services/ItemUseRules.cs` | `CheckUseLevel` : règle de niveau pure |
-| `Game/Services/ItemUseCatalog.cs`, `Game/Services/Interfaces/IItemUseCatalog.cs` | `use_min_level` / `use_max_level` chargés une fois depuis `IItemResourceRepository.GetUseFields()` |
-| `Game/DataAccess/Repositories/ItemResourceRepository.cs` + interface | `ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel)` et `GetUseFields()` |
-| `Game/Services/CharacterService.cs`, `Game/Services/ICharacterService.cs` | `GetItemByHandleAsync(characterName, handle)` : l'objet est cherché **dans les objets du personnage** (la possession est donc prouvée par la résolution) |
+| `Game/Services/ItemUseService.cs`, `Game/Services/Interfaces/IItemUseService.cs` | résolution de l'objet, arbitrage, consommation, réponses |
+| `Game/Services/ItemUseRules.cs` | `CheckUseLevel` : règle de niveau pure ; `IsConsumedOnUse` : tout type sauf `Use` (6) |
+| `Game/Services/ItemUseCatalog.cs`, `Game/Services/Interfaces/IItemUseCatalog.cs` | `use_min_level` / `use_max_level` et le type (réutilisable ou non) chargés une fois depuis `IItemResourceRepository.GetUseFields()` |
+| `Game/DataAccess/Repositories/ItemResourceRepository.cs` + interface | `ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType)` et `GetUseFields()` |
+| `Game/Services/CharacterService.cs`, `Game/Services/ICharacterService.cs` | `GetItemByHandleAsync(characterName, handle)` : l'objet est cherché **dans les objets du personnage** (la possession est donc prouvée par la résolution) ; `ConsumeItemAsync` retire un exemplaire, supprime la ligne au dernier et renvoie le reste |
 | `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | `IItemUseService` et `IItemUseCatalog` enregistrés et injectés |
 | `Tests/Game/UseItemPacketsTests.cs`, `Tests/Game/ItemUseTests.cs` | offsets du paquet et règle de niveau |
 
@@ -324,11 +324,25 @@ Tests : `UseItemIds_MatchTheEpic73Protocol`, `TryReadUseItem_ReadsTheEpic73Layou
 | handle inconnu ou non possédé | `TS_SC_RESULT` (253) `NotExist` | `item_handle` |
 | niveau < `use_min_level` | `TS_SC_RESULT` (253) `LimitMin` | `item_handle` |
 | `use_max_level != 0` et niveau > plafond | `TS_SC_RESULT` (253) `LimitMax` | `item_handle` |
-| succès | `TS_SC_RESULT` (253) `Success` **puis** `TM_SC_USE_ITEM_RESULT` (283) | `item_handle` |
-| erreur de lecture base | `TS_SC_RESULT` (253) `DBError` | `item_handle` |
+| succès, objet consommable | `TM_SC_UPDATE_ITEM_COUNT` (255, reste) **ou** `TM_SC_DESTROY_ITEM` (254, dernier exemplaire), **puis** `TS_SC_RESULT` (253) `Success`, **puis** 283 | `item_handle` |
+| succès, objet réutilisable (type 6) | `TS_SC_RESULT` (253) `Success` **puis** `TM_SC_USE_ITEM_RESULT` (283) | `item_handle` |
+| objet disparu entre lecture et consommation | `TS_SC_RESULT` (253) `NotExist` | `item_handle` |
+| erreur de lecture ou d'écriture base | `TS_SC_RESULT` (253) `DBError` | `item_handle` |
 
 L'ordre des deux trames du succès est celui de NGemity (`WorldSession.cpp:1336`, puis `:1375`) et
 celui du §5.3-6 : l'accusé générique d'abord, le résultat d'utilisation ensuite.
+
+**Consommation.** NGemity retire l'exemplaire dans `Player::UseItem` (`Player.cpp:2179`,
+`EraseItem(pItem, 1)`), donc **avant** le `SendResult` : la mise à jour de pile part en premier.
+`Inventory::Erase` notifie par `TS_SC_DESTROY_ITEM` (254, `item_handle`, 11 octets) quand la pile
+s'épuise, sinon par `TS_SC_UPDATE_ITEM_COUNT` (255, `item_handle` + `count` **int64** depuis
+EPIC_4_1, 19 octets) — formats du rzu (`librzu/src/packets/GameClient/`). Seul `TYPE_USE` (6),
+`ItemBaseType.Use`, est épargné : 404 ressources réutilisables dans les données importées. Une
+ressource absente du catalogue est consommée, le cas par défaut de la référence. L'exception
+NGemity des plumes de retour (`ITEM_CODE_FEATHER_OF_*`, consommées par leur script) n'est pas
+portée, les scripts d'objet n'étant pas exécutés. La suppression passe par
+`ICharacterRepository.DeleteItem` et le sac est renuméroté par `EnsureContiguousIndices`, comme
+pour `TS_CS_ERASE_ITEM` (208).
 
 ### 9.4 Ce qui n'est pas porté, et pourquoi
 
@@ -344,8 +358,8 @@ celui du §5.3-6 : l'accusé générique d'abord, le résultat d'utilisation ens
    état de cool-time d'objet et `TM_SC_ITEM_COOL_TIME` (217) n'est pas émis.
 4. **Niveaux de cible** (`target_min_level` / `target_max_level`) et résolution générique de la
    cible : §6 et §7-7.
-5. **Effets** (`base_type` / `opt_type`), **consommation d'un exemplaire** et écriture d'état :
-   hors périmètre §5.3-8.
+5. **Effets** (`base_type` / `opt_type`) et écriture d'état : hors périmètre §5.3-8. La
+   consommation d'un exemplaire, elle, est portée (§9.3).
 6. **`ItemUseFlag`** : jamais lu (§7-6), la valeur réellement importée n'étant pas documentée.
 
 ### 9.5 Réserves
@@ -398,8 +412,9 @@ Soit `366 + 12` tests : le compte ne baisse pas.
   Ne jamais l'utiliser comme masque binaire sans arbitrage.
 - Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
   (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
-- Les effets de l'objet, la consommation d'un exemplaire et l'état ne sont pas touchés : le paquet
-  est lu, jugé, répondu.
+- Un succès consomme un exemplaire, sauf pour le type `Use` (6, réutilisable) : `TM_SC_UPDATE_ITEM_COUNT`
+  (255, count int64) ou `TM_SC_DESTROY_ITEM` (254) au dernier, envoyé **avant** le `TS_SC_RESULT`
+  comme dans NGemity `Player::UseItem`. Les effets de l'objet ne sont pas appliqués.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 ```
 

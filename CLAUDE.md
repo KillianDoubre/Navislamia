@@ -1129,3 +1129,21 @@ referenced resource tables are still empty.
 - Keep resource queries no-tracking and project only fields required at runtime.
 - Add tests for packet offsets, encodings, spatial boundaries and spawn expansion.
 - Do not edit generated EF migration designer files manually unless the migration itself changes.
+
+### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
+
+- Trame cliente de **47** octets : en-tête 7, `item_handle` à 7, `target_handle` à 11,
+  `szParameter` sur 32 octets à 15. Le paramètre est consommé pour sa taille seulement : son
+  contenu n'est pas établi.
+- Réponse en **deux** trames, dans cet ordre : `TS_SC_RESULT` (253, `Success`, `item_handle`) puis
+  `TM_SC_USE_ITEM_RESULT` (283), qui réémet les deux handles.
+- Seul le niveau de l'objet est jugé : `use_min_level` → `LimitMin`, `use_max_level` → `LimitMax`,
+  le plafond testé avant le plancher comme dans NGemity `Player::IsUseableItem`. Un handle inconnu
+  ou non possédé donne `NotExist`.
+- `ItemUseFlag` n'est pas lu : la valeur réellement importée n'est pas documentée dans le dépôt.
+  Ne jamais l'utiliser comme masque binaire sans arbitrage.
+- Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
+  (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
+- Les effets de l'objet, la consommation d'un exemplaire et l'état ne sont pas touchés : le paquet
+  est lu, jugé, répondu.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
