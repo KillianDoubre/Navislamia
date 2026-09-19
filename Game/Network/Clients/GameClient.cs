@@ -667,6 +667,22 @@ public class GameClient : Client
                 continue;
             }
 
+            // Client anti-cheat datagram (54). The operational disposition is still open — verify,
+            // record, ignore or refuse — so this arm only makes the datagram observable: it never
+            // answers, validates or disconnects. It is deliberately kept out of the
+            // TM_CS_UPDATE/TM_CS_MONSTER_RECOGNIZE/TM_CS_QUERY group above, which is a disposition
+            // already settled ("valid, no reply expected") that does not apply here.
+            // See docs/packet-specs/socle-anti-triche.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_ANTI_HACK)
+            {
+                GameAntiHackPackets.TryReadAntiHack(msgBuffer, out var declaredAntiHackLength);
+
+                _logger.Debug(
+                    "TM_CS_ANTI_HACK ({id}) Length: {length} nLength: {nLength} received from {clientTag}",
+                    header.ID, header.Length, declaredAntiHackLength, ClientTag);
+                continue;
+            }
+
             IPacket msg = header.ID switch
             {
                 (ushort)GamePackets.TM_CS_VERSION => new Packet<TM_CS_VERSION>(msgBuffer),
