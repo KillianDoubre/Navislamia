@@ -371,6 +371,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandlePutonItemSetAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadPutonItemSet(packet, out var handles))
+        {
+            SendResult((ushort)GamePackets.TM_CS_PUTON_ITEM_SET, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.EquipmentService.EquipSetAsync(this, handles);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process equipment set for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleArrangeItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadArrangeItem(packet, out var isStorage))
@@ -666,6 +684,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_PUTOFF_ITEM)
             {
                 _ = HandlePutoffItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_PUTON_ITEM_SET)
+            {
+                _ = HandlePutonItemSetAsync(msgBuffer);
                 continue;
             }
 

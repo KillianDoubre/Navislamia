@@ -19,6 +19,13 @@ public readonly record struct ItemGroupFields(int Id, ItemGroup Group);
 
 public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType);
 
+/// <summary>
+/// The wear slot an item resource belongs to (<c>wear_type</c> column of the <c>ItemResource</c>
+/// table), the only way to know where <c>TM_CS_PUTON_ITEM_SET</c> (281) must place a handle: that
+/// request carries no position.
+/// </summary>
+public readonly record struct ItemWearFields(int Id, ItemWearType WearType);
+
 public interface IItemResourceRepository
 {
     IReadOnlyList<ItemSortFields> GetSortFields();
@@ -28,4 +35,6 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemGroupFields> GetGroupFields();
 
     IReadOnlyList<ItemUseFields> GetUseFields();
+
+    IReadOnlyList<ItemWearFields> GetWearFields();
 }
