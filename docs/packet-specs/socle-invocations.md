@@ -576,11 +576,18 @@ figure annoncé au §8 ; le livrable utile est le layout vérifié, pas un handl
 ### 9.5 Énumération et dispatch
 
 Les sept ids ajoutés sont **strictement S→C**. Aucun bras n'a été ajouté au `switch` final de
-`GameClient.cs:670-686`, et il ne faut pas en inventer : ce `switch` ne voit que ce que le client
+`GameClient.cs:670-682`, et il ne faut pas en inventer : ce `switch` ne voit que ce que le client
 envoie, donc aucun de ces membres ne peut atteindre
-`_ => throw new Exception("Unknown Packet Type")`. La règle « énumération et dispatch dans le
-même changement » vise les paquets **traités en réception** (`CLAUDE.md`, *Change guidelines*).
-303 reste le seul id de la famille employé dans les deux sens, et il n'est pas touché ici.
+`_ => throw new Exception("Unknown Packet Type")`. La règle « énumération et dispatch dans le même
+changement » vise les paquets **traités en réception** (`CLAUDE.md`, *Change guidelines*) : elle
+n'impose pas d'inventer une trame C→S pour un id que le serveur ne fait qu'émettre.
+
+C'est déjà la convention du dépôt, et c'est mesurable : `GamePackets` compte 80 membres, 44 sont
+référencés par la chaîne de réception (`GameClient.cs` + `GameActions.cs`), et **28 membres
+`TM_SC_*` antérieurs à ce lot n'ont aucun bras** (`TM_SC_SKIN_INFO` 224, `TM_SC_HAIR_INFO` 220,
+`TM_SC_ITEM_WEAR_INFO` 287, `TM_SC_CHAT` 22, `TM_SC_WARP` 12, `TM_SC_PROPERTY` 507… ). Ce lot
+porte ce total de 28 à 35 sans changer la règle. 303 reste le seul id de la famille employé dans
+les deux sens, et il n'est pas touché ici.
 
 Un test garde la propriété qui compte pour ce `switch` : **aucune valeur de `GamePackets` n'est
 dupliquée**. L'énumération est projetée en `ushort` ; deux noms sur la même valeur feraient
