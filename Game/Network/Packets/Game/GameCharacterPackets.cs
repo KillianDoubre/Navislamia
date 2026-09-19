@@ -170,6 +170,20 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    /// <summary>
+    /// <c>TS_SC_DROP_RESULT</c> (205): the inventory handle from the request, echoed even when it is
+    /// unknown, then a single byte saying whether anything was dropped. NGemity sends nothing else on
+    /// a refusal, so a refusal is this frame alone.
+    /// </summary>
+    public static byte[] BuildDropResult(uint itemHandle, bool isAccepted)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_DROP_RESULT, HeaderSize + 4 + 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        packet[HeaderSize + 4] = (byte)(isAccepted ? 1 : 0);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildDestroyItem(uint itemHandle)
     {
         var packet = CreatePacket(GamePackets.TM_SC_DESTROY_ITEM, HeaderSize + 4);

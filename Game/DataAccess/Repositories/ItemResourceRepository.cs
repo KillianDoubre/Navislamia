@@ -32,6 +32,14 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<ItemGroupFields> GetGroupFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemGroupFields((int)item.Id, item.Group))
+            .ToList();
+    }
+
     public IReadOnlyList<ItemUseFields> GetUseFields()
     {
         return _context.ItemResources

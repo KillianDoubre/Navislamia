@@ -425,6 +425,25 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleDropItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadDropItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_DROP_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.GroundItemService.DropFromInventoryAsync(this, request.ItemHandle,
+                request.Count);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process drop item for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleChangeItemPositionAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadChangeItemPosition(packet, out var request))
@@ -665,6 +684,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_TAKE_ITEM)
             {
                 _ = HandleTakeItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_DROP_ITEM)
+            {
+                _ = HandleDropItemAsync(msgBuffer);
                 continue;
             }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
@@ -38,6 +39,14 @@ public interface ICharacterService
     /// none of the character's items.
     /// </summary>
     Task<long?> ConsumeItemAsync(string characterName, uint itemHandle, long count);
+
+    /// <summary>
+    /// Resolves one of the character's items and removes the units <paramref name="resolveCount"/>
+    /// returns for it, both inside the database gate: a rule judged by <paramref name="resolveCount"/>
+    /// cannot be invalidated by a packet handled in between (an equip racing a drop). A count of zero or
+    /// less refuses. <see cref="ItemRemoval.Item"/> is <c>null</c> for an unknown handle.
+    /// </summary>
+    Task<ItemRemoval> RemoveItemAsync(string characterName, uint itemHandle, Func<ItemEntity, long> resolveCount);
 
     Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2);
 

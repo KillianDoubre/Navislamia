@@ -47,6 +47,27 @@ public static class GameActionPackets
 
     public readonly record struct EraseItemRequest(uint ItemHandle, long Count);
 
+    /// <summary>
+    /// <c>TS_CS_DROP_ITEM</c> (203), the Epic 7.3 form: an inventory handle then a signed unit count.
+    /// No position is carried — the reference server relocates the dropped item on the character.
+    /// </summary>
+    public readonly record struct DropItemRequest(uint ItemHandle, int Count);
+
+    public static bool TryReadDropItem(ReadOnlySpan<byte> packet, out DropItemRequest request)
+    {
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new DropItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
+    }
+
     public static bool TryReadEraseItem(ReadOnlySpan<byte> packet, out EraseItemRequest[] requests)
     {
         const int recordSize = 12;

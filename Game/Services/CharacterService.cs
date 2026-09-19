@@ -285,6 +285,31 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<ItemRemoval> RemoveItemAsync(string characterName, uint itemHandle,
+        Func<ItemEntity, long> resolveCount)
+    {
+        return RunExclusiveAsync(async () =>
+        {
+            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var item = FindByHandle(character?.Items, itemHandle);
+            if (item is null)
+            {
+                return new ItemRemoval(null, 0);
+            }
+
+            var count = resolveCount(item);
+            if (count <= 0)
+            {
+                return new ItemRemoval(item, 0);
+            }
+
+            var removed = RemoveAmount(character, item, count);
+            InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
+            await _characterRepository.SaveChangesAsync();
+            return new ItemRemoval(item, removed);
+        });
+    }
+
     /// <summary>
     /// Takes up to <paramref name="count"/> units off a stack and returns how many were taken. A stack
     /// that runs out is deleted through the repository: removing it from <c>character.Items</c> alone
