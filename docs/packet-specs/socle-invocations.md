@@ -9,6 +9,13 @@ Branche : `hermes/packet-socle-invocations`, créée depuis `master` = `b402e9c`
 Aucun code serveur modifié par cette fiche. Aucun binaire client exécuté : la lecture du
 client se limite à `strings` sur `SFrame.exe` et aux `db_*.rdb` déjà extraits.
 
+> **Mise à jour `navis-dev`** (même branche) : l'étape 1 du §8 est implémentée dans
+> `Game/Network/Packets/Game/GameSummonPackets.cs`, `Game/Network/Packets/Enums/GamePackets.cs`
+> et `Tests/Game/GameSummonPacketsTests.cs` ; voir §9. **Aucune émission n'est câblée** :
+> l'étape 2 du §8 reste soumise à l'arbitrage de Killian, donc les constructeurs du §9
+> n'ont pas encore d'appelant.
+
+
 Sources épinglées (§8) : `rzu` `87c1e83bf84efe29bb6405e8e6da80349712f3fa`,
 `ngemity` `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` (`reference/commits.json`).
 
@@ -458,6 +465,12 @@ Le point qui n'est **pas** tranchable ici : `code` (`int32`, `TS_SC_ADD_SUMMON_I
 NGemity y met `pSummon->GetSummonCode()` (`Messages.cpp:107`), dont la source n'est pas
 `SummonResourceId` avec certitude. **Question ouverte 4 ci-dessous.**
 
+**Statut au terme de la tâche `navis-dev`** : les points **1 et 3 sont implémentés** (§9).
+Le point **2 ne l'est pas** : sa seule consommatrice est l'étape 2, non autorisée, et la
+résolution de `SummonSlotItemIds` exigerait de trancher la nature de ce tableau
+(`CharacterEntity.cs:63`, « item id or item resource id »). Écrire la requête maintenant
+serait une lecture de table jamais peuplée sur une sémantique non établie.
+
 ### Étape 2 — conditionnée à un arbitrage
 
 **Émettre 301 au login pour chaque invocation déjà enregistrée**, comme la référence
@@ -488,6 +501,97 @@ réduit à **une étape sans arbitrage (constructeurs + lecture + mapping)** et 
 conditionnée (émission au login)**. Toute implémentation qui irait au-delà choisirait à la
 place de Killian quand une invocation existe, combien de temps elle reste et ce qu'elle
 devient à la mort du maître.
+
+---
+
+## 9. Implémentation du socle (`navis-dev`)
+
+Branche `hermes/packet-socle-invocations`. Aucune décision de jeu n'y est prise : les
+constructeurs encodent le fil, ils ne choisissent ni le moment, ni la durée, ni le coût d'une
+émission.
+
+### 9.1 Ce qui a été écrit
+
+| Fichier | contenu |
+|---|---|
+| `Game/Network/Packets/Game/GameSummonPackets.cs` | constructeurs S→C 301, 302, 305, 306, 307, 320, 321 |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_ADD_SUMMON_INFO` (301), `TM_SC_REMOVE_SUMMON_INFO` (302), `TM_SC_UNSUMMON` (305), `TM_SC_UNSUMMON_NOTICE` (306), `TM_SC_SUMMON_EVOLUTION` (307), `TM_SC_MOUNT_SUMMON` (320), `TM_SC_UNMOUNT_SUMMON` (321) |
+| `Tests/Game/GameSummonPacketsTests.cs` | 15 tests d'offsets |
+
+Tailles produites, chacune **mesurée par un test** :
+
+| id | constructeur | charge utile | **total** |
+|---|---|---|---|
+| 301 | `BuildAddSummonInfo` | 39 | **46** |
+| 302 | `BuildRemoveSummonInfo` | 4 | **11** |
+| 305 | `BuildUnsummon` | 4 | **11** |
+| 306 | `BuildUnsummonNotice` | 8 | **15** |
+| 307 | `BuildSummonEvolution` | 31 | **38** |
+| 320 | `BuildMountSummon` | 17 | **24** |
+| 321 | `BuildUnmountSummon` | 9 | **16** |
+
+Ces sept totaux sont identiques à ceux du §1 : aucun écart entre la fiche et le code.
+
+### 9.2 Les décisions de version, appliquées telles quelles
+
+- **Ids à trois chiffres** (§4.1) : 301, 302, 305, 306, 307, 320, 321. Les variantes 13xx
+  d'Epic 9.6.3 ne sont pas dans l'énumération.
+- **`name` en 19 octets** (§4.2) : `GameSummonPackets.NameSize = 19`. Le tampon est écrit en
+  ASCII, tronqué à 18 caractères et complété par des zéros, comme `MessageBuffer::writeString`
+  (`rzu/librzu/src/lib/Packet/MessageBuffer.cpp:87-94`).
+- **`bool` sur un octet** (§4.5) : `success` de 320 est écrit `0`/`1` dans un seul octet, ce qui
+  est ce qui donne 17 octets de charge utile ; `sizeof(bool) == 1` côté rzu
+  (`PacketDeclaration.h:72-76`).
+- **`unsummon_duration` en `ar_time_t`** (`GameTypes.h:44`) : `uint32`, en ticks de 10 ms. Le
+  constructeur prend des ticks et ne convertit rien — `ServerClock.TicksPerSecond` reste le
+  seul endroit qui sache qu'un tick vaut 10 ms.
+- Aucun autre champ de ces sept paquets n'est gaté par version : `code`, `level`, `sp`, `flag`,
+  `success`, `x`, `y` gardent la largeur du §3.
+
+### 9.3 `code` et `summon_handle` restent fournis par l'appelant
+
+`BuildAddSummonInfo(SummonEntity summon, uint summonHandle, int code)` applique le mapping du
+point 3 de l'étape 1 (`card_handle` ← `CardItemId`, `name` ← `Name`, `level` ← `Lv`,
+`sp` ← `Sp`) et laisse **deux** paramètres au décideur :
+
+- `code` : la source de ce champ n'est pas établie (`NON ÉTABLI` 4). Le constructeur ne
+  substitue aucune valeur par défaut, et un test vérifie que l'entier reçu est écrit tel quel.
+- `summon_handle` : un handle identifie une invocation **dans le monde**, et aucune n'y entre
+  (`NON ÉTABLI` 8). Le constructeur ne fabrique pas d'identité.
+
+Le cast `(uint)summon.CardItemId` est une troncature assumée (`ar_handle_t` = 32 bits,
+`CardItemId` = `long`) ; un test l'épingle.
+
+### 9.4 Aucune émission câblée, et pourquoi
+
+Aucun appelant n'existe : l'étape 2 du §8 (émettre 301 au login) est explicitement soumise à
+l'arbitrage de Killian et n'est pas implémentée. 305, 306, 307, 320 et 321 supposent en plus une
+invocation dans le monde, une politique de délai de renvoi, un barème d'évolution et une règle
+de monture qui ne sont tranchés nulle part. Écrire l'un de ces appelants aurait choisi à la
+place de Killian, ce que la carte interdit.
+
+Conséquence assumée : ces constructeurs sont du code **testé mais non appelé**. C'est le cas de
+figure annoncé au §8 ; le livrable utile est le layout vérifié, pas un handler inventé.
+
+### 9.5 Énumération et dispatch
+
+Les sept ids ajoutés sont **strictement S→C**. Aucun bras n'a été ajouté au `switch` final de
+`GameClient.cs:670-686`, et il ne faut pas en inventer : ce `switch` ne voit que ce que le client
+envoie, donc aucun de ces membres ne peut atteindre
+`_ => throw new Exception("Unknown Packet Type")`. La règle « énumération et dispatch dans le
+même changement » vise les paquets **traités en réception** (`CLAUDE.md`, *Change guidelines*).
+303 reste le seul id de la famille employé dans les deux sens, et il n'est pas touché ici.
+
+Un test garde la propriété qui compte pour ce `switch` : **aucune valeur de `GamePackets` n'est
+dupliquée**. L'énumération est projetée en `ushort` ; deux noms sur la même valeur feraient
+disparaître un bras sans bruit.
+
+### 9.6 Vérifications exécutées
+
+| Commande | code de sortie | résultat |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` | 0 | 0 erreur |
+| `dotnet test Tests/Tests.csproj` | 0 | **381 réussis, 0 échec** (366 avant ce lot, +15) |
 
 ---
 
@@ -535,8 +639,15 @@ devient à la mort du maître.
 
 - **L'étape 2 du §8** : autoriser l'émission de `TM_SC_ADD_SUMMON_INFO (301)` au login pour
   les invocations déjà enregistrées, ce qui élargit le bootstrap de personnage
-  (`CLAUDE.md:118`) et change ce que le client voit à l'entrée en jeu. Si c'est refusé,
-  l'étape 1 n'a aucun appelant et le livrable du dev se limite au constat.
+  (`CLAUDE.md:118`) et change ce que le client voit à l'entrée en jeu. L'étape 1 est
+  implémentée et testée (§9) mais **sans appelant** tant que cette question n'est pas
+  tranchée : le lot est du code mort en l'état, assumé comme tel.
+- **Le point 2 de l'étape 1** (lecture en base d'un personnage et de ses invocations, §9.4) n'est
+  pas implémenté. Sa seule consommatrice est l'étape 2, et `SummonSlotItemIds` n'a pas de
+  sémantique tranchée. À décider : implémenter la requête dès maintenant, ou attendre l'étape 2.
+- **`code` de 301 et `summon_handle`** : les deux seuls paramètres que les constructeurs
+  laissent à l'appelant (§9.3). Le premier attend la réponse à la question ouverte 4, le second
+  suppose une entrée de l'invocation dans le monde (`NON ÉTABLI` 8).
 - **La nature de `SummonSlotItemIds`** (« item id or item resource id », `CharacterEntity.cs:63`) :
   le champ n'est alimenté nulle part aujourd'hui, donc `BuildEquipSummon` envoie six zéros et
   `MainSummonId` / `SubSummonId` ne sont jamais renseignés. Quelle est la source de vérité
@@ -563,6 +674,7 @@ devient à la mort du maître.
 | `rzu` (glandu2/rzu) | `87c1e83bf84efe29bb6405e8e6da80349712f3fa` | `reference/commits.json` |
 | `ngemity` (NGemity/RZEmulator) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | `reference/commits.json` |
 | Navislamia (base de la branche) | `b402e9c` (« Update md ») | `master` local = `origin/master` |
+| Navislamia (code du socle §9) | `5cfdd64` (« Add the Epic 7.3 summon socle packet builders ») | branche `hermes/packet-socle-invocations` |
 | Client 7.3 `SFrame.exe` | non versionné | `sha256 41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` |
 | Client 7.3 `db_string.rdb` | non versionné | `sha256 4e8e3e06d08391bed554d4520992d3e629713589978b197342091d13b8f299e1` |
 | Client 7.3 `db_summonexp.rdb` | non versionné | `sha256 fe2c0f58afb967fdd941b274d7c716543a7548b82dd4106a6ebc66963be0e07b` |
