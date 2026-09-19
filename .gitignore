@@ -471,7 +471,7 @@ start-server.ps1
 !/docs/world-spawning.md
 !/docs/character-bootstrap.md
 !/docs/npc-dialogs.md
+!/docs/packet-specs/
 DevConsole/appsettings.json
 AuthServer/appsettings.json
 launch-client.ps1
-/tools/provision-navislamia/*
