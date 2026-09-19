@@ -213,8 +213,12 @@ La décision est donc prise ici, et elle est motivée par ce que NavisLamia est 
    n'a aucune source de position indépendante et ne valide pas les déplacements aujourd'hui : accorder
    à 15/16 la même confiance qu'aux paquets de déplacement n'ajoute **aucune** surface de confiance.
 2. **Mais le polygone est déjà chargé côté serveur** (`_eventAreaInfo`, `MapService.cs:256-292`) et
-   `PolygonF.Contains` existe (`PolygonF.cs:136`). Le contrôle d'appartenance coûte un test de point
-   dans un polygone et transforme un indice client en fait vérifié serveur.
+   `PolygonF.IsIncluded` (`PolygonF.cs:156`) est le test d'appartenance du moteur. Le contrôle
+   d'appartenance coûte un test de point dans un polygone et transforme un indice client en fait
+   vérifié serveur. *Note de livraison* : `PolygonF.Contains` (`PolygonF.cs:136`), cité dans la
+   première rédaction de cette fiche, n'est **pas** un test d'appartenance — c'est une comparaison à la
+   liste des sommets (`_points.Any(t => t == pt)`), qui plus est dégradée en comparaison de références
+   faute d'`operator==` sur `PointF`. Voir §15.
 
 Décision retenue, à implémenter par le socle : **le serveur ne fait rien sur la seule foi du paquet.**
 Il l'accepte comme déclencheur, puis :
@@ -375,8 +379,9 @@ validé et observable**, sans rien activer.
      `EventAreaInfo` n'a que `Id` et `Area`, `EventAreaInfo.cs:8-12` ; le socle peut se contenter du
      dictionnaire global + test d'appartenance, et documenter la limite en réserve) ;
    - `EventAreaService` (interface + implémentation) qui reçoit `(GameClient, EventAreaRequest, bool
-     isEnter)`, applique §5.3 (existence de la zone, test `PolygonF.Contains` `PolygonF.cs:136` sur
-     `ConnectionInfo.X`/`Y`, idempotence via `CurrentEventAreaId`) et journalise ;
+     isEnter)`, applique §5.3 (existence de la zone, test `PolygonF.IsIncluded` — et non `Contains`,
+     voir §5.3 et §15 — sur `ConnectionInfo.X`/`Y`, idempotence via `CurrentEventAreaId`) et
+     journalise ;
    - détection serveur aux trois points de changement de position (`GameClient.cs:117`, `:151`,
      `:160`) : c'est ce qui rend le socle indépendant de l'émission client (§5.3 dernière puce).
 6. **Tests** — `Tests/...` (le dépôt compte 366 tests, plancher) :
@@ -509,6 +514,12 @@ ne doit rien combler par supposition.
 4. **Ordre de fusion** (§9) : `hermes/packet-socle-mort-respawn` touche déjà `GamePackets.cs`,
    `GameClient.cs`, `ConnectionInfo.cs`, `GameActions.cs`. Le dev de ce socle partira de `master` ; si
    Killian merge d'abord l'autre socle, il faudra rebaser.
+5. **Corrections de portage dans `Game/Maps/X2D/LineF.cs`** (§15) : deux erreurs de comparaison dans
+   `IntersectCcw` rendaient `PolygonF.IsIncluded` faux pour tout point intérieur. Elles sont corrigées
+   d'après NGemity, mais elles touchent de la géométrie partagée : à confirmer comme faisant partie de
+   cette carte, ou à extraire dans une carte dédiée.
+6. **Détection après un warp** (§15, réserve 4) : `WarpService` n'appelle pas la détection ; une entrée
+   de zone par warp n'est vue qu'à la mise à jour de position suivante. À confirmer comme suffisant.
 
 ## 12. Bloc destiné à `CLAUDE.md` (à coller par Killian)
 
@@ -526,9 +537,20 @@ location/attribute files) and has compiled enter/leave notifications for them, b
 proves that the Epic 7.3 client actually emits 15 or 16**; the client's packet name table has no name
 for any id in 14..19. Treat these packets as a redundant trigger, never as the only one: the server
 already loads the same polygons (`MapService._eventAreaInfo`, `.nfe`, read as id + polygon list only)
-and knows the session position, so it must check containment itself (`PolygonF.Contains`) instead of
-trusting the claim. The packet is 15 bytes: header (7) + `event_area_id` (int32, offset 7) +
-`area_index` (int32, offset 11).
+and knows the session position, so it checks containment itself instead of trusting the claim.
+`EventAreaService` (`Game/Services/EventAreaService.cs`) does it, from the two dispatch branches in
+`GameClient.OnDataReceived` *and* from every position change (move request, region update, change of
+location); the packet is 15 bytes: header (7) + `event_area_id` (int32, offset 7) + `area_index`
+(int32, offset 11).
+
+Containment is `PolygonF.IsIncluded` (`Game/Maps/X2D/PolygonF.cs`, bounding box + crossing parity),
+**not** `PolygonF.Contains`, which only compares against the vertex list. Two port errors in
+`LineF.IntersectCcw` made `IsIncluded` answer `false` for every point inside any polygon and had to be
+fixed against NGemity (`src/X2D/Linef.cpp`): the crossing test compared `ccw123` against itself instead
+of `ccw124`, and the Y precheck compared `l2MinY` against its own maximum instead of `l1MaxY`. Also
+`PointF` has no value equality, so the reference's "point equals a vertex" shortcut never fires on a
+zone corner; and `new PolygonF(BoxF)` throws `NullReferenceException` because it calls `Set` on the null
+elements of a `PointF[]` (dead code path today, `MapService` only clones polygons).
 
 Neither rzu nor NGemity has any server packet for event areas, and NGemity has no handler at all
 (15/16 fall into its "unknown packet" debug log). The server therefore sends **nothing** back.
@@ -558,7 +580,8 @@ The full spec (offsets, sources, version gating, NGemity deltas, scope, open que
 ## 14. Note de livraison
 
 - Livrable : cette fiche (`docs/packet-specs/socle-zones-evenement.md`) et l'exception `.gitignore`
-  reprise telle quelle (§9). **Aucun fichier de code n'est modifié par cette tâche.**
+  reprise telle quelle (§9). **Aucun fichier de code n'est modifié par cette tâche**
+  *(constat de la tâche d'archéologie ; la livraison de code est en §15)*.
 - Rien n'a été poussé : ni `push`, ni MR (`navis-qa` publie).
 - Aucun serveur, aucune base PostgreSQL, aucun client lancé : les relevés client sont des lectures
   statiques (`strings`, en-têtes de sections `objdump -h`, extraction de paires
@@ -566,3 +589,101 @@ The full spec (offsets, sources, version gating, NGemity deltas, scope, open que
 - Réserve de méthode : les relevés client sont des **lectures statiques** ; ils établissent la présence
   d'un artefact, pas l'exécution d'un chemin d'appel. Toutes les fois où cette limite compte, la fiche
   le dit (§2.3, §10 item 1).
+
+## 15. Livraison du socle (navis-dev)
+
+Branche `hermes/packet-socle-zones-evenement`, poursuivie depuis le commit de la fiche. Commits de
+code : `3e0e156` (le socle) puis `f89e555` (les tests et les deux corrections de portage de `LineF`).
+Rien n'est poussé, aucune MR (c'est `navis-qa` qui publie).
+
+### Ce qui est livré
+
+| Fichier | Rôle |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_ENTER_EVENT_AREA = 15`, `TM_CS_LEAVE_EVENT_AREA = 16` |
+| `Game/Network/Packets/Game/GameEventAreaPackets.cs` | `EventAreaRequest(EventAreaId, AreaIndex)` et `TryReadEventAreaRequest`, longueur exigée exactement 15 |
+| `Game/Services/EventAreaRules.cs` | table de décision pure `Resolve(isEnter, inside, isCurrentArea)` → `None` / `Ignored` / `Entered` / `Left` |
+| `Game/Services/EventAreaService.cs` + `Game/Services/Interfaces/IEventAreaService.cs` | le service : existence de la zone, appartenance, idempotence, journalisation |
+| `Game/Network/Clients/GameClient.cs` | deux bras de dispatch et la détection aux trois points de changement de position |
+| `Game/Network/Clients/ConnectionInfo.cs` | `CurrentEventAreaId` (0 = aucune) et sa remise à zéro dans `ClearCharacterSession` |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | injection du service |
+| `Game/Maps/IMapService.cs`, `Game/Maps/MapService.cs` | `TryGetEventArea` et `GetEventAreas` |
+| `Game/Maps/X2D/LineF.cs` | les deux corrections de portage ci-dessous |
+| `Tests/Game/EventAreaTests.cs` | 37 tests |
+
+Décisions d'implémentation, là où la fiche laissait le choix :
+
+1. **Le paquet reste un déclencheur redondant** (§5.3) : la détection serveur tourne de toute façon à
+   chaque changement de position, donc le socle est juste même si le client 7.3 n'émet jamais 15/16.
+2. **`PolygonF.IsIncluded`, pas `PolygonF.Contains`** (§5.3) : `Contains` compare à la liste des
+   sommets — et, `PointF` n'ayant pas d'`operator==`, par référence. Un test épingle la différence
+   (`Contains_IsVertexEqualityAndMustNotBeUsedAsAContainmentTest`).
+3. **Signature du service** : les deux méthodes publiques demandées par la fiche
+   (`HandlePacket(GameClient, ReadOnlySpan<byte>, bool)` et `Refresh(GameClient)`) survivent telles
+   quelles ; elles délèguent à des surcharges prenant `(ConnectionInfo session, string clientTag, …)`,
+   pour que le cœur soit testable sans socket. `GameClient` n'apporte que `ConnectionInfo` et son
+   étiquette de journal.
+4. **Pas de remise à zéro aveugle dans `HandleChangeLocation`** (écart assumé avec §7.1 item 4) : un
+   `Refresh` y décide, comme aux deux autres points de position — un téléport hors zone produit un
+   « sortie », un téléport dans une autre zone un « changement », et un téléport à l'intérieur de la
+   même zone ne produit rien. `Client.Dispose` met déjà `ConnectionInfo = null`, ce qui emporte l'état.
+5. **Accès aux zones** : `TryGetEventArea` sous verrou ; `GetEventAreas()` renvoie un instantané
+   immuable remplacé au chargement (§7.1 item 5 : le dictionnaire est global, `EventAreaInfo` ne porte
+   ni carte ni layer — limite inchangée, et testée).
+
+### Corrections de portage obligatoires dans `Game/Maps/X2D/LineF.cs`
+
+Elles ne sont pas cosmétiques : sans elles, `PolygonF.IsIncluded` répond `false` pour **tout** point à
+l'intérieur d'un polygone (mesuré avant correction sur un carré 0..100 : `IsIncluded(50, 50) == false`).
+
+1. `IntersectCcw` comparait `(int)ccw123 * (int)ccw123 < 0` : le produit d'un nombre par lui-même n'est
+   jamais négatif, donc la branche `INTERSECT` ne pouvait **jamais** se déclencher et le croisement
+   réel tombait dans `SEPERATE`. La référence NGemity compare bien `ccw123` et `ccw124`
+   (`reference/ngemity/Chihiro/src/X2D/Linef.cpp:84`).
+2. Le pré-filtre comparait `l2MinY > l2MaxY` ; la référence teste
+   `std::max(p1.y, p2.y) < std::min(p3.y, p4.y)`, soit `l2MinY > l1MaxY` (`Linef.cpp:49`). `l1MaxY`
+   portait d'ailleurs un commentaire « TODO: unused ? » dans le port : il ne l'est plus.
+
+Portée : `grep` sur `Game/` et `Tests/` ne trouve **aucun** autre appelant de `IntersectCcw`,
+`IsIncluded` ou `IsCollision` — aucun autre système ne peut changer de comportement aujourd'hui, et les
+366 tests antérieurs passent toujours. Deux tests de `EventAreaTests.cs` épinglent ces deux
+comportements, et `PolygonF.IsIncluded` est désormais testé dedans/dehors.
+
+### Tests
+
+`dotnet build Navislamia.sln -c Debug` : 0 erreur. `dotnet test Tests/Tests.csproj` : **403 tests, 0
+échec** (366 avant cette branche, 37 ajoutés). Les tests ajoutés couvrent : les offsets des deux
+paquets (longueur 15, `ID` en 4, `event_area_id` en 7, `area_index` en 11, rejet de 7/14/16 octets),
+l'unicité des ids de `GamePackets`, la présence des deux bras de dispatch **avant** le `switch` final,
+la table de décision complète, l'appartenance polygonale (dedans/dehors/dégénéré/sommet), les cas
+`ENTER`/`LEAVE` vérifiés, mensonges et idempotents, la détection serveur (entrée, sortie, changement de
+zone, hors zone), et la remise à zéro par `ClearCharacterSession`.
+
+Aucun serveur, aucune base PostgreSQL, aucun client n'a été lancé : build et tests seulement.
+
+### Réserves, non tranchées
+
+1. **`PointF` n'a pas d'égalité de valeur** : le raccourci « point = sommet » de `IsIncluded`
+   (`PolygonF.cs:174`) ne se déclenche jamais, donc un personnage exactement sur un **sommet** de zone
+   est lu « dehors ». Corriger demande d'ajouter `operator ==`/`Equals` à `PointF`, ce qui touche
+   `BoxF.Has`, `LineF.Has` et `PolygonF.Contains` : hors périmètre d'un socle paquet.
+2. **Carte/layer absents** (NON ÉTABLI 6) : le socle utilise le dictionnaire global. Un déplacement de
+   plusieurs tuiles est correct, mais un personnage transporté sur une autre carte est lu comme
+   « sortie » de la zone courante (testé : `Refresh_FarFromTheLoadedArea_ReportsALeave`), et une zone
+   de même id sur une autre carte serait confondue avec celle-ci.
+3. **Zones qui se chevauchent** : la détection garde la zone courante tant que la position y est,
+   sinon elle prend la **première** zone trouvée dans l'instantané (ordre du dictionnaire). Aucune
+   priorité n'est attestée dans les références.
+4. **Warp** : `WarpService` écrit `X`/`Y` sans passer par les trois points de détection ; une entrée
+   de zone par warp n'est vue qu'à la mise à jour de position suivante (le client en émet en continu,
+   c'est le mécanisme de visibilité existant). À confirmer comme suffisant, ou à accrocher aussi dans
+   `WarpService`.
+5. **`PolygonF(BoxF)` lève `NullReferenceException`** (`PolygonF.cs:21-30` : `PointF` est une classe,
+   `new PointF[4]` n'est qu'un tableau de références nulles et `pt[0].Set(...)` déréférence `null`).
+   Bug de portage **préexistant**, sans appelant atteint (`MapService` ne passe que des `PolygonF` à ce
+   constructeur) ; signalé parce qu'il se déclenche dès qu'on touche aux polygones.
+6. **Critère 4 vérifié par lecture du source** : la présence des deux bras de dispatch dans
+   `GameClient.cs` est testée en lisant le fichier (aucun socket en test). Ce test devra changer le
+   jour où le dispatch ne sera plus une chaîne de `if`.
+7. Aucun des `NON ÉTABLI` (§10) n'a été deviné : `area_index` est transporté et journalisé sans
+   interprétation, aucune zone n'est activée, aucune réponse serveur n'est émise.
