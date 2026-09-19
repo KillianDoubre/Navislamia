@@ -23,7 +23,7 @@ Résumé des arbitrages demandés :
 | Réponse serveur → client | **11**, `TM_SC_REGION_ACK` | `op_codes.md:14` ; `reference/rzu/librzu/src/packets/GameClient/TS_SC_REGION_ACK.h:12` |
 | Ids alternatifs | `1550` (demande) et `1011` (réponse) à partir d'`EPIC_9_6_3` | `TS_CS_GET_REGION_INFO.h:11` ; `TS_SC_REGION_ACK.h:13` |
 | Référence NGemity | `TS_CS_GET_REGION_INFO = 550`, `TS_SC_REGION_ACK = 11` | `reference/ngemity/shared/Server/ClientPackets.h:159` ; `reference/ngemity/shared/Server/Packets/GameClient/TS_SC_REGION_ACK.h:10` |
-| État dans Navislamia | **absent** : ni 550 ni 11 dans `GamePackets`, aucun handler ; `grep -rn 'GetRegionInfo\|REGION_ACK' --include=*.cs .` → 0 résultat | `Game/Network/Packets/Enums/GamePackets.cs` |
+| État dans Navislamia | **absent** à la date de cette fiche : ni 550 ni 11 dans `GamePackets`, aucun handler ; `grep -rn 'GetRegionInfo\|REGION_ACK' --include=*.cs .` → 0 résultat. **Implémenté depuis** — voir §9 (`45da3e8`) | `Game/Network/Packets/Enums/GamePackets.cs` |
 | Taille demande | **15 octets** (7 + 2 × `float`) | §3.1 |
 | Taille réponse | **15 octets** (7 + 2 × `int32`) | §3.2 |
 
@@ -321,6 +321,184 @@ f. **Le `150` de Navislamia.** `WorldOption.RegionSize = 150` (`WorldOption.cs:1
 | NGemity — import des deux structures (`Network: Rewriting network code`) | `44b7d25dac7a1f869490dc8b6ea3255ea68b8eb4` (2018-08-26) |
 | Navislamia (`master`) | `6d1e9c5d2a344855091606ebed05c613026a61f6` (2026-09-19) |
 | Client — `SFrame.exe` | sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` (9 841 664 o.) |
+
+## 9. Implémentation — navis-dev
+
+Statut : implémenté sur `hermes/packet-550-get-region-info`, commit `45da3e8` (base de la fiche
+`7266078`). Périmètre tenu : membre d'énumération + bras de dispatch, lecture de la 550, calcul des
+indices avec le diviseur annoncé, réponse 11 au seul demandeur. Aucun cache serveur, aucune
+diffusion, aucun `TM_SC_RESULT`, aucun refactoring des paquets voisins.
+
+### 9.1 Checklist de la fiche, satisfaite point par point
+
+- [x] `TM_CS_GET_REGION_INFO = 550` et `TM_SC_REGION_ACK = 11` dans `GamePackets` **et** leurs bras
+      de dispatch, dans le même commit (`45da3e8`) — §5.3.1 et critère transversal n° 4.
+- [x] Demande lue aux offsets 7 (`x`) et 11 (`y`), taille exacte de 15 octets exigée, garde de
+      taille dans le handler — §5.3.5, §5.5.
+- [x] Réponse de 15 octets, `rx` à 7 et `ry` à 11, calculée sur les `float` **de la demande** — §5.2.
+- [x] Diviseur `WorldVisibility.RegionSize` = 180 (la valeur annoncée au login), troncature vers
+      zéro — §5.3.2, §5.2. Le diviseur est lu depuis la constante, jamais recopié en littéral dans
+      le handler, et il est verrouillé par un test (§9.3).
+- [x] Réponse au seul client demandeur, aucune diffusion — §5.3.4.
+- [x] Garde explicite avant l'entrée en jeu : `ConnectionInfo.CharacterHandle == 0` → journal et
+      abandon, sans réponse — §5.5.
+- [x] Tests d'offsets des deux trames, sans baisser le compte de tests (383 → 408) — critère n° 3.
+- [x] Aucun champ `NON ÉTABLI` deviné : les points `a`…`f` du §7 restent ouverts et figurent dans
+      `## A VERIFIER PAR KILLIAN`.
+- [x] Aucun commit sur `master` locale.
+
+### 9.2 Fichiers livrés
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_REGION_ACK = 11` (entre `TM_SC_SET_TIME` 10 et `TM_SC_WARP` 12) et `TM_CS_GET_REGION_INFO = 550` (entre `TM_CS_MONSTER_RECOGNIZE` 517 et `TM_CS_CHANGE_LOCATION` 900) |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `RegionInfoRequest(float X, float Y)` et `TryReadGetRegionInfo(packet, out request)` : les deux `float`, taille exacte exigée |
+| `Game/Network/Packets/Game/GameMovePackets.cs` | `GetRegionIndex(float)` (division par 180, troncature vers zéro) et `BuildRegionAck(rx, ry)` : la trame de 15 octets |
+| `Game/Network/Clients/GameClient.cs` | `HandleGetRegionInfo(buffer)`, le bras `TM_CS_GET_REGION_INFO` et un bras défensif pour un `TM_SC_REGION_ACK` entrant |
+| `Tests/Game/RegionInfoPacketsTests.cs` | offsets des deux trames, garde de taille, diviseur, troncature, aller-retour |
+| `docs/packet-specs/550-get-region-info.md` | cette fiche |
+
+Le bras de dispatch reprend la chaîne existante (`if (header.ID == …) { …; continue; }`, placé juste
+après `TM_CS_REGION_UPDATE`) plutôt que d'entrer dans le `switch` final : il est donc atteint avant
+le `_ => throw new Exception("Unknown Packet Type")`. Enum et dispatch ont été modifiés ensemble,
+comme l'exige le critère n° 4 : un membre ajouté à l'enum sans bras casserait la boucle de réception.
+
+La 11 est un paquet **serveur → client** : le client 7.3 ne l'émet jamais. Pour qu'aucun identifiant
+ajouté par ce lot ne puisse atteindre le `throw` final, un bras explicite journalise (`Warning`) et
+ignore une 11 entrante au lieu de la laisser tomber dans le `switch` par défaut. Ce bras ne traite
+rien : c'est une anomalie de protocole, pas une demande.
+
+Point d'implémentation relevé : la fiche §5.3.2 nomme `WorldVisibility.RegionSize` comme diviseur
+sans dire où loger le calcul. Il a été placé dans `GameMovePackets` (à côté du constructeur de la
+trame, dans le même esprit que `BuildMove`), sous forme de fonction pure, pour qu'un test puisse
+verrouiller **le diviseur et la troncature** sans instancier `GameClient` (qui dépend d'une socket).
+`WorldOption.GetRegionX/GetRegionY` n'a **pas** été réutilisé : il divise par 150, la valeur que la
+fiche écarte.
+
+### 9.3 Offsets livrés et tests
+
+- Demande (`TM_CS_GET_REGION_INFO`, 550) : **15** = 7 (en-tête) + 4 (`x`, `float`, @7) + 4
+  (`y`, `float`, @11). Aucun autre champ.
+- Réponse (`TM_SC_REGION_ACK`, 11) : **15** = 7 + 4 (`rx`, `int32`, @7) + 4 (`ry`, `int32`, @11).
+  Aucun handle, aucun champ après `ry`.
+- `rx = GetRegionIndex(x) = (int)(x / WorldVisibility.RegionSize)`, `ry` de même, avec `x`/`y` lus
+  dans la 550.
+- `Length != 15` (trop courte comme trop longue) : journal `Warning`, aucune trame émise, aucune
+  lecture hors borne.
+- `ConnectionInfo.CharacterHandle == 0` : journal `Warning`, aucune trame émise.
+
+Tests livrés (`RegionInfoPacketsTests`, 25 cas) : `RegionInfoIds_AreTheEpic73Ones` (550 / 11,
+`Enum.IsDefined` sur les deux), `ClientPacket_UsesTheEpic73Layout`,
+`TryReadGetRegionInfo_ReadsTheTwoFloatsAtSevenAndEleven`, `TryReadGetRegionInfo_KeepsFieldOrder`
+(valeurs asymétriques : un échange de champs échoue),
+`TryReadGetRegionInfo_RejectsAnyLengthOtherThanFifteen` (0, 7, 14 et 16 octets),
+`AnswerPacket_LaysOutRxThenRy` (dont un `ry` négatif), `AnswerPacket_HasNoFieldOutsideTheTwoIndices`,
+`GetRegionIndex_DividesByTheAnnouncedRegionSize` (0, 1, 179,99, 180, 359,99, 360, 94500 → 525),
+`GetRegionIndex_TruncatesTowardZeroLikeTheClient` (-0,5, -180, -181, -360),
+`GetRegionIndex_DoesNotUseThePreLoginClientDefault` (170 → région 0 : 1 avec le diviseur 150, donc
+ce test échoue si quelqu'un repasse au 150) et `Answer_CarriesTheIndicesOfThePositionReadInTheRequest`
+(94500/126100 → 525/700 ; origine 0/0 ; -0,5/200 → 0/1).
+
+Les tests échoueraient si la taille, l'ordre ou le diviseur changeaient : ils lisent chaque champ à
+son offset absolu dans la trame produite et comparent à une valeur attendue distincte par champ.
+La constante `WorldVisibility.RegionSize = 180` est elle-même affirmée dans le test de division,
+donc une modification de cette constante fait échouer la suite.
+
+### 9.4 Réponses émises
+
+| Cas | Réponse |
+| --- | --- |
+| 550 de 15 octets, `CharacterHandle != 0` | `TM_SC_REGION_ACK` (11), 15 octets, au seul demandeur |
+| 550 d'une autre longueur | aucune trame, un `Warning` en journal |
+| 550 avant l'entrée dans le monde (`CharacterHandle == 0`) | aucune trame, un `Warning` en journal |
+| 11 entrante (paquet serveur → client) | aucune trame, un `Warning` en journal, boucle de réception préservée |
+
+### 9.5 Ce qui n'est pas porté, et pourquoi
+
+1. **Le push de la 11 au changement de région (comportement NGemity)** : §6. NGemity ne lit jamais
+   la 550 et pousse la 11 depuis `World::enterProc` ; la fiche spécifie une réponse à la demande,
+   qui ne demande au serveur aucune tenue de région. Le push reste hors périmètre.
+2. **Un cache serveur de déduplication** : §6. Le client ne demande qu'au franchissement de
+   frontière ; ajouter un état serveur serait un cache sans usage.
+3. **Clamping de la position hors carte** : §5.5. La fiche demande de rendre la troncature telle
+   quelle ; clamper placerait le client dans une autre région que celle qu'il vient de calculer.
+4. **Toute écriture d'état** : la 550 ne touche ni `ConnectionInfo.X/Y`, ni l'index spatial, ni la
+   base. `SyncVisibleObjects` n'est pas appelé : §5.6 le dit indépendant de cette réponse.
+5. **Les points `a`…`f` du §7** : non tranchés, non devinés, laissés dans
+   `## A VERIFIER PAR KILLIAN`.
+
+### 9.6 Réserves
+
+1. **La nécessité de la 11 n'est pas établie** (§7a). Elle est implémentée comme réponse, sans
+   relance ni push. Si l'absence de réponse s'avérait inoffensive, ce bras resterait simplement
+   inerte — il ne casse rien, la boucle de réception ne lève jamais sur une 550.
+2. **`Length` strictement égal à 15 est un choix de la fiche** (§5.5 : « journaliser et ignorer »).
+   La fiche ne prévoit pas de tolérance pour une 550 plus longue ou plus courte ; aucune n'a été
+   inventée.
+3. **Le diviseur 180 repose sur l'identification du champ `region_size` du login** (§7e), qualifiée
+   de « forte, pas certaine » par la fiche. C'est la valeur annoncée par Navislamia lui-même
+   (`GameActions.cs:128` → `WorldVisibility.RegionSize`), donc serveur et client sont cohérents
+   *si* le client applique bien ce champ. Le point 3 de `## A VERIFIER PAR KILLIAN` le tranche.
+4. **Aucun test automatique ne couvre le bras de dispatch, les deux gardes et l'envoi** :
+   `GameClient` dépend d'une socket et aucun test du dépôt ne l'instancie. Le lien enum ↔ dispatch
+   est tenu par la revue, comme pour 1202, 223 et les lots « socle ». Les fonctions testables
+   (lecture, calcul, construction) le sont, elles.
+5. **Aucune observation réseau** : ni `SFrame.exe`, ni Lua, ni script du client n'ont été lancés ;
+   aucune session de jeu n'a été ouverte (pas de PostgreSQL, pas de serveur démarré). Les tailles
+   et les offsets viennent de la fiche, elle-même adossée au binaire 7.3 et à rzu.
+6. **Périmètre du critère n° 4** : ce lot garantit qu'aucun identifiant qu'**il** ajoute ne peut
+   atteindre le `throw` final (`TM_CS_GET_REGION_INFO` a son bras de traitement, `TM_SC_REGION_ACK`
+   un bras défensif). Les autres membres serveur → client préexistants de `GamePackets`
+   (`TM_SC_RESULT`, `TM_SC_ENTER`, `TM_SC_LOGIN_RESULT`, …) n'ont toujours aucun bras : c'est l'état
+   antérieur du dépôt, hors du périmètre strict de cette fiche (« ne réécris pas les paquets
+   voisins »). Les combler demande un lot dédié.
+
+### 9.7 Vérifications relevées
+
+```
+dotnet build Navislamia.sln -c Debug     → code 0, 0 erreur, 160 avertissements
+dotnet test Tests/Tests.csproj           → code 0, 408 réussis / 408, 0 échec, 0 ignoré
+git log --oneline origin/master..master  → (aucune ligne : aucun commit sur master locale)
+```
+
+Baseline relevée sur la branche avant les modifications : `dotnet build` → code 0, 0 erreur,
+160 avertissements ; `dotnet test` → code 0, **383** tests passés, 0 échec. Soit `383 + 25` : le
+compte ne baisse pas (minimum exigé : 366).
+
+## 10. Bloc prêt à coller dans `CLAUDE.md`
+
+`CLAUDE.md` est protégé par Hermes côté worker : il est livré ici et dans la description de la MR,
+à coller par l'opérateur.
+
+```markdown
+### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
+
+- 7.3 = ids **550** (CS) / **11** (SC) : rzu remappe en 1550/1011 à partir d'`EPIC_9_6_3`
+  (`TS_CS_GET_REGION_INFO.h:9-11`, `TS_SC_REGION_ACK.h:11-13`) ; `EPIC_7_3 = 0x070300` est sous
+  `0x090603`. NGemity compile en `EPIC_4_1_1` et confirme la branche basse.
+- **15 octets des deux côtés** : en-tête 7, `x` (float) @7 et `y` (float) @11 pour la demande
+  (taille confirmée par le constructeur client VA `0x684b60`, `Length = 0xf`) ; `rx` (int32) @7 et
+  `ry` (int32) @11 pour la réponse. Aucun autre champ, aucun handle.
+- Le client 7.3 construit lui-même la 550 dans `SGameWorld::Process`, à chaque **franchissement de
+  frontière de région** — pas à chaque pas : elle n'est pas un flux, et le client ne redemande pas
+  tant que sa paire d'indices n'a pas changé (caches `0xc4f6e0` / `0xc4f6dc`).
+- **Diviseur : `WorldVisibility.RegionSize` (180)**, la valeur annoncée au login dans
+  `TS_SC_LOGIN_RESULT.RegionSize` (`GameActions.cs:128`). **Jamais** `WorldOption.RegionSize`
+  (150) : c'est le défaut pré-login du client (global `.data` `0xc20508`), et l'utiliser fait
+  dériver la fenêtre de visibilité du client d'un facteur 6/5.
+- Division **tronquée vers zéro** (`(int)(x / 180f)`), jamais arrondie ; **ne pas** caster en `uint`
+  (une position négative deviendrait un indice énorme).
+- `rx`/`ry` sont les indices de la grille de régions **du client** (fenêtre 7 × 7, rayon 3), pas des
+  identifiants de bloc terrain. Ils se calculent sur les `float` **reçus dans la 550**, pas sur
+  `ConnectionInfo.X/Y` (qui peut retarder d'un déplacement).
+- Réponse **au seul client demandeur**, jamais diffusée. `Length != 15` → journal + abandon, sans
+  `TM_SC_RESULT` ; `ConnectionInfo.CharacterHandle == 0` → journal + abandon.
+- NGemity ne lit jamais la 550 (`WorldSession.h:59-122`) et pousse la 11 de sa propre initiative
+  depuis `World::enterProc` (`World.cpp:287-302`) : écart assumé, le push reste hors périmètre.
+- Restes ouverts (voir la fiche) : la 11 est-elle indispensable, redemande-t-elle après un warp,
+  150 vs 180, contrôle de taille côté client.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+```
 
 ## A VERIFIER PAR KILLIAN
 
