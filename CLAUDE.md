@@ -1138,6 +1138,36 @@ referenced resource tables are still empty.
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work
 
+## Paquets
+
+### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
+
+- 7.3 = ids **550** (CS) / **11** (SC) : rzu remappe en 1550/1011 à partir d'`EPIC_9_6_3`
+  (`TS_CS_GET_REGION_INFO.h:9-11`, `TS_SC_REGION_ACK.h:11-13`) ; `EPIC_7_3 = 0x070300` est sous
+  `0x090603`. NGemity compile en `EPIC_4_1_1` et confirme la branche basse.
+- **15 octets des deux côtés** : en-tête 7, `x` (float) @7 et `y` (float) @11 pour la demande
+  (taille confirmée par le constructeur client VA `0x684b60`, `Length = 0xf`) ; `rx` (int32) @7 et
+  `ry` (int32) @11 pour la réponse. Aucun autre champ, aucun handle.
+- Le client 7.3 construit lui-même la 550 dans `SGameWorld::Process`, à chaque **franchissement de
+  frontière de région** — pas à chaque pas : elle n'est pas un flux, et le client ne redemande pas
+  tant que sa paire d'indices n'a pas changé (caches `0xc4f6e0` / `0xc4f6dc`).
+- **Diviseur : `WorldVisibility.RegionSize` (180)**, la valeur annoncée au login dans
+  `TS_SC_LOGIN_RESULT.RegionSize` (`GameActions.cs:128`). **Jamais** `WorldOption.RegionSize`
+  (150) : c'est le défaut pré-login du client (global `.data` `0xc20508`), et l'utiliser fait
+  dériver la fenêtre de visibilité du client d'un facteur 6/5.
+- Division **tronquée vers zéro** (`(int)(x / 180f)`), jamais arrondie ; **ne pas** caster en `uint`
+  (une position négative deviendrait un indice énorme).
+- `rx`/`ry` sont les indices de la grille de régions **du client** (fenêtre 7 × 7, rayon 3), pas des
+  identifiants de bloc terrain. Ils se calculent sur les `float` **reçus dans la 550**, pas sur
+  `ConnectionInfo.X/Y` (qui peut retarder d'un déplacement).
+- Réponse **au seul client demandeur**, jamais diffusée. `Length != 15` → journal + abandon, sans
+  `TM_SC_RESULT` ; `ConnectionInfo.CharacterHandle == 0` → journal + abandon.
+- NGemity ne lit jamais la 550 (`WorldSession.h:59-122`) et pousse la 11 de sa propre initiative
+  depuis `World::enterProc` (`World.cpp:287-302`) : écart assumé, le push reste hors périmètre.
+- Restes ouverts (voir la fiche) : la 11 est-elle indispensable, redemande-t-elle après un warp,
+  150 vs 180, contrôle de taille côté client.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.
