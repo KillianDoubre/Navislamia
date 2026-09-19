@@ -14,4 +14,10 @@ public interface IItemUseCatalog
     /// than refuse an item it cannot judge.
     /// </summary>
     bool TryGetLevels(int itemResourceId, out ItemUseLevels levels);
+
+    /// <summary>
+    /// Whether a successful use takes one unit off the stack. Only a reusable resource
+    /// (<c>ItemBaseType.Use</c>) is spared; an unknown resource is consumed, the reference default.
+    /// </summary>
+    bool IsConsumedOnUse(int itemResourceId);
 }

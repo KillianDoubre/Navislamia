@@ -1,3 +1,4 @@
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Network.Packets;
 
 namespace Navislamia.Game.Services;
@@ -20,5 +21,15 @@ public static class ItemUseRules
         }
 
         return levels.MinLevel <= characterLevel ? ResultCode.Success : ResultCode.LimitMin;
+    }
+
+    /// <summary>
+    /// NGemity's <c>Player::UseItem</c> (Player.cpp:2179) erases one unit of every used item except
+    /// <c>TYPE_USE</c> (6), the reusable type — the same value as <see cref="ItemBaseType.Use"/>,
+    /// which holds 404 resources in the imported data.
+    /// </summary>
+    public static bool IsConsumedOnUse(ItemBaseType baseType)
+    {
+        return baseType != ItemBaseType.Use;
     }
 }

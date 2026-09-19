@@ -78,4 +78,29 @@ public class UseItemPacketsTests
 
         packet[6].Should().Be(checksum);
     }
+
+    [Test]
+    public void BuildDestroyItem_LaysOutTheElevenByteNotice()
+    {
+        var packet = GameCharacterPackets.BuildDestroyItem(0x80000123u);
+
+        packet.Length.Should().Be(11);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2))
+            .Should().Be((ushort)GamePackets.TM_SC_DESTROY_ITEM);
+        ((ushort)GamePackets.TM_SC_DESTROY_ITEM).Should().Be(254);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x80000123u);
+    }
+
+    [Test]
+    public void BuildUpdateItemCount_WritesTheCountAsInt64()
+    {
+        var packet = GameCharacterPackets.BuildUpdateItemCount(0x80000123u, 0x1_0000_0002L);
+
+        packet.Length.Should().Be(19);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2))
+            .Should().Be((ushort)GamePackets.TM_SC_UPDATE_ITEM_COUNT);
+        ((ushort)GamePackets.TM_SC_UPDATE_ITEM_COUNT).Should().Be(255);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x80000123u);
+        BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(11, 8)).Should().Be(0x1_0000_0002L);
+    }
 }

@@ -15,7 +15,7 @@ public readonly record struct ItemEffectFields(
     decimal[] OptVar1,
     decimal[] OptVar2);
 
-public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel);
+public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType);
 
 public interface IItemResourceRepository
 {

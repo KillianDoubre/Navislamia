@@ -36,7 +36,8 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
-            .Select(item => new ItemUseFields((int)item.Id, item.UseMinLevel, item.UseMaxLevel))
+            .Select(item => new ItemUseFields((int)item.Id, item.UseMinLevel, item.UseMaxLevel,
+                item.ItemBaseType))
             .ToList();
     }
 }

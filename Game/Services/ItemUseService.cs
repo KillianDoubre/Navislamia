@@ -11,9 +11,8 @@ namespace Navislamia.Game.Services;
 
 /// <summary>
 /// Handles <c>TM_CS_USE_ITEM</c> (253). The scope is the one the fiche fixes: read the frame,
-/// judge the item, answer. The effects of the item (base_type / opt_type) are not applied, the
-/// amount is not consumed and no state is written: those belong to the later milestones of the
-/// item system.
+/// judge the item, consume one unit, answer. The effects of the item (base_type / opt_type) are not
+/// applied yet: they belong to the later milestones of the item system.
 /// </summary>
 public class ItemUseService : IItemUseService
 {
@@ -65,6 +64,35 @@ public class ItemUseService : IItemUseService
                 client.SendResult(UseItemRequestId, (ushort)gate, value);
                 return;
             }
+        }
+
+        // NGemity erases the unit inside Player::UseItem, so the stack update (TS_SC_UPDATE_ITEM_COUNT,
+        // or TS_SC_DESTROY_ITEM for the last unit) leaves before the result.
+        if (_catalog.IsConsumedOnUse((int)item.ItemResourceId))
+        {
+            long? remaining;
+            try
+            {
+                remaining = await _characterService.ConsumeItemAsync(info.CharacterName, request.ItemHandle, 1);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Could not consume item {itemHandle} for {clientTag}",
+                    request.ItemHandle, client.ClientTag);
+                client.SendResult(UseItemRequestId, (ushort)ResultCode.DBError, value);
+                return;
+            }
+
+            // The item can vanish between the read and the consumption (a concurrent erase).
+            if (remaining is null)
+            {
+                client.SendResult(UseItemRequestId, (ushort)ResultCode.NotExist, value);
+                return;
+            }
+
+            client.Connection.Send(remaining == 0
+                ? GameCharacterPackets.BuildDestroyItem(request.ItemHandle)
+                : GameCharacterPackets.BuildUpdateItemCount(request.ItemHandle, remaining.Value));
         }
 
         // A successful use answers twice, in the order of NGemity's WorldSession::onUseItem

@@ -1,5 +1,6 @@
 using FakeItEasy;
 using FluentAssertions;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Services;
@@ -23,7 +24,8 @@ public class ItemUseTests
     [Test]
     public void Catalog_ExposesTheLevelsOfAKnownResource()
     {
-        var catalog = Catalog(new ItemUseFields(240100, 10, 0), new ItemUseFields(240101, 0, 60));
+        var catalog = Catalog(new ItemUseFields(240100, 10, 0, ItemBaseType.Supply),
+            new ItemUseFields(240101, 0, 60, ItemBaseType.Supply));
 
         catalog.TryGetLevels(240100, out var unbound).Should().BeTrue();
         unbound.MinLevel.Should().Be(10);
@@ -37,9 +39,25 @@ public class ItemUseTests
     [Test]
     public void Catalog_LeavesAnUnknownResourceUngated()
     {
-        var catalog = Catalog(new ItemUseFields(240100, 10, 0));
+        var catalog = Catalog(new ItemUseFields(240100, 10, 0, ItemBaseType.Supply));
 
         catalog.TryGetLevels(999999, out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void Catalog_SparesOnlyTheReusableType()
+    {
+        var catalog = Catalog(new ItemUseFields(240100, 0, 0, ItemBaseType.Supply),
+            new ItemUseFields(540017, 0, 0, ItemBaseType.Use));
+
+        catalog.IsConsumedOnUse(240100).Should().BeTrue();
+        catalog.IsConsumedOnUse(540017).Should().BeFalse();
+    }
+
+    [Test]
+    public void Catalog_ConsumesAnUnknownResource()
+    {
+        Catalog().IsConsumedOnUse(999999).Should().BeTrue();
     }
 
     [Test]
