@@ -90,4 +90,36 @@ public class ItemWearTests
         ItemWearRules.IsWearableSlot((sbyte)24).Should().BeFalse();
         ItemWearRules.IsWearableSlot((sbyte)-1).Should().BeFalse();
     }
+
+    [Test]
+    public void TryResolveSlot_KeepsAWearTypeThatIsAlreadyASlot()
+    {
+        ItemWearRules.TryResolveSlot(ItemWearType.Armor, out var armor).Should().BeTrue();
+        armor.Should().Be(ItemWearType.Armor);
+
+        ItemWearRules.TryResolveSlot(ItemWearType.SecondRing, out var secondRing).Should().BeTrue();
+        secondRing.Should().Be(ItemWearType.SecondRing);
+    }
+
+    [Test]
+    public void TryResolveSlot_PlacesATwoHandedWeaponInTheWeaponSlot()
+    {
+        // WEAR_TWOHAND (99) is not a port: NGemity keeps such an item in m_anWear[WEAR_WEAPON].
+        ItemWearRules.TryResolveSlot(ItemWearType.Twohand, out var slot).Should().BeTrue();
+        slot.Should().Be(ItemWearType.Weapon);
+    }
+
+    [Test]
+    public void TryResolveSlot_RefusesTheWearTypesWithoutASinglePort()
+    {
+        // 94 occupies both ring slots, 24..27 are spare slots, 100 and 200 belong to skills and
+        // summons: none of them has one port, so the caller must not guess one.
+        ItemWearRules.TryResolveSlot(ItemWearType.TwofingerRing, out _).Should().BeFalse();
+        ItemWearRules.TryResolveSlot(ItemWearType.SpareWeapon, out _).Should().BeFalse();
+        ItemWearRules.TryResolveSlot(ItemWearType.SpareDecoShield, out _).Should().BeFalse();
+        ItemWearRules.TryResolveSlot(ItemWearType.Skill, out _).Should().BeFalse();
+        ItemWearRules.TryResolveSlot(ItemWearType.SummonOnly, out _).Should().BeFalse();
+        ItemWearRules.TryResolveSlot(ItemWearType.None, out _).Should().BeFalse();
+        ItemWearRules.TryResolveSlot(ItemWearType.CantWear, out _).Should().BeFalse();
+    }
 }

@@ -176,12 +176,12 @@ public class EquipmentService : IEquipmentService
         }
 
         if (!_wearCatalog.TryGetWearType(item.ItemResourceId, out var wearType) ||
-            !ItemWearRules.IsWearableSlot(wearType))
+            !ItemWearRules.TryResolveSlot(wearType, out var slot))
         {
             return ((ushort)ResultCode.InvalidArgument, ItemWearType.None);
         }
 
-        return ((ushort)ResultCode.Success, wearType);
+        return ((ushort)ResultCode.Success, slot);
     }
 
     /// <summary>
