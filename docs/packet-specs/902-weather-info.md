@@ -487,8 +487,10 @@ Le plancher de 366 tests du profil est donc déjà dépassé de 82 : le dev part
 
 ## 11. Implémentation (dev)
 
-Livrée sur `hermes/packet-socle-meteo-monde`, en trois commits : les paquets
-(`4073df2`), la table et le service (`b001a55`), la migration (`0569abd`).
+Livrée sur `hermes/packet-socle-meteo-monde`, en cinq commits : les paquets
+(`4073df2`), la table et le service (`b001a55`), la migration (`0569abd`), ce
+document (§11 et §12, `268e1d1`) et le bras de réception défensif de la 902
+entrante (`f7790fa`).
 
 | Fichier | Ce qui y est fait |
 |---|---|
@@ -560,3 +562,26 @@ matrice, bornes), `Tests/DataAccess/ArcadiaWorldLocationModelTests.cs` (mapping 
    (id connu → 902 au demandeur seul ; id inconnu → silence).
 4. `region_id` reste une identité **supposée** (§7b) et la 902 d'entrée ne porte pas d'id
    d'emplacement (§7c) : ces deux points sont inchangés par cette implémentation.
+
+## A VERIFIER PAR KILLIAN
+
+Aucun champ `NON ÉTABLI` n'a été deviné : les points ci-dessous sont ceux que l'implémentation
+laisse ouverts **volontairement**, avec l'endroit du code qui les porte. Chacun est une décision
+qui demande Killian (données, arbitrage client ou prérequis d'infrastructure) — aucun n'est un
+doute métier bloquant pour le socle livré.
+
+| # | Question à trancher | État du code aujourd'hui | Réf. |
+|---|---|---|---|
+| 1 | **Import des données de `WorldLocations`.** La table est créée par la migration mais **vide** : rien dans le dépôt n'importe les 6497 lignes. Depuis quelle source (`ArcadiaSchemaPSQL.sql`, base MSSQL legacy, ou `db_worldlocation.rdb` du client) ? | Table vide → aucune 903 n'obtient de réponse, la 902 d'entrée reste `{0, 0}` | §11.3.1 |
+| 2 | **Appariement position → `WorldLocation.id`** (taille d'une cellule en unités de monde, et source : `terrainseamlessworld.cfg` ou dérivation de la table ?). C'est le prérequis de tout `region_id` réel. | `ConnectionInfo.CurrentLocationId` reste à 0 ; pas de 902 au changement d'emplacement (`HandleChangeLocation` inchangé) | §7c, §6.2 |
+| 3 | **Le client 7.3 exige-t-il une 901 (`TM_SC_CHANGE_LOCATION`) avant la 902 pour retenir un id d'emplacement ?** Si oui, la 901 devient un prérequis d'affichage et non une carte indépendante. | La 901 n'est ni déclarée ni envoyée ; la 902 d'entrée part seule | §7h |
+| 4 | **Le client filtre-t-il la 902 sur `region_id`** (ignore-t-il un id différent de son emplacement, ou choisit-il la ligne de `db_worldlocation.rdb` avec cet id) ? Décide si `{0, 0}` suffit à l'entrée dans le monde ou reste sans effet visible. | 902 d'entrée `{0, 0}` (comportement de rzu) | §7d |
+| 5 | **Le client 7.3 émet-il vraiment la 903 hors de ce binaire** (interface de carte météo) ? Le `SFrame.exe` fourni ne la construit nulle part. | Branche de réception et réponse livrées, **défensives**, sans témoin client | §2.2, §7a |
+| 6 | **Identité du `region_id` de la 903** : retenue = `WorldLocation.id`, la même que la 902 ; c'est une hypothèse de cohérence nom/type, aucune référence n'envoie ni ne lit cette 903. | `TryReadGetWeatherInfo` lit un `uint32` à 7 (11 octets exactement) et le traite comme `WorldLocation.id` | §7b |
+| 7 | **Domaine exact de `weather_id`** (0…6 ? 0…4 ?) et correspondance avec les cinq thèmes visuels du client (`static_weather_fine` … `_fog`). | `CurrentWeather` constante à 0 (`Clear`) | §7e, §11.1.5 |
+| 8 | **Unité de `weather_change_time`** (NGemity multiplie par 6000, la donnée 7.3 vaut 60 pour l'emplacement 10). | Valeur brute stockée, sans interprétation temporelle | §7f, §11.1.4 |
+| 9 | **Migration non appliquée sur un vrai PostgreSQL** : le conteneur du dev n'a pas de base et le serveur de jeu n'est pas démarré (interdit par le profil). | Écriture à la main (`dotnet-ef` absent) ; concordance modèle/snapshot vérifiée hors base par `Tests/DataAccess/ArcadiaWorldLocationModelTests` | §11.1.1, §11.3.2 |
+
+Points 1 et 2 sont les deux seuls qui empêchent la paire d'être **visible en jeu** ; les points 3 à
+8 sont des questions client à trancher par observation (interdite ici), et le point 9 est un
+prérequis de vérification à l'exécution.
