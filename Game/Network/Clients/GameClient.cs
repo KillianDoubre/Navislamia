@@ -165,6 +165,38 @@ public class GameClient : Client
         SyncVisibleObjects();
     }
 
+    /// <summary>
+    /// TM_CS_GET_REGION_INFO (550): the client converted its own position into region indices and asks for
+    /// the region it occupies, so the answer is computed from the two floats it just sent — not from
+    /// ConnectionInfo.X/Y, which may lag one move behind. The divisor is the one announced to the client at
+    /// login (WorldVisibility.RegionSize, written into TS_SC_LOGIN_RESULT.RegionSize), and the division is
+    /// truncated toward zero, exactly as the client does it. Only the asking client is answered.
+    /// </summary>
+    private void HandleGetRegionInfo(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadGetRegionInfo(buffer, out var request))
+        {
+            _logger.Warning("Malformed region info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Region info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        var rx = GameMovePackets.GetRegionIndex(request.X);
+        var ry = GameMovePackets.GetRegionIndex(request.Y);
+
+        Connection.Send(GameMovePackets.BuildRegionAck(rx, ry));
+        _logger.Debug(
+            "TM_CS_GET_REGION_INFO ({id}) Length: {length} received from {clientTag}: x={x} y={y} -> rx={rx} ry={ry}",
+            (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -448,6 +480,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleUseItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadUseItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_USE_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.ItemUseService.UseAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process item use for {clientTag}", ClientTag);
+        }
+    }
+
     private void HandleSkill(byte[] packet)
     {
         if (!GameActionPackets.TryReadSkill(packet, out var request))
@@ -561,6 +611,22 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_REGION_INFO)
+            {
+                HandleGetRegionInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_REGION_ACK is a server to client packet: the 7.3 client never sends it. An incoming one
+            // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below.
+            if (header.ID == (ushort)GamePackets.TM_SC_REGION_ACK)
+            {
+                _logger.Warning("Server to client packet TM_SC_REGION_ACK ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
@@ -636,6 +702,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION)
             {
                 _ = HandleChangeItemPositionAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
+            {
+                _ = HandleUseItemAsync(msgBuffer);
                 continue;
             }
 

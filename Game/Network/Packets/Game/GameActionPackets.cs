@@ -16,7 +16,11 @@ public static class GameActionPackets
 
     public readonly record struct PutonItemRequest(sbyte Position, uint ItemHandle, uint TargetHandle);
 
+    public readonly record struct UseItemRequest(uint ItemHandle, uint TargetHandle);
+
     public readonly record struct ChangeItemPositionRequest(bool IsStorage, uint ItemHandle1, uint ItemHandle2);
+
+    public readonly record struct RegionInfoRequest(float X, float Y);
 
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
@@ -173,6 +177,23 @@ public static class GameActionPackets
         return true;
     }
 
+    public static bool TryReadUseItem(ReadOnlySpan<byte> packet, out UseItemRequest request)
+    {
+        // 7 header + item_handle (4) + target_handle (4) + szParameter (32). The 32 trailing bytes
+        // are consumed for their size only: their content is not established (spec §7.3).
+        const int packetLength = HeaderSize + 40;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new UseItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
+    }
+
     public static bool TryReadLearnSkill(ReadOnlySpan<byte> packet, out LearnSkillRequest request)
     {
         const int packetLength = HeaderSize + 10;
@@ -204,6 +225,27 @@ public static class GameActionPackets
         }
 
         emotion = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
+
+    /// <summary>
+    /// TM_CS_GET_REGION_INFO (550) carries the current position of the client, as two floats, after the
+    /// client converted that very position into its own region indices. Only the exact 15-byte form is
+    /// accepted: the specification defines no answer at all for a request of another length, so a
+    /// short or padded one is refused rather than partially read.
+    /// </summary>
+    public static bool TryReadGetRegionInfo(ReadOnlySpan<byte> packet, out RegionInfoRequest request)
+    {
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new RegionInfoRequest(
+            BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 4, 4)));
         return true;
     }
 }

@@ -39,4 +39,13 @@ public class ItemResourceRepository : IItemResourceRepository
             .Select(item => new ItemGroupFields((int)item.Id, item.Group))
             .ToList();
     }
+
+    public IReadOnlyList<ItemUseFields> GetUseFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemUseFields((int)item.Id, item.UseMinLevel, item.UseMaxLevel,
+                item.ItemBaseType))
+            .ToList();
+    }
 }

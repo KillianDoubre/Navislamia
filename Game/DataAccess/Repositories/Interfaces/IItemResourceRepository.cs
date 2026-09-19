@@ -17,6 +17,8 @@ public readonly record struct ItemEffectFields(
 
 public readonly record struct ItemGroupFields(int Id, ItemGroup Group);
 
+public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType);
+
 public interface IItemResourceRepository
 {
     IReadOnlyList<ItemSortFields> GetSortFields();
@@ -24,4 +26,6 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemEffectFields> GetEffectFields();
 
     IReadOnlyList<ItemGroupFields> GetGroupFields();
+
+    IReadOnlyList<ItemUseFields> GetUseFields();
 }
