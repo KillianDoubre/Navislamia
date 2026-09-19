@@ -429,6 +429,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleUseItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadUseItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_USE_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.ItemUseService.UseAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process item use for {clientTag}", ClientTag);
+        }
+    }
+
     private void HandleSkill(byte[] packet)
     {
         if (!GameActionPackets.TryReadSkill(packet, out var request))
@@ -611,6 +629,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION)
             {
                 _ = HandleChangeItemPositionAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
+            {
+                _ = HandleUseItemAsync(msgBuffer);
                 continue;
             }
 

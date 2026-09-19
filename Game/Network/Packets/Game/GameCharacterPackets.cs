@@ -170,6 +170,33 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    public static byte[] BuildDestroyItem(uint itemHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_DESTROY_ITEM, HeaderSize + 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildUpdateItemCount(uint itemHandle, long count)
+    {
+        // count is int64 from EPIC_4_1 (rzu TS_SC_UPDATE_ITEM_COUNT).
+        var packet = CreatePacket(GamePackets.TM_SC_UPDATE_ITEM_COUNT, HeaderSize + 12);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        BinaryPrimitives.WriteInt64LittleEndian(packet.AsSpan(HeaderSize + 4, 8), count);
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildUseItemResult(uint itemHandle, uint targetHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_USE_ITEM_RESULT, HeaderSize + 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), targetHandle);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildEquipSummon(long[] summonSlots)
     {
         const int slotCount = 6;

@@ -30,6 +30,15 @@ public interface ICharacterService
 
     Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog);
 
+    Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle);
+
+    /// <summary>
+    /// Takes <paramref name="count"/> units off one of the character's stacks and returns the amount
+    /// left, <c>0</c> when the stack ran out and was deleted, or <c>null</c> when the handle resolves to
+    /// none of the character's items.
+    /// </summary>
+    Task<long?> ConsumeItemAsync(string characterName, uint itemHandle, long count);
+
     Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2);
 
     Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);

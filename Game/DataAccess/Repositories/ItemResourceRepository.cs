@@ -31,4 +31,13 @@ public class ItemResourceRepository : IItemResourceRepository
                 item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
             .ToList();
     }
+
+    public IReadOnlyList<ItemUseFields> GetUseFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemUseFields((int)item.Id, item.UseMinLevel, item.UseMaxLevel,
+                item.ItemBaseType))
+            .ToList();
+    }
 }

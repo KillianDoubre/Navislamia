@@ -16,6 +16,8 @@ public static class GameActionPackets
 
     public readonly record struct PutonItemRequest(sbyte Position, uint ItemHandle, uint TargetHandle);
 
+    public readonly record struct UseItemRequest(uint ItemHandle, uint TargetHandle);
+
     public readonly record struct ChangeItemPositionRequest(bool IsStorage, uint ItemHandle1, uint ItemHandle2);
 
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
@@ -149,6 +151,23 @@ public static class GameActionPackets
         request = new PutoffItemRequest(
             (sbyte)packet[HeaderSize],
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1, 4)));
+        return true;
+    }
+
+    public static bool TryReadUseItem(ReadOnlySpan<byte> packet, out UseItemRequest request)
+    {
+        // 7 header + item_handle (4) + target_handle (4) + szParameter (32). The 32 trailing bytes
+        // are consumed for their size only: their content is not established (spec §7.3).
+        const int packetLength = HeaderSize + 40;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new UseItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
         return true;
     }
 

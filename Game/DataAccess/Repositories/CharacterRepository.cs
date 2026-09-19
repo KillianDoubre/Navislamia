@@ -22,7 +22,8 @@ public class CharacterRepository : ICharacterRepository
 
         if (withItems)
         {
-            query = query.Include(c => c.Items).Include(c => c.Skills);
+            // Two collection includes in one JOIN return items x skills rows: split them.
+            query = query.Include(c => c.Items).Include(c => c.Skills).AsSplitQuery();
         }
         
         return await query.ToListAsync();
@@ -44,6 +45,9 @@ public class CharacterRepository : ICharacterRepository
         return _context.Characters
             .Include(c => c.Items)
             .Include(c => c.Skills)
+            .AsSplitQuery()
+            // Each split query re-runs the row limit, so it needs an order to target the same row.
+            .OrderBy(c => c.Id)
             .FirstOrDefault(c => c.CharacterName == characterName);
     }
 

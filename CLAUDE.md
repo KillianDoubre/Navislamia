@@ -1150,3 +1150,25 @@ referenced resource tables are still empty.
   its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
   **in the same change**: a declared id with no dispatch arm reaches
   `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
+
+### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
+
+- Trame cliente de **47** octets : en-tête 7, `item_handle` à 7, `target_handle` à 11,
+  `szParameter` sur 32 octets à 15. Le paramètre est consommé pour sa taille seulement : son
+  contenu n'est pas établi.
+- Un succès consomme **un exemplaire**, sauf pour le type `ItemBaseType.Use` (6, réutilisable, 404
+  ressources) comme NGemity `Player::UseItem`. La mise à jour de pile part **avant** le résultat :
+  `TM_SC_UPDATE_ITEM_COUNT` (255, `item_handle` + `count` int64, 19 octets) ou, au dernier
+  exemplaire, `TM_SC_DESTROY_ITEM` (254, `item_handle`, 11 octets) et la ligne supprimée via
+  `DeleteItem`.
+- Puis la réponse en **deux** trames, dans cet ordre : `TS_SC_RESULT` (253, `Success`,
+  `item_handle`) puis `TM_SC_USE_ITEM_RESULT` (283), qui réémet les deux handles.
+- Seul le niveau de l'objet est jugé : `use_min_level` → `LimitMin`, `use_max_level` → `LimitMax`,
+  le plafond testé avant le plancher comme dans NGemity `Player::IsUseableItem`. Un handle inconnu
+  ou non possédé donne `NotExist`.
+- `ItemUseFlag` n'est pas lu : la valeur réellement importée n'est pas documentée dans le dépôt.
+  Ne jamais l'utiliser comme masque binaire sans arbitrage.
+- Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
+  (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
+- Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.

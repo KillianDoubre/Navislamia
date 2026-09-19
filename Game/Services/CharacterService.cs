@@ -201,6 +201,12 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle)
+    {
+        return RunExclusiveAsync(() => Task.FromResult(FindByHandle(
+            _characterRepository.GetCharacterByNameWithItems(characterName)?.Items, itemHandle)));
+    }
+
     public Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog)
     {
         return RunExclusiveAsync(async () =>
@@ -247,18 +253,7 @@ public class CharacterService : ICharacterService
                     continue;
                 }
 
-                var removed = Math.Min(request.Count, item.Amount);
-                if (removed >= item.Amount)
-                {
-                    character.Items.Remove(item);
-                    _characterRepository.DeleteItem(item);
-                }
-                else
-                {
-                    item.Amount -= removed;
-                }
-
-                erased.Add((request.ItemHandle, removed));
+                erased.Add((request.ItemHandle, RemoveAmount(character, item, request.Count)));
             }
 
             if (erased.Count == 0)
@@ -270,6 +265,45 @@ public class CharacterService : ICharacterService
             await _characterRepository.SaveChangesAsync();
             return erased;
         });
+    }
+
+    public Task<long?> ConsumeItemAsync(string characterName, uint itemHandle, long count)
+    {
+        return RunExclusiveAsync<long?>(async () =>
+        {
+            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var item = FindByHandle(character?.Items, itemHandle);
+            if (item is null || count <= 0)
+            {
+                return null;
+            }
+
+            RemoveAmount(character, item, count);
+            InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
+            await _characterRepository.SaveChangesAsync();
+            return character.Items.Contains(item) ? item.Amount : 0;
+        });
+    }
+
+    /// <summary>
+    /// Takes up to <paramref name="count"/> units off a stack and returns how many were taken. A stack
+    /// that runs out is deleted through the repository: removing it from <c>character.Items</c> alone
+    /// would only orphan the row, since <c>ItemEntity.CharacterId</c> is nullable.
+    /// </summary>
+    private long RemoveAmount(CharacterEntity character, ItemEntity item, long count)
+    {
+        var removed = Math.Min(count, item.Amount);
+        if (removed >= item.Amount)
+        {
+            character.Items.Remove(item);
+            _characterRepository.DeleteItem(item);
+        }
+        else
+        {
+            item.Amount -= removed;
+        }
+
+        return removed;
     }
 
     public Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count)

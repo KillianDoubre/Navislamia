@@ -466,7 +466,6 @@ fabric.properties
 .idea/**/azureSettings.xml
 
 # End of https://www.toptal.com/developers/gitignore/api/jetbrains
-start-server.ps1
 /docs/*
 !/docs/world-spawning.md
 !/docs/character-bootstrap.md

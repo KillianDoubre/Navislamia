@@ -130,4 +130,50 @@ public class CharacterDefaultsTests
         character.Skills.Should().ContainSingle(skill => skill.SkillId == 1004 && skill.Level == 1);
         A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
     }
+
+    [Test]
+    public async Task CharacterService_ConsumeItem_DecrementsAStack()
+    {
+        var item = new ItemEntity { Id = 7, Amount = 5, Idx = 1 };
+        var (service, repository) = ServiceWithItems(item);
+
+        (await service.ConsumeItemAsync("Character", 7, 1)).Should().Be(4);
+
+        item.Amount.Should().Be(4);
+        A.CallTo(() => repository.DeleteItem(A<ItemEntity>._)).MustNotHaveHappened();
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_ConsumeItem_DeletesTheLastUnit()
+    {
+        var item = new ItemEntity { Id = 7, Amount = 1, Idx = 1 };
+        var other = new ItemEntity { Id = 8, Amount = 1, Idx = 2 };
+        var (service, repository) = ServiceWithItems(item, other);
+
+        (await service.ConsumeItemAsync("Character", 7, 1)).Should().Be(0);
+
+        A.CallTo(() => repository.DeleteItem(item)).MustHaveHappenedOnceExactly();
+        other.Idx.Should().Be(1);
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_ConsumeItem_ReportsAnUnknownHandle()
+    {
+        var (service, repository) = ServiceWithItems(new ItemEntity { Id = 7, Amount = 1, Idx = 1 });
+
+        (await service.ConsumeItemAsync("Character", 99, 1)).Should().BeNull();
+
+        A.CallTo(() => repository.SaveChangesAsync()).MustNotHaveHappened();
+    }
+
+    private static (CharacterService, ICharacterRepository) ServiceWithItems(params ItemEntity[] items)
+    {
+        var character = new CharacterEntity { CharacterName = "Character", Items = items.ToList() };
+        var repository = A.Fake<ICharacterRepository>();
+        A.CallTo(() => repository.GetCharacterByNameWithItems("Character")).Returns(character);
+        return (new CharacterService(A.Fake<IStarterItemsRepository>(), repository,
+            A.Fake<ILogger<CharacterService>>()), repository);
+    }
 }
