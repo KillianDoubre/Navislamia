@@ -493,3 +493,79 @@ n'ajoute que de la documentation, et le socle de code décrit en §8 reste à im
 de développement. Les sources de chaque ligne du §3, du §4 et du §5 sont citées fichier:ligne ou
 adresse virtuelle ; aucune valeur n'a été supposée, et les sept questions ouvertes sont nommées au
 §12 avec la question précise à trancher.
+
+## 17. État d'implémentation — sous-socle A livré
+
+Le commit `Publish the actor status mask and carry the PK mode in it` de la branche
+`hermes/packet-socle-mode-pk` implémente le §8, et rien de plus : **aucun paquet `800` ni `801`
+n'entre dans le lot**, aucun identifiant n'a été ajouté à `GamePackets`, et le verrou de zone, la
+temporisation, `Bloody`/`Demoniac`, l'attaquabilité, la visibilité entre joueurs et la mort d'un
+joueur restent hors périmètre.
+
+| point du §8 | ce qui a été posé |
+|---|---|
+| 1. constantes de statut | `Game/Network/Packets/Enums/CreatureStatus.cs` — bits `TCS_Flag*` avec la source rzu en commentaire ; `PlayerPkOn = 1 << 11`, `MonsterDead = 1 << 8`, `PlayerSitdown = 1 << 8` |
+| 2. fabrique de masque | `Game/Network/Packets/Game/ActorStatus.cs` — `ForPlayer(bool pkModeOn)`, `ForMonster(bool dead = false)`, `ForNpc()` |
+| 3. `ConnectionInfo.PkMode` | déclaré dans `Game/Network/Clients/ConnectionInfo.cs`, chargé depuis `Characters.PkMode` à l'entrée en jeu (`GameActions.OnLogin`), remis à `false` par `ClearCharacterSession`, écrit par `CharacterService.SaveProgressAsync` |
+| 4. tests d'offsets | `Tests/Game/PkModeStatusTests.cs` (8 cas) : 500 = 15 octets, `handle` @7, `status` @11 ; 3 (joueur) = 118 octets, `status` @26 ; valeurs de bits et composition du masque |
+
+Sites d'envoi recâblés — trois étaient nommés au §8, un quatrième a été trouvé en implémentant :
+
+1. `GameActions.cs` `Status = ActorStatus.ForPlayer(info.PkMode)` (information de créature de la
+   trame 3 d'entrée en jeu) ;
+2. `GameActions.cs` `BuildStatusChange(handle, ActorStatus.ForPlayer(info.PkMode))` ;
+3. `CombatService.cs` `BuildStatusChange(targetHandle, ActorStatus.ForMonster(true))` — la constante
+   locale `MonsterDeadStatus` est supprimée, sa valeur est celle de `CreatureStatus.MonsterDead` ;
+4. **non listé au §8** : `GameSpawnPackets.BuildEnterCreature` écrivait un `0` littéral à l'offset 26
+   pour **le NPC et le monstre** ; le statut est désormais un paramètre, alimenté par
+   `ActorStatus.ForNpc()` et `ActorStatus.ForMonster()`. Sans ce quatrième point, la fabrique
+   n'était pas « le point unique » demandé au §8.2. Les octets produits sont inchangés (72 et 73).
+
+Décisions prises faute de référence, à l'intérieur du périmètre du §8 :
+
+- **Le masque d'entrée en jeu reste à sa place historique** (`GameActions.cs`, après les propriétés
+  `immoral` / `client_info`), donc la question §12.6 est tranchée « aucun réordonnancement » : la
+  trame 500 accepte n'importe quel ordre vis-à-vis des autres paquets d'entrée et le lot ne
+  réordonne rien.
+- **Persistance du mode PK : oui**, conformément au §13.2 et aux deux serveurs de référence. La
+  variante « le mode retombe à zéro à chaque connexion » n'est plus qu'une ligne :
+  `info.PkMode = character.PkMode;` dans `GameActions.OnLogin`.
+- **Aucune écriture ne change `PkMode` aujourd'hui** : les paquets 800/801 n'existant pas encore,
+  la valeur est lue en base, publiée dans le masque et réécrite à la sauvegarde. Le câblage est donc
+  vérifiable en test mais inerte en jeu tant que la carte 800/801 n'a pas atterri ; c'est voulu.
+- `SaveProgressAsync` prend un paramètre `bool pkMode` de plus (interface `ICharacterService`
+  comprise) : c'était l'option « un paramètre » du §10, préférée à une seconde écriture en base.
+
+Réserves : `CreatureStatus` déclare la famille `TCS_Flag*` avec sa source, mais seuls `PlayerPkOn`
+et `MonsterDead` sont composés par la fabrique ; les autres constantes sont documentaires et
+n'engagent aucune règle de jeu. Les bits `1 << 15`, `1 << 17` et `1 << 22-23` restent volontairement
+absents (§12.5). Zone de collision confirmée : **`Game/Services/CombatService.cs`**, que
+`hermes/packet-socle-mort-respawn` modifie aussi — les deux branches ne doivent pas être mergées en
+parallèle (§11, §13.5).
+
+## 18. Bloc destiné à `CLAUDE.md` pour le sous-socle A (à coller par Killian)
+
+Le bloc du §14 décrit le mode PK en entier, `800`/`801` compris, et reste la cible une fois ces
+paquets livrés. Le sous-socle A, lui, a atterri ; c'est ce bloc-ci qui décrit l'état du dépôt.
+
+### Statut d'acteur et mode PK (sous-socle)
+
+`status` — l'information de créature de `TM_SC_ENTER` (3, offset 26) et `TM_SC_STATUS_CHANGE`
+(500, `handle` @7 puis `status` @11, 15 octets) — est un **instantané complet de l'acteur, jamais
+un delta** : publier un seul bit éteint tous les autres. Il ne se compose donc plus en dur :
+`ActorStatus.ForPlayer(bool pkModeOn)` / `ForMonster(bool dead = false)` / `ForNpc()`
+(`Game/Network/Packets/Game/ActorStatus.cs`) est le point unique des quatre sites d'envoi
+(`GameActions` deux fois — entrée en jeu et trame 500 —, `CombatService` à la mort du monstre, et
+`GameSpawnPackets.BuildEnterCreature` dont le statut est devenu un paramètre). Les bits vivent dans
+`CreatureStatus` (`Game/Network/Packets/Enums/CreatureStatus.cs`) avec leur source rzu :
+`PlayerPkOn = 1 << 11` est le **seul** bit du mode PK, et `1 << 8` vaut « mort » pour un monstre et
+« assis » pour un joueur — ne jamais envoyer un masque de mort sur un handle de joueur.
+
+`ConnectionInfo.PkMode` porte l'état de session : lu depuis `Characters.PkMode` dans
+`GameActions.OnLogin`, remis à `false` par `ClearCharacterSession`, réécrit par
+`CharacterService.SaveProgressAsync` (d'où le paramètre `bool pkMode`). Aucune migration : la
+colonne existe depuis `Version0001_TheBeginning`. Le protocole n'a **aucun paquet serveur PK** —
+`800` et `801` n'existent pas encore côté serveur, donc rien ne bascule `PkMode` en jeu aujourd'hui.
+
+Les tests d'offsets des deux trames sont dans `Tests/Game/PkModeStatusTests.cs`. Zone de collision :
+`Game/Services/CombatService.cs`, partagé avec `hermes/packet-socle-mort-respawn`.
