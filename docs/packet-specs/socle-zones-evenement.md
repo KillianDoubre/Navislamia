@@ -549,8 +549,10 @@ Containment is `PolygonF.IsIncluded` (`Game/Maps/X2D/PolygonF.cs`, bounding box 
 fixed against NGemity (`src/X2D/Linef.cpp`): the crossing test compared `ccw123` against itself instead
 of `ccw124`, and the Y precheck compared `l2MinY` against its own maximum instead of `l1MaxY`. Also
 `PointF` has no value equality, so the reference's "point equals a vertex" shortcut never fires on a
-zone corner; and `new PolygonF(BoxF)` throws `NullReferenceException` because it calls `Set` on the null
-elements of a `PointF[]` (dead code path today, `MapService` only clones polygons).
+zone corner; and never test a `PolygonF` against `null` — its `==` overload compares to `null` through
+the same operator, so `polygon != null` recurses until the stack dies (`ReferenceEquals` instead).
+`new PolygonF(BoxF)` throws `NullReferenceException` because it calls `Set` on the null elements of a
+`PointF[]` (dead code path today, `MapService` only clones polygons).
 
 Neither rzu nor NGemity has any server packet for event areas, and NGemity has no handler at all
 (15/16 fall into its "unknown packet" debug log). The server therefore sends **nothing** back.
@@ -593,8 +595,9 @@ The full spec (offsets, sources, version gating, NGemity deltas, scope, open que
 ## 15. Livraison du socle (navis-dev)
 
 Branche `hermes/packet-socle-zones-evenement`, poursuivie depuis le commit de la fiche. Commits de
-code : `3e0e156` (le socle) puis `f89e555` (les tests et les deux corrections de portage de `LineF`).
-Rien n'est poussé, aucune MR (c'est `navis-qa` qui publie).
+code : `3e0e156` (le socle), `f89e555` (les tests et les deux corrections de portage de `LineF`),
+`f7a6e20` (la comparaison de polygone à `null`, cf. le piège ci-dessous), puis `dcefe8a` (cette
+section). Rien n'est poussé, aucune MR (c'est `navis-qa` qui publie).
 
 ### Ce qui est livré
 
@@ -648,6 +651,13 @@ Portée : `grep` sur `Game/` et `Tests/` ne trouve **aucun** autre appelant de `
 `IsIncluded` ou `IsCollision` — aucun autre système ne peut changer de comportement aujourd'hui, et les
 366 tests antérieurs passent toujours. Deux tests de `EventAreaTests.cs` épinglent ces deux
 comportements, et `PolygonF.IsIncluded` est désormais testé dedans/dehors.
+
+### Troisième piège, rencontré par les tests
+
+`PolygonF` surcharge `==` avec un corps qui compare ses opérandes à `null` **avec le même opérateur**
+(`PolygonF.cs:256`) : écrire `area.Area != null` provoque une récursion infinie et fait mourir le
+process de test sur un `StackOverflow` (constaté, 37 402 trames). Le service compare donc par
+`ReferenceEquals`. Le même piège attend tout code qui testerait un `PolygonF` contre `null`.
 
 ### Tests
 

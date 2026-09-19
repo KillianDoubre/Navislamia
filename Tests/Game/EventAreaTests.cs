@@ -99,7 +99,7 @@ public class EventAreaPacketTests
 
         directory.Should().NotBeNull("the repository root is needed to check the dispatch chain");
 
-        return directory.FullName;
+        return directory!.FullName;
     }
 }
 
@@ -336,7 +336,7 @@ public class EventAreaServiceTests
         public void Start(string directory) { }
 
         public bool TryGetEventArea(int eventAreaId, out EventAreaInfo eventArea) =>
-            _areas.TryGetValue(eventAreaId, out eventArea);
+            _areas.TryGetValue(eventAreaId, out eventArea!);
 
         public EventAreaInfo[] GetEventAreas() => _areas.Values.ToArray();
     }
