@@ -38,13 +38,15 @@ public static class ItemWearRules
 
     /// <summary>
     /// The slot an item must be equipped in when the request does not carry one
-    /// (<c>TM_CS_PUTON_ITEM_SET</c>, 281). A wear type that is already a slot is used as it is. The
-    /// only other resolved case is <c>Twohand</c> (99): it is not a slot but the class marker of a
-    /// two-handed weapon, which NGemity keeps in <c>m_anWear[WEAR_WEAPON]</c>
-    /// (<c>Player.cpp:1860</c>, <c>:1877</c>) and never stores as a position
-    /// (<c>Player::putonItem</c> refuses <c>pos >= MAX_ITEM_WEAR</c>) — the weapon slot is the only
-    /// port such an item can take. Everything else (<c>TwofingerRing</c> 94, the spare slots 24..27,
-    /// <c>Skill</c> 100, <c>SummonOnly</c> 200) has no single port: the caller must not guess one.
+    /// (<c>TM_CS_PUTON_ITEM_SET</c>, 281). A wear type that is already a slot is used as it is, and the
+    /// two types NGemity folds onto a slot are folded the same way
+    /// (<c>Player::TranslateWearPosition</c>, <c>Player.cpp:1754-1758</c>): <c>Twohand</c> (99) is the
+    /// class marker of a two-handed weapon, which NGemity keeps in the weapon slot and never stores as a
+    /// position (<c>Player::putonItem</c> refuses <c>pos >= MAX_ITEM_WEAR</c>, <c>ItemTemplate.hpp:7</c>;
+    /// the same function also refuses <c>pos >= MAX_SPARE_ITEM_WEAR</c>, <c>Unit.cpp:1519</c>);
+    /// <c>TwofingerRing</c> (94) is worn in the first ring slot. Everything else
+    /// (<c>CantWear</c>, the spare slots 24..27, <c>Skill</c> 100, <c>SummonOnly</c> 200) has no single
+    /// port, and the caller must not guess one.
     /// </summary>
     public static bool TryResolveSlot(ItemWearType wearType, out ItemWearType slot)
     {
@@ -54,13 +56,17 @@ public static class ItemWearRules
             return true;
         }
 
-        if (wearType == ItemWearType.Twohand)
+        switch (wearType)
         {
-            slot = ItemWearType.Weapon;
-            return true;
+            case ItemWearType.Twohand:
+                slot = ItemWearType.Weapon;
+                return true;
+            case ItemWearType.TwofingerRing:
+                slot = ItemWearType.Ring;
+                return true;
+            default:
+                slot = ItemWearType.None;
+                return false;
         }
-
-        slot = ItemWearType.None;
-        return false;
     }
 }
