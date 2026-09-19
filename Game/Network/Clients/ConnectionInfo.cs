@@ -44,6 +44,14 @@ public class ConnectionInfo
     public DateTime NextInventoryArrangeAt { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
+
+    /// <summary>
+    /// The event area this session is currently inside, or 0 for none. Written only by
+    /// <c>EventAreaService</c>, from a claim the server verified against its own position, or from
+    /// its own position detection. There is no server answer for either packet.
+    /// </summary>
+    public int CurrentEventAreaId { get; set; }
+
     public readonly object NpcVisibilityLock = new();
     public readonly object MonsterVisibilityLock = new();
     public readonly object PropVisibilityLock = new();
@@ -169,6 +177,7 @@ public class ConnectionInfo
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
         Layer = 0;
+        CurrentEventAreaId = 0;
         X = 0;
         Y = 0;
         Z = 0;

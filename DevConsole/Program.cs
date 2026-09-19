@@ -242,6 +242,7 @@ public class Program
         services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
+        services.AddSingleton<IEventAreaService, EventAreaService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();
