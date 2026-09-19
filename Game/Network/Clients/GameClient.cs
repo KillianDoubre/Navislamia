@@ -78,6 +78,15 @@ public class GameClient : Client
         Connection.Send(message.Data);
     }
 
+    /// <summary>
+    /// TM_SC_WEATHER_INFO (902) sent to this client alone: <paramref name="regionId"/> is the
+    /// <c>WorldLocation.id</c> of the location, never a visibility region index.
+    /// </summary>
+    public void SendWeatherInfo(uint regionId, ushort weatherId)
+    {
+        Connection.Send(GameWeatherPackets.BuildWeatherInfo(regionId, weatherId));
+    }
+
     private void HandleTimeSync(byte[] packet)
     {
         const int sampleWindow = 4;
@@ -195,6 +204,45 @@ public class GameClient : Client
         _logger.Debug(
             "TM_CS_GET_REGION_INFO ({id}) Length: {length} received from {clientTag}: x={x} y={y} -> rx={rx} ry={ry}",
             (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
+    }
+
+    /// <summary>
+    /// TM_CS_GET_WEATHER_INFO (903): the client asks for the weather of a location id. The id it sends is
+    /// opaque — no 7.3 client site builds this packet — so Navislamia reads it as the only identity both
+    /// sides can share: <c>WorldLocation.id</c>, the same value a 902 carries. A known id is answered with
+    /// a 902 to the asking client alone; an unknown one is answered with nothing at all, because no
+    /// reference defines a result or an error for this family. Only the exact 11-byte request is read.
+    /// </summary>
+    private void HandleGetWeatherInfo(byte[] buffer)
+    {
+        if (!GameWeatherPackets.TryReadGetWeatherInfo(buffer, out var regionId))
+        {
+            _logger.Warning("Malformed weather info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Weather info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        if (regionId > int.MaxValue ||
+            !_networkService.WorldLocationService.TryGet((int)regionId, out var location))
+        {
+            _logger.Debug(
+                "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: unknown location {regionId}, no answer",
+                (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId);
+            return;
+        }
+
+        SendWeatherInfo(regionId, location.CurrentWeather);
+        _logger.Debug(
+            "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: location {regionId} -> weather_id={weatherId}",
+            (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId,
+            location.CurrentWeather);
     }
 
     private void SyncVisibleObjects()
@@ -630,6 +678,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_WEATHER_INFO)
+            {
+                HandleGetWeatherInfo(msgBuffer);
                 continue;
             }
 

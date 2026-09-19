@@ -27,6 +27,7 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<BannedWordsResourceEntity> BannedWordsResources { get; set; }
     public DbSet<NpcResourceEntity> NpcResources { get; set; }
     public DbSet<MonsterResourceEntity> MonsterResources { get; set; }
+    public DbSet<WorldLocationEntity> WorldLocations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +44,15 @@ public class ArcadiaContext : SoftDeletionContext
         ConfigureModelEffectResource(modelBuilder);
         ConfigureBannedWordsResource(modelBuilder);
         ConfigureMonsterResource(modelBuilder);
+        ConfigureWorldLocations(modelBuilder);
+    }
+
+    private static void ConfigureWorldLocations(ModelBuilder modelBuilder)
+    {
+        // WorldLocation has no primary key of its own and one row per (id, weather_id, time_id): the three
+        // columns together are the natural key.
+        modelBuilder.Entity<WorldLocationEntity>()
+            .HasKey(location => new { location.Id, location.WeatherId, location.TimeId });
     }
 
     private static void ConfigureMonsterResource(ModelBuilder modelBuilder)

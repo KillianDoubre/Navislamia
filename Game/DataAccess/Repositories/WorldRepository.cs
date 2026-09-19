@@ -25,7 +25,8 @@ public class WorldRepository : IWorldRepository
             ItemResources = new List<ItemResourceEntity>(arcadiaContext.ItemResources),
             LevelResources =  new List<LevelResourceEntity>(arcadiaContext.LevelResources),
             ItemEffectResources = new List<ItemEffectResourceEntity>(arcadiaContext.ItemEffectResources),
-            SetItemEffectResources =  new List<SetItemEffectResourceEntity>(arcadiaContext.SetItemEffectResources)
+            SetItemEffectResources =  new List<SetItemEffectResourceEntity>(arcadiaContext.SetItemEffectResources),
+            WorldLocations = new List<WorldLocationEntity>(arcadiaContext.WorldLocations)
         };
     }
 }
