@@ -1137,10 +1137,6 @@ referenced resource tables are still empty.
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work
-- A newly handled client packet gets a sheet in `docs/packet-specs/` (see Solution layout), and
-its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
-**in the same change**: a declared id with no dispatch arm reaches
-`_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
 
 ## Change guidelines
 
@@ -1150,6 +1146,10 @@ its id must be added to the `GamePackets` enum and to the `GameClient.Receive` d
 - Keep resource queries no-tracking and project only fields required at runtime.
 - Add tests for packet offsets, encodings, spatial boundaries and spawn expansion.
 - Do not edit generated EF migration designer files manually unless the migration itself changes.
+- A newly handled client packet gets a sheet in `docs/packet-specs/` (see Solution layout), and
+  its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
+  **in the same change**: a declared id with no dispatch arm reaches
+  `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
 
 ### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
 
