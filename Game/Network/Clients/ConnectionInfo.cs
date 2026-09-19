@@ -39,6 +39,14 @@ public class ConnectionInfo
     public long CharacterJp { get; set; }
     public long CharacterGold { get; set; }
     public int CharacterChaos { get; set; }
+
+    /// <summary>
+    /// The PK mode, loaded from <c>Characters.PkMode</c> on world entry and persisted again by the
+    /// session save. It reaches the client only through the actor status mask
+    /// (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>): the protocol has
+    /// no PK packet of its own.
+    /// </summary>
+    public bool PkMode { get; set; }
     public uint ClientClockOffset { get; set; }
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
@@ -165,6 +173,7 @@ public class ConnectionInfo
         CharacterJp = 0;
         CharacterGold = 0;
         CharacterChaos = 0;
+        PkMode = false;
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;

@@ -18,7 +18,6 @@ public class CombatService : ICombatService
     private const int RespawnDelaySeconds = 10;
     private const int DamageHpDivisor = 3;
     private const int DeathAnimationSeconds = 6;
-    private const uint MonsterDeadStatus = 1 << 8;
 
     private readonly ILogger _logger = Log.ForContext<CombatService>();
     private readonly MonsterWorldState _worldState;
@@ -214,7 +213,7 @@ public class CombatService : ICombatService
 
         client.Connection.Send(GameMovePackets.BuildStopMove(targetHandle,
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
-        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, MonsterDeadStatus));
+        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, ActorStatus.ForMonster(true)));
 
         lock (_lock)
         {

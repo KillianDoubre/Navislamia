@@ -345,7 +345,7 @@ public class GameClient : Client
         {
             await _networkService.CharacterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
                 info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
-                info.CharacterChaos, info.X, info.Y);
+                info.CharacterChaos, info.X, info.Y, info.PkMode);
         }
         catch (Exception exception)
         {
