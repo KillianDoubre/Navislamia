@@ -917,3 +917,79 @@ avec les tables de sections données en §4.
    découpage sans disposition.
 6. Aucun champ n'est présenté comme établi sans source : les `NON ÉTABLI` du §9 couvrent `nLength`, le
    contenu au-delà de `nLength`, le producteur, la cadence et les clés de messages.
+
+## 16. Implémentation (`navis-dev`) — ce que la branche contient désormais
+
+Ajouté par `navis-dev` sur la même branche `hermes/packet-socle-anti-triche`, immédiatement après le
+commit de la fiche `01643b0`. Le socle livré est **exactement** celui du §8.1, sans disposition.
+
+### 16.1 Les quatre fichiers
+
+| Fichier | Contenu livré |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | **un** membre ajouté : `TM_CS_ANTI_HACK = 54,` (groupe `TM_CS_VERSION = 50`, juste avant `TM_CS_CHARACTER_LIST`). Aucune trace de `1054` dans le dépôt. |
+| `Game/Network/Packets/Game/GameAntiHackPackets.cs` | **nouveau**, classe statique sur le modèle de `GameActionPackets.cs` : `private const int HeaderSize = 7;`, `public const int AntiHackPacketSize = 409;`, `public const int AntiHackPayloadSize = 402;` et `TryReadAntiHack(ReadOnlySpan<byte> packet, out ushort declaredLength)`. Pas de structure *marshalled*, pas de tableau copié. |
+| `Game/Network/Clients/GameClient.cs` | **un** bras `if (header.ID == (ushort)GamePackets.TM_CS_ANTI_HACK)`, placé **juste avant** `IPacket msg = header.ID switch`, donc distinct du groupe `TM_CS_UPDATE`/`TM_CS_MONSTER_RECOGNIZE`/`TM_CS_QUERY`. Il lit `nLength` **pour le seul journal**, journalise en `Debug` `header.Length` et `nLength`, puis `continue;`. |
+| `Tests/Game/AntiHackPacketTests.cs` | **nouveau**, 6 tests d'offsets et de chaîne de dispatch (§16.3). |
+
+### 16.2 Offsets re-vérifiés à la source, indépendamment de la fiche
+
+Relus directement dans `reference/rzu` au commit épinglé `87c1e83b`
+(`librzu/src/packets/GameClient/TS_CS_ANTI_HACK.h:5-11`) : `_(simple)(uint16_t, nLength)` puis
+`_(array)(uint8_t, byBuffer, 400)`, avec `X(54, version < EPIC_9_6_3)` / `X(1054, version >= EPIC_9_6_3)`.
+La lecture « tableau fixe, donc 400 octets toujours écrits » a été confirmée à la main dans
+`librzu/src/lib/Packet/PacketDeclaration.h:141` (`type name[size];`) et `:223-225` (`SIZE_F_ARRAY3`
+somme les `_size` éléments sans condition). Conséquence, et c'est ce que le code encode :
+`nLength` en **7-8** (`uint16` LE), `byBuffer` en **9-408**, total **409**, charge utile **402**. Le
+gating 7.3 (`0x070300 < 0x090603`) place bien 54 dans la branche basse.
+
+### 16.3 Les six tests livrés
+
+1. `AntiHack_IsDeclaredWithTheEpic73Identifier` : `(ushort)GamePackets.TM_CS_ANTI_HACK == 54` et
+   `Enum.IsDefined(typeof(GamePackets), (ushort)54)` vrai (§8.3 points 1 et 5, première moitié).
+2. `AntiHack_SizesAreTheFixedRzuFrame` : `AntiHackPacketSize == 409`, `409 == 7 + sizeof(ushort) + 400`,
+   `AntiHackPayloadSize == 402` (§8.3 point 2).
+3. `AntiHack_FrameLaysOutHeaderThenDeclaredLengthThenTheFixedBuffer` : sur un `byte[409]` reconstruit,
+   `Length` en 0-3 (= 409), `ID` en 4-5 (= 54), `Checksum` en 6, `nLength` en 7-8, `byBuffer` en 9-408
+   (400 octets), relus via `Header` puis via le lecteur (§8.3 point 3).
+4. `AntiHack_ReaderRefusesAShortDatagramAndAcceptsAnExactOne` : 408 octets → refus, 409 → acceptation,
+   `nLength == 0x1234` relu, `nLength == 0` **accepté et non traité comme une erreur**, datagramme plus
+   long → même valeur lue (§8.3 point 4).
+5. `AntiHack_IsConsumedBeforeTheFinalDispatchSwitch` : `Enum.IsDefined` + **assertion d'ordre sur la
+   source** de `GameClient.cs` — l'occurrence du bras précède `IPacket msg = header.ID switch` (§8.3
+   point 5, seconde moitié).
+6. `AntiHack_ArmOnlyConsumesTheDatagramAndStaysOutOfTheNoReplyGroup` : le corps du bras ne contient ni
+   `SendResult`, ni `SendMessage`, ni `Disconnect`, et le bloc du groupe « valide, aucune réponse
+   attendue » ne mentionne pas `TM_CS_ANTI_HACK` (§8.2, garde-fou contre la porte de service).
+
+**Pourquoi deux tests lisent la source.** `GameClient.OnDataReceived` n'est atteignable qu'avec une
+`Connection` vivante et un `NetworkService` construit : aucun harnais de test du dépôt ne le pilote, et
+ce rôle n'a pas le droit de démarrer un serveur de jeu. Le critère « aucun membre de `GamePackets` ne
+peut atteindre le `switch` final » est donc vérifié là où il est décidable, c'est-à-dire sur la position
+relative du bras et du `switch` dans le fichier. Le chemin du dépôt est résolu en remontant depuis
+`AppContext.BaseDirectory` jusqu'à `Navislamia.sln` ; si le fichier a bougé, le test échoue au lieu de
+passer silencieusement.
+
+### 16.4 Ce que le socle ne fait toujours pas
+
+Aucune émission de 53, aucune vérification du blob, aucun journal persistant, aucune table, aucun
+réglage, aucune sanction, aucune déconnexion, aucune utilisation de `DisconnectType.AntiHack`.
+`nLength` est lu et **jamais comparé, tronqué ni validé** ; `byBuffer` n'est jamais lu. Les `NON ÉTABLI`
+du §9 restent ouverts et ne sont devinés nulle part.
+
+### 16.5 Résultats de vérification (locale, sans serveur)
+
+- `dotnet build Navislamia.sln -c Debug` : **code de sortie 0**, 0 erreur, 160 avertissements
+  (inchangés par rapport à la base).
+- `dotnet test Tests/Tests.csproj` : **372 tests**, `Failed: 0` (366 avant la tâche, +6 pour ce paquet).
+- `git log --oneline origin/master..master` : **vide**.
+
+**Réserve de stabilité, hors périmètre de ce paquet.** Une exécution (la première, machine chargée) a vu
+`MonsterWorldStateTests.TryBeginWander_SchedulesOnFirstSight_ThenPicksADestinationWithinRadius` échouer
+(`Distance` trouvée 4,99 au lieu de ≤ 1). Le test interpole la position sur l'horloge murale et exige
+≤ 1 unité : à la vitesse 25 du test, il suffit que 40 ms s'écoulent entre `TryBeginWander` et
+`GetPosition` pour que l'assertion tombe. Trois exécutions consécutives ont ensuite été vertes, et la
+base de la branche (`master`) ne touche pas `MonsterWorldState`. Le test n'a **pas** été modifié ici
+(fichier sans rapport avec le paquet anti-triche) ; à durcir dans une carte dédiée si Killian le
+souhaite.
+
