@@ -97,6 +97,22 @@ public class MonsterAiRulesTests
     }
 
     [Test]
+    public void the_player_hit_points_floor_at_zero()
+    {
+        MonsterAiRules.PlayerHpAfterDamage(120, 50).Should().Be(70);
+        MonsterAiRules.PlayerHpAfterDamage(40, 50).Should().Be(0,
+            "a character at zero hit points is the dead state this version has no packet for");
+        MonsterAiRules.PlayerHpAfterDamage(0, 50).Should().Be(0, "a corpse is not driven below zero");
+    }
+
+    [Test]
+    public void a_dead_character_is_not_a_target()
+    {
+        MonsterAiRules.IsAlive(0).Should().BeFalse("a monster must not swing at a corpse");
+        MonsterAiRules.IsAlive(1).Should().BeTrue();
+    }
+
+    [Test]
     public void the_chase_step_stops_short_of_the_player()
     {
         var (x, _) = MonsterAiRules.ChaseStep(0f, 0f, 1000f, 0f, Reach);
