@@ -4,11 +4,11 @@ using Navislamia.Game.DataAccess.Entities.Enums;
 namespace Navislamia.Game.Services;
 
 /// <summary>
-/// The two rules the drop path judges before removing anything, ported from
-/// <c>WorldSession::onDropItem</c> in NGemity (Chihiro/src/Network/GameNetwork/WorldSession.cpp:1433-1443).
-/// The remaining NGemity conditions are deliberately absent: a "may not drop" flag is not exploitable
-/// in this repository and an equipped item is not refused by either reference (see
-/// docs/packet-specs/203-drop-item.md §5.3 and §7).
+/// The rules the drop path judges before removing anything. The summon card guard and the count clamp
+/// are ported from <c>WorldSession::onDropItem</c> in NGemity
+/// (Chihiro/src/Network/GameNetwork/WorldSession.cpp:1433-1443); the equipped-item refusal is our own,
+/// neither reference has it. A "may not drop" flag stays absent: it is not exploitable in this
+/// repository (see docs/packet-specs/203-drop-item.md §5.3 and §7).
 /// </summary>
 public static class GroundItemDropRules
 {
@@ -37,6 +37,17 @@ public static class GroundItemDropRules
         }
 
         return (unchecked((uint)flag) & SummonFlagMask) != 0;
+    }
+
+    /// <summary>
+    /// A worn item may not be dropped. Neither reference refuses it (NGemity's <c>IsDropable</c> never
+    /// reads the wear slot), but removing it here would delete the row while the model and the stats
+    /// still show it worn: nothing on the drop path sends <c>TS_SC_WEAR_INFO</c> (202) or
+    /// <c>TS_SC_ITEM_WEAR_INFO</c> (287). The player unequips first.
+    /// </summary>
+    public static bool IsEquipped(ItemWearType wearInfo)
+    {
+        return wearInfo != ItemWearType.None;
     }
 
     /// <summary>

@@ -1161,7 +1161,10 @@ referenced resource tables are still empty.
   d'annotation partielle) ; le geste d'émission (aucune classe `SInput*Drop*`) ; le flag de jetabilité
   (`flag_drop` / `item_use_flag` bit 15) n'est pas exploitable dans le dépôt et **aucun refus « non
   jetable » n'est implémenté** — le client refuse déjà localement (`smsg_dump_fail`) ; `count > pile`
-  est borné (choix fixé, NGemity refuse en bloc) ; aucun contrôle d'objet équipé n'est ajouté.
+  est borné (choix fixé, NGemity refuse en bloc).
+- **Un objet équipé est refusé** (`WearInfo != None` → `205 { handle, 0 }`,
+  `GroundItemDropRules.IsEquipped`) : aucune référence ne le fait, mais sans ce refus la ligne est
+  supprimée alors que ni 202 ni 287 ne partent, et le modèle et les stats gardent l'objet porté.
 - La garde NGemity « carte d'invocation liée » est portée : `ItemGroup.Summoncard = 13` correspond à
   `GROUP_SUMMONCARD = 13`, et la garde teste le **bit 31** du bitset retail
   (`GroundItemDropRules.SummonFlagMask = 0x80000000u` = `ITEM_FLAG_SUMMON`). Attention au piège :

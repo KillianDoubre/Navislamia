@@ -14,6 +14,14 @@ public class GroundItemDropRulesTests
     private const ItemFlag FlagSummon = unchecked((ItemFlag)0x80000000u);
 
     [Test]
+    public void IsEquipped_RefusesAnyWornSlotAndAcceptsTheBag()
+    {
+        GroundItemDropRules.IsEquipped(ItemWearType.None).Should().BeFalse();
+        GroundItemDropRules.IsEquipped(ItemWearType.Weapon).Should().BeTrue();
+        GroundItemDropRules.IsEquipped(ItemWearType.Armor).Should().BeTrue();
+    }
+
+    [Test]
     public void IsBoundSummonCard_RefusesASummonCardCarryingTheSummonBit()
     {
         GroundItemDropRules.IsBoundSummonCard(FlagSummon, ItemGroup.Summoncard).Should().BeTrue();

@@ -197,7 +197,7 @@ Rien : rzu ne porte aucune logique serveur pour ce paquet (aucune référence ho
    | objet inconnu ou non possédé (`(uint)item.Id != item_handle`) | refus : `205 { handle, 0 }` | NGemity `WorldSession.cpp:1441` ; `CharacterService.cs:377-380` |
    | `count <= 0` | refus : `205 { handle, 0 }` | NGemity `WorldSession.cpp:1436` (`count > 0`) |
    | `count > item.Amount` | **borner** à `item.Amount` (`Math.Min`) | précédent du dépôt : `CharacterService.EraseItemsAsync` (`CharacterService.cs:250`) ; §6 |
-   | objet équipé (`WearInfo != None`) | **aucun contrôle ajouté** | ni NGemity ni `EraseItemsAsync` n'en ont ; §7.6 |
+   | objet équipé (`WearInfo != None`) | **refus** : `205 { handle, 0 }` (`GroundItemDropRules.IsEquipped`) | choix du dépôt, ni NGemity ni `EraseItemsAsync` n'en ont ; §7.6 |
    | objet « non jetable » (`flag_drop`) | **aucun contrôle ajouté** | donnée non exploitable dans le dépôt ; refus local client (§2, §7.3) |
    | carte d'invocation liée | **garde portable** : `resource.Group == ItemGroup.Summoncard` **et** bit 31 de l'instance | NGemity `WorldSession.cpp:1436` ; correspondance exacte des bits : `ItemGroup.Summoncard = 13` (`Enums/ItemGroup.cs:18`) ≡ `GROUP_SUMMONCARD = 13` (`ItemTemplate.hpp:347`), `ItemFlag.Summon = 31` (`Enums/ItemFlag.cs:17`) ≡ `ITEM_FLAG_SUMMON = 0x80000000` (`ItemTemplate.hpp:176`) ; §6 |
 
@@ -341,9 +341,10 @@ cette tâche**, et à ne pas maquiller par une diffusion partielle non testable.
    d'un client 7.3 modifié ou d'une session avec désynchronisation forcée.
 6. **Objet équipé.** Ni NGemity (`IsDropable` ne regarde pas `WearInfo`) ni le chemin de retrait du
    dépôt (`CharacterService.EraseItemsAsync`) ne contrôlent l'équipement. Rien n'établit que le client
-   7.3 puisse émettre un 203 sur un objet porté. Décision : **ne pas ajouter** de contrôle (parité avec
-   le chemin établi). Si Killian veut le refus, c'est une garde d'une ligne
-   (`item.WearInfo != ItemWearType.None` → `205 { handle, 0 }`), mais elle n'est pas sourcée.
+   7.3 puisse émettre un 203 sur un objet porté. Décision (Killian) : **refuser** —
+   `GroundItemDropRules.IsEquipped(item.WearInfo)` → `205 { handle, 0 }`, avant tout retrait. Sans ce
+   refus, la ligne serait supprimée alors que rien sur ce chemin n'envoie 202 ni 287 : le modèle et les
+   stats garderaient l'objet porté jusqu'à la reconnexion. Garde non sourcée, assumée.
 7. **Refus « état » / « encombrement ».** Aucun `ResultCode` (`NotActable`, `TooHeavy`,
    `NotActableInSecroute`…) n'est fondé pour ce paquet : NGemity ne produit que `isAccepted` 0/1, et le
    205 n'a aucun champ pour un motif. La fiche ne fixe donc aucun motif de refus.

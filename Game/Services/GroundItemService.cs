@@ -116,6 +116,12 @@ public class GroundItemService : IGroundItemService
                 return;
             }
 
+            if (GroundItemDropRules.IsEquipped(item.WearInfo))
+            {
+                SendDropResult(client, itemHandle, false);
+                return;
+            }
+
             ItemGroup? group = _itemGroups.TryGetGroup(item.ItemResourceId, out var knownGroup)
                 ? knownGroup
                 : null;
