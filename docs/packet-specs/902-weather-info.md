@@ -484,3 +484,79 @@ Le plancher de 366 tests du profil est donc déjà dépassé de 82 : le dev part
 > données de carte du client — données que Navislamia n'a pas. Le socle suit rzu : une 902 `{0, 0}`
 > à l'entrée dans le monde. L'appariement position → id d'emplacement reste `NON ÉTABLI` (taille de
 > cellule inconnue) et mérite une carte dédiée.
+
+## 11. Implémentation (dev)
+
+Livrée sur `hermes/packet-socle-meteo-monde`, en trois commits : les paquets
+(`4073df2`), la table et le service (`b001a55`), la migration (`0569abd`).
+
+| Fichier | Ce qui y est fait |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_WEATHER_INFO = 902` et `TM_CS_GET_WEATHER_INFO = 903` après `TM_CS_CHANGE_LOCATION = 900`. Ni 1902/1903 (§4), ni 901. |
+| `Game/Network/Packets/Game/GameWeatherPackets.cs` | `BuildWeatherInfo` (13 o : `Length` 0, `ID` 4, `Checksum` 6, `region_id` 7, `weather_id` 11) et `TryReadGetWeatherInfo` (11 o exactement, sinon refus). |
+| `Game/Network/Clients/GameClient.cs` | `SendWeatherInfo`, `HandleGetWeatherInfo` et le bras de dispatch `TM_CS_GET_WEATHER_INFO` **avant** le `switch` final. |
+| `Game/Network/Clients/Actions/GameActions.cs` | `client.SendWeatherInfo(0, 0)` juste après `SendGameTime()`/`SendTimeSync()` (§5.3.5, rzu). |
+| `Game/Network/Clients/ConnectionInfo.cs` | `CurrentLocationId` (avec `Layer` et les coordonnées), remis à 0 par `ClearCharacterSession`. |
+| `Game/DataAccess/Entities/Arcadia/WorldLocationEntity.cs` | `Id`, `X`, `Y`, `LocationType`, `TimeId`, `WeatherId`, `WeatherRatio`, `WeatherChangeTime` — types de `ArcadiaSchemaPSQL.sql:1674-1687`. |
+| `Game/DataAccess/Contexts/ArcadiaContext.cs` | `DbSet<WorldLocationEntity> WorldLocations`, clé naturelle `(Id, WeatherId, TimeId)`. |
+| `Game/DataAccess/Repositories/Interfaces/IWorldLocationRepository.cs`, `WorldLocationRepository.cs` | `GetAll()` en `AsNoTracking` avec projection des seuls champs mappés, **trié par `(Id, WeatherId, TimeId)`**. |
+| `Game/DataAccess/Repositories/WorldRepository.cs`, `Game/Entities/World/WorldEntity.cs` | champ `WorldLocations` (§5.3.6 ; le chemin réel de `WorldEntity` est `Game/Entities/World/WorldEntity.cs`, pas `Entities/Navislamia/`). |
+| `Game/Services/WorldLocation.cs`, `WorldLocationService.cs`, `Interfaces/IWorldLocationService.cs` | repli `id → { location_type, weather_ratio[7][4], current_weather, weather_change_time }`, `current_weather` à 0. |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | `WorldLocationService` exposé au client de jeu et enregistré en singleton. |
+| `Game/DataAccess/Migrations/Arcadia/20260919162439_AddWorldLocation.{cs,Designer.cs}`, `ArcadiaContextModelSnapshot.cs` | création de la table `WorldLocations`. |
+
+### 11.1 Écarts assumés supplémentaires (au-delà de §6)
+
+1. **La table est créée par une migration écrite à la main.** `dotnet-ef` n'est **pas
+   installé** dans le conteneur du dev et aucun `IDesignTimeDbContextFactory` n'existe : la
+   migration, son `Designer.cs` et le snapshot ont donc été écrits à la main, à partir de la
+   forme qu'EF émet pour une ressource à clé composite (`BannedWordsResources`,
+   `EnhanceResources`). Sans cette table, `LoadWorldIntoMemory` échoue au démarrage du
+   serveur de jeu puisque `GameModule` construit `WorldEntity` dans son constructeur.
+   `Tests/DataAccess/ArcadiaWorldLocationModelTests` vérifie **hors base** que le snapshot et
+   le modèle construit par `ArcadiaContext` décrivent la même table
+   (`IMigrationsModelDiffer.GetDifferences` → vide), ce qui est exactement ce que
+   `dotnet ef migrations add` contrôlerait ; la commande `dotnet ef` elle-même n'a pas pu
+   être exécutée.
+2. **Les lignes sont triées par le dépôt.** `RegisterWorldLocation` dépend de l'ordre de
+   lecture de la base (« la première ligne de l'id ») ; le dépôt impose donc
+   `ORDER BY Id, WeatherId, TimeId`, ce qui reproduit la ligne `weather_id = 0,
+   time_id = 0` des données 7.3 (§5.4) sans dépendre de l'ordre physique de PostgreSQL.
+3. **Une ligne hors `weather_id` 0..6 / `time_id` 0..3` est ignorée et journalisée.**
+   NGemity écrit `weather_ratio[weather_id][time_id]` dans un tableau C `[7][4]` sans
+   contrôle : reproduire ce dépassement en C# est impossible, la valeur est abandonnée.
+4. **`weather_change_time_last` n'est pas porté.** Aucune référence ne l'affecte ni ne le
+   lit (NGemity le copie dans son seul constructeur de copie) : le champ n'existe pas dans
+   l'entrée repliée plutôt que d'être un zéro permanent.
+5. **`CurrentWeather` est une propriété constante à 0**, documentée comme tel : c'est la
+   seule valeur que NGemity envoie et la valeur de rzu à l'entrée (§5.1, §5.2).
+
+### 11.2 Vérifications exécutées
+
+| Commande | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | code **0**, 0 erreur, 160 avertissements (préexistants) |
+| `dotnet test Tests/Tests.csproj` | code **0**, **465 réussis / 465**, 0 échec, 0 ignoré (448 au départ, +17) |
+| `git log --oneline origin/master..master` | vide |
+
+Tests ajoutés : `Tests/Game/WeatherInfoPacketsTests.cs` (offsets 902 et 903, refus de toute
+longueur ≠ 11, absence de 1902/1903), `Tests/Game/WorldLocationServiceTests.cs` (repli, ordre,
+matrice, bornes), `Tests/DataAccess/ArcadiaWorldLocationModelTests.cs` (mapping et snapshot).
+
+### 11.3 Réserves
+
+1. **La table `WorldLocations` est vide dans la base migrée.** Rien dans le dépôt n'importe
+   les données de `WorldLocation` : `MigrateDatabase` ne mappe que les entités déclarées
+   avant cette carte, et aucune n'existait. Tant que la table est vide, le service ne connaît
+   aucun emplacement, la 903 ne reçoit donc **aucune réponse** et la 902 d'entrée reste
+   `{0, 0}` — c'est-à-dire le comportement de rzu, mais la réponse de §5.3.4 n'est alors
+   jamais exercée en jeu. L'import (depuis `ArcadiaSchemaPSQL.sql`, la base MSSQL legacy ou
+   `db_worldlocation.rdb`) est un prérequis d'infrastructure à trancher par Killian.
+2. **Aucun test en conditions réelles** : pas de PostgreSQL dans le conteneur, le serveur de
+   jeu n'est pas démarré (interdit par le profil), et rien ne prouve donc que la migration
+   s'applique — seulement que le modèle et le snapshot concordent.
+3. **Le client 7.3 n'émet jamais la 903** (§2.2, §7a) : la branche de dispatch et la réponse
+   sont défensives et n'ont aucun témoin client. Le tableau §5.3.4 est respecté à la lettre
+   (id connu → 902 au demandeur seul ; id inconnu → silence).
+4. `region_id` reste une identité **supposée** (§7b) et la 902 d'entrée ne porte pas d'id
+   d'emplacement (§7c) : ces deux points sont inchangés par cette implémentation.
