@@ -34,6 +34,13 @@ projects referencing `Game`. PostgreSQL databases are `Arcadia`, `Telecaster` an
 - `MigrateDatabase`: legacy migration utilities
 - `Tests`: NUnit, FluentAssertions and FakeItEasy tests
 - `docs`: current technical documentation and historical implementation plans
+- `docs/packet-specs`: **one sheet per client packet integrated since 2026-09-18**, named
+  `<opcode>-<name>.md`. Each sheet is the durable record for that packet: wire layout with a
+  `file:line` source per field, the total byte size, the Epic 7.3 decision for every field rzu
+  gates by version, what the reference servers do with it, the assumed deviations, and an
+  explicit `NON ÉTABLI` section for what could not be established. **Read the sheet before
+  touching a packet it covers** — it is where the reasoning lives, so this file does not repeat
+  it per packet.
 
 ## Protocol fundamentals
 
@@ -757,9 +764,19 @@ instance of the same state, reusing its `state_handle`; `state_type` (`SG_NORMAL
 **`ConnectionInfo.CharacterMp` did not exist** — MP was only ever sent as a property, never tracked — so
 casting had nothing to spend. It is seeded at login and on level-up alongside `CharacterHp`.
 
-`state_code` is the `StateResource` id and the client resolves the icon and name from its own
-`db_state.rdb`, like `npc_id` and item codes: **a 9.4-only state id renders nothing**, the same
-unresolved 7.3 gap as ground items.
+`state_code` is the `StateResource` id, and **how the client turns it into an icon and a name is
+not established**. This file used to say it resolved them from its own `db_state.rdb`, like
+`npc_id` and item codes. **There is no `db_state.rdb` in this client**: its `data.000` index holds
+83 822 entries and exactly 50 `db_*.rdb` files, none of them for states, and no per-state icon
+asset exists either (measured 2026-09-18 with `tools/provision-navislamia/extract_client.py`; the
+50 names are listed in `reference/client73/extraction-manifest.json` on the pipeline VPS). The
+plausible candidates are `db_skill.rdb` and `db_effectresource.rdb`, since a state's visual may
+hang off the skill that applied it — but nothing has been read to prove it.
+
+So the practical consequence — **a 9.4-only state id may render nothing** — stays a presumption
+rather than a proven mechanism, and "the same unresolved 7.3 gap as ground items" was an
+inference from a file that does not exist. Whether this client renders a state icon at all is
+still unverified.
 
 **Percentage values are ratios, not percent numbers.** A `ParameterAmp` state or an `AmpParameterA` item
 carries `0.05` for "+5%", and `StatBlock.Amplify` does `stat * (1 + ratio)` exactly like the reference's
@@ -1129,6 +1146,11 @@ referenced resource tables are still empty.
 - Keep resource queries no-tracking and project only fields required at runtime.
 - Add tests for packet offsets, encodings, spatial boundaries and spawn expansion.
 - Do not edit generated EF migration designer files manually unless the migration itself changes.
+- A newly handled client packet gets a sheet in `docs/packet-specs/` (see Solution layout), and
+  its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
+  **in the same change**: a declared id with no dispatch arm reaches
+  `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
+
 
 ### Paquet 1202 — `TM_CS_EMOTION` (émotion)
 

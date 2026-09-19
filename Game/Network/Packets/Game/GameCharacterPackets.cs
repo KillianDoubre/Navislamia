@@ -51,6 +51,19 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    /// <summary>
+    /// TM_SC_EMOTION (1201) echoes the emotion received in 1202: the handle of the author first, then
+    /// the value verbatim. The client resolves both the animation and the local message itself.
+    /// </summary>
+    public static byte[] BuildEmotion(uint handle, int emotion)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_EMOTION, HeaderSize + 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), handle);
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), emotion);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildSkinInfo(uint handle, int skinColor)
     {
         var packet = CreatePacket(GamePackets.TM_SC_SKIN_INFO, HeaderSize + 8);

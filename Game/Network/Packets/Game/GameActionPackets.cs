@@ -188,4 +188,22 @@ public static class GameActionPackets
             packet[HeaderSize + 8]);
         return packet[HeaderSize + 9] == 0;
     }
+
+    /// <summary>
+    /// TM_CS_EMOTION (1202) carries one opaque emotion value. The server never interprets it: the
+    /// client owns the animation and the local message, and neither rzu nor NGemity validates a
+    /// range, so an invented bound would refuse legitimate emotions.
+    /// </summary>
+    public static bool TryReadEmotion(ReadOnlySpan<byte> packet, out int emotion)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length < packetLength)
+        {
+            emotion = 0;
+            return false;
+        }
+
+        emotion = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
 }
