@@ -31,6 +31,7 @@ public class NetworkService : INetworkService
     public readonly IGroundItemService GroundItemService;
     public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
+    public readonly IResurrectionService ResurrectionService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -50,7 +51,7 @@ public class NetworkService : INetworkService
         ICombatService combatService, ILevelingService levelingService, ISkillService skillService,
         IEquipmentService equipmentService, IInventoryService inventoryService,
         IGroundItemService groundItemService, ISkillCastService buffService,
-        IFieldPropService fieldPropService)
+        IFieldPropService fieldPropService, IResurrectionService resurrectionService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -67,6 +68,7 @@ public class NetworkService : INetworkService
         GroundItemService = groundItemService;
         FieldPropService = fieldPropService;
         SkillCastService = buffService;
+        ResurrectionService = resurrectionService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
     }

@@ -190,6 +190,17 @@ public class GameClient : Client
         _networkService.CombatService.StopAttack(this);
     }
 
+    private void HandleResurrection(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadResurrection(buffer, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_RESURRECTION, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        _networkService.ResurrectionService.Resurrect(this, request);
+    }
+
     private void HandleAttackRequest(byte[] buffer)
     {
         var target = GameAttackPackets.ReadAttackTarget(buffer);
@@ -605,6 +616,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CANCEL_ACTION)
             {
                 HandleCancelAction(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_RESURRECTION)
+            {
+                HandleResurrection(msgBuffer);
                 continue;
             }
 

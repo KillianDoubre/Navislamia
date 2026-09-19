@@ -110,6 +110,13 @@ public class GameActions : IActions
         info.X = position[0];
         info.Y = position[1];
         info.Z = position[2];
+
+        // The position the character entered the world at is its return point: where it reappears
+        // after a death (docs/packet-specs/socle-mort-respawn.md §8 option (a)). It cannot drift
+        // during the session, since progress — and with it the position — is only written at logout.
+        info.RespawnX = position[0];
+        info.RespawnY = position[1];
+        info.RespawnLayer = (byte)character.Layer;
         info.LearnedSkills.Clear();
         foreach (var skill in character.Skills ?? Array.Empty<CharacterSkillEntity>())
         {
