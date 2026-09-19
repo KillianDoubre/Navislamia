@@ -190,6 +190,24 @@ public class GameClient : Client
         _networkService.CombatService.StopAttack(this);
     }
 
+    private void HandleEmotion(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadEmotion(buffer, out var emotion))
+        {
+            _logger.Warning("Malformed emotion packet received from {clientTag}", ClientTag);
+            return;
+        }
+
+        // The emotion value is opaque: neither rzu nor NGemity validates a range and the client 7.3
+        // resolves the animation and the local message itself, so it is echoed verbatim. No TS_SC_RESULT
+        // is sent — nothing identifies an acknowledgement for 1202 and the 1201 alone plays the animation.
+        // Only the actor is served: no player-to-player visibility exists yet, so a broadcast would carry
+        // a handle the other clients do not know.
+        Connection.Send(GameCharacterPackets.BuildEmotion(ConnectionInfo.CharacterHandle, emotion));
+        _logger.Debug("TM_CS_EMOTION ({id}) Length: {length} received from {clientTag}: emotion={emotion}",
+            (ushort)GamePackets.TM_CS_EMOTION, buffer.Length, ClientTag, emotion);
+    }
+
     private void HandleAttackRequest(byte[] buffer)
     {
         var target = GameAttackPackets.ReadAttackTarget(buffer);
@@ -605,6 +623,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CANCEL_ACTION)
             {
                 HandleCancelAction(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_EMOTION)
+            {
+                HandleEmotion(msgBuffer);
                 continue;
             }
 
