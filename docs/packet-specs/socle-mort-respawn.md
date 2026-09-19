@@ -568,6 +568,10 @@ la ville** — c'est-à-dire `RT_UseNone` seul.
 
 ## 16. A VERIFIER PAR KILLIAN
 
+> Le socle de cette branche applique déjà les valeurs par défaut que ces questions laissent ouvertes :
+> point de retour (a) au point 1, maxima de PV/MP au point 3, aucune pénalité au point 2, aucun
+> effacement d'états au point 4. Le détail, point par point et fichier par fichier, est en §20.6.
+
 1. **Politique de point de réapparition** (choix d'exploitation, aucune valeur inventée) :
    (a) la position persistée du personnage (`CharacterEntity.Position`/`Layer`, aucune migration) ;
    (b) un « point de retour » par personnage, mis à jour à la visite des villes (équivalent des
@@ -616,6 +620,11 @@ joueur le même bit vaut `TCS_FlagSitdown`. Ne jamais envoyer 500 + `1 << 8` pou
 
 La fiche complète (enchaînement côté client, écarts NGemity, découpage, réserves) est dans
 `docs/packet-specs/socle-mort-respawn.md`.
+
+Le socle est en place : `TM_CS_RESURRECTION` (513) est décodé (trame de 12 octets, toute autre taille
+refusée plutôt que lue), le personnage réapparaît à sa position persistée avec ses PV/MP au maximum,
+et un monstre lâche une cible tombée à 0 PV (les PV d'un joueur n'ont plus de plancher à 1). Le
+serveur n'émet toujours aucun paquet de mort.
 ```
 
 ---
@@ -656,3 +665,130 @@ répartiteur et la fabrique d'écrans, lecture d'octets brute pour les tables de
 - Les deux pièges à ne pas rater : (1) NGemity est compilé en `EPIC_4_1_1`, son handler lit des
   champs qui n'existent plus en 7.3 ; (2) `1 << 8` dans `TM_SC_STATUS_CHANGE` vaut « assis » pour un
   joueur, jamais « mort ».
+
+---
+
+## 20. Implémentation livrée (dev)
+
+Socle de §12.1 seul, sur `hermes/packet-socle-mort-respawn`. Les points que le socle a dû trancher
+faute de référence sont en §20.6, un par un avec ce qui les trancherait.
+
+### 20.1 Critères d'acceptation
+
+| # | Critère | État mesuré |
+|---|---|---|
+| 1 | `dotnet build Navislamia.sln -c Debug` | 0 erreur, code de sortie **0** |
+| 2 | `dotnet test Tests/Tests.csproj` | code de sortie **0**, **387** tests réussis, 0 échec (366 avant la branche : +21) |
+| 3 | Test d'offsets de la nouvelle trame | `Tests/Game/ResurrectionPacketTests.cs` : taille 12 et position de chaque champ |
+| 4 | Enum et dispatch modifiés ensemble | `TM_CS_RESURRECTION = 513` **et** branche dans `GameClient.OnDataReceived` ; un test traverse la vraie boucle de réception, où un id sans branche atteindrait le `switch` qui lève |
+| 5 | Savoir durable dans la fiche | cette section ; le bloc `CLAUDE.md` est en §17 et part dans la description de la MR |
+| 6 | Version tranchée | trame 7.3 strictement de 12 octets ; aucun champ d'une autre version n'est lu |
+| 7 | Aucun commit sur `master` locale | `git log --oneline origin/master..master` vide |
+| 8 | Aucun champ NON ÉTABLI deviné | §20.6 et §15, non tranchés et non implémentés |
+
+### 20.2 Fichiers livrés
+
+| Fichier | Rôle |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_RESURRECTION = 513` dans la bande 500-517, entre `TM_CS_TARGETING` et `TM_CS_MONSTER_RECOGNIZE` |
+| `Game/Network/Packets/Enums/ResurrectionType.cs` | `type` : `UseNone` 0, `UseState` 1, `UsePotion` 2, `Compete` 3, `Deathmatch` 4 |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TryReadResurrection` et `ResurrectionPacketLength` (12) |
+| `Game/Services/ResurrectionRules.cs` | décisions pures : validations de §5.3, PV/MP rendus |
+| `Game/Services/ResurrectionService.cs`, `Game/Services/Interfaces/IResurrectionService.cs` | warp, republication des PV/MP, acquittement |
+| `Game/Network/Clients/GameClient.cs` | branche de dispatch et `HandleResurrection` |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | câblage du service dans le conteneur |
+| `Game/Network/Clients/ConnectionInfo.cs`, `Game/Network/Clients/Actions/GameActions.cs` | point de retour (`RespawnX`/`RespawnY`/`RespawnLayer`) capturé à l'entrée en jeu, remis à zéro par `ClearCharacterSession` |
+| `Game/Services/MonsterAiRules.cs`, `Game/Services/MonsterAiService.cs` | plancher des PV à 0 et cible morte lâchée |
+| `Tests/Game/ResurrectionPacketTests.cs` | 19 tests : offsets, validations, refus, chemin complet par la boucle de réception |
+| `Tests/Game/MonsterAiRulesTests.cs`, `Tests/Game/ActionPacketsTests.cs` | +2 tests (plancher, cible morte) et les assertions du point de retour |
+
+### 20.3 Offsets livrés
+
+Trame client `TM_CS_RESURRECTION` (513), **12 octets**, sans remplissage :
+
+| Offset | Taille | Champ |
+|---|---|---|
+| 0 | 4 | `Length` = 12 (uint32 LE) |
+| 4 | 2 | `ID` = 513 (uint16 LE) |
+| 6 | 1 | `Checksum` |
+| 7 | 4 | `handle` (uint32 LE) |
+| 11 | 1 | `type` (`int8`, `ResurrectionType`) |
+
+Tests correspondants : `ClientFrame_IsTheFixedTwelveByteEpic73Shape`,
+`ClientFrame_KeepsTheHandleAtSevenAndTheTypeAtEleven`,
+`TryReadResurrection_ReadsEveryTypeTheReferenceDeclares`,
+`TryReadResurrection_RefusesThePre61ThirteenByteShape`, `TryReadResurrection_RefusesAShortFrame`,
+`EnumMember_SitsBetweenItsNeighbours`.
+
+La lecture exige une taille **exactement** de 12 octets (`packet.Length != 12` → refus) : la forme
+pré-6.1 en ferait 13 (`use_state`/`use_potion`), et accepter « au moins 12 » laisserait un octet
+orphelin désaligner la suite du flux.
+
+### 20.4 Réponses émises
+
+| Situation | Réponse |
+|---|---|
+| trame dont la taille n'est pas 12 | `TM_SC_RESULT` tagué 513, `InvalidArgument` (28) — rien d'autre n'est écrit |
+| session sans personnage en jeu (`CharacterHandle == 0`) | 513, `NotActable` (5) |
+| `handle` ≠ personnage connecté | 513, `NotOwn` (3) |
+| personnage vivant (`CharacterHp > 0`) | 513, `NotActable` (5) |
+| `type` ∈ {1,2,3,4} | 513, `NotActable` (5), aucun déplacement, aucun état touché |
+| personnage mort, son propre handle, `type = 0` | `TM_SC_WARP` (point de retour + son calque), `TM_SC_PROPERTY` `hp`, `TM_SC_PROPERTY` `mp`, puis `TM_SC_RESULT` tagué 513 `Success` |
+
+L'ordre retenu est « warp, propriétés, acquittement », donc l'acquittement en dernier. §15.2 laissant
+ouvert ce sur quoi le client 7.3 ferme sa fenêtre de mort, les trois trames partent ensemble ; la
+position dans la séquence est un choix, pas une mesure.
+
+### 20.5 Ce qui n'est pas porté, et pourquoi
+
+- **Les chemins état, objet, compétition et match à mort** du 513 (§12.2) : refusés par `NotActable`,
+  sans effet, en attendant leurs lots. Aucune supposition sur leurs effets.
+- **La logique NGemity** : `WorldSession::onRevive` lit `use_state`/`use_potion` (compilation
+  `EPIC_4_1_1`), champs qui n'existent plus en 7.3 ; elle est traduite (handle + type), pas recopiée.
+- **`TM_SC_DEAD` (504)** : toujours pas émis, conformément à §3.2 et §12.2. Le client apprend la mort
+  par `target_hp = 0` et par la propriété `hp`.
+- **La pénalité de mort** (perte d'expérience, §16.2) : non implémentée, le socle livre sans pénalité.
+- **L'effacement des états `StateTimeType.EraseOnResurrect = 128`** : non implémenté, l'énumération
+  reste déclarative faute de porteur (§16.4).
+- **La résurrection par autrui** (§11) : chantier distinct, non entamé.
+
+### 20.6 Réserves : ce que le socle a tranché faute de référence
+
+1. **Point de retour = option (a) de §16.1.** `GameActions.OnLogin` mémorise dans
+   `ConnectionInfo.RespawnX/RespawnY/RespawnLayer` la position qu'il vient de lire sur
+   `CharacterEntity` (avec le repli `DefaultSpawn` déjà en place). Aucune colonne, aucune migration.
+   La valeur en base ne bouge qu'à la sauvegarde de fin de session (`SaveProgressAsync`), donc la
+   valeur en mémoire est la valeur persistée pendant toute la session. Si Killian veut (b), la
+   migration EF reste à faire et le point de retour devra être mis à jour à la visite des villes.
+2. **PV/MP rendus = les maxima recalculés**, via `IStatService.Compute(info).Total` — la même source
+   que la montée de niveau (`LevelingService.cs:48-57`), et non `CharacterMaxHp` seul, qui laisserait
+   les MP à 0 (aucun maximum de MP n'est conservé dans `ConnectionInfo`). C'est le défaut proposé par
+   §16.3, pas une mesure.
+3. **Refus d'une session sans personnage** (`CharacterHandle == 0` → `NotActable`) : garde ajoutée
+   au-delà de la liste de §5.3, parce qu'un client revenu au choix de personnage a
+   `CharacterHandle == 0` **et** `CharacterHp == 0` : sans cette garde, un 513 avec `handle = 0`
+   passerait toutes les autres validations et déclencherait un warp hors du monde.
+4. **`type` hors {0,1,2,3,4}** → `NotActable`, comme les valeurs 1 à 4 : §5.3 ne tranche que
+   l'appartenance à {1,2,3,4}, et `InvalidArgument` n'est employé que pour la taille de trame.
+5. **`RespawnLayer` est appliqué avant le warp** (`info.Layer = info.RespawnLayer`). En pratique les
+   deux valent la même chose aujourd'hui (`TM_CS_CHANGE_LOCATION` ne change que X/Y), mais le retour
+   au point de retour doit rester correct si le calque devient modifiable.
+6. **Le monstre lâche l'aggro et rentre chez lui** quand sa cible tombe à 0 PV : c'est la branche
+   `Drop` existante (`GoHome`), pas une nouvelle politique. Il ne frappe plus (`Acquire` ignore aussi
+   un personnage mort, sinon il réacquérirait une cible que `Act` relâche au tick suivant).
+7. **Le plancher à 0 est celui de tous les dégâts de monstre** (`MonsterAiRules.PlayerHpAfterDamage`) :
+   la formule de dégâts (`PlayerDamage`) n'est pas touchée, seul le plancher passe de 1 à 0.
+8. **Ordre des trois trames** (warp, propriétés, acquittement) : choix documentaire, §15.2 non tranché.
+9. **Le test de dispatch sait atteindre l'état de session** malgré `Client.ConnectionInfo` interne
+   (`internal`, sans `InternalsVisibleTo` pour `Tests`) : le test le renseigne par réflexion
+   (`ResurrectionPacketTests.SessionState`). À revoir si le dépôt ouvre un jour l'assemblée aux tests.
+
+### 20.7 Commandes exécutées et codes de sortie
+
+Depuis `/srv/navislamia/Navislamia`, `NUGET_PACKAGES=/srv/navislamia/.nuget-cache` :
+
+| Commande | Code de sortie | Sortie |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` | **0** | `0 Error(s)` (160 avertissements préexistants) |
+| `dotnet test Tests/Tests.csproj` | **0** | `Passed! - Failed: 0, Passed: 387, Skipped: 0, Total: 387` |
+| `git log --oneline origin/master..master` | **0** | vide (aucun commit sur `master` locale) |
