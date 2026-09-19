@@ -42,8 +42,8 @@ public static class ItemWearRules
     /// two types NGemity folds onto a slot are folded the same way
     /// (<c>Player::TranslateWearPosition</c>, <c>Player.cpp:1754-1758</c>): <c>Twohand</c> (99) is the
     /// class marker of a two-handed weapon, which NGemity keeps in the weapon slot and never stores as a
-    /// position (<c>Player::putonItem</c> refuses <c>pos >= MAX_ITEM_WEAR</c>, <c>ItemTemplate.hpp:7</c>;
-    /// the same function also refuses <c>pos >= MAX_SPARE_ITEM_WEAR</c>, <c>Unit.cpp:1519</c>);
+    /// position (the port checks bound it to <c>MAX_ITEM_WEAR</c>, <c>Player.cpp:1853</c> and
+    /// <c>Unit.cpp:1491</c>, never to 99);
     /// <c>TwofingerRing</c> (94) is worn in the first ring slot. Everything else
     /// (<c>CantWear</c>, the spare slots 24..27, <c>Skill</c> 100, <c>SummonOnly</c> 200) has no single
     /// port, and the caller must not guess one.

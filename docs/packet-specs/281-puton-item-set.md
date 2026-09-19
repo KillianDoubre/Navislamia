@@ -293,3 +293,177 @@ serveur est conçu pour y survivre.
 Baseline mesurée sur cette base (branché avant toute modification) :
 `dotnet build Navislamia.sln -c Debug` → 0 erreur, 160 avertissements ;
 `dotnet test Tests/Tests.csproj` → 448 réussis / 448, 0 échec.
+
+---
+
+## 9. Bloc pour CLAUDE.md (à recopier dans la description de la MR)
+
+```markdown
+- **`TM_CS_PUTON_ITEM_SET` (281) est implémenté** : trame à tableau fixe, **sans `position` et sans
+  `target_handle`**. Le client 7.3 en construit **119 octets** (`length = 0x77`, 28 dwords copiés) alors
+  que rzu et NGemity n'en décrivent que 24 : le serveur accepte toute trame d'**au moins 103 octets**,
+  lit les 24 poignées `uint32` à `7 + 4·i` (`i ∈ [0,23]`), ignore la fin et ne refuse jamais sur la
+  seule taille. `GameActionPackets.PutonItemSetHandles = 24`.
+- **Le port de destination vient de l'objet, jamais de l'index du tableau** : `ItemEntity.WearInfo` vaut
+  `None` pour un objet d'inventaire, donc le port est lu dans la colonne `wear_type` de la ressource
+  (`ItemResource.WearType`, catalogue figé `ItemWearCatalog` construit au démarrage, projeté par
+  `IItemResourceRepository.GetWearFields()`). Deux types ne sont pas des ports et sont repliés comme
+  NGemity les replie (`Player::TranslateWearPosition`, `Player.cpp:1754-1758`) : `Twohand` (99) →
+  `Weapon` (0) et `TwofingerRing` (94) → `Ring` (9). Les autres (`CantWear`, les emplacements
+  « spare » 24..27, `Skill` 100, `SummonOnly` 200) n'ont pas de port unique et la poignée est refusée
+  en `InvalidArgument` — **le rang de la poignée n'est jamais utilisé comme repli** (fiche §11, réserve 1).
+- **Sémantique** : poignée `0` = emplacement vide, laissé tel quel (281 ne déshabille jamais) ; une
+  poignée qui échoue n'interrompt pas les suivantes. Réponses : **un seul** `TS_SC_RESULT`
+  (`request_msg_id = 281`) en fin de traitement — `Success` dès qu'une pièce a été équipée, sinon le
+  premier refus rencontré (`AccessDenied` pour un objet non possédé, `NotActable` pour un objet déjà
+  porté, `InvalidArgument` pour un port irrésoluble) ; une trame sans aucune poignée exploitable est
+  refusée en `InvalidArgument`. Un `TM_SC_ITEM_WEAR_INFO` (287) par objet déplacé, puis `SendStatInfo`
+  une fois, `TS_SC_RESULT`, puis `TM_SC_WEAR_INFO` (202) une fois — la même queue que 200.
+- **Invariant** : `TM_CS_PUTON_ITEM_SET = 281` est armé dans la chaîne de réception de `GameClient`
+  (juste après `TM_CS_PUTOFF_ITEM`) : il ne peut plus atteindre le `switch` final
+  (`Unknown Packet Type`). Aucun `TM_SC_*` nouveau.
+- **Pièges et réserves** : `docs/packet-specs/281-puton-item-set.md` §7 (héritées) et §11 (ajoutées par
+  le dev : deux bagues `wear_type = 9`, dwords 24..27 ignorés, convention d'accusé, règles de
+  chevauchement NGemity non portées).
+```
+
+## 10. Implémentation (navis-dev, 2026-09-19)
+
+Branche `hermes/packet-281-puton-item-set`, base `master`
+`ec76b218cd0bd7c6498d725f253abb8b431f0cd6`, fiche `ed94da1`. Le plan §5.3 est suivi point par point ;
+les seules décisions laissées ouvertes par la fiche sont tranchées et listées en §11.
+
+### 10.1 Fichiers touchés
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs:28` | `TM_CS_PUTON_ITEM_SET = 281`, entre `TM_CS_PUTOFF_ITEM = 201` et `TM_SC_WEAR_INFO = 202` |
+| `Game/Network/Packets/Game/GameActionPackets.cs:14`, `:176` | `PutonItemSetHandles = 24` et `TryReadPutonItemSet(ReadOnlySpan<byte>, out uint[])` : `packet.Length < HeaderSize + 96` (= 103) refusé, 24 `uint32` lus à `HeaderSize + 4·i`, rien au-delà |
+| `Game/Network/Clients/GameClient.cs:374`, `:690` | `HandlePutonItemSetAsync` (`InvalidArgument` si la trame est refusée par la lecture) et le bras de réception, armé juste après `TM_CS_PUTOFF_ITEM` |
+| `Game/Services/Interfaces/IEquipmentService.cs` | `Task EquipSetAsync(GameClient client, uint[] handles)` |
+| `Game/Services/EquipmentService.cs:67`, `:170`, `:192` | `EquipSetAsync` (boucle, agrégation, queue d'envois), `ResolveSlotAsync`, `EquipAtSlotAsync` (cœur partagé avec 200 : 287 de l'objet déplacé puis de l'objet équipé) |
+| `Game/Services/ItemWearRules.cs` | règles pures : `IsWearableSlot` (0..23, `WearSlots` de 202) et `TryResolveSlot` (replis `Twohand`/`TwofingerRing`) |
+| `Game/Services/Interfaces/IItemWearCatalog.cs`, `Game/Services/ItemWearCatalog.cs` | `TryGetWearType(long resourceId, out ItemWearType)` sur un dictionnaire figé, forme de `ItemUseCatalog`/`ItemGroupCatalog` |
+| `Game/DataAccess/Repositories/Interfaces/IItemResourceRepository.cs:27`, `ItemResourceRepository.cs:52` | `ItemWearFields(int Id, ItemWearType WearType)` et `GetWearFields()` — projection `ItemResources.Id/WearType` |
+| `DevConsole/Program.cs:239` | `services.AddSingleton<IItemWearCatalog, ItemWearCatalog>();` |
+| `Tests/Game/PutonItemSetPacketsTests.cs`, `Tests/Game/ItemWearTests.cs` | 19 tests : offsets du 281 et lecture des poignées (9), catalogue et règles de port (10) |
+
+`EquipAsync` (200) n'est pas modifié sur le fil : son ordre d'envois (`287` déplacé, `287` équipé,
+`SendStatInfo`, `Result`, `202`) est reproduit à l'identique, le cœur d'équipement étant seulement
+extrait dans `EquipAtSlotAsync` et les codes de refus inchangés.
+
+### 10.2 D'où vient le port : la ressource d'objet, avec les deux replis de NGemity
+
+281 ne transporte aucun port (§4) et un objet d'inventaire porte `WearInfo = ItemWearType.None`
+(`CharacterService.EquipItemAsync` exige `WearInfo == None` pour équiper) : le seul port que le dépôt
+puisse déduire est la colonne `wear_type` de la ressource, absente jusqu'ici des projections
+d'`IItemResourceRepository`. `GetWearFields()` l'ajoute sous la même forme que `GetUseFields()`, et
+`ItemWearCatalog` la fige au démarrage (`FrozenDictionary<int, ItemWearType>`), comme les autres
+catalogues d'objets.
+
+`ItemWearRules.TryResolveSlot` couvre trois cas :
+
+| `wear_type` de la ressource | port | fondement |
+| --- | --- | --- |
+| 0..23 (`Weapon` … `BagSlot`) | lui-même | c'est déjà un port de `TM_SC_WEAR_INFO` (202, `WearSlots = 24`) |
+| `Twohand` (99) | `Weapon` (0) | `Player::TranslateWearPosition` (`Player.cpp:1754-1755`) écrit `WEAR_WEAPON` pour tout objet dont `GetWearType() == WEAR_TWOHAND` ; 99 n'est jamais une position : les contrôles de port bornent à `MAX_ITEM_WEAR = 24` (`Player.cpp:1853`) et `Unit::putonItem` borne à `MAX_SPARE_ITEM_WEAR = 28` (`Unit.cpp:1491`), alors que `m_anWear` ne compte que 24 entrées (`Unit.h:584`) |
+| `TwofingerRing` (94) | `Ring` (9) | même fonction, `Player.cpp:1757-1758` (`pos = WEAR_RING`), et `Unit::putoffItem` replie `WEAR_TWOFINGER_RING` sur `WEAR_RING` de la même façon (`Unit.cpp:1515-1516`) |
+
+Tout le reste est refusé pour la poignée concernée : `CantWear` (= `None` = -1), les emplacements
+« spare » 24..27 (NGemity les tolère comme positions dans `Player::TranslateWearPosition`,
+`Player.cpp:1628`, mais `m_anWear` n'a que `MAX_ITEM_WEAR = 24` entrées et 202 ne rapporte que 24
+ports), `Skill` (100) et `SummonOnly` (200). Le rang `i` de la poignée dans la trame n'est **jamais**
+utilisé comme port de repli : c'est la lecture que §7.3 laisse ouverte et le plan §5.3 l'interdit.
+
+Un objet inconnu du personnage répond `AccessDenied`, exactement le code que 200 renvoie pour
+`EquipItemOutcome.NotFound`, et un objet déjà porté répond `NotActable` (`EquipItemOutcome.AlreadyWorn`
+sous 200) : les refus de 281 restent alignés sur ceux du frère 200 au lieu d'inventer une table.
+
+### 10.3 Convention de l'accusé agrégé
+
+Le plan §5.3-5 est appliqué à la lettre : **un seul** `TS_SC_RESULT` avec `request_msg_id = 281`, émis
+après la boucle. `Success` dès qu'au moins une pièce a été équipée (même si d'autres poignées ont
+échoué), sinon le **premier** refus rencontré dans l'ordre de la trame. Deux sous-cas que la fiche ne
+tranche pas et qui sont donc explicitement choisis ici (réserve 3 de §11) :
+
+- **trame sans aucune poignée exploitable** (les 24 dwords à zéro, cas non décrit par §7) : la réponse
+  est `InvalidArgument`, le code que reçoit déjà une trame tronquée (§5.3-3). Répondre `Success` serait
+  annoncer un équipement qui n'a pas eu lieu ; ne rien répondre violerait l'accusé obligatoire §5.2-1.
+- **exception du chemin** (lecture de l'objet, écriture en base) : la poignée compte comme `DBError`,
+  la boucle continue, et `DBError` remonte comme premier refus si rien n'a été équipé. Aucune exception
+  n'est laissée remonter à la boucle de réception, comme pour 200.
+
+Queue d'envois en cas de succès partiel : `287` (objet déplacé puis objet équipé) par pièce équipée,
+puis `SendStatInfo` **une fois** (les blocs `Total`/`ByItem` sont des instantanés absolus, §5.2-4 est
+satisfait sans les répéter 24 fois), `TS_SC_RESULT`, puis `BuildWearInfo` (202) **une fois** (§5.2-3),
+dans l'ordre de 200.
+
+### 10.4 Invariant énumération / dispatch
+
+`TM_CS_PUTON_ITEM_SET` (281) est un paquet **montant** : son bras existe dans la chaîne de `if` de
+`GameClient` (`:690`, juste après `TM_CS_PUTOFF_ITEM`) et il ne peut donc plus atteindre le `switch`
+final de `:826` (`Unknown Packet Type`). Aucun `TM_SC_*` n'est ajouté : `TS_SC_RESULT` (0),
+`TM_SC_ITEM_WEAR_INFO` (287) et `TM_SC_WEAR_INFO` (202) existaient déjà sur `master`.
+
+### 10.5 Vérifications exécutées
+
+| Commande | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | code de sortie **0**, 0 erreur, 160 avertissements (baseline identique) |
+| `dotnet test Tests/Tests.csproj` | code de sortie **0**, **467 réussis / 467**, 0 échec (448 avant cette tâche) |
+| `git log --oneline origin/master..master` | vide |
+| `git branch --show-current` | `hermes/packet-281-puton-item-set` |
+
+Tests d'offsets (`Tests/Game/PutonItemSetPacketsTests.cs`, 9 tests) : id 281 dans l'énumération ; trame
+client de 119 octets (`length = 0x77`, id 281 en +4, checksum en +6) lue en 24 poignées ; `handle[0]` en
++7, `handle[1]` en +11, `handle[23]` en +99 (un test vérifie les 24 pas de 4 octets) ; l'octet +6 est
+l'en-tête et non une poignée ; poignée `0` lue comme emplacement vide ; les 4 dwords 103..118 ignorés
+(remplis de `0xAB`, aucune poignée polluée) ; minimum de 103 octets accepté ; 102 octets et trame
+d'en-tête seul refusés (`TryReadPutonItemSet` renvoie `false` — c'est `HandlePutonItemSetAsync` qui
+envoie alors `InvalidArgument`, hors de portée d'un test unitaire sans socket).
+
+Tests de port (`Tests/Game/ItemWearTests.cs`, 10 tests) : le catalogue expose le `wear_type` d'une
+ressource connue et laisse passer une ressource inconnue en `false` ; `IsWearableSlot` aux bornes
+(-1/0/23/24/94/99) pour les deux surcharges ; `TryResolveSlot` identité sur 0..23, replis 99→0 et 94→9,
+refus pour les spare 24..27, `Skill`, `SummonOnly` et `CantWear`.
+
+Aucun test n'exerce `EquipSetAsync` : comme les autres services qui prennent un `GameClient`, il n'est
+pas testable sans socket dans `Tests/` (aucun test existant ne le fait pour 200), et la couche testée
+est la lecture de trame, le catalogue et les règles pures.
+
+## 11. A VERIFIER PAR KILLIAN (ajouts du dev)
+
+1. **Deux bagues dans une même trame** (le cas le plus visible) : une bague normale a
+   `wear_type = 9` (`Ring`), donc les deux bagues d'une panoplie se résolvent sur le **même** port 9 ;
+   la seconde équipée déplace la première, qui repasse en inventaire. NGemity connaît le port 10
+   (`WEAR_SECOND_RING`) mais sa règle dépend de ce qui est déjà porté
+   (`Player.cpp:1759-1760` : « si le port 9 est occupé par une bague qui n'est pas une bague à deux
+   doigts, aller en 10 ») : appliquée à une trame qui rééquipe les deux anneaux d'un coup, elle
+   enverrait la première bague en 10 puis la seconde en 10 à son tour (10 occupé par la première, 9
+   occupé par l'ancienne), et déplacerait la mauvaise pièce. Le port de la seconde bague n'est
+   distinguable que par le **rang** de la poignée dans la trame : c'est précisément l'hypothèse 1 de
+   §7.3. Ce qu'il faut trancher : *le client envoie-t-il deux bagues dans deux cases différentes du
+   tableau ?* Si oui, le correctif est court et localisé (`ResolveSlotAsync` : utiliser `i` pour les
+   types à port ambigu, ici `Ring`/`SecondRing`) — il n'est pas appliqué ici parce que §5.3-4 impose le
+   port par l'objet et que le deviner serait choisir une lecture non établie.
+2. **Les 4 dwords 103..118** (§7.1 et §7.6) : ignorés, comme le plan §5.3-2 l'impose. Si l'on apprenait
+   qu'il s'agit d'emplacements réels (familier, invocation, arme de rechange), une partie de la requête
+   resterait sans effet. Les `wear_type` « spare » 24..27 sont refusés pour la même raison : 202 ne
+   compte que 24 ports.
+3. **Convention d'accusé** (§7.5) : un seul `TS_SC_RESULT` (281) par trame, `Success` dès qu'une pièce
+   est équipée, sinon premier refus ; `AccessDenied` / `NotActable` / `InvalidArgument` alignés sur 200 ;
+   trame sans poignée exploitable → `InvalidArgument`. Aucune source officielle ne décrit ce code.
+4. **Règles de chevauchement NGemity non portées** : NGemity déshabille plusieurs ports à la fois pour
+   un objet à deux mains (main gauche, bouclier déco) ou une bague à deux doigts (seconde bague), via
+   `vOverlappedItemList` (`Player.cpp:1859-1888`). Le chemin livré ne déplace que le port visé, comme le
+   fait déjà 200 dans ce dépôt : une panoplie contenant une arme à deux mains **laisse le bouclier en
+   place** et 202 rapportera les deux. Élargir ces règles dépasserait 281 (elles manquent à 200 aussi).
+5. **`GetWearFields()` n'a pas pu être exécuté** : aucun PostgreSQL n'est disponible dans
+   l'environnement de développement, la projection suit donc la forme des projections voisines
+   (`GetUseFields`, `GetGroupFields`) sans preuve d'exécution. Deux conséquences à vérifier au premier
+   démarrage réel : la colonne s'appelle bien `WearType` (`ItemResource` d'Arcadia, migration
+   `20231213174355_Version0001_TheBeginning.cs:104`) et, si la table `ItemResources` était vide, tout
+   281 serait refusé en `InvalidArgument` (aucun risque de corruption : la poignée échoue seule).
+6. **§7.2 (le geste du joueur) n'a pas d'effet sur l'implémentation** : que 281 soit « configuration
+   sauvegardée » ou « toutes les pièces d'un set », le serveur applique le tableau reçu, `0` laissant
+   l'emplacement tel quel (§7.4).

@@ -71,6 +71,20 @@ public class PutonItemSetPacketsTests
     }
 
     [Test]
+    public void TryReadPutonItemSet_LeavesTheChecksumOfTheHeaderOutOfThePayload()
+    {
+        // +6 is the header checksum (SFrame.exe VA 0x48c82b), not an item handle: whatever it holds,
+        // handle[0] starts at +7.
+        var packet = ClientFrame();
+        packet[6] = 0xFF;
+
+        GameActionPackets.TryReadPutonItemSet(packet, out var handles).Should().BeTrue();
+
+        handles.Should().HaveCount(HandleCount);
+        handles[0].Should().Be(0x80000000u);
+    }
+
+    [Test]
     public void TryReadPutonItemSet_PlacesTheHandlesAtTheirOwnFourByteStride()
     {
         // handle[i] sits at 7 + 4i: the first at 7, the second at 11, the twenty-fourth at 99.
