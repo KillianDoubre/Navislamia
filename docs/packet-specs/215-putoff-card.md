@@ -529,3 +529,7 @@ Exécuté sur la branche, dans le conteneur de dev (`NUGET_PACKAGES=/srv/navisla
 `dotnet build Navislamia.sln -c Debug` → 0 erreur ; `dotnet test Tests/Tests.csproj` → 473 réussis,
 0 échec (448 avant cette carte, +25 cas) ; `git log --oneline origin/master..master` → vide.
 
+Contrôle de merge avec la branche sœur `hermes/packet-214-puton-card` (ordre §5.4 : 214 puis 215) :
+`git merge-tree --write-tree --name-only hermes/packet-214-puton-card HEAD` → code 0, aucune collision,
+donc le placement décrit ci-dessus tient effectivement le conflit d'ancrage à l'écart.
+
