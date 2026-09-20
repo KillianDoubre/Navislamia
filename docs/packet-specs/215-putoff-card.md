@@ -306,7 +306,7 @@ dédiée ». Ce que le client peut recevoir, et qui rend le nouvel état observa
    `BuildInventory(new[] { result.Target })` ;
 3. la pierre revenue : un **objet neuf** dans le sac → sa propre feuille d'objet, position = son
    `Idx` (`:365`), envoyée comme `BuildInventory(new[] { added })` — le précédent exact existe déjà
-   pour la ramassage au sol (`Game/Services/GroundItemService.cs:192`). C'est
+   pour le ramassage au sol (`Game/Services/GroundItemService.cs:192`). C'est
    `AddItemAsync(…, codeDeLaChâsse, 1)` qui la matérialise, ce qui n'est possible que parce que la
    châsse contient un **code d'objet** et non un handle (§6).
 4. si le contrôle doit refuser : `SendResult(215, InvalidArgument/NotExist/…)` puis **aucune**
