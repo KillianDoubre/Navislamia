@@ -638,8 +638,93 @@ objdump -d -M intel SFrame.exe > /tmp/sframe.asm
 
 ## 9. Implémentation — `navis-dev`
 
-*(Section à remplir par `navis-dev`, sur la même branche, comme pour les fiches 550, 1202, 203 et
-253. La présente fiche s'arrête à l'archéologie : aucun code serveur n'est modifié ici.)*
+Statut : **lot S1 (§5.4) implémenté** sur `hermes/packet-socle-instances-jeu`, commit `3fc8b8c`
+(base de la fiche `877b552`). Périmètre tenu : les **4 opcodes 4250/4251/4252/4253** seulement.
+Les lots S2 (4000/4001/4002), S3 (4005/4008), S4 (4003/4004), S5 (4011/4012/4009) et S6
+(4006/4007/4010) ne sont **pas** touchés : ni leurs ids dans `GamePackets`, ni un handler, ni une
+table de ressource lue. Aucun `TM_SC_RESULT`, aucune diffusion, aucun état partagé, aucune
+migration, aucun refactoring des paquets voisins.
+
+### 9.1 Checklist du lot S1, satisfaite point par point
+
+- [x] `TM_CS_INSTANCE_GAME_ENTER = 4250`, `TM_CS_INSTANCE_GAME_EXIT = 4251`,
+      `TM_CS_INSTANCE_GAME_SCORE_REQUEST = 4252`, `TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253` dans
+      `GamePackets` **et** leurs quatre bras de dispatch, dans le même commit (`3fc8b8c`) —
+      §5.5 et critère transversal n° 4.
+- [x] **Aucun des quatre ids ne peut atteindre `_ => throw new Exception("Unknown Packet Type")`** :
+      trois bras traitants (`HandleInstanceGameEnter`, `HandleInstanceGameExit`,
+      `HandleInstanceGameScoreRequest`) et un bras défensif pour le 4253, qui est un paquet
+      serveur → client. Les quatre bras sont des `if (header.ID == …) { …; continue; }` placés
+      **avant** le `switch` final, comme les 550/1202/203.
+- [x] Tailles écrites en dur et testées : **4250 = 11**, **4251 = 7**, **4252 = 7**,
+      **4253 = 23** (7 + 16) — §3.2, critère transversal n° 3.
+- [x] `instance_game_type` lu à l'offset **7** sur 4 octets signés, taille **exacte** de 11 exigée
+      (un 4250 de 7 octets n'a pas de champ : refusé et journalisé, sans réponse) — §5.6.
+- [x] 4251 et 4252 exigent la taille **exacte** de 7 octets, aucune charge utile — §3.2.2, §3.2.3.
+- [x] **4253 n'est émise qu'en réponse à 4252**, jamais spontanément — §5.2 et §5.6.
+- [x] 4253 relue depuis `CharacterEntity.HuntaholicPoint`, via
+      `_networkService.CharacterService.GetCharacterByName(ConnectionInfo.CharacterName)` ; elle
+      porte `holicpoint` à 7, `bearroad_ranking` à 11, `deathmatch_kill_count` à 15,
+      `deathmatch_death_count` à 19, tous en `uint32` — §3.2.4, critère d'acceptation du lot S1.
+- [x] **Gating 7.3 respecté** : les 16 octets de charge utile seulement, aucun champ
+      `battle_arena_*` écrit, donc **23 octets** et non 55 — §4.2, critère transversal n° 6.
+- [x] Garde d'entrée en jeu réutilisée : `ConnectionInfo.CharacterHandle == 0` → journal et abandon
+      sans réponse (même garde que la 550) ; personnage introuvable → journal et abandon.
+- [x] Tests d'offsets des quatre trames, **448 → 479 tests**, aucun test retiré ou modifié —
+      critères transversaux n° 2 et n° 3.
+- [x] Aucun champ `NON ÉTABLI` deviné : les trois champs de score sans source sont écrits à zéro
+      (voir §9.4) et les points (a)…(m) du §7 restent ouverts et listés dans
+      `## A VERIFIER PAR KILLIAN`.
+- [x] Aucun commit sur `master` locale (`git log --oneline origin/master..master` → 0 ligne).
+
+### 9.2 Fichiers livrés
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | les 4 membres `TM_CS/SC_INSTANCE_GAME_*`, insérés entre `TM_CS_CHECK_CHARACTER_NAME = 2006` et `TM_CS_REPORT = 8000` (ordre croissant conservé, `TM_NONE = 9999` reste dernier) |
+| `Game/Network/Packets/Game/GameInstanceGamePackets.cs` | `TryReadEnter`, `HasNoPayload`, `ToWireHolicPoint`, `BuildScoreResponse`, et les constantes de taille `EnterLength` / `EmptyLength` / `ScoreResponseLength` |
+| `Game/Network/Clients/GameClient.cs` | `HandleInstanceGameEnter`, `HandleInstanceGameExit`, `HandleInstanceGameScoreRequest` et les 4 bras de dispatch (entre le bras défensif `TM_SC_REGION_ACK` et `TM_CS_CHANGE_LOCATION`) |
+| `Tests/Game/InstanceGamePacketsTests.cs` | ids, taille totale et position de chaque champ des 4 trames, refus de toute autre longueur, conversion signé → `uint32` |
+| `docs/packet-specs/socle-instances-jeu.md` | cette fiche |
+
+### 9.3 Offsets livrés et tests
+
+- `TM_CS_INSTANCE_GAME_ENTER` (4250) : **11** = 7 (en-tête) + 4 (`instance_game_type`, `int32`, @7).
+  Aucun autre champ. `TryReadEnter` exige la longueur exacte de 11 ; un cadre de 7, 10, 12 ou 23
+  est refusé avec `request` à `default`.
+- `TM_CS_INSTANCE_GAME_EXIT` (4251) : **7** = l'en-tête. `HasNoPayload` n'accepte que 7.
+- `TM_CS_INSTANCE_GAME_SCORE_REQUEST` (4252) : **7** = l'en-tête. `HasNoPayload` n'accepte que 7.
+- `TM_SC_INSTANCE_GAME_SCORE_REQUEST` (4253) : **23** = 7 + 4 (`holicpoint` @7) + 4
+  (`bearroad_ranking` @11) + 4 (`deathmatch_kill_count` @15) + 4 (`deathmatch_death_count` @19).
+  Un test verrouille que le dernier champ finit **exactement** à l'offset 23 : la forme 8.1
+  (`battle_arena_*`, 55 octets) est donc détectée par construction.
+- Vérifications d'en-tête dans les tests, comme pour les 550/11 : `Length` (total, en-tête compris)
+  @0, `ID` @4, `Checksum` @6 = somme des octets 0…5 modulo 256.
+- `ToWireHolicPoint` : `huntaholic_point` est stocké en `int` signé en Telecaster et le champ du fil
+  est un `uint32` ; une valeur négative devient **0** au lieu de basculer en score énorme (un test
+  par cas, `-1` et `int.MinValue` compris).
+
+### 9.4 Réserves propres à l'implémentation
+
+1. **Les trois champs de score sans source sont écrits à zéro** (`bearroad_ranking`,
+   `deathmatch_kill_count`, `deathmatch_death_count`). Ce n'est pas une politique de score : c'est
+   l'absence de source en 7.3 (§7h), signalée en clair dans le commentaire du handler et verrouillée
+   par un test qui attend quatre zéros autour de `holicpoint`. La fiche ne tranchant pas, la valeur
+   est un **placeholder révocable** : la question reste ouverte pour Killian (point 1 de
+   `## A VERIFIER PAR KILLIAN`, complété par le point 9).
+2. **Aucune réponse à 4250 ni à 4251** : §5.2 ne prévoit ni accusé ni `TM_SC_RESULT`, et le
+   déclencheur client de 4250 n'est pas identifié (§7b). Le serveur ne peut donc pas provoquer
+   l'entrée dans une instance à ce stade : le socle est **protocole**, pas fonctionnel (c'est la
+   limite assumée du §5.3).
+3. **4253 n'est émise que si le personnage est en jeu** (`CharacterHandle != 0`) et connu du
+   service de personnages. Le client n'a aucun état d'attente identifié pour une 4253 non
+   sollicitée (§5.6) : le refus silencieux est préféré à une émission hasardeuse.
+4. **`battle_arena_*` non écrits** — décision de version (§4.2), pas une réserve : c'est le piège
+   de la fiche, et le client 7.3 (16 octets de charge utile) tranche.
+5. **Placement du dispatch** : les quatre bras sont groupés dans la zone isolée entre le bras
+   défensif `TM_SC_REGION_ACK` et `TM_CS_CHANGE_LOCATION`, et non à la queue de la chaîne, pour
+   rester fusionnable avec les branches des lots S2…S6 (qui, elles, ajouteront leurs bras ailleurs
+   et leurs ids ailleurs dans l'enum). Les handlers sont regroupés avant `OnDataReceived`.
 
 ---
 
@@ -680,6 +765,13 @@ objdump -d -M intel SFrame.exe > /tmp/sframe.asm
 >
 > **Socle minimum** : 4250/4251/4252 + 4253, seuls opcodes sans état et testables seuls. Découpage
 > en 6 paquets (S1…S6) : §5.4 de la fiche.
+>
+> **Lot S1 implémenté** (`3fc8b8c`) : les 4 ids `TM_CS/SC_INSTANCE_GAME_*` sont dans `GamePackets`
+> **et** routés dans `GameClient.OnDataReceived` (aucun n'atteint le `throw` final), les tailles
+> 11 / 7 / 7 / 23 sont dans `Game/Network/Packets/Game/GameInstanceGamePackets.cs` et verrouillées
+> par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seulement** et porte
+> `CharacterEntity.HuntaholicPoint` ; les trois champs de score sans source en 7.3 partent à zéro
+> (placeholder, §9.4 de la fiche). Les lots S2…S6 (famille HuntaHolic 4000-4012) restent à faire.
 
 ---
 
@@ -703,3 +795,21 @@ objdump -d -M intel SFrame.exe > /tmp/sframe.asm
    `USMSG_HUNTAHOLIC_MAX_POINT_ACHIEVED` **n'existe pas** dans le RTTI du binaire (§7f) et les ids
    internes 126-131/163/1203 n'ont pas de table id ↔ handler lisible dans le `.text` (§7e).
    Conséquence pratique : les **formats** sont établis, le *numéro* de handler ne l'est pas.
+
+### Ajouts du lot S1 (`navis-dev`, commit `3fc8b8c`)
+
+9. **Les trois champs de score sans source sont écrits à zéro** : `bearroad_ranking`,
+   `deathmatch_kill_count` et `deathmatch_death_count` partent à **0** avec le `holicpoint` réel
+   (`CharacterEntity.HuntaholicPoint`). Le point 1 ci-dessus reste donc la question ouverte :
+   confirmer que « zéro » est acceptable en 7.3, ou indiquer **où stocker** ces trois valeurs. Le
+   lot S1 n'a créé aucun stockage, aucune colonne, aucune migration — la valeur est un placeholder
+   révocable, verrouillé par un test (§9.4).
+10. **Aucune réponse à 4250 ni à 4251** : le socle route et journalise l'entrée et la sortie sans y
+    répondre, faute de message déclencheur identifié (point 6). Aucun `TM_SC_RESULT` n'est envoyé
+    sur ces deux ids ; si 4250 est bidirectionnel (point 7), le refus d'entrée n'est pas implémenté
+    et le lot S1 devra être étendu d'un 4250 serveur → client.
+11. **La colonne `HuntaholicPoint` reste non vérifiée en base** (point 2) : le lot S1 la **lit**
+    (`GetCharacterByName(ConnectionInfo.CharacterName)`), il ne la crée pas. Si la colonne manque
+    dans la base Telecaster cible, la réponse 4253 échouera à la lecture — c'est le seul point de
+    la fiche dont dépend le fonctionnement du socle à l'exécution.
+
