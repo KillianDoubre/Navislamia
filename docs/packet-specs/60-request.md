@@ -543,6 +543,13 @@ ouverte pour Killian.
    `TM_SC_DISCONNECT_DESC = 28`, hors de l'ancre `TM_CS_VERSION = 50` que se partagent les branches 54,
    57 et 59 : mesure à l'appui, ce placement fusionne là où l'autre produit un conflit dès la première
    fusion. Si vous préférez le regroupement avec les 50s quitte à traiter le conflit au merge, dites-le.
+10. **Qui émet 60, côté client livré — la réserve n'est pas levée.** La fiche relève qu'aucun nom d'id 60
+    n'existe dans la table du client 7.3 et qu'aucun `.text` n'écrit 60 sous forme de trame (§5.1, §7
+    point 1). Ce constat est un **relevé statique**, pas une preuve d'impossibilité : le code livré
+    ci-dessus ne peut donc **pas** être déclenché par le client non modifié, et le protocole de
+    vérification à l'écran est de ce fait vide (à confirmer cadre par cadre si vous voulez le tester avec
+    un client instrumenté). Confirmez-vous que ce lot reste utile sous cette réserve, ou faut-il le
+    rendre inerte (aucune déclaration) tant que l'émetteur n'est pas observé ?
 
 ---
 
@@ -650,6 +657,14 @@ description de la MR), ni `op_codes.md`, ni `GameActions.cs`, ni `Connection.cs`
   fin de la chaîne : trois branches ouvertes (54, 57, 59) ajoutent le leur juste avant le `switch`, et ce
   bras isolé les laisse fusionner sans conflit. L'invariant §4 du profil est tenu : le membre d'énumération
   et son bras sont dans le même commit.
+
+  **Avant / après, mesuré.** Avant cette branche, l'id 60 n'étant pas déclaré, la trame était déjà
+  consommée et journalisée par la garde d'identifiant inconnu (`GameClient.cs:584-587` sur `master` :
+  `_logger.Debug("Undefined packet ID: ...")` puis `continue`) — le paquet n'était donc **pas** jeté et
+  n'atteignait pas le `throw` du `switch`. Après, la même trame passe par `HandleRequest`, qui la **borne**
+  (refus si moins de 9 octets ou sans NUL terminal) et journalise ses tailles : c'est la seule différence
+  de comportement, aucune réponse et aucune sanction n'étant ajoutées. Le `Debug` de la garde générique
+  n'est plus atteint pour 60, ce qui est le but de la déclaration.
 - **`GamePackets`** : `TM_CS_REQUEST = 60` en **ligne isolée**, volontairement hors de l'ancre
   `TM_CS_VERSION = 50` que 54, 57 et 59 se partagent (voir §16.5). `1060` n'est **pas** déclaré.
 
