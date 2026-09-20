@@ -502,6 +502,71 @@ de fichier (`Game/Network/Packets/Game/GameAntiHackPackets.cs`, `Tests/Game/Anti
 > vérification est **hors périmètre** tant que Killian n'a pas tranché (la référence stocke
 > `md5(sel + code)` dans le champ `password` de la table `account` de la base d'authentification).
 > Le code est un secret : ne jamais le journaliser.
+>
+> Code : `GamePackets.TM_CS_SECURITY_NO = 9005`, lecteur `GameSecurityPackets.TryReadSecurityNo`
+> (30 octets exacts, `mode` à l'offset 7, code à l'offset 11 lu jusqu'au premier zéro, 18 caractères au
+> plus), bras de dispatch et `HandleSecurityNo` dans `Game/Network/Clients/GameClient.cs`, tests
+> `Tests/Game/SecurityNoPacketsTests.cs`. Le bras ne journalise que `mode` et la **longueur** du code, et
+> ne répond rien.
+
+## 12. Implémentation livrée (`navis-dev`, branche `hermes/packet-9005-security-no`)
+
+Le lot suit la disposition neutre de §5.4 : **déclarer, lire, borner, journaliser — sans vérifier, sans
+enregistrer, sans réponse, sans sanction**.
+
+| Fichier | Modification |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_SECURITY_NO = 9005` (juste avant `TM_NONE`), avec le rappel du gating (8105 interdit) et des champs 9.6.7 exclus |
+| `Game/Network/Packets/Game/GameSecurityPackets.cs` | **nouveau** : `PacketLength = 30`, `TryReadSecurityNo`, conteneur `SecurityNoRequest(int Mode, string SecurityNo)` |
+| `Game/Network/Clients/GameClient.cs` | `HandleSecurityNo` + bras de dispatch avant le `switch` qui lève |
+| `Tests/Game/SecurityNoPacketsTests.cs` | **nouveau** : 25 tests |
+
+### 12.1 Décisions prises (et leur raison)
+
+1. **`mode` n'est pas validé.** §4.3 et §7b le disent : rzu nomme `0`/`1`/`2` mais son propre test
+   d'authentification émet `42`. Le lecteur rend la valeur telle quelle, le handler se contente de
+   l'écrire dans la trace.
+2. **Longueur exacte de 30 octets, refus des autres.** Piège 3 de §5.5 : le client écrit `0x1e` dans le
+   champ longueur (VR `0x48cfb0`), donc un 9005 annoncé à une autre longueur est une anomalie de
+   protocole, refusé avant que `mode` soit lu — même discipline que `TryReadGetRegionInfo`.
+3. **Le code est rendu par le lecteur, mais jamais journalisé.** Le handler n'écrit que
+   `mode=` et `securityNoLength=` ; les octets 11-29 n'apparaissent dans aucune ligne. Un test dédié
+   branche un sink Serilog et vérifie à la fois que le bras **journalise bien** (donc que le test n'est
+   pas vide) et qu'**aucun évènement ne contient le code**.
+4. **Aucune réponse, aucune sanction.** Les quatre véhicules candidats de §5.4 restent des hypothèses :
+   le bras n'écrit rien sur la connexion, ce qu'un test vérifie sur une `Connection` en mémoire.
+5. **Bras de dispatch placé après l'arm du keepalive (`TM_NONE`)**, et non en fin de chaîne : les
+   branches sœurs (57, 59, 60, socle anti-triche, 221, 223, 281, 408) insèrent leurs bras ailleurs
+   (`TM_SC_REGION_ACK` ou juste avant le `switch` final), ce qui garde cette zone libre de conflit.
+   Même logique pour la ligne d'énumération, posée à côté de `TM_NONE` alors que toutes les branches
+   sœurs s'insèrent après `TM_CS_VERSION = 50`.
+6. **Le conteneur est lu comme une chaîne, pas comme 19 octets.** §3.2 : `%s` dans la trace du client
+   (VR `0xa52318`), `maxSize - 1` côté rzu, donc arrêt au premier zéro et 18 caractères au plus. Aucune
+   borne sur la longueur utile : le « code vide » du chemin *Cancel* est accepté.
+
+### 12.2 Couverture de tests (`Tests/Game/SecurityNoPacketsTests.cs`)
+
+Offsets et taille : `PacketLength == 30`, `Length` (4) + `ID` (2, 9005) + `checksum` (1), `mode` à
+l'offset 7, code à l'offset 11, dix-neuvième octet du conteneur à zéro, absence de tout champ 9.6.7,
+lecture petit-boutiste de `mode`, fenêtre du code qui ne commence pas à l'offset 10, arrêt au premier
+zéro, plafond de 18 caractères, longueurs refusées (0, 7, 29, 31), identifiant 8105 non déclaré,
+`9005 ≠ 9004`. Boucle de réception réelle : trame consommée sans lever, trame malformée consommée sans
+réponse, trame coalescée avec un keepalive, aucune écriture sur la connexion, et l'absence du code dans
+tous les évènements de journal.
+
+### 12.3 Réserves
+
+1. **Le sort du code reste tranché par Killian.** Rien n'est stocké, rien n'est vérifié : le paquet est
+   lu et tracé, comme §7a/§7f l'autorisent. Une vérification demanderait le transport 40000/40001 et un
+   stockage qui n'existent pas (§5.3).
+2. **`mode` n'est pas contrôlé**, volontairement (§7b).
+3. **Le `account[61]` de la requête d'authentification** devra être pris de la session le jour où une
+   vérification sera implémentée : ce point de jonction n'est attesté par aucune source (§7e).
+4. **Un 9005 annoncé à une autre longueur que 30 est refusé**, y compris une trame plus longue : c'est la
+   conséquence assumée du choix « longueur exacte » (§12.1 point 2). Elle est sans effet aujourd'hui, le
+   client 7.3 écrivant toujours `0x1e` et le serveur ne servant que 7.3 ; à rouvrir le jour où un client
+   plus récent serait accepté.
+
 
 ## A VERIFIER PAR KILLIAN
 
@@ -521,3 +586,8 @@ Trois décisions externes ; aucune ne peut être tranchée en lisant les référ
    (`TS_GA_SECURITY_NO_CHECK.h:12-17`) mais son propre test d'authentification émet `42`
    (`rzauth/test/.../SecurityNo.cpp:30`) : un serveur qui refuserait tout `mode` hors 0-2 rejetterait ce que
    la référence elle-même accepte. La fiche recommande de **ne rien valider** ; à confirmer.
+
+**État après le lot `navis-dev`** (§12) : aucun champ `NON ÉTABLI` n'a été deviné. Le paquet est déclaré,
+lu, borné et tracé ; `mode` n'est pas validé ; le code n'est ni vérifié, ni enregistré, ni journalisé ; le
+serveur ne répond rien. Les trois décisions ci-dessus restent donc entières, et les réserves du lot sont
+listées en §12.3.
