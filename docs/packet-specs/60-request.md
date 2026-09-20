@@ -697,19 +697,23 @@ et non la charge utile opaque.
 | Tests ajoutés | — | **+25** (`Tests/Game/RequestPacketsTests.cs`), aucun test existant modifié |
 | `git log --oneline origin/master..master` | — | **vide** — aucun commit sur `master` locale |
 
-**Fusionnabilité de la ligne d'énumération, mesurée.** Un banc d'essai local (clone dans `/tmp`, aucune
-écriture sur le dépôt) a fusionné en séquence `socle-anti-triche`, `57-check-illegal-user` et
-`59-xtrap-check` sur deux variantes de placement de la ligne `TM_CS_REQUEST = 60` :
+**Fusionnabilité, mesurée sur la branche réelle.** Trois trains de fusions ont été joués dans des clones
+jetables de `/tmp` (aucune écriture sur le dépôt, aucune fusion réelle sur la branche) avec
+`socle-anti-triche`, `57-check-illegal-user`, `59-xtrap-check` et la tête de cette branche (`cff3482`) :
 
-| Placement de la ligne | Résultat de la séquence de fusions |
-|---|---|
-| juste après `TM_CS_VERSION = 50,` (ancre des trois branches) | **conflit dès la première fusion** (`GamePackets.cs`) |
-| juste après `TM_SC_DISCONNECT_DESC = 28,` (retenu) | fusionne avec `socle-anti-triche` ; le conflit qui suit vient de `57` contre `socle` |
+| Train joué | Fusions de cette branche | Conflits observés |
+|---|---|---|
+| `socle → 57 → 59` (**sans** nous), référence | — | `57` : `GameClient.cs`, `GamePackets.cs` ; `59` : les deux mêmes |
+| `socle → 57 → 59 → nous` | **ok** | identiques à la référence — rien de nouveau |
+| `nous → socle → 57 → 59` | **ok** | identiques à la référence — rien de nouveau |
 
-Le conflit `57`/`socle` est **pré-existant** : le même banc, sans aucun ajout de cette branche, le
-reproduit à l'identique sur `Game/Network/Clients/GameClient.cs` et
-`Game/Network/Packets/Enums/GamePackets.cs`. La ligne isolée de 60 n'y ajoute donc aucun conflit, ce qui
-est exactement ce que §10 demandait.
+Conclusion : **la fusion de cette branche réussit dans les trois ordres joués**, et le seul conflit du lot
+est **pré-existant** entre `57`/`59` et `socle` (les trois se disputent l'ancre `TM_CS_VERSION = 50` et la
+fin de la chaîne de dispatch). La ligne isolée `TM_CS_REQUEST = 60` posée après
+`TM_SC_DISCONNECT_DESC = 28`, le bras placé à côté de `TM_SC_REGION_ACK` et la méthode insérée avant le
+commentaire de 550 sortent tous les trois de ces zones, ce qui est exactement ce que §10 demandait. Le
+placement alternatif (juste après `TM_CS_VERSION = 50`) a été mesuré aussi : il **produit un conflit dès
+la fusion de `socle-anti-triche`**, d'où le rejet de ce placement.
 
 ### 16.6 Bloc destiné à `CLAUDE.md`
 
