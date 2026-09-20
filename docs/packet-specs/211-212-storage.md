@@ -404,6 +404,10 @@ l'empreinte ci-dessus) ; les adresses sont des **VA** du fichier (`ImageBase 0x4
   (`Game/Services/NpcDialogService.cs:109-115`, journalisé en `Debug`) : ce n'est pas une régression
   introduite ici, mais c'est la raison pour laquelle la fenêtre ne s'ouvre pas aujourd'hui, et cela
   doit être dit dans la MR.
+- Le dev a livré le socle : voir **§11** (périmètre, décisions, tests, mesures) et la section
+  `A VERIFIER PAR KILLIAN`. Les trois points laissés au dev — conteneur, or d'entrepôt, état de
+  session — y sont tranchés, le troisième comme les deux autres par la fiche elle-même
+  (`ConnectionInfo.StorageSecurityCheck`).
 
 ## 10. Bloc pour `CLAUDE.md` (à recopier dans la description de la MR)
 
@@ -442,3 +446,151 @@ l'empreinte ci-dessus) ; les adresses sont des **VA** du fichier (`ImageBase 0x4
   être le seul chemin de libération de l'état serveur ; la persistance de l'or d'entrepôt reste à
   trancher (NGemity détourne une ligne d'objet de code 0 — défaut visible à ne pas répliquer).
 ```
+
+## 11. Implémentation livrée (dev)
+
+Branche de la fiche, inchangée : `hermes/packet-socle-entrepot-personnage` (le dev n'en crée pas
+d'autre). Commits : `e5e4e6f` (code), `f599fd3` (tests), `597f729` (garde de port), sur la fiche
+`3c46ab4`.
+
+**Chemin de la fiche.** La carte du PO la nomme `docs/packet-specs/socle-entrepot-personnage.md` ;
+l'archéologue l'a créée sous `docs/packet-specs/211-212-storage.md`, le motif `<id>-<nom>` du dépôt.
+Le dev ne renomme **pas** : renommer casserait la référence de la carte parente, et il n'y a qu'un
+fichier. Le QA doit lire celui-ci.
+
+**Ajout hors tableau (§6).** NGemity refuse de ranger un objet **porté** : `MoveInventoryToStorage`
+commence par `IsErasable` (Player.cpp:3000-3002), dont la clause de port est
+`GetItemWearType() != WEAR_NONE → false` (Player.cpp:3142-3143). Le socle porte cette clause
+(`StorageRules.IsStorable`, garde appliquée par le dépôt pour le mode 0, **silencieuse** comme le
+`return false` de NGemity) : sans elle, une pile portée quitterait l'inventaire en gardant son bonus
+sur le personnage. Une ligne jamais portée vaut `ItemWearType.None`, la valeur que le dépôt écrit
+lui-même (`CharacterService.cs:352`) et lit pour la wear info (`GameActions.cs:295`). Les autres
+clauses d'`IsErasable` (propriétaire, carte de compétence liée, carte d'invocation liée) n'ont
+**aucun état** dans le dépôt : non portées, hors périmètre.
+
+### 11.1 Périmètre livré
+
+| Point de §5.3 | État | Emplacement |
+| --- | --- | --- |
+| 1 — enum + dispatch, ensemble | livré | `GamePackets.cs:39-40`, bras `GameClient.cs:726-730`, handler `GameClient.cs:465-482` |
+| 2 — lecture | livré | `StorageRequest` `GameActionPackets.cs:56`, `TryReadStorage` `:58-73` |
+| 3 — déclencheur `open_storage()` | livré | `NpcDialogService.cs:19,117-126` (avant la recherche de page, comme `RunTeleport`) |
+| 4 — conteneur, voie (a) | livré | `StorageRules.Own/IsStorageRow`, `StorageRepository` |
+| 5 — or d'entrepôt | **partiel assumé** | `storage_gold` annoncé à l'ouverture, transferts **refusés** — §11.3 |
+| 6 — réponses | livré pour 0/1/4, refus explicite pour 2/3 | `StorageService.cs` |
+| 7 — validation + `StorageSecurityCheck` | livré tel quel | `StorageService.HandleAsync`, `ConnectionInfo.cs:119` |
+| §7.4 — libération de l'état | livré | mode 4, **et** `ConnectionInfo.ClearCharacterSession` (`ConnectionInfo.cs:171`) |
+| §7.2 — capacité | aucune borne, conforme | aucune vérification de nombre d'emplacements |
+
+### 11.2 Fichiers
+
+| Fichier | Contenu |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_OPEN_STORAGE = 211`, `TM_CS_STORAGE = 212`, déclarés **avec les ids d'objets** (l. 39-40) et non après `TM_CS_VERSION`, où les branches sœurs ancrent leurs membres. |
+| `Game/Network/Packets/Game/GameStoragePackets.cs` (nouveau, 47 l.) | `BuildOpenStorage()` : en-tête seul de 7 octets, id 211, checksum sur les six premiers octets. Fichier propre plutôt que `GameCharacterPackets.cs` : ce dernier est la zone de collision de la famille d'objets, et la trame n'a aucun écrivain d'item. Les deux helpers d'en-tête y sont les mêmes six octets, dupliqués pour ne pas élargir le fichier partagé. |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `StorageRequest(uint ItemHandle, byte Mode, long Count)` et `TryReadStorage` (longueur minimale 20, handle `uint32` à 7, mode à 11, count `int64` à 12). Le mode est lu brut et validé par le service, comme les voisins. |
+| `Game/Network/Clients/GameClient.cs` | Bras `TM_CS_STORAGE` dans la chaîne de `if` (l. 726-730), à côté des voisins d'objets 218/219 et **avant** le `switch` final ; handler `HandleStorageAsync` (l. 465-482) qui répond `InvalidArgument` sur une trame courte. |
+| `Game/Services/NpcDialogService.cs` | Constante `StorageFunction` (l. 19), dépendance `IStorageService` (l. 24-30), branche `open_storage()` (l. 117-126) : ferme le lien de dialogue puis appelle l'ouverture, sans attendre le dépôt (le service est lancé par `_ =`, l'ouverture est asynchrone et la boucle de réception ne doit pas bloquer dessus). |
+| `Game/Network/Clients/ConnectionInfo.cs` | `StorageSecurityCheck` (l. 119) devient l'état « entrepôt ouvert » et est remis à `false` avec la session de personnage (l. 171). |
+| `Game/Services/StorageRules.cs` (nouveau, 152 l.) | Règles pures : modes, `MoveCount` (bornage), `NextFreeIndex`, `IsInventoryRow`/`IsStorageRow`, `IsStorable`, `Own`, `Divide`. |
+| `Game/Services/StorageMoveResult.cs` (nouveau) | `StorageMoveOutcome` (`Moved`, `Split`, `UnknownCharacter`, `UnknownHandle`, `AccessDenied`, `Ignored`) et le résultat que le dépôt renvoie au service. |
+| `Game/Services/StorageService.cs` (nouveau, 199 l.) | `OpenAsync` (211 → 207 → propriété) et `HandleAsync` (les six modes). Un sémaphore sérialise l'accès au contexte du dépôt, qui est un singleton. |
+| `Game/DataAccess/Repositories/StorageRepository.cs` + interface (nouveaux) | La requête de compte des deux références, la résolution du propriétaire, le déplacement d'une pile et la création de la ligne d'un partage. |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | Câblage : `StorageService` (l. 32,55,70) et les deux enregistrements DI (l. 214 et 239). |
+
+### 11.3 Le conteneur, et l'or d'entrepôt
+
+**Conteneur — voie (a) de §5.3 point 4, retenue.** L'entrepôt est la **même table d'objets**,
+discriminée par le propriétaire : côté inventaire `CharacterId = <personnage>` et `AccountId` vide,
+côté entrepôt `AccountId = <compte>` et `CharacterId` vide (`StorageRules.Own`). La requête d'entrepôt
+écrit les quatre conditions des deux références — `AccountId = ? AND CharacterId IS NULL AND AuctionId
+IS NULL AND StorageId IS NULL` — les deux dernières pour que les lignes d'`ItemStorageEntity`
+(entrepôt **des enchères**) ne tombent pas dans la liste du comptoir. Aucune migration, aucune
+nouvelle table : les deux colonnes existaient déjà. Le slot de destination est le plus petit index
+libre de la liste d'arrivée (`StorageRules.NextFreeIndex`), l'esprit de l'`IssueNewIndex()` de NGemity
+(Player.cpp:3006) ; aucune **capacité** n'est vérifiée (§7.2 : aucune source 7.3, aucune borne
+inventée). Un partage crée une ligne neuve (`StorageRules.Divide`) qui recopie les colonnes qui
+définissent l'objet et **aucun** lien de la ligne d'origine (enchère, keeping, équipement
+d'invocation) ; l'`Idx` est réattribué par la liste d'arrivée.
+
+**Or d'entrepôt — partiel assumé.** La persistance reste non tranchée (§7.5) : Ni `ItemEntity`, ni
+`CharacterEntity`, ni `AccountEntity` ne portent de colonne d'or de compte, et le détour de NGemity
+(ligne d'objet de code 0) est exclu par §5.3 point 5. Le socle applique donc la partie établie —
+`BuildProperty(handle, "storage_gold", 0)` à l'ouverture, la propriété que le client 7.3 connaît — et
+**refuse les transferts d'or** (modes 2 et 3) par `NotActable`, au lieu d'encaisser un or qu'aucune
+ligne ne rendrait. Conséquence assumée : le tableau de §5.3 point 7 reste appliqué (`count <= 0` →
+`NotEnoughMoney` avant tout, y compris pour 2/3), mais la ligne « or demandé > solde de la source »
+recouvre en pratique **tout** transfert d'or tant que `storage_gold` vaut 0. Ce choix est en
+section `A VERIFIER PAR KILLIAN`, point 1.
+
+### 11.4 Réponses émises, mode par mode
+
+| Mode | Réponse |
+| --- | --- |
+| ouverture (`open_storage()`) | `211` (7 octets) → `207` (une trame même si la liste est vide) → propriété `storage_gold` = 0. L'état de session passe à « ouvert » **avant** l'envoi. |
+| 0 / 1, pile entière | `254` `TM_SC_DESTROY_ITEM` sur le handle (la pile quitte sa liste) puis `207` sur la ligne ré-appropriée. |
+| 0 / 1, partiel | `255` `TM_SC_UPDATE_ITEM_COUNT` sur la source (handle conservé, quantité restante) puis `207` sur la ligne créée. |
+| 0 / 1, `count > pile` | bornage à la pile (`Math.Min`, précédent du dépôt) : les trames notifient la quantité réelle. |
+| 2 / 3 | refus `NotActable` (5), `value` = `item_handle` recopié (§11.3). |
+| 4 | aucun envoi ; l'état repasse à « fermé ». |
+| refus de cadre | trame < 20 octets → `TS_SC_RESULT(212, InvalidArgument)`, trame tout de même consommée. |
+
+### 11.5 Ce qui n'est pas livré
+
+- Les modes **2/3** en écriture (§11.3) : refus explicite, jamais un succès muet.
+- Les clauses d'`IsErasable` sans état dans le dépôt (propriétaire, cible de carte de compétence,
+  carte d'invocation liée) : seule la clause de port est portée.
+- Les codes **51/88** de §7.8 : le socle emploie `NotActable` (5), comme §5.3 point 6 le prescrit.
+
+### 11.6 Tests et mesures
+
+- `Tests/Game/StoragePacketsTests.cs` (nouveau) — layout : **20 octets** pour le 212 (en-tête 7,
+  `item_handle` `uint32` **à l'offset 7**, `mode` **à l'offset 11**, `count` `int64` **à l'offset 12**),
+  lecture petit-boutiste prouvée par des octets posés à la main (`04 03 02 01` → `0x01020304`),
+  `count` signé et 64 bits (`-2`, `3 000 000 000`), trames de 0/7/11/19 octets refusées, convention
+  « au moins 20 » documentée pour une trame plus longue, **211 = 7 octets en-tête seul** (aucun octet
+  de charge), bascule 1211/1212 non déclarée, et l'ids ne sont pas définis → la boucle s'arrête.
+  Le **dispatch est prouvé pour de vrai** (modèle de la branche `hermes/packet-57-check-illegal-user`) :
+  une trame 212 complète atteint `IStorageService.HandleAsync` avec `(0x80000123, 1, 250)`, une trame
+  tronquée reçoit `InvalidArgument` sur l'id 212, une trame 212 coalescée avec un keepalive ne
+  désynchronise pas la boucle.
+- `Tests/Game/StorageRulesTests.cs` (nouveau) — modes, borne, slot libre, partage du compte et du
+  personnage, exclusion enchère/keeping, objet porté, `Divide` (colonnes recopiées, sockets copiés et
+  non partagés, aucun lien de la source).
+- `Tests/Game/StorageServiceTests.cs` (nouveau) — les six modes, les refus, les trames d'un
+  déplacement entier et d'un partage, `DBError` sur panne du dépôt, ouverture (211/207/propriété,
+  liste vide, session sans personnage).
+- `Tests/Game/StorageTestHarness.cs` (nouveau) — la connexion en mémoire du modèle 57 ;
+  `Client.ConnectionInfo` est `internal`, le socle de test le lit par réflexion plutôt que d'élargir
+  la surface de production.
+
+**Invariant enum/dispatch, mesuré après livraison** : `GamePackets` compte **85** membres ; **35** n'ont
+pas de bras dans `GameClient.cs`/`GameActions.cs`, et ce sont **exactement** les 34 trames descendantes
+`TM_SC_*` plus `TM_EQUIP_SUMMON` — aucune trame `TM_CS_*` n'est sans bras, donc `TM_CS_STORAGE` ne peut
+pas atteindre le `_ => throw` final.
+
+### 11.7 Commandes et codes de sortie
+
+| Commande | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | code **0** |
+| `dotnet test Tests/Tests.csproj` | code **0**, **511 réussis / 511**, 0 échec (448/448 avant ce lot) |
+| `git log --oneline origin/master..master` | **vide** |
+| `git log --oneline origin/master..HEAD` | `597f729`, `f599fd3`, `e5e4e6f`, `3c46ab4` |
+
+## A VERIFIER PAR KILLIAN
+
+Rien de ce socle n'a été vérifié contre un client 7.3 : la fenêtre, les listes et les refus ci-dessous
+sont des lectures de rzu, de NGemity et du dumping client, pas une observation de jeu.
+
+| # | À vérifier | Pourquoi c'est ouvert | Ce qui l'établirait |
+| --- | --- | --- | --- |
+| 1 | **Or d'entrepôt (§7.5)** : le socle annonce `storage_gold = 0` et refuse les modes 2/3. | Aucune colonne d'or de compte n'existe ; le détour NGemity (ligne d'objet de code 0) est exclu par §5.3 point 5. Ajouter une colonne + migration est un choix de schéma, pas un portage. | Décider : colonne sur le compte + migration, ou « pas d'or d'entrepôt en 7.3 ». |
+| 2 | **Capacité (§7.2)** : aucune borne serveur. | Le `10000` de rzu est ≥ 7.4 ; la mise en page du client n'est pas extraite. | Une capture du comptoir plein, ou l'extraction des archives d'interface. |
+| 3 | **Le `211` à 7 octets ouvre-t-il la fenêtre (§7.1) ?** | La tolérance du client à une charge surnuméraire n'est établie par personne ; le socle envoie la forme stricte. | Ouvrir un comptoir avec un client 7.3 devant un PNJ `NPC_Storage_*`. |
+| 4 | **Les trames d'un déplacement (§7.7)** : `254`+`207` (pile entière), `255`+`207` (partiel). | Rien n'établit laquelle des trois trames le client attend entre deux listes. | Déplacer une pile, puis une partie d'une pile, et regarder les deux fenêtres. |
+| 5 | **Le mode 4 est-il émis (§7.4) ?** | Le socle l'accepte sans réponse et libère l'état ; l'état est **aussi** libéré à la déconnexion, il ne dépend donc pas du mode 4. | Fermer la fenêtre et vérifier qu'aucun `212` n'arrive en erreur dans les logs. |
+| 6 | **Objet porté (hors tableau §6)** : le socle ne range pas un objet porté, **sans rien répondre**. | Portage d'`IsErasable` (Player.cpp:3142) ; une garde silencieuse est un choix, NGemity fait de même mais le client ne dit rien. | Vérifier que retirer un objet puis le ranger fonctionne, et qu'un objet porté ne bouge pas. |
+| 7 | **Déclencheur** : 20 PNJ `NPC_Storage_*` du catalogue 7.3 portent `open_storage()`. | Le dépôt l'advertise déjà (`NpcDialogService` le journalisait en `Debug`) sans savoir l'exécuter ; le socle l'exécute désormais. | Parler à un comptoir et voir la fenêtre s'ouvrir. |
+| 8 | **Le geste exact qui émet le `212` (§7.3)**, et les codes 51/88 non employés (§7.8). | Ni NGemity ni rzu ne renvoient 51/88 ; le socle emploie `NotActable` (5), comme prescrit. | Le premier essai en jeu le dira. |
+| 9 | **Chemin de la fiche** : la carte cite `docs/packet-specs/socle-entrepot-personnage.md`, le fichier réel est `docs/packet-specs/211-212-storage.md`. | Le dev ne renomme pas une fiche livrée par l'archéologue (la carte parente la référence sous ce nom). | Rien à trancher : à savoir pour le QA et le PO. |
