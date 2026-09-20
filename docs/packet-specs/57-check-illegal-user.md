@@ -437,7 +437,128 @@ modifié.**
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 ```
 
+## 11. Implémentation livrée (dev)
+
+Section ajoutée par `navis-dev` le 20/09/2026 ; l'analyse de l'archéologue (§1 à §10) est laissée
+intacte. Commit de code : `dd0e80a` (4 fichiers, +334 lignes), sur la branche
+`hermes/packet-57-check-illegal-user` créée par `navis-ref` depuis `master` (`ec76b21`).
+
+### 11.1 Checklist des critères transversaux, avec les codes de sortie relevés
+
+| # | Critère | État | Mesure |
+|---|---|---|---|
+| 1 | `dotnet build Navislamia.sln -c Debug` code 0 | **OK** | code **0**, `0 Error(s)`, 2 avertissements (`MigrateDatabase`, préexistants) |
+| 2 | `dotnet test Tests/Tests.csproj` code 0, compte jamais en baisse | **OK** | base relevée **avant** modification : code 0, **448** réussis / 448. Après : code **0**, **463** réussis / 463, 0 échec, 0 ignoré → **+15** |
+| 3 | Au moins un test d'offsets (taille totale + position de chaque champ) | **OK** | `Tests/Game/CheckIllegalUserPacketsTests.cs` : `ClientPacket_UsesTheEpic73Layout` (11 octets, `Length` en 0, `ID` en 4, checksum en 6, `log_code` en 7), `ClientPacket_HasNoFieldOutsideTheHeaderAndLogCode`, `TryReadCheckIllegalUser_ReadsLogCodeAtOffsetSeven`, `TryReadCheckIllegalUser_ReadsTheValueLittleEndian` |
+| 4 | Enum et dispatch modifiés ensemble | **OK** | membre `TM_CS_CHECK_ILLEGAL_USER = 57` (`GamePackets.cs:93`) **et** bras `if (header.ID == …)` en `GameClient.cs:816`, **avant** le `switch` final dont le `_` lève `Unknown Packet Type` (mesure exhaustive en §11.5) |
+| 5 | Savoir durable dans la fiche commitée + bloc `CLAUDE.md` dans la description de la MR | **OK côté fiche** | présente section + §10 (bloc recopié dans le commentaire de la carte ; le dev n'écrit pas `CLAUDE.md`) |
+| 6 | Version tranchée | **OK** | 57 déclaré, **1057 non déclaré** ; `Ids_AreTheEpic73Ones` vérifie que 1057 n'est pas un membre de `GamePackets` |
+| 7 | Aucun commit sur `master` locale | **OK** | `git log --oneline origin/master..master` → aucune ligne (relevé en §11.7) |
+| 8 | Aucun champ `NON ÉTABLI` deviné | **OK** | `log_code` est lu et journalisé, **jamais interprété** ; ni réponse, ni sanction, ni limitation de fréquence (§11.5) |
+
+### 11.2 Fichiers livrés
+
+| Fichier | Modification |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_CHECK_ILLEGAL_USER = 57` inséré après `TM_CS_VERSION = 50`, avec le rappel du gating (1057 à ne pas déclarer) |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TryReadCheckIllegalUser(ReadOnlySpan<byte>, out uint)` |
+| `Game/Network/Clients/GameClient.cs` | `HandleCheckIllegalUser(byte[])` et son bras de dispatch avant le `switch` final |
+| `Tests/Game/CheckIllegalUserPacketsTests.cs` | 15 tests (nouveau) |
+
+Aucun constructeur de trame descendante : la fiche établit qu'il **n'existe aucune** trame
+serveur → client de cette famille (§5.4), donc rien n'est ajouté à `GameCharacterPackets.cs`.
+
+### 11.3 Offsets livrés, et les tests qui les tiennent
+
+| Offset | Taille | Champ | Valeur livrée | Test |
+|---|---|---|---|---|
+| 0 | 4 | `Length` `uint32` LE | **11** | `ClientPacket_UsesTheEpic73Layout` |
+| 4 | 2 | `ID` `uint16` LE | **57** (`0x39`) | `ClientPacket_UsesTheEpic73Layout`, `Ids_AreTheEpic73Ones` |
+| 6 | 1 | `Checksum` | somme des octets 0-5, **charge exclue** | `ClientPacket_UsesTheEpic73Layout`, `ClientPacket_ChecksumIgnoresThePayload` |
+| 7 | 4 | `log_code` `uint32` LE | lu tel quel, jamais interprété | `TryReadCheckIllegalUser_ReadsLogCodeAtOffsetSeven`, `…ReadsTheValueLittleEndian` |
+
+`TryReadCheckIllegalUser` **refuse toute longueur autre que 11** (`packet.Length != HeaderSize + 4`),
+sur le modèle de `TryReadGetRegionInfo` : le constructeur client écrit 11 en dur (§3.1) et l'en-tête
+est de taille fixe, donc 7, 10 et 12 sont des anomalies. Les cas sont testés
+(`TryReadCheckIllegalUser_RejectsAnyLengthOtherThanEleven`, quatre cas) **et** exercés à travers la
+vraie boucle de réception (`OnDataReceived_ConsumesAMalformedFrameWithoutThrowing`, longueurs 7 et 15).
+
+### 11.4 Réponses émises : aucune
+
+Aucun `Connection.Send` n'est atteint par le paquet 57. Trois tests le tiennent par **exécution**,
+pas par relecture : `OnDataReceived_AnswersNothing` (rien dans `Connection.Sent`),
+`OnDataReceived_ConsumesThePacketWithoutThrowing` et
+`OnDataReceived_KeepsTheLoopOnAFrameCoalescedWithAnotherOne` (un 57 suivi d'un `TM_NONE` : les deux
+trames sont consommées, le flux reste aligné). Le paquet est journalisé en **`Debug`**, le niveau
+que l'id non déclaré utilisait déjà (`GameClient.cs:586` avant ce lot), et une trame de longueur
+anormale en **`Warning`** — l'idiome du dépôt pour une trame malformée (`GameClient.cs:175-179`).
+
+### 11.5 Ce qui n'est pas porté, et pourquoi
+
+- **Aucune sanction, aucune déconnexion** : aucune des trois références ne sanctionne ; NGemity
+  journalise en `debug` et garde la connexion (§5.1). Sanctionner serait une décision, pas un
+  portage. Réservé à Killian (`## A VERIFIER PAR KILLIAN` §1, §2).
+- **Aucune limitation de fréquence** : le client n'en pose aucune (§5.6.5).
+- **`log_code` n'est pas interprété** : il est lu et écrit dans le journal, sans table de
+  correspondance inventée. La sémantique reste `NON ÉTABLI` (§7b) et aucune valeur (`0` compris)
+  n'est traitée comme un cas particulier.
+- **Aucune réponse** : il n'existe aucune trame S→C de cette famille (§5.4 ; trois vérifications
+  indépendantes dans la fiche).
+- **Le drapeau `this+0x128` du client** (§7e) n'a aucun pendant serveur établi : non porté.
+
+**Mesure de l'invariant « aucun membre de `GamePackets` n'atteint le `switch` final »**, refaite
+après le lot : `GamePackets` compte **84** membres, **50** sont référencés dans `GameClient.cs` ou
+`GameActions.cs`, et les **34** autres sont **tous** des ids serveur → client (`TM_SC_*`, plus
+`TM_EQUIP_SUMMON`). Relevé par balayage des membres de l'énumération :
+
+```
+for n in $(grep -oE '^\s+TM_[A-Z0-9_]+' Game/Network/Packets/Enums/GamePackets.cs | tr -d ' ')
+do grep -q "GamePackets\.$n" Game/Network/Clients/GameClient.cs \
+     Game/Network/Clients/Actions/GameActions.cs || echo "ABSENT: $n"; done
+→ 34 lignes ABSENT, toutes TM_SC_* sauf TM_EQUIP_SUMMON
+```
+
+Le paquet 57 est **émis par le client** : il a donc bien son bras, à la différence des `TM_SC_*`.
+
+### 11.6 Réserves
+
+1. **Le niveau de journal du 57 valide reste `Debug`** — c'est-à-dire le comportement observable
+   actuel, à la lettre. Ce n'est pas un arbitrage de politique : si Killian veut un niveau supérieur
+   ou une sanction, c'est un changement de trois lignes dans `HandleCheckIllegalUser`.
+2. **Longueur ≠ 11 refusée** (donc journalisée en `Warning` et non en `Debug`) : la fiche autorisait
+   explicitement les deux (§5.6.2), le dev a choisi le refus strict, cohérent avec le constructeur
+   client qui écrit 11 en dur et avec `TryReadGetRegionInfo`. Un `log_code` transporté dans une
+   trame rembourrée serait donc ignoré : c'est un choix, réversible en une ligne.
+3. **Le test de dispatch construit un `GameClient` réel avec les 18 doublures du constructeur de
+   `NetworkService`** (`CheckIllegalUserPacketsTests.NewGameClient`) et une `Connection` dérivée en
+   mémoire : c'est le harnais de la branche sœur `hermes/packet-223-swap-equip`
+   (`SwapEquipTests.cs`), adapté au constructeur courant (17 → 18 dépendances). Aucune réflexion n'a
+   été nécessaire ici : `ConnectionInfo` n'est pas touché. Si `NetworkService` change de signature,
+   c'est ce helper qu'il faut suivre.
+4. **`Tests/Game/MonsterWorldStateTests.TryBeginWander_SchedulesOnFirstSight_ThenPicksADestinationWithinRadius`
+   est instable sur machine chargée** : il a échoué sur la première exécution de ce lot (`Distance`
+   5,8485 au lieu de ≤ 1) puis est passé sur la seconde, sans rapport avec le paquet 57 (il interpole
+   la position sur l'horloge murale). À durcir dans une carte dédiée.
+5. **Zone de collision confirmée** : la branche `hermes/packet-socle-anti-triche` (MR #9) modifie
+   `GamePackets.cs` et `GameClient.cs`, les deux fichiers de ce lot (§1, §5.6). Le second merge
+   demandera une résolution manuelle dans l'énumération et dans la chaîne de `if`.
+
+### 11.7 Commandes relevées
+
+```
+git branch --show-current                  → hermes/packet-57-check-illegal-user
+git status --porcelain                     → vide avant le lot
+git log --oneline origin/master..master    → aucune ligne
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug       → code 0, 0 Error(s)
+dotnet test Tests/Tests.csproj             → code 0, 463 réussis / 463, 0 échec, 0 ignoré
+                                             (base avant le lot : code 0, 448 / 448)
+```
+
 ## A VERIFIER PAR KILLIAN
+
+Points ci-dessous : 1 à 6 repris de l'archéologue (§5.5, §7), 7 à 9 ajoutés par le dev au vu du
+code livré (§11).
 
 1. **Journaliser un 57 ?** À quel niveau (`Debug`, comme aujourd'hui en `GameClient.cs:586`, ou
    au-dessus) et pour quel effet observable ? Aucune référence ne tranche (§5.5).
@@ -455,3 +576,17 @@ modifié.**
    d'exécuter le client, `data.000` chiffré, archive non extraite intégralement).
 6. **Faut-il limiter la fréquence des 57 ?** Le client n'impose aucune limite (§5.6.5) ; une
    limitation serait une décision, pas un portage.
+
+### Ajoutés par le dev (§11)
+
+7. **État de la question 3 :** l'id **est** déclaré et le paquet **est** lu (commit `dd0e80a`), donc
+   les points 1 et 2 deviennent les seuls arbitrages ouverts — le choix restant porte sur la
+   disposition (niveau de journal, sanction, limitation), pas sur la lecture. Le bras précède bien
+   le `switch` final (`GameClient.cs:816`), conformément à l'attendu de la question 3.
+8. **Longueur de trame ≠ 11 : refus strict** (§11.6.2). La fiche laissait le choix (§5.6.2) ; le code
+   refuse et journalise en `Warning` au lieu de lire `log_code` dans une trame rembourrée. À valider
+   ou à desserrer en une ligne.
+9. **Deux réserves d'exécution, sans rapport avec le paquet :** `MonsterWorldStateTests.TryBeginWander_…`
+   est instable sur machine chargée (§11.6.4) — échec puis succès sans changement de code ; le
+   harnais `CheckIllegalUserPacketsTests.NewGameClient` doit être suivi si le constructeur de
+   `NetworkService` change (§11.6.3).
