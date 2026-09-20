@@ -16,6 +16,13 @@ public static class GameActionPackets
 
     public readonly record struct PutonItemRequest(sbyte Position, uint ItemHandle, uint TargetHandle);
 
+    /// <summary>
+    /// <c>TM_CS_PUTON_CARD</c> (214), the Epic 7.3 form: the wear slot of the target equipment then
+    /// the handle of the soul stone moved into it (fiche §3.2). <c>position</c> is a single byte
+    /// below <c>EPIC_9_6_7</c>, where rzu widens it to <c>int32</c>.
+    /// </summary>
+    public readonly record struct PutonCardRequest(sbyte Position, uint ItemHandle);
+
     public readonly record struct UseItemRequest(uint ItemHandle, uint TargetHandle);
 
     public readonly record struct ChangeItemPositionRequest(bool IsStorage, uint ItemHandle1, uint ItemHandle2);
@@ -159,6 +166,26 @@ public static class GameActionPackets
             (sbyte)packet[HeaderSize],
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1, 4)),
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 5, 4)));
+        return true;
+    }
+
+    /// <summary>
+    /// <c>TM_CS_PUTON_CARD</c> (214): 7 header bytes, then <c>position</c> at 7 and the card handle at 8,
+    /// for 12 bytes total. Longer frames are accepted and their trailing bytes ignored: the reference
+    /// declares 12 bytes but the frame the client really emits was never measured (fiche §3.3, §7.4).
+    /// </summary>
+    public static bool TryReadPutonCard(ReadOnlySpan<byte> packet, out PutonCardRequest request)
+    {
+        const int packetLength = HeaderSize + 5;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new PutonCardRequest(
+            (sbyte)packet[HeaderSize],
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1, 4)));
         return true;
     }
 

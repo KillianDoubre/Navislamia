@@ -19,6 +19,9 @@ public readonly record struct ItemGroupFields(int Id, ItemGroup Group);
 
 public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType);
 
+public readonly record struct ItemSocketFields(int Id, int SocketCount, ItemBaseType BaseType, ItemType ItemType,
+    ItemGroup Group);
+
 public interface IItemResourceRepository
 {
     IReadOnlyList<ItemSortFields> GetSortFields();
@@ -28,4 +31,6 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemGroupFields> GetGroupFields();
 
     IReadOnlyList<ItemUseFields> GetUseFields();
+
+    IReadOnlyList<ItemSocketFields> GetSocketFields();
 }
