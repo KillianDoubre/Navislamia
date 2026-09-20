@@ -197,6 +197,32 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
     }
 
+    /// <summary>
+    /// TM_CS_XTRAP_CHECK (59): the XTrap integrity check, 135 bytes of header plus a fixed 128 byte
+    /// payload. No reference server implements it and the 7.3 client never emits it — no constructor
+    /// writing id 59 exists in SFrame.exe — so there is no logic to port. The frame is read for its
+    /// declared size only and dropped: no answer (nothing in rzu, NGemity, op_codes.md or the client's
+    /// incoming dispatcher names one, and the client parses its counterpart 58 into an empty branch),
+    /// no sanction, and the opaque buffer is never interpreted or logged. Nothing about the content of
+    /// pCheckBuffer is established, so nothing can be judged from it.
+    /// See docs/packet-specs/59-xtrap-check.md §6, §9.
+    /// </summary>
+    private void HandleXtrapCheck(byte[] buffer)
+    {
+        if (!GameXtrapPackets.TryReadXtrapCheck(buffer, out var checkBuffer))
+        {
+            _logger.Warning("Malformed XTrap check frame received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        // Only the sizes are logged, at the Debug level the undeclared id already used. The 128 payload
+        // bytes are opaque and are never written to the log.
+        _logger.Debug(
+            "TM_CS_XTRAP_CHECK ({id}) Length: {length} pCheckBuffer: {bufferLength} bytes received from {clientTag}",
+            (ushort)GamePackets.TM_CS_XTRAP_CHECK, buffer.Length, checkBuffer.Length, ClientTag);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -785,6 +811,15 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_LOGOUT)
             {
                 _logger.Debug("{clientTag} logging out", ClientTag);
+                continue;
+            }
+
+            // TM_CS_XTRAP_CHECK (59) is declared so that the frame is read and bounded instead of being
+            // dropped as an undefined id. It must stay before the throwing switch below: a member of
+            // GamePackets that reaches it breaks the receive loop. The arm answers nothing.
+            if (header.ID == (ushort)GamePackets.TM_CS_XTRAP_CHECK)
+            {
+                HandleXtrapCheck(msgBuffer);
                 continue;
             }
 

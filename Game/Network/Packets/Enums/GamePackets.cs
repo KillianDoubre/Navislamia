@@ -86,6 +86,13 @@ public enum GamePackets : ushort
 
     TM_CS_VERSION = 50,
 
+    // TM_CS_XTRAP_CHECK (59): the XTrap integrity check the client would send — 135 bytes, a 7 byte header
+    // plus a fixed uint8[128] payload, with no length field. rzu gates the id to 59 below EPIC_9_6_3
+    // (1059 only from 9.6.3 on), so 1059 must not be declared here. Its server to client counterpart is
+    // 58 (TM_SC_XTRAP_CHECK): deliberately not declared, nothing in the server ever sends it and the 7.3
+    // client parses it into an empty branch. See docs/packet-specs/59-xtrap-check.md.
+    TM_CS_XTRAP_CHECK = 59,
+
     TM_CS_CHARACTER_LIST = 2001,
 
     TM_CS_CREATE_CHARACTER = 2002,
