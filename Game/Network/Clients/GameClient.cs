@@ -480,6 +480,48 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// <c>TM_CS_PUTOFF_CARD</c> (215). The single payload byte is an ordinal 0..5 computed by the client
+    /// inside its own six-entry object table, or 0xFF when the target handle is not in it (spec §2.4).
+    /// What those six entries hold is not established (spec §7.a) and no primitive on <c>master</c> can
+    /// clear a socket and hand the stone back atomically (spec §5.4), so the value is logged and nothing
+    /// else happens: reading it as an <c>ItemWearType</c> or an inventory index is unsupported. 0xFF, and
+    /// any byte outside the established 0..5 domain, is refused with an explicit answer.
+    /// </summary>
+    private void HandlePutoffCard(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadPutoffCard(packet, out var position))
+        {
+            SendResult((ushort)GamePackets.TM_CS_PUTOFF_CARD, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (position == GameActionPackets.PutoffCardNotInTable)
+        {
+            _logger.Warning(
+                "TM_CS_PUTOFF_CARD ({id}) from {clientTag}: 0xFF, the target handle is not in the client's object table — refused",
+                (ushort)GamePackets.TM_CS_PUTOFF_CARD, ClientTag);
+
+            SendResult((ushort)GamePackets.TM_CS_PUTOFF_CARD, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (position < 0 || position > GameActionPackets.PutoffCardMaxPosition)
+        {
+            _logger.Warning(
+                "TM_CS_PUTOFF_CARD ({id}) from {clientTag}: position {position} is outside the established 0..{max} domain — refused",
+                (ushort)GamePackets.TM_CS_PUTOFF_CARD, position, ClientTag,
+                GameActionPackets.PutoffCardMaxPosition);
+
+            SendResult((ushort)GamePackets.TM_CS_PUTOFF_CARD, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        _logger.Information(
+            "TM_CS_PUTOFF_CARD ({id}) from {clientTag}: position {position} — no socket is cleared, the ordinal's meaning is not established (spec §7.a, §7.b)",
+            (ushort)GamePackets.TM_CS_PUTOFF_CARD, position, ClientTag);
+    }
+
     private async Task HandleUseItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadUseItem(packet, out var request))
@@ -690,6 +732,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_DROP_ITEM)
             {
                 _ = HandleDropItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_PUTOFF_CARD)
+            {
+                HandlePutoffCard(msgBuffer);
                 continue;
             }
 

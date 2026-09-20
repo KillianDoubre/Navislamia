@@ -38,6 +38,13 @@ public enum GamePackets : ushort
     TM_SC_ITEM_COOL_TIME = 217,
     TM_CS_CHANGE_ITEM_POSITION = 218,
     TM_CS_ARRANGE_ITEM = 219,
+    // TM_CS_PUTOFF_CARD (215): the client's card-removal request, 8 bytes — a 7-byte header plus a single
+    // signed ordinal at offset 7 (0..5 in its own object table, 0xFF when the target is not in it). rzu
+    // remaps the id to 1215 from EPIC_9_6_3 on, so 1215 must not be declared here. There is no server to
+    // client answer in this family. See docs/packet-specs/215-putoff-card.md. The line sits after 219
+    // rather than next to 214: the siblings 214, 211/212, 221, 223 and 281 all anchor their members
+    // between TM_CS_PUTOFF_ITEM = 201 and TM_SC_HAIR_INFO = 220, and an isolated line stays out of it.
+    TM_CS_PUTOFF_CARD = 215,
     TM_CS_USE_ITEM = 253,
     TM_SC_DESTROY_ITEM = 254,
     TM_SC_UPDATE_ITEM_COUNT = 255,

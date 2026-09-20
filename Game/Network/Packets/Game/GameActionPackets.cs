@@ -177,6 +177,39 @@ public static class GameActionPackets
         return true;
     }
 
+    /// <summary>
+    /// Highest ordinal <c>TM_CS_PUTOFF_CARD</c> (215) can carry: the client resolves the target through its
+    /// own table of six dwords, so 0..5 is the whole established domain (fiche §2.4).
+    /// </summary>
+    public const sbyte PutoffCardMaxPosition = 5;
+
+    /// <summary>
+    /// The fallback byte of <c>TM_CS_PUTOFF_CARD</c> (215) when the target handle is not in the client's
+    /// table of six: the field is written as 0xFF, i.e. this signed value (fiche §2.4).
+    /// </summary>
+    public const sbyte PutoffCardNotInTable = -1;
+
+    /// <summary>
+    /// <c>TM_CS_PUTOFF_CARD</c> (215), the Epic 7.3 form: a 7-byte header then one signed byte at offset 7,
+    /// 8 bytes in total, with no handle, no checksum field of its own and no padding. That byte is an
+    /// ordinal the client <em>computes</em> inside its own object table (0..5, or 0xFF), unlike the field
+    /// copied by the twin packet 214 — what the six entries hold is not established (fiche §2.4, §7.a), so
+    /// this reader hands the raw signed value over and interprets nothing. The client writes the length in
+    /// hard at 8, so any other length is an anomaly and is refused rather than partially read.
+    /// </summary>
+    public static bool TryReadPutoffCard(ReadOnlySpan<byte> packet, out sbyte position)
+    {
+        const int packetLength = HeaderSize + 1;
+        if (packet.Length != packetLength)
+        {
+            position = 0;
+            return false;
+        }
+
+        position = (sbyte)packet[HeaderSize];
+        return true;
+    }
+
     public static bool TryReadUseItem(ReadOnlySpan<byte> packet, out UseItemRequest request)
     {
         // 7 header + item_handle (4) + target_handle (4) + szParameter (32). The 32 trailing bytes
