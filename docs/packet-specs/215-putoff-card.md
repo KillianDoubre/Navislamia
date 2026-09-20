@@ -454,3 +454,78 @@ d'apparence avec 201.
 4. **§7.d — émission en jeu** : le client porte le code de 215, mais aucun texte d'interface de
    retrait n'existe dans le corpus 7.3.
 5. **§5.4 — ordre de merge** 214 puis 215, et héritage éventuel des primitives de la branche 214.
+
+> L'état de l'implémentation livrée par `navis-dev` est décrit en **§11**, qui ne modifie aucune des
+> cinq questions ci-dessus et n'en tranche aucune.
+
+---
+
+## 11. Implémentation livrée (dev)
+
+Branche `hermes/packet-215-putoff-card`, base `master` = `ec76b218` (la branche 214 n'étant pas mergée,
+aucune de ses primitives n'est utilisée ici et rien de sa logique n'est recopié). Les cinq points de §10
+restent ouverts ; cette section dit exactement ce que le serveur fait aujourd'hui, et rien de plus.
+
+| élément | où |
+|---|---|
+| membre d'enum | `GamePackets.TM_CS_PUTOFF_CARD = 215` (`Game/Network/Packets/Enums/GamePackets.cs`) |
+| bras de dispatch | `GameClient.OnDataReceived`, juste après le bras `TM_CS_DROP_ITEM` |
+| lecteur | `GameActionPackets.TryReadPutoffCard(ReadOnlySpan<byte>, out sbyte)` |
+| constantes | `GameActionPackets.PutoffCardMaxPosition = 5`, `GameActionPackets.PutoffCardNotInTable = -1` |
+| handler | `GameClient.HandlePutoffCard(byte[])` |
+| tests | `Tests/Game/PutoffCardPacketsTests.cs`, 25 cas (offsets, signe, bornes, dispatch réel) |
+
+**Placement.** Le membre est posé après `TM_CS_ARRANGE_ITEM = 219` et **pas** entre
+`TM_CS_PUTOFF_ITEM = 201` et `TM_SC_HAIR_INFO = 220` : les branches sœurs 211/212, 214, 221, 223 et 281
+ancrent toutes leurs membres dans cette plage, une ligne isolée reste hors de la zone de collision. Le
+bras de dispatch suit la même logique : il est ancré après le bras `TM_CS_DROP_ITEM`, alors que celui de
+214 s'ancre juste avant le bras `TM_CS_PUTOFF_ITEM`.
+
+### 11.a Ce qui est fait, champ par champ
+
+- Trame **8** octets, en-tête **7** (`Length` +0, `ID` +4, `Checksum` +6), ordinal **+7**, qui est le
+  dernier octet ; `Marshal.SizeOf<Header>() == 7` est vérifié, donc l'octet commence bien où l'en-tête
+  finit.
+- Lecture **signée** : `0xFF` vaut `-1` et `0x80` vaut `-128`. Un lecteur qui prendrait la charge pour un
+  `uint8` répondrait 255 et 128 ; deux cas de test écartent explicitement ces valeurs, et le lecteur
+  renvoie l'octet brut sans filtre ni remap (un `0x7F` hors domaine traverse `TryReadPutoffCard` tel quel).
+- Le checksum ne couvre **pas** l'ordinal : le client somme les six octets d'en-tête, donc deux trames ne
+  différant que par +7 portent le même checksum (+6). Un ordinal modifié en transit n'est couvert par
+  aucun contrôle d'intégrité.
+- Longueur exigée **à l'identique** (8) : `0`, `6`, `7`, `9` et `15` sont refusés, la trame est néanmoins
+  consommée en entier. Le client écrit 8 en dur, une trame plus longue est une anomalie et une trame plus
+  courte ne doit pas faire lire au-delà du tampon.
+- `0xFF` (cible absente de la table client) → `SendResult(215, InvalidArgument)`, sans aucune écriture.
+- Tout octet hors du domaine établi `0..5` (`6`, `127`) → même refus. Le domaine est décrit par la table
+  de six entrées de §2.4 ; un octet au-delà ne peut viser aucune entrée et n'est pas deviné.
+- `0..5` → **aucune écriture, aucune réponse**. Le comportement observable reste exactement celui d'avant
+  la déclaration (le paquet était déjà consommé sans réponse, via le `continue` du journal
+  « Undefined packet ID ») : seule la trace change, l'ordinal reçu remplace le journal générique. Sans
+  §7.a il n'y a rien à résoudre, sans les primitives de §5.4 rien à écrire ; répondre `Success` serait un
+  mensonge et répondre un refus inventerait un verdict que rien n'étaye. Les deux valeurs sont donc
+  journalisées (`Information` pour un ordinal du domaine, `Warning` pour un refus).
+- `Enum` et dispatch ont été modifiés **ensemble** : sans le membre, l'`Enum.IsDefined` du haut de la
+  boucle jette la trame avant tout dispatch (`Undefined packet ID`, `GameClient.cs:626-630`), et avec le
+  membre mais sans bras elle atteint le `throw` final `Unknown Packet Type`. Mesure : le bras rendu
+  inatteignable pour 215, **9 des 25 cas échouent** en `Unknown Packet Type` (les quatre cas de dispatch
+  nominaux et les cinq cas de refus) ; bras en place, les 25 passent. Le test de dispatch construit une
+  vraie trame et la passe à `OnDataReceived`, il n'inspecte pas le source.
+- Le verdict est un `TS_SC_RESULT` de **15** octets (en-tête 7 + `RequestMsgID` +7, `Result` +9,
+  `Value` +11), `RequestMsgID = 215`, `Result = InvalidArgument (28)`, `Value = 0` : c'est le seul paquet
+  que cette famille comporte, 215 n'ayant pas de contrepartie serveur → client.
+
+### 11.b Ce qui n'est PAS implémenté, et pourquoi
+
+- Le **retrait lui-même** — identifier l'objet équipé visé, choisir la châsse à vider, rendre la pierre au
+  sac — dépend de §7.a, §7.b et §7.c (non arbitrés) et des primitives de la branche 214 (non mergée).
+  Rien de tout cela n'est simulé, pas même partiellement, et aucune valeur de l'octet n'est interprétée
+  comme un `ItemWearType`, un index de châsse ou une position d'inventaire.
+- Aucune vérification de portée, de propriété ou d'état n'est faite : il n'y a rien à vérifier tant que
+  l'objet visé n'est pas identifiable.
+
+### 11.c Vérification
+
+Exécuté sur la branche, dans le conteneur de dev (`NUGET_PACKAGES=/srv/navislamia/.nuget-cache`) :
+`dotnet build Navislamia.sln -c Debug` → 0 erreur ; `dotnet test Tests/Tests.csproj` → 473 réussis,
+0 échec (448 avant cette carte, +25 cas) ; `git log --oneline origin/master..master` → vide.
+
