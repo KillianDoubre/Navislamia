@@ -673,3 +673,102 @@ voyage que dans la fiche d'objet (`GameCharacterPackets.cs:353-356`).
    `TM_SC_RESULT(214, Success)` ?
 5. **Périmètre du couple** (§7.5) — confirmation que `215` reste hors de cette chaîne (sa fiche
    est une carte distincte du board), pour ne pas ajouter un membre d'énumération sans dispatch.
+6. **Règle des pierres identiques, comparée sur le code de ressource (implémentation)** — NGemity
+   compare seize champs de statistiques (`base_type[0..3]`, `base_var[..][0]`, `opt_type[0..3]`,
+   `opt_var[..][0]`, `WorldSession.cpp:1535-1549`) : deux ressources **distinctes** partageant une
+   même signature y sont donc refusées ensemble. L'implémentation compare le **code de ressource**
+   déjà serti au code de la carte entrante (`CardSocketRules.CountSameResource`) : tous les doublons
+   « même pierre » sont refusés comme dans la référence, mais un couple de pierres distinctes de
+   même signature est accepté. Faut-il porter la comparaison sur la signature complète, qui suppose
+   de charger `base/opt` de chaque ressource sertie ?
+7. **Châsse pleine : refus au lieu d'écrasement** — le client prévient qu'un sertissage sur une
+   châsse occupée détruit la pierre en place (`smsg_soket01`), mais une trame `214` ne porte
+   **aucun index de châsse** (conséquence assumée de R2, §7.1). L'implémentation remplit la première
+   châsse libre et refuse (`AlreadyExist`) quand les `SocketCount` châsses sont occupées. Si
+   l'écrasement est voulu, il faut savoir **quelle** châsse : cela suppose la lecture R1 (et donc un
+   paquet ou un état client absent du dépôt).
+8. **Endurance de l'objet après sertissage** — la référence recalcule l'endurance de l'objet à partir
+   des ressources serties (`WorldSession.cpp:1580`, `Item.cpp:227-234`). L'implémentation ne la
+   recalcule pas : les statistiques ne lisent pas encore les châsses (même raison que
+   l'absence de `CalculateStat`). À trancher : le client affiche-t-il une endurance fausse tant que
+   ce recalcul manque ?
+9. **Ordre des paquets de succès** — l'implémentation envoie, dans cet ordre : mise à jour ou
+   destruction de la pile de la carte, fiche du seul objet serti (`TS_SC_INVENTORY` d'un objet, comme
+   `Messages::SendItemMessage`), puis `TM_SC_RESULT(214, Success)`. À confirmer sur capture si un
+   ordre plus strict s'impose.
+
+---
+
+## 11. Implémentation livrée par `navis-dev`
+
+Branche `hermes/packet-214-puton-card` (suite de la fiche) : `d04a0b7` pour le code et les tests,
+commit suivant pour cette section. `master` local intact.
+
+### 11.1 Fichiers touchés
+
+- `Game/Network/Packets/Enums/GamePackets.cs` : `TM_CS_PUTON_CARD = 214`, inséré entre
+  `TM_SC_TAKE_ITEM_RESULT = 210` et `TM_SC_BELT_SLOT_INFO = 216` (`TM_SC_GET_CHAOS = 213` n'existe
+  pas dans l'énumération du dépôt) ;
+- `Game/Network/Clients/GameClient.cs` : bras de dispatch (`continue`) et `HandlePutonCardAsync` ;
+  énumération et dispatch modifiés ensemble, `214` ne peut plus atteindre le
+  `_ => throw new Exception("Unknown Packet Type")` final ;
+- `Game/Network/Packets/Game/GameActionPackets.cs` : `PutonCardRequest(sbyte Position, uint ItemHandle)`
+  et `TryReadPutonCard` — garde `HeaderSize + 5`, `(sbyte)packet[HeaderSize]`,
+  `ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1, 4))`, toute trame `>= 12` acceptée (§3.3) ;
+- `Game/Services/CardSocketRules.cs` : les règles, pures et testables ;
+- `Game/Services/CardSocketCatalog.cs` + `Game/Services/Interfaces/ICardSocketCatalog.cs` : modèles
+  de sertissage (`SocketCount`, nature de pierre d'âme) figés au démarrage, sur le modèle de
+  `ItemUseCatalog` ;
+- `Game/DataAccess/Repositories/Interfaces/IItemResourceRepository.cs` +
+  `Repositories/ItemResourceRepository.cs` : projection `ItemSocketFields` / `GetSocketFields()`
+  (`Id`, `SocketCount`, `ItemBaseType`, `ItemType`, `Group`) ;
+- `Game/Services/CharacterService.cs` + `ICharacterService.cs` : `SocketCardAsync(...)` — résolution
+  et écriture **dans la même passe de la porte base de données** ;
+- `Game/Services/CardSocketService.cs`, `CardSocketResult.cs`,
+  `Game/Services/Interfaces/ICardSocketService.cs`, `Game/Network/NetworkService.cs`,
+  `DevConsole/Program.cs` : service et câblage ;
+- `Tests/Game/PutonCardPacketsTests.cs` (6 tests d'offsets) et
+  `Tests/Game/CardSocketRulesTests.cs` (19 tests de règles).
+
+### 11.2 Décisions d'implémentation
+
+1. **Lecture R2**, exactement comme §7.1 le prescrit : `position` est l'emplacement de port de
+   l'équipement visé et `item_handle` la carte déplacée. Le point de décision unique est
+   `CardSocketRules.ResolveTarget(sbyte position, uint cardHandle)` → `CardTarget(ItemWearType Slot,
+   uint CardHandle)`. Un arbitrage ultérieur en R1 ou R3 ne coûte qu'un changement de cette fonction
+   et de la résolution dans `CharacterService.SocketCardAsync`.
+2. **Nature de la carte** : `ItemGroup.Soulstone` **et** `ItemType.Soulstone` **et**
+   `ItemBaseType.Soulstone`, lus dans le catalogue. Une ressource inconnue du catalogue n'est pas
+   une pierre d'âme : `NotActable`.
+3. **Ordre des gardes**, celui de la référence : emplacement de port (service, `InvalidArgument`),
+   objet visé trouvé (`NotExist`), carte trouvée et différente de l'objet visé (`NotExist`),
+   ressource de l'objet connue (sinon `AccessDenied`, faute de nombre de châsses lisible),
+   nombre de châsses dans `1..4` (`AccessDenied`), nature pierre d'âme (`NotActable`), plafond de
+   répliques (`AlreadyExist`), première châsse libre (`AlreadyExist` si aucune).
+4. **Première châsse libre** : la trame ne porte pas d'index de châsse, la première case vide dans
+   les `SocketCount` châsses de l'objet est remplie. Voir le point 7 de §10.
+5. **Écriture d'une châsse** : le **code de ressource** de la carte, comme la référence
+   (`SetSocketIndex(i, ...GetCode())`), dans la colonne à 4 cases `ItemEntity.SocketItemIds`
+   (`TelecasterContext.cs:55`) ; la colonne est normalisée à 4 cases avant écriture (elle peut être
+   nulle ou plus courte en base, `GameCharacterPackets.cs:353-356` la tolère à la lecture).
+6. **Consommation de la carte** : `RemoveAmount` dans la même passe de la porte que le jugement et
+   l'écriture, plutôt que `ConsumeItemAsync` qui ouvrirait une seconde passe — un sertissage
+   partiellement appliqué (châsse écrite, carte non consommée) est ainsi impossible.
+7. **Réponse** : `TS_SC_INVENTORY` d'un seul objet (celui qui porte les 4 châsses), mise à jour ou
+   destruction de la pile de la carte, puis `TM_SC_RESULT(214, Success)` — la fiche relève que ce
+   dernier n'est pas démontré (§7.3), l'implémentation l'envoie comme le reste du dépôt.
+8. **Non implémenté, volontairement** : le coût (§6 point 3, §7.3), le recalcul d'endurance et de
+   statistiques (point 8 de §10), le traitement par lot des 4 châsses (impossible, `214` ne porte
+   qu'un handle de carte, §6 point 3), `TM_CS_PUTOFF_CARD` (hors périmètre, §7.5).
+9. **Aucun champ `NON ÉTABLI` deviné** : `position` (au-delà de R2) et la preuve d'émission restent
+   ouverts, l'implémentation ne les tranche pas.
+
+### 11.3 Vérifications
+
+- `dotnet build Navislamia.sln -c Debug` : code de sortie 0 ;
+- `dotnet test Tests/Tests.csproj` : code de sortie 0, **473 tests réussis, 0 échec** (448 avant
+  cette carte, soit +25) ;
+- tests d'offsets : 12 octets au total, `position` en `int8` à l'offset 7, `item_handle` en `uint32`
+  à l'offset 8, trame tronquée refusée, octets surnuméraires ignorés, id `214` épinglé ;
+- aucun accès client, aucune base : rien n'a été exécuté côté serveur de jeu (§ « ce qui n'a pas pu
+  être vérifié »).
