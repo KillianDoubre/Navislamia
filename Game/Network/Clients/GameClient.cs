@@ -552,6 +552,87 @@ public class GameClient : Client
         SendMessage(message);
     }
 
+    /// <summary>
+    /// TM_CS_INSTANCE_GAME_ENTER (4250): the 7.3 client sends it as an answer to an incoming instance-game
+    /// message, copying the <c>instance_game_type</c> it was handed (values 0, 1 and 2 are the only ones
+    /// observed). Nothing is answered here: entering an instance is a server side move of the character (a
+    /// TM_SC_WARP / region change), not an acknowledgement of its own. The message that triggers it is not
+    /// identified yet, so the server cannot provoke a 4250 for now — NON ÉTABLI (b) of
+    /// docs/packet-specs/socle-instances-jeu.md.
+    /// </summary>
+    private void HandleInstanceGameEnter(byte[] buffer)
+    {
+        if (!GameInstanceGamePackets.TryReadEnter(buffer, out var request))
+        {
+            _logger.Warning("Malformed instance game enter request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_INSTANCE_GAME_ENTER ({id}) Length: {length} received from {clientTag}: instanceGameType={type}",
+            (ushort)GamePackets.TM_CS_INSTANCE_GAME_ENTER, buffer.Length, ClientTag, request.InstanceGameType);
+    }
+
+    /// <summary>
+    /// TM_CS_INSTANCE_GAME_EXIT (4251) carries no payload and expects no answer: the character is brought back
+    /// to the lobby by the server. The frame is only checked for its exact 7-byte form.
+    /// </summary>
+    private void HandleInstanceGameExit(byte[] buffer)
+    {
+        if (!GameInstanceGamePackets.HasNoPayload(buffer))
+        {
+            _logger.Warning("Malformed instance game exit request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug("TM_CS_INSTANCE_GAME_EXIT ({id}) Length: {length} received from {clientTag}",
+            (ushort)GamePackets.TM_CS_INSTANCE_GAME_EXIT, buffer.Length, ClientTag);
+    }
+
+    /// <summary>
+    /// TM_CS_INSTANCE_GAME_SCORE_REQUEST (4252) is answered by TM_SC_INSTANCE_GAME_SCORE_REQUEST (4253) and by
+    /// nothing else: the 4253 is never sent unsolicited. Only <c>holicpoint</c> has a source in 7.3
+    /// (CharacterEntity.HuntaholicPoint, the same value the login sequence publishes as the client property
+    /// <c>huntaholicpoint</c>). <c>bearroad_ranking</c>, <c>deathmatch_kill_count</c> and
+    /// <c>deathmatch_death_count</c> have no source anywhere in 7.3, so they are written as zero — an explicit
+    /// placeholder, not a scoring policy. See NON ÉTABLI (h) of docs/packet-specs/socle-instances-jeu.md.
+    /// </summary>
+    private void HandleInstanceGameScoreRequest(byte[] buffer)
+    {
+        if (!GameInstanceGamePackets.HasNoPayload(buffer))
+        {
+            _logger.Warning("Malformed instance game score request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning(
+                "Instance game score request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        var character = _networkService.CharacterService.GetCharacterByName(ConnectionInfo.CharacterName);
+        if (character is null)
+        {
+            _logger.Warning("Instance game score request received from {clientTag} for an unknown character {name}",
+                ClientTag, ConnectionInfo.CharacterName);
+            return;
+        }
+
+        var holicPoint = GameInstanceGamePackets.ToWireHolicPoint(character.HuntaholicPoint);
+
+        Connection.Send(GameInstanceGamePackets.BuildScoreResponse(holicPoint, 0u, 0u, 0u));
+        _logger.Debug(
+            "TM_SC_INSTANCE_GAME_SCORE_REQUEST ({id}) Length: {length} sent to {clientTag}: holicpoint={holicpoint}",
+            (ushort)GamePackets.TM_SC_INSTANCE_GAME_SCORE_REQUEST, GameInstanceGamePackets.ScoreResponseLength,
+            ClientTag, holicPoint);
+    }
+
     public override void OnDataReceived(int bytesReceived)
     {
         var remainingData = bytesReceived;
@@ -623,6 +704,38 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_SC_REGION_ACK)
             {
                 _logger.Warning("Server to client packet TM_SC_REGION_ACK ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_INSTANCE_GAME_ENTER (4250): the client answers an incoming instance game message with it, so
+            // the frame is recorded and nothing is sent back — the character is moved by the server instead.
+            if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_ENTER)
+            {
+                HandleInstanceGameEnter(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_EXIT)
+            {
+                HandleInstanceGameExit(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_INSTANCE_GAME_SCORE_REQUEST (4252) is the only trigger of the 4253 answer.
+            if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_SCORE_REQUEST)
+            {
+                HandleInstanceGameScoreRequest(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_INSTANCE_GAME_SCORE_REQUEST (4253) is a server to client packet: an incoming one is a
+            // protocol anomaly, not a request. Logged and dropped so that no id added by this change can reach
+            // the "Unknown Packet Type" throw below.
+            if (header.ID == (ushort)GamePackets.TM_SC_INSTANCE_GAME_SCORE_REQUEST)
+            {
+                _logger.Warning(
+                    "Server to client packet TM_SC_INSTANCE_GAME_SCORE_REQUEST ({id}) received from {clientTag}",
                     header.ID, ClientTag);
                 continue;
             }

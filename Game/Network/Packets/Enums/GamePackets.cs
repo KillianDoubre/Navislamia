@@ -96,6 +96,13 @@ public enum GamePackets : ushort
 
     TM_CS_CHECK_CHARACTER_NAME = 2006,
 
+    // TM_CS/SC_INSTANCE_GAME_* : instance game socle, X(<id>, true) in rzu (EPIC_6_3 and later, hence valid
+    // for EPIC_7_3). See docs/packet-specs/socle-instances-jeu.md.
+    TM_CS_INSTANCE_GAME_ENTER = 4250,
+    TM_CS_INSTANCE_GAME_EXIT = 4251,
+    TM_CS_INSTANCE_GAME_SCORE_REQUEST = 4252,
+    TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253,
+
     TM_CS_REPORT = 8000,
 
     TM_NONE = 9999
