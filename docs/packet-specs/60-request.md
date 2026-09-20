@@ -530,6 +530,20 @@ ouverte pour Killian.
    (`navis-po` → `navis-dev`) ?
 6. **`1060`.** Confirmez-vous qu'il n'a pas à être déclaré dans `GamePackets` (palier post-9.6.3) ?
 
+### 12 bis. Points ajoutés par le dev (`navis-dev`, branche `hermes/packet-60-request`)
+
+7. **Cas 3 de §9 — trame sans NUL terminal (§16.3).** La fiche laissait le choix au dev avec « refus »
+   pour défaut recommandé : le code **refuse** (journal `Warning`, aucune réponse). Confirmez-vous, ou
+   préférez-vous lire les `Length - 9` premiers octets d'une trame non terminée au lieu de la refuser ?
+8. **Journal du sélecteur `t` (§16.4).** Le handler journalise `t` en **valeur brute** (sans nom, sans
+   table) en plus de `Length` et de la longueur de `command` : c'est le seul moyen d'obtenir un jour la
+   réponse au point 1 de `NON ÉTABLI` sans instrumenter `SFrame.exe`. Si vous préférez un journal
+   strictement borné aux tailles, la ligne se retire sans rien casser.
+9. **Placement de la ligne `TM_CS_REQUEST = 60` (§16.5).** Elle est volontairement posée après
+   `TM_SC_DISCONNECT_DESC = 28`, hors de l'ancre `TM_CS_VERSION = 50` que se partagent les branches 54,
+   57 et 59 : mesure à l'appui, ce placement fusionne là où l'autre produit un conflit dès la première
+   fusion. Si vous préférez le regroupement avec les 50s quitte à traiter le conflit au merge, dites-le.
+
 ---
 
 ## 13. Commits et binaires épinglés
@@ -600,3 +614,138 @@ code de sortie **0** (160 avertissements, 0 erreur) ; `dotnet test Tests/Tests.c
 - Points `NON ÉTABLI` : 9, listés §7. Aucun n'est comblé par une supposition.
 - Réserves touchant d'autres tâches : le cas 11 de §9 (boucle de réception sur `Length = 0`) et la
   formulation approximative de `socle-anti-triche.md:631-632` sur le `t`, corrigée en §5.4.
+
+---
+
+## 16. Implémentation livrée par le dev
+
+Cette section est écrite par `navis-dev` sur la branche `hermes/packet-60-request`, après la fiche. Les
+sections 1 à 15 sont laissées intactes : elles sont l'archéologie de `navis-ref` et restent valides. Ce
+qui suit **remplace la note de livraison §15 pour le périmètre du dev** : le code et les tests de 60 sont
+désormais dans cette branche.
+
+### 16.1 Fichiers et commits
+
+| Commit | Contenu |
+|---|---|
+| `72327db` | `GamePackets.cs` (+7), `GameRequestPackets.cs` (nouveau, 101 lignes), `GameClient.cs` (+39) |
+| `e5bf3c8` | `Tests/Game/RequestPacketsTests.cs` (nouveau, 25 tests, 412 lignes) |
+| commit de documentation | cette section 16 et les points 7 à 9 de §12 bis |
+
+Aucun autre fichier n'est touché : ni `CLAUDE.md` (Hermes le protège ; le bloc de §16.6 est destiné à la
+description de la MR), ni `op_codes.md`, ni `GameActions.cs`, ni `Connection.cs`, ni `DisconnectType.cs`.
+
+### 16.2 Ce que le code fait
+
+- **`GameRequestPackets.TryReadRequest`** (fichier neuf `Game/Network/Packets/Game/`, le nom que §10
+  réservait) : lit `t` en offset 7 et renvoie une **vue** des octets de `command`, `Length - 9` octets
+  avant le NUL terminal. Aucune allocation, aucun décodage, aucune interprétation.
+  Constantes publiées et testées : `SelectorOffset = 7`, `CommandOffset = 8`, `MinPacketSize = 9`,
+  `MaxPacketSize = 32768`, `MaxCommandLength = 32759`.
+- **`GameClient.HandleRequest`** : refuse la trame malformée (journal `Warning`) ou journalise en `Debug`
+  `Length`, le sélecteur `t` **brut** et `commandLength`. Aucune réponse, aucune sanction, aucune
+  exécution, aucun déchiffrement, aucune liste blanche, aucun journal du contenu de `command`.
+- **`GameClient.OnDataReceived`** : bras `header.ID == (ushort)GamePackets.TM_CS_REQUEST` placé **avant le
+  `switch` final**, à côté de l'autre bras « journaliser et abandonner » (`TM_SC_REGION_ACK`), et non à la
+  fin de la chaîne : trois branches ouvertes (54, 57, 59) ajoutent le leur juste avant le `switch`, et ce
+  bras isolé les laisse fusionner sans conflit. L'invariant §4 du profil est tenu : le membre d'énumération
+  et son bras sont dans le même commit.
+- **`GamePackets`** : `TM_CS_REQUEST = 60` en **ligne isolée**, volontairement hors de l'ancre
+  `TM_CS_VERSION = 50` que 54, 57 et 59 se partagent (voir §16.5). `1060` n'est **pas** déclaré.
+
+### 16.3 Décisions que la fiche laissait au dev (§9)
+
+| Cas de §9 | Décision livrée | Pourquoi |
+|---|---|---|
+| 1 — `Length < 9` (dont 7, en-tête seul) | **refus**, journal `Warning`, `continue` | minimum de §3.3 ; doctrine du dépôt (`GameActionPackets`) |
+| 2 — `Length = 9`, commande vide | **accepté**, `command` = vue de 0 octet | `SIZE_F_ENDSTRING2` avec `L = 0` |
+| 3 — dernier octet ≠ NUL | **refus** (défaut recommandé par la fiche, tranché par le dev) | rzu perdrait silencieusement un octet ; rien n'établit qu'une commande sans terminator soit légitime |
+| 4 — NUL **interne** | **accepté**, `command` = `Length - 9` octets, arrêt **jamais** au premier NUL | `std::string` conserve les NUL internes |
+| 5 — `Length = 32768` | **accepté** (testé de bout en bout dans la boucle) | borne de fait de `Connection` |
+| 7 — `t` quelconque | **rien n'est filtré**, aucune énumération, aucune table | §7.4 : aucune liste n'existe |
+| 8 — 60 avant l'entrée en jeu | **journal seulement**, pas de garde de session | voir §16.4, point ouvert 7 de §12 |
+| 13 — commande volumineuse | journal borné à `Length`, `t` et `commandLength` | §8 ; le contenu est opaque |
+
+Le cas 6 (`Length > 32768`) n'est pas traitable dans le handler : une telle trame n'est jamais délivrée par
+la boucle, qui attend des octets qui ne peuvent pas tenir dans le tampon. Le cas 11 (`Length = 0`) est le
+défaut générique pré-existant signalé par la fiche : **non corrigé ici** (hors périmètre, il touche toutes
+les fiches de la famille) et **non testable sans faire tourner la boucle à vide** ; il reste l'objet de la
+question 5 de §12.
+
+### 16.4 Ce qui n'est pas porté, et pourquoi
+
+Rien n'a été porté des références, parce qu'il n'y a rien : rzu déclare `TS_CS_REQUEST` sans jamais le
+consommer, et Chihiro tombe dans sa branche « paquet inconnu » (journal Debug, connexion conservée). Le
+seul producteur connu est l'outil de supervision NGemity, qui vise un serveur tiers : il renseigne la
+**nature** du canal (opérateur, SQL chiffré, `t = 'u'`), jamais le **traitement serveur**. En conséquence,
+le code ne contient : ni `MXEncrypt`/tag `EV`/zlib, ni table de commandes, ni `SendResult`, ni
+`SendDisconnectDesription`/`Disconnect` — les trois points de vérification exigés par §8 restent donc
+vérifiables tels quels sur cette branche.
+
+Le sélecteur `t` est **journalisé tel quel** (valeur brute, sans nom ni table) : c'est le seul moyen de
+répondre un jour au point 1 de `NON ÉTABLI` (le client émet-il 60 ?) sans instrumenter le binaire. La
+fiche interdit de journaliser le **contenu** de `command` ; elle ne nomme pas `t`, qui est un champ déclaré
+et non la charge utile opaque.
+
+### 16.5 Mesures relevées sur la branche
+
+| Mesure | Commande | Résultat |
+|---|---|---|
+| Build | `dotnet build Navislamia.sln -c Debug` | code de sortie **0** — 160 avertissements, 0 erreur (identique à `master`) |
+| Tests | `dotnet test Tests/Tests.csproj` | code de sortie **0** — **473 réussis**, 0 échec, 0 ignoré |
+| Baseline `master` `ec76b21` relevée avant de commencer | mêmes commandes | build 0 ; tests **448** réussis |
+| Tests ajoutés | — | **+25** (`Tests/Game/RequestPacketsTests.cs`), aucun test existant modifié |
+| `git log --oneline origin/master..master` | — | **vide** — aucun commit sur `master` locale |
+
+**Fusionnabilité de la ligne d'énumération, mesurée.** Un banc d'essai local (clone dans `/tmp`, aucune
+écriture sur le dépôt) a fusionné en séquence `socle-anti-triche`, `57-check-illegal-user` et
+`59-xtrap-check` sur deux variantes de placement de la ligne `TM_CS_REQUEST = 60` :
+
+| Placement de la ligne | Résultat de la séquence de fusions |
+|---|---|
+| juste après `TM_CS_VERSION = 50,` (ancre des trois branches) | **conflit dès la première fusion** (`GamePackets.cs`) |
+| juste après `TM_SC_DISCONNECT_DESC = 28,` (retenu) | fusionne avec `socle-anti-triche` ; le conflit qui suit vient de `57` contre `socle` |
+
+Le conflit `57`/`socle` est **pré-existant** : le même banc, sans aucun ajout de cette branche, le
+reproduit à l'identique sur `Game/Network/Clients/GameClient.cs` et
+`Game/Network/Packets/Enums/GamePackets.cs`. La ligne isolée de 60 n'y ajoute donc aucun conflit, ce qui
+est exactement ce que §10 demandait.
+
+### 16.6 Bloc destiné à `CLAUDE.md`
+
+Le dev n'écrit pas `CLAUDE.md` (Hermes le protège). La fiche §11 en propose déjà une version ; celle-ci
+est la version courte et **exacte après implémentation**, à coller dans la description de la MR :
+
+```markdown
+### Paquet 60 — `TM_CS_REQUEST` (client → serveur)
+
+Seule trame **variable** de la famille : `t` (`uint8`, offset 7) + `command` (`endstring`, offset 8,
+`L` octets + **1 NUL terminal**), **`Length = 9 + L`**, checksum = somme des 6 premiers octets. Gating :
+**60** pour `version < EPIC_9_6_3`, 1060 au-delà — Epic 7.3 garde **60** ; aucun champ n'a de gating
+propre. Borne réelle : tampon de réception de 32768 octets → `L ≤ 32759`.
+
+`endstring` n'a **aucun préfixe de longueur** : la fin du champ est la fin du **datagramme**, donc
+`L = packet.Length - 9`, jamais « jusqu'au premier NUL » et jamais « jusqu'à la fin du tampon ». Une
+trame dont le dernier octet n'est pas le NUL, ou de moins de 9 octets, est refusée.
+
+Le client 7.3 ne nomme ni n'émet 60, et n'a aucun bras en réception (une trame d'id 60 y tombe sur
+« message non traité ») : **le serveur ne répond jamais par une trame d'id 60**. Ni rzu ni Chihiro n'ont
+de consommateur ; le seul producteur connu est l'outil de supervision NGemity, qui envoie `t = 'u'` et
+une requête SQL chiffrée zlib + chiffrement simple encodée en hexadécimal — c'est un canal
+d'**opérateur/SQL**, pas un canal de jeu.
+
+Règle tenue par `GameRequestPackets` / `GameClient.HandleRequest` : **lire et borner, journaliser
+`Length`, `t` et la longueur de `command`, n'exécuter aucune commande, ne pas répondre, ne pas
+sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce n'est **pas** un
+`ResultCode`. Liste blanche et réponse restent des politiques ouvertes.
+```
+
+### 16.7 Réserves du dev
+
+1. Le cas 11 de §9 (`Length = 0` ⇒ boucle de réception qui tourne) **reste ouvert** et n'est pas corrigé
+   ici : il est générique, pré-existant, et le corriger change la boucle partagée par toutes les fiches.
+2. La fidélité de `Length = 9 + L` repose sur la lecture de rzu (§3.3) ; **aucune trame réelle de 60 n'a
+   été observée** — le seul producteur connu n'est pas un client 7.3. Si un jour une capture montre un
+   terminator absent ou un second NUL, le refus du cas 3 est le premier point à revoir.
+3. Le journal de `t` est un choix du dev (voir §16.4) : il peut être retiré sans rien casser si Killian
+   préfère un journal strictement borné à la taille.
