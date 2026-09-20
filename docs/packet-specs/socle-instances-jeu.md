@@ -687,6 +687,11 @@ migration, aucun refactoring des paquets voisins.
 | `Tests/Game/InstanceGamePacketsTests.cs` | ids, taille totale et position de chaque champ des 4 trames, refus de toute autre longueur, conversion signé → `uint32` |
 | `docs/packet-specs/socle-instances-jeu.md` | cette fiche |
 
+Numéros de ligne **décalés** par ce lot (les citations des §1.3, §5.3 et §5.5 datent de la fiche, avant
+l'ajout de ~120 lignes dans `GameClient.cs`) : les 4 bras de dispatch sont désormais en
+`GameClient.cs:711-741`, le `switch` final en `904`, et le `_ => throw new Exception("Unknown Packet
+Type")` en **`915`** (et non plus 802). Les handlers `HandleInstanceGame*` occupent `556-635`.
+
 ### 9.3 Offsets livrés et tests
 
 - `TM_CS_INSTANCE_GAME_ENTER` (4250) : **11** = 7 (en-tête) + 4 (`instance_game_type`, `int32`, @7).
