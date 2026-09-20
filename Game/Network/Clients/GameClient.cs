@@ -166,6 +166,34 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_REQUEST (60): a raw command channel, never a player action. The frame is variable — the
+    /// selector <c>t</c> at offset 7, then the command running to the end of the datagram with its NUL
+    /// terminator, <c>Length = 9 + L</c> (see GameRequestPackets). Nothing is ported here because there
+    /// is nothing to port: rzu declares the packet and never consumes it, Chihiro logs 60 as an unknown
+    /// packet and keeps the connection, and the 7.3 client neither names nor emits it. The only producer
+    /// found anywhere is a supervision tool shipping a cipher-blobbed SQL statement, so this arm does the
+    /// strict minimum a reading without any decryption allows: bound the frame, log its sizes, execute
+    /// nothing, answer nothing, sanction nothing.
+    /// See docs/packet-specs/60-request.md §5, §8, §9.
+    /// </summary>
+    private void HandleRequest(byte[] buffer)
+    {
+        if (!GameRequestPackets.TryReadRequest(buffer, out var selector, out var command))
+        {
+            _logger.Warning("Malformed TM_CS_REQUEST received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        // Sizes and the selector only, at the Debug level the undeclared id already used. The command
+        // itself is never written to the log, not even its first bytes: it is opaque (zlib + simple
+        // cipher, hex encoded by the one producer we know) and as large as the receive buffer.
+        _logger.Debug(
+            "TM_CS_REQUEST ({id}) Length: {length} received from {clientTag}: t={selector} commandLength={commandLength}",
+            (ushort)GamePackets.TM_CS_REQUEST, buffer.Length, ClientTag, selector, command.Length);
+    }
+
+    /// <summary>
     /// TM_CS_GET_REGION_INFO (550): the client converted its own position into region indices and asks for
     /// the region it occupies, so the answer is computed from the two floats it just sent — not from
     /// ConnectionInfo.X/Y, which may lag one move behind. The divisor is the one announced to the client at
@@ -624,6 +652,17 @@ public class GameClient : Client
             {
                 _logger.Warning("Server to client packet TM_SC_REGION_ACK ({id}) received from {clientTag}",
                     header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_REQUEST (60) is declared so that the frame is read and bounded instead of being dropped
+            // as an undefined id. Any arm for a declared id must run before the throwing switch below: a
+            // member of GamePackets that reaches it breaks the receive loop. Nothing is answered and
+            // nothing is executed — the command is opaque. It sits next to the other log and drop arm
+            // rather than with the branches that append theirs at the end of this chain.
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST)
+            {
+                HandleRequest(msgBuffer);
                 continue;
             }
 

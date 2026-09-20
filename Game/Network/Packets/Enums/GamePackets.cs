@@ -84,6 +84,13 @@ public enum GamePackets : ushort
     TM_CS_LOGOUT = 27,
     TM_SC_DISCONNECT_DESC = 28,
 
+    // TM_CS_REQUEST (60): the client's raw command channel, read and logged only (see
+    // docs/packet-specs/60-request.md). rzu gates the id to 60 below EPIC_9_6_3 (1060 only from 9.6.3
+    // on), so 1060 must not be declared. The line sits here rather than next to the other 50s members:
+    // the branches adding 54, 57 and 59 all insert their member after TM_CS_VERSION = 50, and an
+    // isolated line keeps this one out of that conflict.
+    TM_CS_REQUEST = 60,
+
     TM_CS_VERSION = 50,
 
     TM_CS_CHARACTER_LIST = 2001,
