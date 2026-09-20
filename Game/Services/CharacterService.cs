@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Game;
 
 using Serilog;
@@ -205,6 +206,70 @@ public class CharacterService : ICharacterService
     {
         return RunExclusiveAsync(() => Task.FromResult(FindByHandle(
             _characterRepository.GetCharacterByNameWithItems(characterName)?.Items, itemHandle)));
+    }
+
+    public Task<CardSocketResult> SocketCardAsync(string characterName, ItemWearType position,
+        uint cardHandle, ICardSocketCatalog catalog)
+    {
+        return RunExclusiveAsync(async () =>
+        {
+            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var target = character?.Items?.FirstOrDefault(entry => entry.WearInfo == position);
+            if (target is null)
+            {
+                return new CardSocketResult(ResultCode.NotExist, null, null, 0);
+            }
+
+            var card = FindByHandle(character.Items, cardHandle);
+            if (card is null || card.Id == target.Id)
+            {
+                return new CardSocketResult(ResultCode.NotExist, target, null, 0);
+            }
+
+            // An unknown resource carries no socket count, so the target cannot be judged at all.
+            if (!catalog.TryGetTemplate(target.ItemResourceId, out var targetTemplate))
+            {
+                return new CardSocketResult(ResultCode.AccessDenied, target, card, card.Amount);
+            }
+
+            var cardIsSoulstone = catalog.TryGetTemplate(card.ItemResourceId, out var cardTemplate)
+                && cardTemplate.IsSoulstone;
+
+            var sockets = NormalizeSockets(target.SocketItemIds);
+            var code = CardSocketRules.Judge(targetTemplate.SocketCount, sockets, cardIsSoulstone,
+                card.ItemResourceId, out var socketIndex);
+            if (code != ResultCode.Success)
+            {
+                return new CardSocketResult(code, target, card, card.Amount);
+            }
+
+            // A socket holds the resource code of its stone, on both sides of the protocol
+            // (NGemity SetSocketIndex(i, ...GetCode())).
+            sockets[socketIndex] = card.ItemResourceId;
+            target.SocketItemIds = sockets;
+
+            RemoveAmount(character, card, 1);
+            InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
+            await _characterRepository.SaveChangesAsync();
+            return new CardSocketResult(ResultCode.Success, target, card,
+                character.Items.Contains(card) ? card.Amount : 0);
+        });
+    }
+
+    /// <summary>
+    /// The four-socket array of an item, padded: stored rows can carry a null or shorter column, and the
+    /// inventory sheet serialises at most four sockets (<c>TelecasterContext.cs:55</c>).
+    /// </summary>
+    private static long[] NormalizeSockets(long[] sockets)
+    {
+        var normalized = new long[CardSocketRules.MaxSockets];
+        if (sockets is null)
+        {
+            return normalized;
+        }
+
+        Array.Copy(sockets, normalized, Math.Min(sockets.Length, normalized.Length));
+        return normalized;
     }
 
     public Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog)
