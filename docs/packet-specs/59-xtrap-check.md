@@ -479,3 +479,83 @@ celles du **minimum vérifiable** : elles n'engagent aucune politique.
   branches : cette fiche cite la première, jamais copiée.
 - Les points `NON ÉTABLI` transmis au développement sont les sept de §8 ; les décisions attendues de
   Killian sont les six de §9.
+
+---
+
+## 16. Implémentation livrée par `navis-dev`
+
+Branche `hermes/packet-59-xtrap-check`, poursuivie depuis la fiche. Quatre fichiers touchés :
+
+| Fichier | Nature du changement |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | membre `TM_CS_XTRAP_CHECK = 59`, commenté (gating, absence de 58 et de 1059) |
+| `Game/Network/Packets/Game/GameXtrapPackets.cs` | **nouveau** : `XtrapCheckPacketSize` (135), `XtrapCheckBufferSize` (128), `XtrapCheckBufferOffset` (7), `TryReadXtrapCheck` |
+| `Game/Network/Clients/GameClient.cs` | `HandleXtrapCheck` (placé après `HandleGetRegionInfo`) et le bras d'aiguillage, juste avant le `switch` final |
+| `Tests/Game/XtrapCheckPacketsTests.cs` | 21 tests : offsets, bornes, aiguillage |
+
+### 16.1 Ce que fait le code
+
+- `TryReadXtrapCheck(ReadOnlySpan<byte> packet, out ReadOnlySpan<byte> checkBuffer)` : contrôle de
+  **longueur exacte** (135), puis vue sur les octets de l'appelant à partir de l'offset 7 sur 128 octets.
+  Zéro copie, zéro interprétation : le tampon est rendu tel quel. Un rappel de l'idiome du dépôt (§10.1)
+  est appliqué : aucune lecture partielle, aucun marshalling.
+- Le bras d'aiguillage ne fait que ça — lire et jeter. Aucune réponse, aucune sanction, aucun état de
+  session touché, aucun garde d'ordre, aucun limiteur.
+- Le `switch` final reste inchangé : le membre 59 ne peut pas l'atteindre (transversal critère 4).
+
+### 16.2 Décisions prises, et sur quelle base
+
+Les six questions de §9 sont tranchées aux valeurs par défaut **(a)** de la fiche, sauf la première qui
+suit l'idiome déjà en place :
+
+| §9 | Choix retenu | Justification |
+|---|---|---|
+| 1 — sort du tampon | lecture bornée + **une** ligne `Debug` portant l'id, la longueur et la taille du tampon ; **jamais** le contenu | c'est exactement ce que l'id non déclaré produisait déjà (`GameClient.cs:586`, « Undefined packet ID: {id} Length: {length} ») : le niveau et l'information observable sont identiques, donc aucune politique nouvelle n'est introduite. Passer à (a) strict, c'est supprimer l'appel `_logger.Debug` du handler ; passer à (c) — le contenu — n'est **pas** fait et reste interdit par défaut (tampon opaque, possiblement matériel) |
+| 2 — réponse | rien | §6.4 : aucun paquet de réponse n'existe, et 58 serait un coup dans le vide (branche vide du client) |
+| 3 — déconnexion | non | `DisconnectType.AntiHack` existe mais rien ne l'associe à 59 ; couper un client sur un tampon qu'on ne sait pas évaluer serait un faux positif |
+| 4 — garde d'ordre | aucun | aucun effet de bord, donc rien à protéger ; l'idiome 550 n'a pas lieu d'être ici |
+| 5 — limiteur de fréquence | aucun | aucune référence n'en a ; 135 octets par trame |
+| 6 — déclarer 58 | non | le paquet n'est jamais émis par ce serveur ; l'énumération reste minimale |
+
+Sur §9.6, précision utile pour la relecture : si Killian veut la symétrie plus tard, la place naturelle est
+`GameXtrapPackets` (les deux ids partagent la même anatomie) et un bras « paquet serveur → client reçu par
+le serveur » calqué sur celui de `TM_SC_REGION_ACK` (`GameClient.cs:620-628`).
+
+### 16.3 Écarts et points ouverts
+
+- Le fichier de lecture s'appelle `GameXtrapPackets.cs`, pas `GameAntiHackPackets.cs` : ce dernier nom est
+  **créé par la branche non fusionnée `hermes/packet-socle-anti-triche`** (MR #9). Un second fichier
+  `GameAntiHackPackets.cs` produirait un conflit *add/add* à la fusion ; `GameXtrapPackets.cs` n'existe sur
+  aucune branche.
+- **Zone de collision signalée** (`hotspot`) : `Game/Network/Packets/Enums/GamePackets.cs` et
+  `Game/Network/Clients/GameClient.cs` sont modifiés par trois branches ouvertes (celle-ci, MR #9
+  anti-triche, MR #15 paquet 57). Ici les insertions sont volontairement minimales — un membre d'énumération
+  et un bras — et placées là où les deux autres branches insèrent déjà (§11) : les conflits attendus à la
+  fusion sont textuels et adjacents.
+- Les sept points `NON ÉTABLI` de §8 restent **non établis** : rien dans l'implémentation ne les présume.
+  En particulier, aucun test n'affirme quoi que ce soit du contenu de `pCheckBuffer`.
+- Un id **1059** n'est pas déclaré : une telle trame suit le chemin « id non déclaré » existant
+  (`GameClient.cs:584-588`), qui la consomme entièrement et la journalise en `Debug` sans rien renvoyer.
+
+### 16.4 Vérification exécutée
+
+- `dotnet build Navislamia.sln -c Debug` → code 0, 0 erreur.
+- `dotnet test Tests/Tests.csproj` → code 0, **469 tests passés**, 0 échec (448 avant le paquet, +21).
+- Tests d'offsets livrés : taille totale constante 135 (et 7 + 128 vérifié), chaque octet de charge à son
+  offset absolu `7 + i` (dernier à 134), en-tête relu à 0/4/6, checksum 194 pour 59 et 193 pour 58, refus de
+  toute longueur autre que 135 (0, 7, 11, 134, 136, 143), et boucle de réception : consommation sans
+  exception, aucune réponse émise, alignement conservé sur une trame coalescée, trame malformée avalée.
+
+### 16.5 Bloc destiné à `CLAUDE.md` (version `navis-dev`, à porter dans la description de MR)
+
+> **TM_CS_XTRAP_CHECK (59)** — client → serveur, **135 octets** : en-tête 7 (`Length` 135, `ID` 59,
+> checksum 194) + `pCheckBuffer` `uint8[128]` à l'offset 7, **sans champ de longueur**. Gating rzu tranché
+> pour l'Epic 7.3 : **59**, jamais 1059 (`EPIC_9_6_3 = 0x090603` > `EPIC_7_3 = 0x070300`) ; la paire est
+> 58 (`TM_SC_XTRAP_CHECK`, même anatomie, checksum 193), **non déclarée** car ce serveur ne l'émet jamais.
+> **Aucun producteur de 59 dans le client 7.3** (`SFrame.exe` sha256 `41e0af2e…` : aucun constructeur
+> d'id 59) et **aucun handler dans rzu ni NGemity** : il n'y a pas de logique à porter. Lecture défensive
+> seule (`GameXtrapPackets.TryReadXtrapCheck` : longueur exacte, tampon rendu intact) puis abandon : **pas
+> de réponse, pas de sanction, pas de déconnexion**, le contenu de `pCheckBuffer` n'étant **pas établi** et
+> n'étant jamais journalisé. `TM_SC_XTRAP_CHECK` (58) non déclaré ; le membre 59 est aiguillé avant le
+> `switch` final qui lève `Unknown Packet Type`. Voir `docs/packet-specs/59-xtrap-check.md`.
+
