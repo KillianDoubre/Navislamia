@@ -63,6 +63,13 @@ public class StorageRepository : IStorageRepository
             return StorageMoveResult.Refused(StorageMoveOutcome.Ignored);
         }
 
+        // A worn item stays in the inventory, silently, the way NGemity's IsErasable (Player.cpp:3142)
+        // makes MoveInventoryToStorage return false into the call site's "do nothing" branch.
+        if (toStorage && !StorageRules.IsStorable(item))
+        {
+            return StorageMoveResult.Refused(StorageMoveOutcome.Ignored);
+        }
+
         var moved = StorageRules.MoveCount(count, item.Amount);
         if (moved <= 0)
         {

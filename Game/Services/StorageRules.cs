@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 
 namespace Navislamia.Game.Services;
@@ -82,6 +83,17 @@ public static class StorageRules
     /// CharacterDatabase.cpp:53).
     /// </summary>
     public static bool IsInventoryRow(ItemEntity item, long characterId) => item.CharacterId == characterId;
+
+    /// <summary>
+    /// NGemity refuses to store a worn item: <c>Player::MoveInventoryToStorage</c> starts with
+    /// <c>IsErasable</c> (Player.cpp:3000-3002) whose wear clause is
+    /// <c>GetItemWearType() != WEAR_NONE → false</c> (Player.cpp:3142-3143). Without it a worn stack would
+    /// leave the inventory list while its bonus stayed on the character. An unworn row holds
+    /// <see cref="ItemWearType.None"/>, the value <c>CharacterService.AddItemAsync</c> writes and
+    /// <c>GameActions</c> reads to build the wear info. The other clauses of <c>IsErasable</c> (owner
+    /// handle, bound skill card, bound summon card) have no state in this repository yet.
+    /// </summary>
+    public static bool IsStorable(ItemEntity item) => item.WearInfo == ItemWearType.None;
 
     /// <summary>
     /// A storage row: the same table, discriminated by the account and with no owning character, no

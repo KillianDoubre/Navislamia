@@ -109,6 +109,20 @@ public class StorageRulesTests
     }
 
     [Test]
+    public void IsStorable_RefusesAWornItemAndAcceptsAnUnwornOne()
+    {
+        // Player::IsErasable refuses an item whose wear type is not WEAR_NONE (Player.cpp:3142-3143), and an
+        // inventory row that was never worn holds None — the value CharacterService.AddItemAsync writes.
+        var unworn = Row(characterId: 7);
+        unworn.WearInfo = ItemWearType.None;
+        StorageRules.IsStorable(unworn).Should().BeTrue();
+
+        var worn = Row(characterId: 7);
+        worn.WearInfo = ItemWearType.Weapon;
+        StorageRules.IsStorable(worn).Should().BeFalse("a worn stack would keep its bonus in the counter");
+    }
+
+    [Test]
     public void IsStorageRow_TellsTheAccountsCounterFromAnotherOne()
     {
         StorageRules.IsStorageRow(Row(accountId: 3), 3).Should().BeTrue();
