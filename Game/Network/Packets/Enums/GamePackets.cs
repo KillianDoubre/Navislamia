@@ -86,6 +86,12 @@ public enum GamePackets : ushort
 
     TM_CS_VERSION = 50,
 
+    // TM_CS_CHECK_ILLEGAL_USER (57): the client's own security watch reports a suspected illegal program
+    // here — never a player action. rzu gates the id to 57 below EPIC_9_6_3 (1057 only from 9.6.3 on), so
+    // 1057 must not be declared. There is no server to client answer for it. See
+    // docs/packet-specs/57-check-illegal-user.md.
+    TM_CS_CHECK_ILLEGAL_USER = 57,
+
     TM_CS_CHARACTER_LIST = 2001,
 
     TM_CS_CREATE_CHARACTER = 2002,

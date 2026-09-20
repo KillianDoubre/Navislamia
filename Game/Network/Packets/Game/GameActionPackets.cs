@@ -22,6 +22,28 @@ public static class GameActionPackets
 
     public readonly record struct RegionInfoRequest(float X, float Y);
 
+    /// <summary>
+    /// <c>TM_CS_CHECK_ILLEGAL_USER</c> (57): the client's internal security watch reports a suspected
+    /// illegal program. The frame is of fixed size — 7-byte header plus a single <c>uint32</c>
+    /// <c>log_code</c> at offset 7 — so the exact 11-byte form is the only one accepted: a short or
+    /// padded frame is refused rather than partially read, exactly like <see cref="TryReadGetRegionInfo"/>.
+    /// The field is named by rzu; neither rzu nor NGemity says what a server does with it, and the client
+    /// only ever sends 0 on the single emission path found in SFrame.exe (see
+    /// docs/packet-specs/57-check-illegal-user.md §2.5, §5.5).
+    /// </summary>
+    public static bool TryReadCheckIllegalUser(ReadOnlySpan<byte> packet, out uint logCode)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length != packetLength)
+        {
+            logCode = 0;
+            return false;
+        }
+
+        logCode = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
+
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
         return BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
