@@ -11,9 +11,9 @@ namespace Navislamia.Game.Network.Packets.Game;
 /// <para>
 /// The layout comes from rzu <c>TS_CS_REQUEST.h</c>: <c>_(simple)(uint8_t, t)</c> plus
 /// <c>_(endstring)(command, true)</c>. An <c>endstring</c> carries <strong>no length prefix</strong>, so
-/// the field runs to the end of the datagram and its size is <c>Length - 9</c> with <c>L</c> = the number
-/// of command bytes before the terminator; the third macro argument is the NUL terminator, counted in
-/// the frame size (<c>PacketDeclaration.h:287</c>) and written (<c>:383-384</c>). Hence
+/// the field runs to the end of the datagram: its size <c>L</c> is <c>Length - 9</c>, the number of
+/// command bytes before the terminator. The third macro argument is that NUL terminator, counted in the
+/// frame size (<c>PacketDeclaration.h:287</c>) and written (<c>:383-384</c>). Hence
 /// <c>Length = 9 + L</c>, and a 10 byte frame carries a <em>one</em> byte command. The same rule is why
 /// the command is <strong>never</strong> read "up to the first NUL": an internal NUL is just a byte of
 /// the field, and only the last byte of the datagram is the terminator.
