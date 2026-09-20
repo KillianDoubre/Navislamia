@@ -168,6 +168,7 @@ public class ConnectionInfo
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
+        StorageSecurityCheck = false;
         Layer = 0;
         X = 0;
         Y = 0;

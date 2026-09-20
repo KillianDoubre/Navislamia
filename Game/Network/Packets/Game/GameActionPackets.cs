@@ -48,6 +48,30 @@ public static class GameActionPackets
     public readonly record struct EraseItemRequest(uint ItemHandle, long Count);
 
     /// <summary>
+    /// <c>TS_CS_STORAGE</c> (212), the Epic 7.3 form: an item handle, a mode and a signed unit count
+    /// (librzu/src/packets/GameClient/TS_CS_STORAGE.h:8-12 — the <c>int64_t</c> form holds from
+    /// <c>EPIC_4_1_1</c> on, the <c>uint32_t</c> one only below it). The handle is meaningless for the
+    /// close mode and carries the moved stack for the others.
+    /// </summary>
+    public readonly record struct StorageRequest(uint ItemHandle, byte Mode, long Count);
+
+    public static bool TryReadStorage(ReadOnlySpan<byte> packet, out StorageRequest request)
+    {
+        const int packetLength = HeaderSize + 13;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new StorageRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            packet[HeaderSize + 4],
+            BinaryPrimitives.ReadInt64LittleEndian(packet.Slice(HeaderSize + 5, 8)));
+        return true;
+    }
+
+    /// <summary>
     /// <c>TS_CS_DROP_ITEM</c> (203), the Epic 7.3 form: an inventory handle then a signed unit count.
     /// No position is carried — the reference server relocates the dropped item on the character.
     /// </summary>
