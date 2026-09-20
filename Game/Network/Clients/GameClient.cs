@@ -552,6 +552,30 @@ public class GameClient : Client
         SendMessage(message);
     }
 
+    /// <summary>
+    /// TM_CS_SECURITY_NO (9005): the client answers TM_SC_REQUEST_SECURITY_NO (9004) with the security
+    /// password the player typed, carrying back the mode it received and the code in a fixed 19-byte
+    /// container. No reference implements the answer of the game server — rzu verifies the code on the
+    /// authentication server (40001 -> 40000) and Navislamia has neither that transport nor any storage for
+    /// the code — so the frame is read and bounded and nothing is verified, stored, answered or sanctioned
+    /// (docs/packet-specs/9005-security-no.md §5.3, §5.4). Only the length and the mode are logged: the code
+    /// is a reusable secret that guards character deletion and the warehouse alike.
+    /// </summary>
+    private void HandleSecurityNo(byte[] buffer)
+    {
+        if (!GameSecurityPackets.TryReadSecurityNo(buffer, out var request))
+        {
+            _logger.Warning("Malformed security password received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_SECURITY_NO ({id}) Length: {length} received from {clientTag}: mode={mode} securityNoLength={securityNoLength}",
+            (ushort)GamePackets.TM_CS_SECURITY_NO, buffer.Length, ClientTag, request.Mode,
+            request.SecurityNo.Length);
+    }
+
     public override void OnDataReceived(int bytesReceived)
     {
         var remainingData = bytesReceived;
@@ -590,6 +614,18 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_NONE)
             {
                 _logger.Verbose("Keepalive (TM_NONE) Length: {length} from {clientTag}", header.Length, ClientTag);
+                continue;
+            }
+
+            // TM_CS_SECURITY_NO (9005) is declared so that the frame is read and bounded instead of being
+            // dropped as an undefined id. Any arm for a declared id must run before the throwing switch
+            // below: a member of GamePackets that reaches it breaks the receive loop. Nothing is answered
+            // and nothing is verified. It sits next to the keepalive arm rather than with the branches that
+            // append theirs at the end of this chain, which keeps it clear of the anchors the sibling
+            // packet branches use.
+            if (header.ID == (ushort)GamePackets.TM_CS_SECURITY_NO)
+            {
+                HandleSecurityNo(msgBuffer);
                 continue;
             }
 
