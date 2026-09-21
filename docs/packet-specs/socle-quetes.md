@@ -507,6 +507,143 @@ livrer le sous-ensemble du §5.6 ; chacun est à porter dans `## A VERIFIER PAR 
 | dépôt `Navislamia` | `ec76b218cd0bd7c6498d725f253abb8b431f0cd6` (`master`) | état du code et des tests (448 passés, 0 échec) |
 | client 7.3 | `reference/client73/SFrame.exe`, `sha256 41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` | résolution côté client — dossier sans dépôt git : aucune référence de commit n'existe, c'est la méthode de lecture statique qui est citée |
 
+## 10. Implémentation — navis-dev (2026-09-21)
+
+Statut : implémenté sur `hermes/packet-socle-quetes`, commit `a9c9c73` (code, tests, migration) puis le
+commit de cette fiche, sur la base `8d33be9`. Périmètre tenu : §5.6 points 1 à 5. Restent exclus, comme
+la fiche le décide : 602 (jamais envoyée), 604 et 605 (hors socle), acceptation, progression,
+récompenses et scripts.
+
+### 10.1 Checklist de la fiche, satisfaite point par point
+
+- [x] `TM_SC_QUEST_LIST = 600`, `TM_SC_QUEST_STATUS = 601` et `TM_CS_DROP_QUEST = 603` dans `GamePackets`
+      **et**, pour la seule 603, le bras de dispatch de `GameClient.cs`, dans le même commit. 602, 604 et
+      **ne sont pas déclarés** : un membre sans bras atteindrait le `_ => throw new Exception("Unknown
+      Packet Type")` final et casserait la boucle de réception.
+- [x] Lecture de la 603 : trame fixe de **11** octets, `code` `int32` **signé** à l'offset 7, garde de
+      taille (`InvalidArgument` si < 11), signe conservé jusqu'au refus.
+- [x] État du personnage : table `CharacterQuests` du contexte `Telecaster`, par personnage, unique sur
+      `(CharacterId, Code)`, suppression en cascade avec `Characters`.
+- [x] Migration `20260921161939_Version0008_CharacterQuests`, **générée par `dotnet-ef` 8.0.11** sur le
+      modèle de `Version0007_CharacterSkills` (designer + `TelecasterContextModelSnapshot` inclus : le
+      diff du snapshot ne porte que sur la nouvelle entité, 61 lignes).
+- [x] Persistance : `CharacterService.GetQuestsAsync` / `DropQuestAsync`, sous la même garde
+      `RunExclusiveAsync` que le reste du service ; lecture triée par code pour qu'un même état produise
+      toujours la même trame 600.
+- [x] Réponses : `TM_SC_RESULT` (0) taggé 603, `Success` 0 / `NotActable` 5, `Value` 0, **puis** 600
+      après une suppression réussie.
+- [x] 600 émise au login, au même endroit que la référence, et après un abandon réussi.
+- [x] 601 constructible (`GameQuestPackets.BuildQuestStatus`, 40 octets) et couverte par les tests ;
+      aucun trigger ne l'émet dans ce socle (§10.4.4).
+- [x] Tests d'offsets des trois trames (`Tests/Game/QuestPacketsTests.cs`, 14 cas) : 448 → **462** tests,
+      0 échec.
+- [x] Aucun champ `NON ÉTABLI` deviné : `pendingQuests` n'est pas émis du tout (§10.4.1).
+- [x] Aucun commit sur `master` locale.
+
+### 10.2 Fichiers livrés
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_QUEST_LIST = 600`, `TM_SC_QUEST_STATUS = 601`, `TM_CS_DROP_QUEST = 603`, insérés entre `TM_CS_GET_REGION_INFO` (550) et `TM_CS_CHANGE_LOCATION` (900), donc dans la zone par défaut du dispatch |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TryReadDropQuest(packet, out DropQuestRequest)` : le seul champ, signé, avec garde de taille |
+| `Game/Network/Packets/Game/GameQuestPackets.cs` | `BuildQuestList` (600, `11 + 61·N`), `BuildQuestStatus` (601, 40) et la projection entité → `TS_QUEST_INFO` |
+| `Game/Network/Clients/GameClient.cs` | `HandleDropQuestAsync` et le bras `TM_CS_DROP_QUEST`, avant le `switch` final |
+| `Game/Network/Clients/Actions/GameActions.cs` | Émission de 600 à l'entrée dans le monde |
+| `Game/Services/QuestService.cs`, `Game/Services/Interfaces/IQuestService.cs` | Le socle : verdict, suppression, acquittement, resynchronisation |
+| `Game/Services/QuestDropRules.cs` | Le seul jugement possible sur la trame (signe du code) |
+| `Game/Services/CharacterService.cs`, `Game/Services/ICharacterService.cs` | `GetQuestsAsync` / `DropQuestAsync` sous la garde existante |
+| `Game/DataAccess/Repositories/CharacterRepository.cs` (+ interface) | `GetQuestsAsync`, `GetQuestAsync`, `DeleteQuest` |
+| `Game/DataAccess/Entities/Telecaster/CharacterQuestEntity.cs` | L'état, dans les champs que les deux trames imposent |
+| `Game/DataAccess/Entities/Telecaster/CharacterEntity.cs`, `Game/DataAccess/Contexts/TelecasterContext.cs` | Navigation `Quests`, `DbSet`, index unique, `MaxLength(6)` des deux tableaux |
+| `Game/DataAccess/Migrations/Telecaster/20260921161939_Version0008_CharacterQuests.*` | La migration et son designer |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | Injection du service |
+| `Tests/Game/QuestPacketsTests.cs` | Offsets des trois trames, ids, refus du code négatif |
+
+### 10.3 Offsets livrés et tests
+
+- **603** : `11` = 7 (en-tête) + 4 (`code` `int32` signé, @7). Aucun autre champ, aucun alignement.
+  Trame < 11 octets : `TM_SC_RESULT` taggé 603 avec `InvalidArgument`, aucune lecture hors borne (la
+  boucle de réception ne garantit que `Length` et `Checksum`, la garde appartient au handler).
+- **600** : `11 + 61·N` = 7 + `nActiveQuestCount` (u16, @7) + `nPendingQuestCount` (u16, @9). Une entrée
+  `TS_QUEST_INFO` de 61 octets à partir de 11 : `code` u32 @+0, `startID` u32 @+4, `value[6]` @+8,
+  `status[6]` @+32, `progress` u8 @+56, `timeLimit` u32 @+57. La trame vide fait donc 11 octets, et 600
+  est une resynchronisation complète : le client remet son conteneur à zéro en la recevant.
+- **601** : `40` = 7 + `code` `int32` @7 + `status[6]` @11 + `nProgress` `int8` @35 + `nTimeLimit` u32
+  @36 (que le client ne lit pas).
+- Les six emplacements `value`/`status` sont écrits **exactement** six fois : un tableau plus court est
+  complété par des zéros (les emplacements que l'état ne remplit pas gardent la valeur que la fiche
+  réserve, `0`), un tableau plus long est **refusé** (`ArgumentException`) plutôt que tronqué en silence.
+- Les mots `status` sont opaques et traversent la couche paquet **bit à bit** : l'entité les garde dans
+  des colonnes signées, la trame les réécrit en u32 (`0x80000000` reste `0x80000000`, test à l'appui).
+
+Tests livrés (`QuestPacketsTests`, 14 cas) : `TryReadDropQuest_ReadsTheSignedCodeAtSeven`,
+`TryReadDropQuest_KeepsANegativeCodeSigned`, `TryReadDropQuest_RejectsATruncatedFrame`,
+`BuildQuestList_EmitsAnElevenByteFrameWithBothCountsAtZero`, `BuildQuestList_LaysOutTheQuestInfoElementFromEleven`,
+`BuildQuestList_StepsBySixtyOneBytesPerActiveQuest`, `BuildQuestList_LeavesThePendingTableEmpty`,
+`BuildQuestList_ZeroPadsTheSlotsAStoredStateDoesNotFill`, `BuildQuestList_RefusesMoreThanSixSlots`,
+`BuildQuestStatus_LaysOutTheSixSlotsAtEleven`, `BuildQuestStatus_KeepsTheTopBitOfAStatusSlot`,
+`QuestFrames_CarryAValidChecksum`, `QuestPackets_CarryTheirEpic73Ids`,
+`QuestDropRules_RefuseANegativeCode`.
+
+### 10.4 Choix d'interprétation — les cinq points qui pourraient se discuter
+
+1. **`pendingQuests` : compte 0, aucun tableau.** Le nombre d'octets de l'entrée (8) et sa position sont
+   prouvés par la lecture du client, mais ni son contenu ni sa sémantique ne le sont (§6 écart 10,
+   §8.7). Plutôt que d'émettre des entrées que rien ne justifie, `BuildQuestList` n'accepte pas de
+   tableau en attente : le compte est écrit à `0` et la trame s'arrête après les quêtes actives. C'est
+   la seule forme que le socle peut produire sans deviner.
+2. **Ordre des deux réponses : résultat puis 600.** La fiche le fixe (§5.2 et annexe). NGemity envoie en
+   réalité **600 d'abord**, parce que `SendQuestList` est appelé depuis `Player::DropQuest`
+   (`Player.cpp:3185`) avant le `SendResult` du handler (`WorldSession.cpp:2039`) : l'ordre inverse est
+   un effet d'imbrication, pas une décision. Le socle suit la fiche ; voir la réserve §10.6.1.
+3. **Code négatif refusé sans requête.** Le domaine de `code` n'est pas borné par un catalogue
+   (§8.1) : la seule chose que la trame elle-même permet de juger est son signe. Un code < 0 reçoit
+   `NotActable` — la réponse de NGemity pour une quête que le joueur ne porte pas — sans requête et sans
+   invention d'un verdict distinct (aucun `NotExist`, aucun `InvalidArgument`).
+4. **601 est constructible mais n'est pas émise.** Le seul appelant de la référence est un changement
+   d'état de quête (`Player::onStatusChanged`, `Player.cpp:2059`), c'est-à-dire l'acceptation et la
+   progression, exclues par §7 question 4. Un `SendQuestStatus` sans trigger aurait été du code mort :
+   la trame est livrée et testée dans `GameQuestPackets`, personne ne l'envoie.
+5. **Lecture d'état impossible : aucune trame.** Une 600 vide n'est pas un défaut anodin — le client
+   remet son conteneur à zéro en la recevant, donc une trame bâtie sur un état illisible effacerait des
+   quêtes réellement portées. `SendQuestListAsync` journalise et n'émet rien dans ce cas. Conséquence
+   assumée : une erreur de base au login laisse la liste du client vide **sans** que le serveur l'ait
+   faussée, ce qui est préférable à l'inverse.
+
+### 10.5 Ce qui n'est pas porté, et pourquoi
+
+1. **Acceptation, progression, récompenses, scripts** : hors socle (§5.6, §7 question 4). Il n'existe donc
+   aucun écrivain de `CharacterQuests` en dehors de la suppression : la table est lue et vidée, jamais
+   remplie. C'est cohérent avec §8.4 (aucun chemin d'écriture n'est prouvé) et laisse la carte d'extension
+   poser le catalogue et les scripts.
+2. **604 `TM_CS_QUEST_INFO` et 605 `TM_CS_END_QUEST`** : le client les émet, le serveur ne les traite pas.
+   Elles ne sont **pas déclarées** dans `GamePackets` : les déclarer sans bras ferait tomber la boucle de
+   réception sur `Unknown Packet Type` (`GameClient.cs`), et un bras vide aurait été un mensonge sur l'état
+   du socle.
+3. **602 `TM_SC_QUEST_INFOMATION`** : jamais envoyée, non déclarée (même raison, côté émission elle
+   n'aurait pas de bras à exiger, mais la fiche la sort du socle).
+4. **Catalogue de quêtes, `db_quest.rdb`, textes** : §8.3 et §8.10 restent ouverts et ne sont pas
+   nécessaires à ce périmètre.
+5. **Bordures temporelles et états dérivés** : `TimeLimit` est transporté tel quel, aucune expiration
+   n'est calculée (le sens du `cool_time` de la référence reste NON ÉTABLI, §3.4).
+
+### 10.6 A VERIFIER PAR KILLIAN — réserves de cette implémentation
+
+1. **Ordre 603 → 600 / résultat.** Le socle suit la fiche (résultat puis 600) ; NGemity envoie 600 avant
+   le résultat (§10.4.2). Aucune vérification client n'est possible ici (pas de `SFrame.exe` exécuté) :
+   si le client 7.3 exige l'autre ordre, une ligne de `QuestService.DropQuestAsync` change de place.
+2. **Émission de 600 au login.** Placée après `SendGameTime`/`SendTimeSync`, avant les propriétés finales
+   du personnage, par analogie avec `SendLoginProperties` (position exacte dans la séquence d'entrée non
+   établie). Aucun effet attendu sur un client qui remet son conteneur à zéro en la recevant, mais la
+   place définitive dans la séquence d'entrée reste à confirmer en jeu.
+3. **`CharacterQuests.Value` / `Status` en `integer[]` de longueur 6.** Convention retenue ici (les
+   tableaux du dépôt sont écrits ainsi) ; `NULL` est admis et vaut six zéros à l'émission. Si vous
+   préférez des colonnes explicites (`Value0`…`Value5`), c'est une migration à refaire avant que des
+   données existent.
+4. **Migration non appliquée.** `dotnet ef database update` n'a pas été exécuté (pas de PostgreSQL sur ce
+   VPS, conforme aux limites du rôle) : la migration est générée, compilée et cohérente avec le snapshot,
+   mais jamais jouée contre une base réelle.
+
 ## Annexe — bloc destiné à `CLAUDE.md` (proposition)
 
 Ce bloc est à porter par la **description de la MR** : `CLAUDE.md` est un fichier d'instructions
