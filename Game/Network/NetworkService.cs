@@ -29,6 +29,7 @@ public class NetworkService : INetworkService
     public readonly IEquipmentService EquipmentService;
     public readonly IInventoryService InventoryService;
     public readonly IItemUseService ItemUseService;
+    public readonly IItemDonateService ItemDonateService;
     public readonly IGroundItemService GroundItemService;
     public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
@@ -51,7 +52,8 @@ public class NetworkService : INetworkService
         ICombatService combatService, ILevelingService levelingService, ISkillService skillService,
         IEquipmentService equipmentService, IInventoryService inventoryService,
         IGroundItemService groundItemService, ISkillCastService buffService,
-        IFieldPropService fieldPropService, IItemUseService itemUseService)
+        IFieldPropService fieldPropService, IItemUseService itemUseService,
+        IItemDonateService itemDonateService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -66,6 +68,7 @@ public class NetworkService : INetworkService
         EquipmentService = equipmentService;
         InventoryService = inventoryService;
         ItemUseService = itemUseService;
+        ItemDonateService = itemDonateService;
         GroundItemService = groundItemService;
         FieldPropService = fieldPropService;
         SkillCastService = buffService;
