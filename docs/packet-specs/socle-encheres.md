@@ -414,6 +414,10 @@ toujours écrits** (§5.2). Le socle les livre avec une page vide (`auction_info
 40 × zéro) : le client affiche une liste vide sans désalignement, et la population des entrées
 revient aux cartes métier. Aucune décision de gameplay n'est nécessaire pour cela.
 
+Ces trois trames ne font pas partie des sept cartes de paquet différées (`1300`, `1302`, `1304`,
+`1306`, `1308`, `1309`, `1310`) : elles n'ont aujourd'hui aucun producteur côté serveur et
+constituent, avec S1, le squelette de réponse de la famille.
+
 **S3. Le chargement des catégories** : `AuctionCateryResourceEntity` + `DbSet` dans
 `ArcadiaContext` + repository/interface, sur le modèle exact de `ArcadiaSchemaPSQL.sql:1-9` et
 selon le patron des dix-neuf ressources déjà branchées (`ArcadiaContext.cs:11-30`). Les valeurs
