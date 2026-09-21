@@ -333,7 +333,13 @@ testés), `gold` int64 signé à 7, `jp` int32 à 15, compte **signé** à 19, `
 2. **Une offre entièrement vide est refusée** (`InvalidArgument`) : c'est aussi ce que fait le client,
    dont le constructeur n'émet rien quand l'or, le jp et la liste d'objets sont tous nuls (§2.4). Un
    `gold` ou un `jp` négatif, un enregistrement demandant zéro ou moins d'unité, et un `handle` nommé
-   **deux fois** dans la même trame sont également `InvalidArgument` (§5.3).
+   **deux fois** dans la même trame sont également `InvalidArgument` (§5.3). Sur le **zéro** : §5.3.2
+   écrit `count >= 0`, le code applique `count > 0`. C'est le seul endroit où le code est plus strict que
+   la lettre de la fiche, et la raison est mécanique — la primitive qui prend les unités refuse
+   elle-même un compte nul ou négatif (`CharacterService.ConsumeItemAsync`, `:276` : `item is null ||
+   count <= 0` → `null`, que l'appelant ne peut pas distinguer d'un `handle` inconnu). Traiter un
+   enregistrement à zéro comme une prise de zéro unité demanderait une branche dédiée pour un cas que le
+   client n'émet pas (§2). Reporté au §9.2.
 3. **Tous les `handle` sont résolus avant que quoi que ce soit soit pris** : une trame qui nomme une
    pile non possédée est refusée en bloc (`NotExist`) et rien n'est débité. La possession est prouvée
    par la résolution dans les objets du personnage (`GetItemByHandleAsync`).
@@ -374,6 +380,9 @@ testés), `gold` int64 signé à 7, `jp` int32 à 15, compte **signé** à 19, `
    sont la convention de la famille, pas une exigence constatée (§7.2). À vérifier en jeu.
 7. **L'identité des `handle` d'objet** reste la même réserve que pour le 253 (§7.7) : le code résout
    `handle` dans les items du personnage, ce qui est cohérent mais non prouvé par le binaire client.
+8. **`count == 0` refusé là où §5.3.2 écrit `count >= 0`** (détail en §9.1.2). Le seul écart de strict
+   entre le code et la lettre de la fiche ; à trancher avec Killian si l'on préfère qu'un enregistrement
+   à zéro soit un no-op silencieux.
 
 ### 9.3 Vérification
 
