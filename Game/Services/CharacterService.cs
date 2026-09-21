@@ -245,7 +245,7 @@ public class CharacterService : ICharacterService
     /// Chihiro/src/Entities/Item/Item.cpp:314-332). Socket 0 holds the bearer's character id; the
     /// array is rebuilt rather than mutated so the change tracker always sees the row as modified.
     /// The four slots are the ones the model bounds (TelecasterContext.cs:55) and the inventory
-    /// record serialises (GameCharacterPackets.cs:353-356); sockets 1-3 are left as they were, and a
+    /// record serialises (GameCharacterPackets.cs:369-372); sockets 1-3 are left as they were, and a
     /// socket 1 holding a summoned creature stays out of scope (fiche 284 §5.2 i).
     /// </summary>
     private static long[] WriteBearerSocket(long[] sockets, long bearerId)

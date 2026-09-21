@@ -357,6 +357,73 @@ Le socle « invocations et familiers » (`hermes/packet-socle-invocations`) n'es
 > Sur refus, `TS_SC_RESULT` porte `NotExist (1)`, `NotActable (5)` ou `AccessDenied (6)` ; en succès
 > NGemity **ne renvoie rien d'autre** que le 286.
 
+## 10. Implémentation livrée (`navis-dev`)
+
+Le paquet est porté sur la branche de l'archéologue, commit `67319ce` (« Bind a skill card with
+`TM_CS_BIND_SKILLCARD` (284) »). Les numéros de ligne de cette section sont ceux de la **branche**
+après ce commit ; ceux de §5.3 restent ceux de `master` `ec76b21` (l'insertion de `BuildSkillCardInfo`
+décale de +16 tout ce qui suit la ligne 214 de `GameCharacterPackets.cs`).
+
+| Fichier | Ce qui y a été porté |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs:48-49` | `TM_CS_BIND_SKILLCARD = 284`, `TM_SC_SKILLCARD_INFO = 286` (285 reste à son propre cycle) |
+| `Game/Network/Packets/Game/GameActionPackets.cs:21,199-215` | `BindSkillCardRequest`, `TryReadBindSkillCard` (gabarit `TryReadUseItem`), rejette toute trame < 15 octets |
+| `Game/Network/Packets/Game/GameCharacterPackets.cs:214-229` | `BuildSkillCardInfo` (gabarit `BuildUseItemResult`) |
+| `Game/Services/SkillCardBindRules.cs` | règles pures : `BearerSocketIndex` (36), `IsSelfTarget` (46), `IsBound` (56), `CheckBindable` (66) |
+| `Game/Services/SkillCardBindResult.cs` | `SkillCardBindOutcome` {`Success`, `NotFound`, `NotActable`, `AccessDenied`} et le verdict porté avec le personnage et l'objet |
+| `Game/Services/ICharacterService.cs:36-49` | contrat gated de la liaison |
+| `Game/Services/CharacterService.cs:211-249` | `BindSkillCardAsync` sous `_databaseGate` : résolution du handle → cible → groupe/porté/lié → écriture → `SaveChangesAsync` |
+| `Game/Services/CharacterService.cs:251-262` | `WriteBearerSocket` : tableau **refait** à quatre slots (`TelecasterContext.cs:55`) pour que le change tracker voie la ligne modifiée ; sockets 1-3 conservés |
+| `Game/Services/SkillCardService.cs`, `Game/Services/Interfaces/ISkillCardService.cs` | verdict → `TS_SC_RESULT` ; succès → `BuildSkillCardInfo` seul ; exception → `DBError` |
+| `Game/Network/Clients/GameClient.cs:519-533` | `HandleBindSkillCardAsync` (lecture ratée → `InvalidArgument`) |
+| `Game/Network/Clients/GameClient.cs:744-748` | bras de réception du 284 |
+| `Game/Network/Clients/GameClient.cs:648-658` | bras « S→C reçu, journaliser et ignorer » du 286, sur le modèle du 283 (§5.2 b) |
+| `Game/Network/NetworkService.cs:32,56,71` + `DevConsole/Program.cs:240` | injection du service |
+
+### 10.1 Décisions prises au-delà de la fiche
+
+1. **L'ordre de NGemity est porté à l'intérieur de la porte.** La résolution du handle précède le
+   contrôle de cible (`WorldSession.cpp:1683` puis `:1688`) : un handle inconnu porteur d'une cible
+   fausse répond `NotExist` (1), jamais `NotActable` (5). Test
+   `BindSkillCard_AnswersNotFoundForAHandleTheCharacterDoesNotOwn`.
+2. **Handle nul refusé sur les deux faces.** `IsSelfTarget` exige `characterHandle != 0`, motif repris
+   de `SkillService.cs:35`. Motif : après une liaison, `socket[0]` vaut `CharacterEntity.Id` ; or
+   `socket[0] == 0` **est** la lecture « non liée ». Accepter un handle 0 répondrait `Success` tout en
+   écrivant l'état opposé. Un personnage entré en jeu a toujours un handle non nul
+   (`ConnectionInfo.CharacterHandle = (uint)character.Id`, `GameActions.cs:96`) : ce cas n'existe pas
+   pour le client 7.3, il ne change donc aucun comportement observable.
+3. **Ressource inconnue du catalogue → règle non gardée, pas de refus.** C'est le contrat écrit de
+   `IItemGroupCatalog.cs:12-14` (« *the caller must then leave the group-gated rule ungated rather than
+   refuse an item it cannot judge* ») et la politique déjà tenue par `GroundItemService.ResolveDropCount`
+   et `ItemUseService`. Un `AccessDenied` sur une ressource absente de `db_item_resource` inventerait un
+   refus que ni NGemity ni la fiche n'émettent. Test
+   `BindSkillCard_LeavesACardOfAnUnknownResourceBindable`.
+4. **Aucune écriture quand le verdict est un refus** : `SaveChangesAsync` n'est appelé que sur le chemin
+   `Success` (`MustNotHaveHappened` dans trois tests).
+5. **Pas de `SendInventory` en plus du 286** : la fiche ne le demande pas (§6.4), le levier reste décrit
+   pour §7.2.
+
+### 10.2 Tests
+
+| Fichier | Ajout |
+| --- | --- |
+| `Tests/Game/ActionPacketsTests.cs` | 284 : trame de 15 octets (`item_handle` @7, `target_handle` @11, id @4-5), cible nulle, rejet d'une trame < 15, ids 284/286 |
+| `Tests/Game/GameCharacterPacketsTests.cs` | 286 : longueur 15, en-tête et checksum via `AssertFrame`, les deux handles, cible nulle = état délié |
+| `Tests/Game/SkillCardBindTests.cs` (nouveau, 17 tests) | règles pures (`IsSelfTarget`, `IsBound`, `CheckBindable` et ses six cas, codes de réponse) et exécution sous la porte : socket 0 = `CharacterEntity.Id`, sockets 1-3 conservés, `NotFound`/`NotActable`/`AccessDenied` sans écriture, ressource inconnue non gardée |
+
+`dotnet build Navislamia.sln -c Debug` → 0 erreur ; `dotnet test Tests/Tests.csproj` → **471 tests
+réussis, 0 échec** (448 au commit précédent, +23). `git log --oneline origin/master..master` vide.
+
+### 10.3 Réserves reportées à l'arbitrage
+
+- **§7.4, contrôle de compétence apprise : non porté.** NGemity ne répond rien quand la carte référence
+  une compétence absente (`:1697-1700`) ; le dépôt ne calcule aucun effet de compétence et un
+  `NoSkill (27)` inventerait un refus que la référence n'émet pas. La liaison est donc accordée sans ce
+  contrôle : à trancher par Killian (silence, `NoSkill`, ou ignorer à ce cycle).
+- **§7.1, §7.2, §7.3, §7.5 à §7.8 : inchangées.** Le geste client, l'effet du 286 seul, les données
+  `Arcadia` réelles, l'enhance de compétence et le sens élargi du socket 0 restent à contrôler sur une
+  base importée et en jeu.
+
 ## Note de livraison
 
 - Branche : `hermes/packet-284-bind-skillcard`, créée depuis `master`

@@ -70,7 +70,7 @@ public class SkillCardService : ISkillCardService
                 return;
         }
 
-        _logger.Debug("Skill card {itemHandle} bound to {clientTag}", request.ItemHandle, client.ClientTag);
+        _logger.Debug("Skill card {itemHandle} bound for {clientTag}", request.ItemHandle, client.ClientTag);
 
         // The state sent back is the one after the bind: the item handle, and as target the bearer —
         // the character itself, since only a self target is accepted above.
