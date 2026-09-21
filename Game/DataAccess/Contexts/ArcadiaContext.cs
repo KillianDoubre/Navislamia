@@ -27,6 +27,7 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<BannedWordsResourceEntity> BannedWordsResources { get; set; }
     public DbSet<NpcResourceEntity> NpcResources { get; set; }
     public DbSet<MonsterResourceEntity> MonsterResources { get; set; }
+    public DbSet<AuctionCateryResourceEntity> AuctionCateryResources { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +44,19 @@ public class ArcadiaContext : SoftDeletionContext
         ConfigureModelEffectResource(modelBuilder);
         ConfigureBannedWordsResource(modelBuilder);
         ConfigureMonsterResource(modelBuilder);
+        ConfigureAuctionCateryResource(modelBuilder);
+    }
+
+    /// <summary>
+    /// The table has no surrogate id: a category is identified by its <c>catery_id</c> /
+    /// <c>sub_catery_id</c> pair, the key already used by <c>EnhanceResourceEntity</c> and
+    /// <c>SetItemEffectResourceEntity</c>. The uniqueness of that pair is not declared by
+    /// <c>ArcadiaSchemaPSQL.sql:1-9</c>.
+    /// </summary>
+    private static void ConfigureAuctionCateryResource(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<AuctionCateryResourceEntity>()
+            .HasKey(catery => new { catery.CateryId, catery.SubCateryId });
     }
 
     private static void ConfigureMonsterResource(ModelBuilder modelBuilder)
