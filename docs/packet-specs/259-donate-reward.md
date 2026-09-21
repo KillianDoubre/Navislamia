@@ -354,3 +354,155 @@ Faut-il honorer un `count` nul plutôt que le refuser ? Existe-t-il un plafond d
 | NGemity | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | définition homologue (`shared/Server/Packets/GameClient/TS_CS_DONATE_REWARD.h`), énumération à valeur dupliquée (`shared/Server/ClientPackets.h`), `EPIC` de compilation (`shared/Common/Define.h`), absence de handler dans `Chihiro` |
 | client de référence | `reference/client73/SFrame.exe` (`sha256 41e0af2e…500e`), `db_string.rdb` (`sha256 4e8e3e06…99e1`) | émission du 259, chaîne du geste, répartiteur des paquets reçus, table des résultats |
 | dépôt Navislamia | `ec76b218cd0bd7c6498d725f253abb8b431f0cd6` (`master`) | état de l'énumération, du dispatch, des primitives et des tests au moment de la rédaction |
+
+## 9. Implémentation livrée
+
+Branche `hermes/packet-259-donate-reward`, par-dessus le commit de la fiche (`c1868bd`), base
+`master = ec76b218cd0bd7c6498d725f253abb8b431f0cd6`. Périmètre exactement celui de §5.3 : **lire,
+valider, journaliser, acquitter**. Aucun effet de jeu, aucune récompense créditée.
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_DONATE_REWARD = 259`, posé après `TM_SC_UPDATE_ITEM_COUNT = 255` |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `DonateRewardEntry(sbyte RewardType, ushort Count)` et `TryReadDonateReward` |
+| `Game/Network/Clients/GameClient.cs` | bras de dispatch `TM_CS_DONATE_REWARD` + `HandleDonateReward` (synchrone : le paquet n'a ni état ni service) |
+| `Tests/Game/DonateRewardPacketsTests.cs` | offsets, enveloppe, refus et dispatch (34 cas) |
+
+Offsets confirmés par les tests, tels que §3 les fixe : total `8 + 3 × N` (8 / 11 / 14 / 17 / 20 aux N
+testés) ; `Length` uint32 à 0 ; `ID` uint16 à 4 (= 259) ; checksum à 6 ; compte **signé** (int8) à **7** ;
+`reward_type` int8 signé à `8 + 3k` ; `count` uint16 little-endian à `9 + 3k`. La réponse
+`TM_SC_RESULT` fait **15 octets** : `RequestMsgID` uint16 à 7 (= 259), `Result` uint16 à 9,
+`Value` int32 à 11 (= 0).
+
+### 9.1 Décisions prises, et pourquoi
+
+1. **Le compte est lu d'abord**, à l'offset 7, et borné `0..4` **avant** toute lecture
+   d'enregistrement : aucune lecture d'un octet d'enregistrement ne peut précéder la borne.
+2. **La longueur doit appartenir à `{8, 11, 14, 17, 20}`**, c'est-à-dire valoir exactement `8 + 3 × N`
+   avec `N ≤ 4`. Ni plus courte, ni plus longue. C'est l'enveloppe de §5.4 appliquée à la lettre ;
+   §5.3 la formulait pour la lecture (« longueur ≥ 8, `(Length - 8) % 3 == 0`, `N = (Length - 8) / 3`,
+   `packet[7] == N`, `N ≤ 4` ») — les deux coïncident sous `N ≤ 4`, et c'est §5.4 qui tranche les
+   trames hors de cette famille : pour un client 7.3, une longueur de 9 ou 12 octets est une trame non
+   conforme, pas une variante. Le compte étant dérivé de la même `N` côté client (§3), un désaccord
+   longueur/compte ne peut pas venir d'un client légitime.
+3. **L'enveloppe est jugée avant tout octet d'enregistrement** : un refus ne repose jamais sur une
+   lecture hors borne, ni sur une lecture partielle d'un enregistrement. Le checksum n'est pas imposé
+   par le lecteur : la boucle de réception l'a déjà vérifié (§5.4, convention du dépôt).
+4. **`reward_type` hors `0..3` refusé**, y compris un octet ≥ `0x80` (négatif en int8, comme le type
+   rzu `int8_t`).
+5. **Deux enregistrements de même `reward_type` refusés** : le client avance d'un cran par ligne, il
+   ne peut pas nommer deux fois la même.
+6. **Quantité nulle refusée** : le client n'écrit un enregistrement que pour une ligne non nulle (§2),
+   donc un zéro est une trame fabriquée. C'est le point le plus discutable de §5.4 — reporté au §9.2.1.
+7. **La trame vide (N = 0, 8 octets) est acceptée et acquittée `Success`** (§5.4) : aucune référence
+   n'annule l'émission quand les quatre lignes sont à zéro, ce n'est donc pas une anomalie.
+8. **La réponse est `SendResult(259, code, 0)`**, sur le refus (`InvalidArgument`, 28) comme sur le
+   succès (`Success`, 0). `Value = 0` : aucune référence ne la renseigne (§5.2, §7.2) et c'est un champ
+   à taille fixe, donc ce choix ne peut pas désaligner.
+9. **Rien n'est interprété.** Le compte et chaque couple `(reward_type, count)` sont journalisés, et
+   le contenu ne sert à aucune décision de jeu : ni table de récompense, ni crédit, ni seuil (§7.1,
+   §7.2). Les deux champs restent `NON ÉTABLI` : le code ne leur prête aucune sémantique.
+10. **Placement choisi pour cohabiter avec la MR voisine de la même famille d'objets.** §5.5 annonce
+    un conflit possible avec la MR #26 (258) sur `GamePackets.cs` et `GameClient.cs`. Le membre est
+    posé après `TM_SC_UPDATE_ITEM_COUNT = 255` (la 258 pose le sien juste après
+    `TM_CS_USE_ITEM = 253`), le bras de dispatch entre `TM_CS_DROP_ITEM` et `TM_CS_ARRANGE_ITEM` (la
+    258 le pose après `TM_CS_USE_ITEM`), le handler après `HandleTakeItemAsync` (la 258 le pose après
+    `HandleUseItemAsync`), et le lecteur au milieu de `GameActionPackets` (la 258 ajoute à la fin du
+    fichier). **Mesure** : `git merge-tree --write-tree` renvoie l'arbre fusionné sans aucune entrée
+    de conflit, **exit 0**, contre `origin/master` **et** contre `hermes/packet-258-donate-item`.
+
+### 9.2 Limites et réserves ouvertes
+
+1. **Les règles de refus de §5.4 sont appliquées telles quelles — et §7.8 en laisse deux ouvertes.** Le
+   rejet des doublons de `reward_type` et des longueurs hors famille découle de §3 (le client visite
+   chaque position une seule fois, et dérive longueur et compte du même `N`). En revanche, §7.8 range
+   parmi les **questions non tranchées** : « faut-il honorer un `count` nul plutôt que le refuser ? »,
+   la tolérance de `N > 4` (un client 9.x, où rzu autorise 127) et l'existence d'un plafond de quantité
+   par ligne. Le code applique aujourd'hui : `count` nul **refusé**, `N > 4` **refusé**, aucun plafond
+   par ligne. Le premier est le seul dont le refus puisse faire échouer une trame qu'un client
+   émettrait ; les deux autres ne peuvent concerner qu'un client plus récent que 7.3. À arbitrer.
+2. **Le doublon d'id 259 reste tranché du côté CS** (§1.1, §7.4) : `TM_SC_SHOW_SOULSTONE_CRAFT_WINDOW`
+   (SC, 259 dans rzu) n'entre pas dans `GamePackets`. Si Killian tranche l'inverse, ce travail est à
+   reprendre.
+3. **Le sens de `reward_type` et du `uint16` reste `NON ÉTABLI`** (§7.1, §7.2) : rien n'est comparé à
+   la table de récompense que le client déclare, et rien n'est crédité.
+4. **Aucun refus métier** (§7.6) : le seul code envoyé sur refus est `InvalidArgument`, faute
+   d'arbitrage sur un code plus précis.
+5. **Aucune portée joueur↔joueur, aucun état** : le paquet n'a ni persistance ni effet, donc aucune
+   porte unique ni transaction n'était nécessaire (contraste avec le 258, qui retire de la valeur).
+6. **La réponse n'est pas prouvée en jeu** : la 259 n'a aucun handler dans rzu ni dans NGemity (§5.1),
+   la seule base est le bloc de résultat client §5.2, déduit d'une lecture statique du binaire.
+7. **Rien n'est ré-émis vers le client** au-delà de l'accusé : ni mise à jour de fenêtre, ni
+   notification — le §5.2 n'en identifie aucune.
+
+### 9.3 Vérification
+
+Relevé sur la branche, après implémentation et tests :
+
+| Commande | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | code **0**, 0 erreur, 160 avertissements (identique à la baseline) |
+| `dotnet test Tests/Tests.csproj` | code **0**, **482 tests** réussis sur 482 (448 à la baseline, **+34**) |
+| `git log --oneline origin/master..master` | vide (aucun commit sur `master` locale) |
+
+**La preuve de dispatch mesure bien le dispatch, et pas seulement le lecteur.** Avec le bras de
+dispatch neutralisé (comparaison de l'id à celle de `TM_NONE`, donc plus aucune prise en charge), les
+six cas `OnDataReceived_*` échouent et les 28 autres passent : un membre de `GamePackets` sans bras
+retombe bien sur le `throw new Exception("Unknown Packet Type")` de la fin de
+`GameClient.OnDataReceived`, exactement le critère 4 des critères transversaux. Le bras a été restauré
+avant l'état commité, et les 34 cas passent ensuite.
+
+Fusion : `git merge-tree --write-tree HEAD origin/master` exit **0** ; idem contre
+`hermes/packet-258-donate-item` (aucune entrée de conflit dans les deux cas).
+
+Aucun champ `NON ÉTABLI` de §7 n'a été deviné : chacun est soit laissé de côté (table de récompense,
+sens du `uint16`, `NON ÉTABLI` du claimant SC), soit reporté au §9.2.
+
+### 9.4 Bloc destiné à `CLAUDE.md` (à recopier par le QA)
+
+Ajouter, sur le modèle des paquets 203, 253, 550 et 1202, la sous-section suivante dans la section des
+paquets du serveur de jeu :
+
+```markdown
+### Paquet 259 — `TM_CS_DONATE_REWARD` (récompense choisie dans la fenêtre de don)
+
+- 7.3 = id **259**, client → serveur : rzu remappe en **1259** à partir d'`EPIC_9_6_3`
+  (`TS_CS_DONATE_REWARD.h:19-21` ; `EPIC_7_3 = 0x070300` est sous `0x090603`). NGemity compile en
+  `EPIC_4_1_1` et déclare `CREATE_PACKET(TS_CS_DONATE_REWARD, 259)`.
+- **Le doublon d'id 259 est tranché par le client 7.3** : `TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW` (SC, 259
+  dans rzu) est une commande serveur sans handler, jamais émise par le client ; le seul 259 que la
+  boucle de réception voit en 7.3 est la remontée de don. Ne pas ajouter le claimant SC à
+  `GamePackets`.
+- Trame cliente de **`8 + 3 × N` octets** : en-tête 7, compte **signé** (int8) à **7**, puis N
+  enregistrements de 3 octets — `reward_type` int8 signé à `8 + 3k`, `count` uint16 little-endian à
+  `9 + 3k` (rzu `TS_REWARD_INFO` : `_(simple)(int8_t, reward_type)`, `_(simple)(uint16_t, count)`,
+  sans gating de version). N vaut 0..4 : **8, 11, 14, 17 ou 20 octets**.
+- Réponse : **`TM_SC_RESULT` (0), 15 octets** — `RequestMsgID` = 259 à 7, `Result` = `Success` (0) ou
+  `InvalidArgument` (28) à 9, `Value` = 0 à 11. Le client 7.3 ouvre un bloc de résultat dédié à ce
+  request id ; le libellé affiché est un code serveur.
+- **Rien n'est interprété** : ni `reward_type` ni le `uint16` n'ont de sémantique établie. Le serveur
+  journalise et acquitte, sans table de récompense, sans crédit, sans effet de jeu. **Ne jamais
+  inventer un mapping slot → récompense.**
+- Enveloppe jugée **avant** toute lecture d'enregistrement : longueur exactement `8 + 3N`, compte
+  0..4, `reward_type` distinct ∈ 0..3, quantité non nulle. La trame vide de 8 octets (N = 0) est
+  légitime et acquittée `Success`.
+- Aucun handler dans NGemity ni dans rzu : les deux références ne font que déclarer la structure,
+  rien à porter.
+- Restes ouverts (fiche §7 et §9.2) : sens des deux champs, table de récompense, code de refus métier,
+  et les deux règles de refus non prouvées (doublon de slot, quantité nulle).
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+```
+
+## A VERIFIER PAR KILLIAN
+
+Synthèse de §7.9, avec les réserves propres au dev (§9.2) :
+
+| # | Point à trancher | Pourquoi c'est ouvert | Où |
+| --- | --- | --- | --- |
+| 1 | Doublon d'id 259 : CS retenu, claimant SC laissé hors de `GamePackets` | le client 7.3 ne prouve que l'usage CS ; le socle §1.1 attend l'arbitrage | §1.1, §7.4, §9.2.2 |
+| 2 | Nommage `reward_type` 0..3 contre bancs affichés 1..4 | décalage entre l'index du fil et l'étiquette du client | §7.1 |
+| 3 | Sens du `uint16` et effet de jeu attendu (table de récompense, coût, seuil) | aucune référence ne l'implémente ; **hors périmètre ici** | §7.2, §9.2.3 |
+| 4 | Code(s) de résultat à envoyer sur un refus métier | seul `InvalidArgument` est envoyé, faute d'arbitrage | §7.6, §9.2.4 |
+| 5 | Bornes de la politique de refus : honorer un `count` nul, tolérer `N > 4`, plafond de quantité par ligne | §7.8 les laisse explicitement ouvertes ; le code refuse aujourd'hui les deux premières | §7.8, §9.2.1 |
+| 6 | Le client 7.3 attend-il vraiment la `TM_SC_RESULT` de request id 259 ? | bloc déduit d'une lecture statique du binaire, aucun essai en jeu | §5.2, §9.2.6 |
+| 7 | Relation avec la MR #26 (258) | fusion vérifiée propre, sans dépendance sémantique | §5.5, §9.1.10 |
