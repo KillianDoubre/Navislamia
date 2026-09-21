@@ -17,6 +17,8 @@ le 284 ne se comprend pas sans eux ; la carte 285 garde sa propre fiche.
 | jumeau montant | **285** `TM_CS_UNBIND_SKILLCARD`, même forme | `op_codes.md:99` ; rzu `TS_CS_UNBIND_SKILLCARD.h:5-11` ; dump l. 26364 |
 | réponse serveur | **286** `TM_SC_SKILLCARD_INFO`, même forme | `op_codes.md:100` ; rzu `TS_SC_SKILLCARD_INFO.h:5-13` ; dump l. 26363 |
 | taille de trame | **15 octets**, fixe, dans les trois sens | §3 |
+| direction de 286 | serveur → client | rzu `TS_SC_SKILLCARD_INFO.h:13` (`SessionPacketOrigin::Server`) — le fichier est rangé dans `librzu/src/packets/GameClient/` : la direction vient de l'origine déclarée, pas du répertoire |
+| carte Trello | `trello.com/c/oZa5d852` | corps de la carte d'archéologie (étape 1/3) ; suivi `navislamia:packet:284` |
 | état dans le dépôt | 284, 285 et 286 absents de `GamePackets` | `Game/Network/Packets/Enums/GamePackets.cs` : 283 l. 47, 287 l. 30, aucun membre 284-286 |
 
 Le client Epic 7.3 connaît la paire id ↔ nom, et pas seulement le nom : sa routine
@@ -69,7 +71,7 @@ deux champs de rzu `TS_CS_BIND_SKILLCARD.h:6-7` dans cet ordre :
 
 | Offset | Taille | Type | Nom (rzu) | Valeur observée | Source |
 | --- | --- | --- | --- | --- | --- |
-| 0 | 4 | `uint32` | `Length` | 15 | `Header.cs:19-22` ; `Packet<T>.Length` |
+| 0 | 4 | `uint32` | `Length` | 15 | `Header.cs:20-22` ; `Packet<T>.Length` |
 | 4 | 2 | `uint16` | `ID` | 284 | `op_codes.md:98` |
 | 6 | 1 | `uint8` | `Checksum` | non vérifié (le dépôt ne l'impose pas en réception) | `Header.cs:11`,`:24` |
 | 7 | 4 | `ar_handle_t` (`uint32`) | `item_handle` | handle d'inventaire de la carte — dans ce dépôt `(uint)ItemEntity.Id` | rzu `TS_CS_BIND_SKILLCARD.h:6` ; `GameCharacterPackets.cs:343` (le handle émis pour un objet est `item.Id`) ; `CharacterService.cs:436-439` ; lecture modèle `GameActionPackets.cs:180-195` |
@@ -149,14 +151,17 @@ Enums de résultat : `TS_RESULT_NOT_EXIST = 1`, `TS_RESULT_NOT_ACTABLE = 5`,
 
 ### 5.2 Ce que Navislamia doit faire (décisions)
 
-**a. Énumération.** Ajouter les trois membres à `GamePackets.cs`, à côté de leurs voisins déjà
-présents (`TM_SC_ITEM_WEAR_INFO = 287` l. 30, `TM_CS_USE_ITEM = 253` l. 41, `TM_SC_USE_ITEM_RESULT = 283`
-l. 47) :
+**a. Énumération.** Ce cycle ajoute `TM_CS_BIND_SKILLCARD = 284` et
+`TM_SC_SKILLCARD_INFO = 286` à `GamePackets.cs`, à côté de leurs voisins déjà présents
+(`TM_SC_ITEM_WEAR_INFO = 287` l. 30, `TM_CS_USE_ITEM = 253` l. 41, `TM_SC_USE_ITEM_RESULT = 283`
+l. 47). `TM_CS_UNBIND_SKILLCARD = 285` est décrit ici comme le miroir de 284 mais **n'appartient pas
+à ce cycle** : sa propre carte et sa propre branche existent et son membre d'énumération sera ajouté
+par ce cycle-là (deux trames, deux cartes, deux fiches, deux branches).
 
 ```
-TM_CS_BIND_SKILLCARD = 284,
-TM_CS_UNBIND_SKILLCARD = 285,
-TM_SC_SKILLCARD_INFO = 286,
+TM_CS_BIND_SKILLCARD = 284,     // ce cycle
+TM_SC_SKILLCARD_INFO = 286,     // ce cycle (réponse commune à 284 et 285)
+TM_CS_UNBIND_SKILLCARD = 285,   // cycle suivant, sa carte
 ```
 
 **b. Lecture.** Un `TryReadBindSkillCard` calqué sur `TryReadUseItem` (`GameActionPackets.cs:180-195`) :
@@ -169,9 +174,9 @@ rejeter une trame plus courte par `SendResult(id, ResultCode.InvalidArgument (28
 à 11, `WriteChecksum`) : 15 octets, id 286. Le 286 réutilise exactement la forme du 283.
 
 **d. Distribution (critère transversal 4).** La bascule finale de `GameClient.cs:791-803` lève
-`Unknown Packet Type` sur tout id non traité : 284 et 285 exigent donc chacun un bras dans la chaîne
+`Unknown Packet Type` sur tout id non traité : 284 exige donc un bras dans la chaîne
 de dispatch (modèle : `TM_CS_USE_ITEM` en `GameClient.cs:708-712`, appel `_ = Handle…Async(msgBuffer)`
-puis `continue`).
+puis `continue`) ; le 285 recevra le sien dans son cycle.
 
 Pour **286** (paquet serveur → client), la décision retenue est celle du précédent explicite du
 dépôt : `TM_SC_REGION_ACK` (11) est déclaré dans l'énumération **et** possède un bras qui journalise
@@ -211,13 +216,23 @@ compétences, l. 47) et repasse par la porte `_databaseGate`.
 **g. Compétence.** `ItemResourceEntity.SkillId` (`ItemResourceEntity.cs:88`) et
 `CharacterSkillEntity` (`SkillId` l. 7, `Level` l. 8) suffisent à vérifier que le joueur connaît la
 compétence, ce que NGemity exige (`Unit.cpp:2606`). Cette vérification est **facultative en 7.3**
-(§7.3). Aucun champ d'enhance de compétence n'existe dans le dépôt et la fiche n'en demande pas
+(§7.4). Aucun champ d'enhance de compétence n'existe dans le dépôt et la fiche n'en demande pas
 (§7.5).
 
 **h. Tests.** Un test d'offsets conforme au critère 3, dans
-`Tests/Game/ActionPacketsTests.cs` (modèle des paquets d'action) : longueur totale 15 pour 284, 285
-et 286 ; `item_handle` à 7-10, `target_handle` à 11-14 ; id aux offsets 4-5 ; présence de l'octet de
-checksum recalculé ; rejet des trames < 15. Plancher de la suite : **366 tests** (critère 2).
+`Tests/Game/ActionPacketsTests.cs` (modèle des paquets d'action) : longueur totale 15 pour 284 et
+pour 286 ; `item_handle` à 7-10, `target_handle` à 11-14 ; id aux offsets 4-5 ; présence de l'octet de
+checksum recalculé ; rejet des trames < 15. Le 285 aura le sien dans son cycle. Plancher de la suite :
+**366 tests** (critère 2) ; le compte relevé sur `master` à la rédaction de cette fiche est **448**.
+
+**i. Primitives absentes de `master` — à ne pas supposer disponibles.** La famille « cartes de châsse »
+(214/215) porte `Game/Services/CardSocketService.cs`, `CardSocketCatalog.cs`, `CardSocketRules.cs` et
+`ICardSocketService` : **aucun de ces fichiers n'existe sur `master`** (vérifié : pas une occurrence de
+`CardSocketService` dans l'arbre de `master` ; ils vivent sur `hermes/packet-214-puton-card`, `d9b6fb2`).
+Le socle « invocations et familiers » (`hermes/packet-socle-invocations`) n'est pas mergé non plus. Le
+284 nominal n'en dépend pas — la cible doit être le joueur (`WorldSession.cpp:1688-1691`) — mais la
+**liaison à une créature invoquée** (socket 1, `Item.cpp:322-324`, reprise automatique au login
+`Player.cpp:806-810`) dépend de ce socle : hors périmètre, à traiter là où le socle arrive.
 
 ### 5.3 Primitives réutilisables (vérifiées sur `master`)
 
@@ -242,9 +257,9 @@ checksum recalculé ; rejet des trames < 15. Plancher de la suite : **366 tests*
    (`sMemoryPool.GetObjectInWorld<Item>`, `WorldSession.cpp:1683`) : un objet d'un autre joueur s'y
    résout puis échoue sur le contrôle de propriétaire en `ACCESS_DENIED`. Le dépôt résout le handle
    **parmi les objets du personnage** (`CharacterService.cs:436-439`), donc un objet qui n'est pas le
-   mien est indistinguable d'un handle inexistant : `NotExist` (1), pas `AccessDenied`. C'est l'écart
-   déjà assumé par la fiche 203/253 pour la même raison ; il ne change rien pour le client, qui
-   n'obtient jamais `AccessDenied` pour un objet d'autrui mais un refus explicite.
+   mine est indistinguable d'un handle inexistant : `NotExist` (1), pas `AccessDenied`. C'est l'écart
+   déjà assumé et documenté pour le 253 (`docs/packet-specs/253-use-item.md:409-410`) ; le client ne
+   perd rien : il reçoit un refus explicite au lieu de `AccessDenied`.
 2. **Le garde d'enhance devient un garde de socket.** NGemity teste `pSkill->GetSkillEnhance() == 0`
    (`WorldSession.cpp:1698`) ; le dépôt n'a pas d'enhance de compétence et ce test est l'image du
    socket 0 : « déjà liée » ⇔ `SocketItemIds[0] != 0`. Un seul contrôle au lieu de deux, même
@@ -255,14 +270,23 @@ checksum recalculé ; rejet des trames < 15. Plancher de la suite : **366 tests*
    et les niveaux de job précédents d'un familier (`Summon.cpp:303-305`). Le champ du dépôt s'appelle
    `SocketItemIds` (`ItemEntity.cs:35`) et son commentaire d'usage n'existe pas : écrire l'UID du
    personnage dans le socket 0 est conforme à la référence mais élargit de fait la sémantique du
-   champ. Voir §7.4.
+   champ. Voir §7.8.
 4. **Pas de mise à jour d'inventaire.** NGemity n'envoie que 286 et laisse le client appliquer.
    Le dépôt sait renvoyer un enregistrement d'objet (`InventoryService.SendInventory`) ; la fiche ne
    le demande pas, mais c'est le levier à utiliser si le contrôle en jeu montre une carte qui ne se
    met pas à jour (§7.2).
 5. **Aucune réponse quand la liaison est impossible pour cause de compétence** (NGemity
-   `:1697-1700` — silence total). Écart volontaire conservé ? Voir §7.3 : c'est le seul point de
+   `:1697-1700` — silence total). Écart volontaire conservé ? Voir §7.4 : c'est le seul point de
    cette fiche qui mérite un arbitrage, pas une supposition.
+6. **Les enums d'amélioration n'éclairent pas la politique de refus.** `EnhancementFailResult`
+   (`MiscFail 0`, `GearFail 1`, `SkillCardFail 2`, `AccessoryFail 3`) n'a **aucun usage** dans le
+   dépôt : seule sa définition existe (`Game/DataAccess/Entities/Enums/EnhancementFailResult.cs`).
+   `FailResultType` (`Fail 1`, `SkillCard 2`, `Accessory 3`) n'est porté que par
+   `EnhanceResourceEntity.FailResult` (`EnhanceResourceEntity.cs:8`). Les deux décrivent le
+   **résultat d'une tentative d'amélioration** d'objet (données `db_enhance.rdb`), pas le refus d'une
+   liaison ; le corpus client le dit aussi : *« May enchant skill card. Must use combination. »*
+   (`db_string.rdb`, dump `strings -n 4`, l. 5513-5515) — l'enhance d'une carte s'obtient par
+   combinaison, pas par le 284. Aucun code de refus de cette fiche n'en dérive.
 
 ## 7. NON ÉTABLI
 
@@ -303,6 +327,12 @@ checksum recalculé ; rejet des trames < 15. Plancher de la suite : **366 tests*
    touchent le 208 (`TM_CS_ERASE_ITEM`), hors périmètre ici.
 7. **La valeur de l'octet 6 en émission client** (`Checksum`) : inconnue, sans incidence sur les
    décalages (§3).
+8. **Le sens du socket 0 dans le dépôt.** `SocketItemIds` est nommé d'après les pierres serties, que
+   NGemity y range aussi (`Item.cpp:233-234`) ; y écrire `CharacterEntity.Id` élargit la sémantique du
+   champ (§6.3). À ce commit, rien d'autre ne lit ce champ : il est défini (`ItemEntity.cs:35`), borné à
+   quatre éléments (`TelecasterContext.cs:55`) et sérialisé (`GameCharacterPackets.cs:353-356`), sans
+   autre lecteur. Question précise pour la suite : valider que les cartes de familier (socle
+   invocations, §5.2 i) ne réutilisent pas ces slots avec une autre convention.
 
 ## 8. Commits épinglés
 
@@ -334,5 +364,15 @@ checksum recalculé ; rejet des trames < 15. Plancher de la suite : **366 tests*
   vide avant et après ce commit).
 - Aucun fichier de code touché : cette fiche est le seul livrable.
 - `master` n'est pas modifié, aucune autre branche n'est créée, aucun rebase ni merge.
-- Réserves à arbitrer : §7.3 (contrôle de compétence : silence ou `NoSkill`) et §7.2 (faut-il, en plus
+- Contrôle de non-régression sur cette branche (changement documentaire uniquement) :
+  `dotnet build Navislamia.sln -c Debug` → 0 erreur (160 avertissements préexistants) ;
+  `dotnet test Tests/Tests.csproj` → **448 tests réussis, 0 échec** (`NUGET_PACKAGES=/srv/navislamia/.nuget-cache`).
+  Ce nombre est le plancher réel du dépôt à ce commit ; le critère 2 en exige 366 au minimum, il ne
+  doit jamais baisser.
+- Réserves à arbitrer : §7.4 (contrôle de compétence : silence ou `NoSkill`) et §7.2 (faut-il, en plus
   du 286, renvoyer l'enregistrement d'objet pour que la carte apparaisse liée).
+- Les numéros de ligne du brief PO viennent d'une lecture antérieure de `master` et ont bougé :
+  `TM_SC_USE_ITEM_RESULT = 283` est en `GamePackets.cs:47` (et non 54), la convention
+  « `item_handle` == `ItemEntity.Id` » s'ancre en `CharacterService.cs:436-439` (et non 377-380), et
+  `ar_handle_t` vit en `librzu/src/lib/Packet/GameTypes.h:40` (et non `Types/`) ; cette fiche cite les
+  lignes de `master` `ec76b21`, revérifiées une à une.
