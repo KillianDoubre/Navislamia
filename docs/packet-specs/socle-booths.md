@@ -412,14 +412,25 @@ c'est ce qui rend le refus par `TS_SC_RESULT` utile.
 
 Aujourd'hui, dans Navislamia, `700` et `701` ne sont **pas** des membres de `GamePackets`
 (`Game/Network/Packets/Enums/GamePackets.cs` compte 102 lignes et saute de `TM_CS_TARGETING = 511` à
-`TM_CS_GET_REGION_INFO = 550`) : un client qui ouvre un étal envoie donc une trame qui atteint le
-`_ => throw new Exception("Unknown Packet Type")` de `GameClient.cs:802`. Cette exception est levée
-dans `GameClient.OnDataReceived`, appelé depuis `Connection.OnReceive`
-(`Game/Network/Connection.cs:342`) qui ne rattrape que `SocketException`
-(`Connection.cs:346-350`) ; le dépôt ne pose aucun handler `AppDomain.UnhandledException`
-(recherche sur les sources : 0 résultat). Le socle corrige donc d'abord cela : ces deux trames
-deviennent des messages reconnus. Le détail de ce qui se produit aujourd'hui (déconnexion du client ou
-terminaison du processus) reste à observer en direct (§7.5).
+`TM_CS_GET_REGION_INFO = 550`) : un client qui ouvre un étal envoie donc une trame que la boucle de
+réception ne sait pas reconnaître. **Correction mesurée à l'implémentation** (l'archéologue écrivait
+« atteint le `_ => throw new Exception("Unknown Packet Type")` ») : le `throw` du `switch` final
+(`GameClient.cs:802` sur la base `ec76b21`) n'est **pas** atteint, parce qu'un garde précède la chaîne —
+
+```csharp
+if (!Enum.IsDefined(typeof(GamePackets), header.ID))          // GameClient.cs:626-630
+{
+    _logger.Debug("Undefined packet ID: {id} ...");
+    continue;
+}
+```
+
+La trame est donc **journalisée en `Debug` puis ignorée** : aucune exception, aucune déconnexion, et
+l'étal du joueur reste simplement sans effet. Le `_ => throw` ne peut être atteint que par un membre
+**déclaré** dans `GamePackets` mais dépourvu de bras de dispatch — d'où le critère 4 des critères
+d'acceptation (enum et dispatch se modifient ensemble). Les conclusions pratiques de la fiche sont
+inchangées : ces deux trames doivent devenir des messages reconnus, et le détail de ce que le client
+affiche ensuite (fenêtre maintenue ?) reste à observer en direct (§7.5).
 
 ---
 
@@ -468,11 +479,14 @@ terminaison du processus) reste à observer en direct (§7.5).
 4. **`701` sans étal ouvert** : `Success` idempotent (choix assumé) ou refus `55` ? Aucune source. Ce
    qui trancherait : le comportement retail sur double clic, ou l'observation du client (montre-t-il
    `smsg_booth_notice_close` ?).
-5. **Ce qui se produit réellement aujourd'hui quand le client ouvre un étal.** La chaîne est établie
-   par lecture (`GameClient.cs:802` → `Connection.cs:342`/`346`, aucun handler global), mais
-   l'observation directe (déconnexion du seul client ou chute du processus) demande une exécution avec
-   le client 7.3, que cette fiche ne peut pas faire. Ce qui trancherait : ouvrir un étal sur un serveur
-   Navislamia non patché et lire la sortie du serveur.
+5. **Ce que le client fait quand le serveur reste muet.** Question initiale (avant patche) : que se
+   passait-il quand la trame n'était pas reconnue. **Tranché par lecture à l'implémentation** : rien,
+   la trame était journalisée en `Debug` puis ignorée par le garde `Enum.IsDefined`
+   (`GameClient.cs:626-630`), sans exception ni déconnexion (voir §5.4). Ce qui reste ouvert, et qui
+   demande un client 7.3 vivant : après le socle, le `700` est lu (ou refusé) sans aucune réponse quand
+   il est accepté (§5.3 point 4) — **est-ce que la fenêtre de commerce du client reste ouverte et
+   utilisable ?** Ce qui trancherait : ouvrir un étal sur un serveur Navislamia patché et observer la
+   fenêtre ; impossible dans cette tâche (aucun exécutable client n'est lancé ici).
 6. **Le client lit-il `FLAG_BUY_BOOTH`/`FLAG_SELL_BOOTH` dans le statut du joueur ?** Les drapeaux
    existent côté serveur (`TS_MESSAGE.h:33-34`) et NGemity les aurait posés dans `buildStatus`
    (commentaire), mais rien ne prouve que ce client de 7.3 affiche l'étal d'un autre joueur à partir de
@@ -519,7 +533,8 @@ terminaison du processus) reste à observer en direct (§7.5).
 
 * Branche : `hermes/packet-socle-booths`, créée depuis `master` = `ec76b218cd0bd7c6498d725f253abb8b431f0cd6`.
 * Aucun fichier de code n'est touché : cette fiche est le seul livrable de la présente tâche
-  (`docs/packet-specs/socle-booths.md`).
+  (`docs/packet-specs/socle-booths.md`). — *L'implémentation du socle a suivi sur la même branche : voir
+  le §11 (note du dev), le §12 (`A VERIFIER PAR KILLIAN`) et le §13 (bloc pour `CLAUDE.md`).*
 * État de `master` mesuré avant rédaction, dans `/srv/navislamia/Navislamia` avec
   `NUGET_PACKAGES=/srv/navislamia/.nuget-cache` :
   `dotnet build Navislamia.sln -c Debug` → **code de sortie 0**, 0 erreur, 160 avertissements ;
@@ -577,4 +592,124 @@ Les objets de `703`/`710` mesurent **83** octets par enregistrement (stride `0x5
 client) = 75 + `gold int64`, donc la structure d'objet du client **inclut** le `appearance_code` de 4
 octets que rzu gate à `>= EPIC_7_4` ; c'est la même conclusion que les 85 octets de l'inventaire, avec
 laquelle elle s'additionne exactement (75 + 2 + 4 + 4 = 85). Ne pas reconstruire les 71/81 octets de rzu.
+```
+
+---
+
+## 11. Implémentation du socle — note du dev
+
+La fiche est implémentée telle quelle. Le socle tient en cinq fichiers de code et deux fichiers de
+tests, sur la branche `hermes/packet-socle-booths`.
+
+| fichier | rôle |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_START_BOOTH = 700`, `TM_CS_STOP_BOOTH = 701` (commentaire : `711` volontairement absent, §1.3) |
+| `Game/Network/Packets/Game/BoothPackets.cs` (nouveau) | offsets, `BoothOpenItem`, `StartBoothRequest`, `TryReadStartBooth`, `TryReadStopBooth` |
+| `Game/Services/BoothRules.cs` (nouveau) | `TryAcceptStartBooth`, `ValidateStartBooth`, `IsGuardedAction`, `GateAction` |
+| `Game/Network/Clients/ConnectionInfo.cs` | `Booth`, `IsBoothOpen`, `OpenBooth`, `CloseBooth`, `BoothLock` (verrou dédié) |
+| `Game/Network/Clients/GameClient.cs` | deux bras de dispatch, **un** garde de verrou en tête de chaîne, `HandleStartBooth` / `HandleStopBooth` |
+| `Tests/Game/BoothPacketsTests.cs` (nouveau) | 13 tests d'offsets et de lecture de trame |
+| `Tests/Game/BoothRulesTests.cs` (nouveau) | 20 tests de règles, de verrou et d'état |
+
+**Partage lecture / règles.** Le lecteur (`BoothPackets`) ne juge que la **trame** : `Length < 59`,
+`count > 8` (`LimitMax`), puis `Length < 59 + 16×count` — tous `InvalidArgument` sauf le plafond. Les
+règles de jeu (`BoothRules`) jugent ensuite le `type` ∉ {1, 2}, `count == 0`, la longueur du nom (6 à
+40 octets bruts) puis le niveau 10. L'ordre du §5.3 point 2 est donc respecté à l'identique du point de
+vue du client, et `N = 0` reste une trame lisible mais refusée en `InvalidArgument` par la règle
+« au moins un objet », comme le §3.2 le décrit. Un `700` accepté ne reçoit **aucune** réponse (§5.3
+point 4) ; un `700` refusé reçoit `TS_SC_RESULT` avec `request_msg_id = 700` et le code du point 2. Un
+`701` dont l'en-tête fait moins de 7 octets est refusé en `InvalidArgument` ; sinon il ferme l'étal et
+répond `Success`, même si aucun étal n'était ouvert (choix du §7.4).
+
+**Verrou d'actions.** Un seul garde, placé après le keepalive `TM_NONE` et avant toute la chaîne de
+dispatch : `BoothRules.GateAction(ConnectionInfo.IsBoothOpen, header.ID)` répond `55` et coupe la
+trame pour les neuf ids du §5.3 point 7. `700` et `701` n'en font pas partie. Conséquence utile à
+garder en tête : toute action future doit être pesée contre cette liste — le verrou ne protège que les
+neuf ids déclarés, pas « toute action » au sens large.
+
+**Deux décisions prises faute de source** (à déplacer si Killian tranche) :
+
+* un **second `700`** pendant qu'un étal est ouvert **remplace** l'état au lieu d'être refusé : la
+  fenêtre de création du client ne peut pas l'envoyer sans avoir fermé la précédente, et aucune source
+  ne décrit une forme cumulative ;
+* la **taille d'un `701`** est vérifiée (`≥ 7`) et un en-tête tronqué est refusé en `InvalidArgument`,
+  là où la fiche ne parlait que de la trame complète de 7 octets.
+
+**Mesures de fin de tâche**, dans `/srv/navislamia/Navislamia` avec
+`NUGET_PACKAGES=/srv/navislamia/.nuget-cache` :
+
+| commande | résultat |
+|---|---|
+| `dotnet build Navislamia.sln -c Debug` | **code de sortie 0**, 0 erreur, 160 avertissements (identiques à `master`) |
+| `dotnet test Tests/Tests.csproj` | **code de sortie 0**, **481 tests passés**, 0 échec, 0 ignoré (448 sur `master`, +33) |
+| `git log --oneline origin/master..master` | **vide** — aucun commit sur `master` locale |
+| `git log --oneline origin/master..hermes/packet-socle-booths` | la fiche (archéologue) puis `b9ac6d0` (implémentation) |
+
+---
+
+## 12. A VERIFIER PAR KILLIAN
+
+Rien de ce qui suit n'est bloquant pour le socle : ce sont les points qu'un client 7.3 vivant, un
+enregistrement retail ou un arbitrage métier peuvent seuls trancher. Aucun exécutable client n'a été
+lancé dans cette tâche (interdit), et aucun serveur de jeu n'a été démarré.
+
+1. **Un `700` accepté sans réponse laisse-t-il la fenêtre de commerce utilisable ?** Le socle ne répond
+   rien (§5.3 point 4) et n'envoie aucun paquet de la famille. À observer : ouvrir un étal sur un
+   serveur patché, puis tenter d'y déposer un objet — le client doit-il recevoir quelque chose pour
+   remplir sa fenêtre ? Si ce n'est pas le cas, la réponse appartient à la branche `703`/`708`.
+2. **Sens du `type` 1 / 2** (§7.2) : le socle le conserve verbatim, sans lui donner de sens et sans
+   écrire de drapeau joueur. À trancher avant `703`, qui le compare à `1`.
+3. **Prix `gold` unitaire ou total** (§7.8) : les triplets sont stockés verbatim. Bloquant pour
+   `705`/`706`/`710`.
+4. **Validation des handles contre l'inventaire** (§7.3) : volontairement absente du socle. La branche
+   `703` devra la reprendre — `smsg_booth_cant_equip_item` suggère que le serveur d'origine refusait
+   les objets équipés.
+5. **`701` sans étal ouvert** (§7.4) : `Success` idempotent retenu, aucun source ne le fixe. Si le
+   retail répond `55`, la ligne à changer est `HandleStopBooth` (`GameClient.cs`) — le test
+   `GateAction_RefusesAGuardedActionOnlyBetweenSevenHundredAndSevenHundredOne` devra suivre.
+6. **Encodage du nom** (§7.9) : les octets bruts sont conservés et **jamais** renvoyés. Le jour où un
+   paquet les renverra (`708`/`709`), il faudra trancher l'encodage — le socle ne le fait pas.
+7. **Plafond de 8 objets** (§7.10) : appliqué à la réception (`LimitMax`). Le client de 7.3 sait
+   construire plus de 8 enregistrements, mais sa fenêtre n'en propose pas : ce refus est défensif et
+   n'a pas pu être déclenché par un vrai client.
+8. **Liste du verrou d'actions** : les neuf ids du §5.3 point 7 sont ceux des textes du client
+   (`smsg_booth_not_*`) et des actions déjà gérées par la boucle. `smsg_booth_not_use_store` (« accéder
+   à un autre magasin ») n'a pas d'objet tant que `702` n'existe pas. Le verrou n'est **pas** une
+   protection générique : un paquet d'action ajouté plus tard doit être pesé contre cette liste.
+9. **`711` toujours absent du dépôt** : `op_codes.md:180` le liste pourtant (§6.5). Le socle ne le
+   déclare pas et la fiche ne modifie pas la table d'op-codes — la contradiction reste signalée.
+
+---
+
+## 13. Bloc à ajouter à `CLAUDE.md` (livré par le dev)
+
+Complément au bloc du §10, à recopier dans `CLAUDE.md` par Killian (le dev n'écrit pas `CLAUDE.md` —
+fichier protégé par Hermes ; le bloc part aussi dans la description de la MR) :
+
+```markdown
+## Étal de joueur — socle 700/701 implémenté
+
+`TM_CS_START_BOOTH` (700) et `TM_CS_STOP_BOOTH` (701) sont déclarés dans `GamePackets` **et** dans la
+boucle de réception (`GameClient.OnDataReceived`) : un `700` est lu par `BoothPackets.TryReadStartBooth`
+(59 + 16×N octets, nom brut de 49 octets terminé au premier nul, `type` à 56, `count` à 57, objets à 59
+avec `item_handle`/`cnt`/`gold int64` à +0/+4/+8), jugé par `BoothRules` (type ∈ {1,2}, au moins un
+objet, nom de 6 à 40 octets, niveau ≥ 10 — dans cet ordre, le niveau en dernier) et rangé dans
+`ConnectionInfo` sous son propre verrou. Refus = `TS_SC_RESULT` avec le code et `request_msg_id = 700`
+(`LimitMax` au-delà de 8 objets, `NotEnoughLevel` sous le niveau 10, `InvalidArgument` sinon) ; un `700`
+accepté ne reçoit **aucune** réponse et un `701` répond `Success`, idempotent.
+
+Tant qu'un étal est ouvert, **un seul garde** en tête de la chaîne de dispatch (`BoothRules.GateAction`)
+répond `55` (`ResultCode.NotActableWhileUsingBooth`) aux actions que le client annonce lui-même comme
+refusées : 200, 201, 203, 204, 208, 218, 219, 253, 400. `700` et `701` sont hors de cette liste. Le
+garde n'est pas une protection générique : toute action ajoutée plus tard doit être pesée contre elle.
+
+Le garde `Enum.IsDefined(typeof(GamePackets), header.ID)` (`GameClient.OnDataReceived`) précède la
+chaîne : un id **non déclaré** est journalisé en `Debug` puis ignoré, **sans exception**. Le
+`_ => throw new Exception("Unknown Packet Type")` du `switch` final n'est donc atteint que par un
+membre **déclaré** sans bras de dispatch — c'est la raison exacte du critère « enum et dispatch se
+modifient ensemble ».
+
+L'état d'étal n'est ni persisté ni diffusé : aucun joueur ne le voit, pas même son propriétaire, et la
+validation des handles contre l'inventaire, le sens du `type` et l'unité du `gold` restent ouverts
+(`docs/packet-specs/socle-booths.md` §7 et §12).
 ```
