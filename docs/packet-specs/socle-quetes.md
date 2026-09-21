@@ -272,7 +272,8 @@ Descendants utiles comme modèle :
   (`Player::DoEachActiveQuest`), remplit `activeQuests` — `code`, `startID`, `value[0..5]` (six valeurs
   de la définition de quête, ou couples clé/valeur pour les quêtes aléatoires), `status[0..2]` — et
   **ne remplit ni `progress` ni `timeLimit`** (initialisation à zéro) ; `pendingQuests` reste vide.
-  Il **n'envoie qu'à un seul joueur** et ne remet pas la liste à zéro.
+  Il envoie une **seule** trame, sans envoi préalable de remise à zéro : c'est le client qui vide sa
+  liste à la réception (§5.5).
 - `Messages::SendQuestStatus` (`Messages.cpp:882-890`) : `code` + `status[i]` pour
   `i < MAX_QUEST_STATUS` (= 3, `QuestBase.h:24`) ; `nProgress` et `nTimeLimit` laissés à zéro.
 - `Messages::SendQuestInformation` (`Messages.cpp:622+`) : seul et unique appelant
