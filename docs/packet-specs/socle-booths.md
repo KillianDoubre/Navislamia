@@ -643,7 +643,7 @@ neuf ids déclarés, pas « toute action » au sens large.
 | `dotnet build Navislamia.sln -c Debug` | **code de sortie 0**, 0 erreur, 160 avertissements (identiques à `master`) |
 | `dotnet test Tests/Tests.csproj` | **code de sortie 0**, **481 tests passés**, 0 échec, 0 ignoré (448 sur `master`, +33) |
 | `git log --oneline origin/master..master` | **vide** — aucun commit sur `master` locale |
-| `git log --oneline origin/master..hermes/packet-socle-booths` | la fiche (archéologue) puis `b9ac6d0` (implémentation) |
+| `git log --oneline origin/master..hermes/packet-socle-booths` | la fiche (archéologue) puis les commits du dev : implémentation, puis cette note |
 
 ---
 

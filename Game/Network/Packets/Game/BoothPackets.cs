@@ -12,9 +12,10 @@ namespace Navislamia.Game.Network.Packets.Game;
 public readonly record struct BoothOpenItem(uint ItemHandle, int Count, long Gold);
 
 /// <summary>
-/// A parsed and wire-valid <c>TM_CS_START_BOOTH</c>. <see cref="Name"/> holds the raw client bytes
-/// up to the first nul (48 at most): the client copies them with <c>strncpy</c> and no conversion,
-/// so the socle re-encodes nothing (docs/packet-specs/socle-booths.md §7.9).
+/// A parsed and wire-valid <c>TM_CS_START_BOOTH</c>. <see cref="Name"/> holds the raw client bytes up
+/// to the first nul (the 49 byte field, so up to 49 bytes when it carries no nul at all — such a name
+/// is then refused by the rules, which cap it at 40): the client copies them with <c>strncpy</c> and
+/// no conversion, so the socle re-encodes nothing (docs/packet-specs/socle-booths.md §7.9).
 /// </summary>
 public sealed record StartBoothRequest(byte Type, byte[] Name, BoothOpenItem[] Items);
 
