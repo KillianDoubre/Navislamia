@@ -498,6 +498,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleDonateItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadDonateItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_DONATE_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.ItemDonateService.DonateAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process item donation for {clientTag}", ClientTag);
+        }
+    }
+
     private void HandleSkill(byte[] packet)
     {
         if (!GameActionPackets.TryReadSkill(packet, out var request))
@@ -708,6 +726,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_DONATE_ITEM)
+            {
+                _ = HandleDonateItemAsync(msgBuffer);
                 continue;
             }
 

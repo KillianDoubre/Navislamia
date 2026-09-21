@@ -248,4 +248,61 @@ public static class GameActionPackets
             BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 4, 4)));
         return true;
     }
+
+    /// <summary>
+    /// One record of the <c>TM_CS_DONATE_ITEM</c> (258) item array: the inventory handle of the stack
+    /// given, then a 64-bit unit count (the <c>int64</c> branch of rzu's <c>TS_DONATE_ITEM_INFO</c>,
+    /// which Epic 7.3 takes since <c>EPIC_6_3</c>).
+    /// </summary>
+    public readonly record struct DonateItemEntry(uint Handle, long Count);
+
+    /// <summary>
+    /// <c>TM_CS_DONATE_ITEM</c> (258): a bare value offer — gold, then jp, then a counted array of
+    /// item records. No recipient and no character handle: the giver is the session's character.
+    /// </summary>
+    public readonly record struct DonateItemRequest(long Gold, int Jp, DonateItemEntry[] Items);
+
+    /// <summary>
+    /// Reads the Epic 7.3 <c>TM_CS_DONATE_ITEM</c> (258) frame: header, <c>gold</c> (int64) at 7,
+    /// <c>jp</c> (int32) at 15, the item count (int8) at 19 and then <c>12 × count</c> bytes of
+    /// records — handle (uint32) then count (int64) each. The total length is therefore
+    /// <c>20 + 12 × count</c>, the invariant the client's own frame builder writes (spec §3).
+    ///
+    /// The count is read before anything else and is <b>signed</b>: an octet ≥ 0x80 is a negative
+    /// count, an invalid argument rather than a large one. A frame shorter than the announced count
+    /// is refused instead of read past its end; a longer one is accepted, the specification
+    /// requiring only that the announced records fit.
+    /// </summary>
+    public static bool TryReadDonateItem(ReadOnlySpan<byte> packet, out DonateItemRequest request)
+    {
+        const int recordSize = 12;
+        const int countOffset = HeaderSize + 12;
+        request = default;
+
+        if (packet.Length < countOffset + 1)
+        {
+            return false;
+        }
+
+        var count = (sbyte)packet[countOffset];
+        if (count < 0 || packet.Length < countOffset + 1 + count * recordSize)
+        {
+            return false;
+        }
+
+        var items = new DonateItemEntry[count];
+        for (var i = 0; i < count; i++)
+        {
+            var record = packet.Slice(countOffset + 1 + i * recordSize, recordSize);
+            items[i] = new DonateItemEntry(
+                BinaryPrimitives.ReadUInt32LittleEndian(record.Slice(0, 4)),
+                BinaryPrimitives.ReadInt64LittleEndian(record.Slice(4, 8)));
+        }
+
+        request = new DonateItemRequest(
+            BinaryPrimitives.ReadInt64LittleEndian(packet.Slice(HeaderSize, 8)),
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize + 8, 4)),
+            items);
+        return true;
+    }
 }
