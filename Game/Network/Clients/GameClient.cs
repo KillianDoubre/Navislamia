@@ -498,6 +498,26 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleUnbindSkillCardAsync(byte[] packet)
+    {
+        // The 7.3 client builds this request with Length = 15 and writes nothing after offset 14, so a
+        // shorter frame is refused rather than partially read (spec §5.2 b).
+        if (!GameActionPackets.TryReadUnbindSkillCard(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_UNBIND_SKILLCARD, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.SkillCardService.UnbindAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process skill card unbind for {clientTag}", ClientTag);
+        }
+    }
+
     private void HandleSkill(byte[] packet)
     {
         if (!GameActionPackets.TryReadSkill(packet, out var request))
@@ -627,6 +647,16 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_SC_SKILLCARD_INFO is the answer of the skill card requests (286), a server to client
+            // packet: the 7.3 client never sends one. An incoming one is a protocol anomaly, so it is
+            // logged and dropped instead of reaching the "Unknown Packet Type" throw below.
+            if (header.ID == (ushort)GamePackets.TM_SC_SKILLCARD_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_SKILLCARD_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
@@ -708,6 +738,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_UNBIND_SKILLCARD)
+            {
+                _ = HandleUnbindSkillCardAsync(msgBuffer);
                 continue;
             }
 

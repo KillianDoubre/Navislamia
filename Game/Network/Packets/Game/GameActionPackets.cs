@@ -18,6 +18,13 @@ public static class GameActionPackets
 
     public readonly record struct UseItemRequest(uint ItemHandle, uint TargetHandle);
 
+    /// <summary>
+    /// <c>TS_CS_UNBIND_SKILLCARD</c> (285), the Epic 7.3 form: the handle of the skill card to unbind,
+    /// then the handle of the target, which the reference only ever accepts as the character itself.
+    /// rzu gates the id (285 before <c>EPIC_9_6_3</c>, 1285 after, and 7.3 is below the switch).
+    /// </summary>
+    public readonly record struct UnbindSkillCardRequest(uint ItemHandle, uint TargetHandle);
+
     public readonly record struct ChangeItemPositionRequest(bool IsStorage, uint ItemHandle1, uint ItemHandle2);
 
     public readonly record struct RegionInfoRequest(float X, float Y);
@@ -189,6 +196,27 @@ public static class GameActionPackets
         }
 
         request = new UseItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
+    }
+
+    /// <summary>
+    /// <c>TM_CS_UNBIND_SKILLCARD</c> (285): 7 header + item_handle (4) + target_handle (4), nothing
+    /// else. The 7.3 client builds this frame with <c>Length = 15</c> and writes no byte after offset
+    /// 14, so a shorter frame is refused instead of partially read and no trailing payload is consumed
+    /// (unlike the 253, whose 32 byte parameter makes it 47 bytes long).
+    /// </summary>
+    public static bool TryReadUnbindSkillCard(ReadOnlySpan<byte> packet, out UnbindSkillCardRequest request)
+    {
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new UnbindSkillCardRequest(
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
         return true;
