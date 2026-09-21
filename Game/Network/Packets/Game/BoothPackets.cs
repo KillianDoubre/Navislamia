@@ -8,6 +8,12 @@ namespace Navislamia.Game.Network.Packets.Game;
 /// <c>TS_BOOTH_OPEN_ITEM_INFO</c>: the handle the client selected in its bag, the stack count and
 /// the price, both kept verbatim — the socle never resolves the handle against the inventory and
 /// never interprets the unit of the price (docs/packet-specs/socle-booths.md §7.3 and §7.8).
+/// <para>
+/// <see cref="Gold"/> is an <c>int64</c> because Epic 7.3 says so, not by assumption: rzu gates the
+/// field as <c>int32</c> before <c>EPIC_4_1_1</c> and <c>int64</c> from <c>EPIC_4_1_1</c> on
+/// (<c>TS_BOOTH_OPEN_ITEM_INFO.h:8-9</c>), and the 7.3 client writes it as two dwords
+/// (<c>VA 0x48D654</c> / <c>VA 0x48D65B</c>), which fixes the 16 byte stride of the record.
+/// </para>
 /// </summary>
 public readonly record struct BoothOpenItem(uint ItemHandle, int Count, long Gold);
 

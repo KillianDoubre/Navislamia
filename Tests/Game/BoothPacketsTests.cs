@@ -202,6 +202,23 @@ public class BoothPacketsTests
     }
 
     [Test]
+    public void BoothPackets_PinEveryOffsetOfTheLayout()
+    {
+        // One place that says the layout, so a silent drift of an offset breaks a test rather than a
+        // client. Every value comes from the 7.3 frame builders (fiche §3.2 and §3.3).
+        BoothPackets.HeaderSize.Should().Be(7);
+        BoothPackets.NameOffset.Should().Be(7);
+        BoothPackets.BoothNameFieldLength.Should().Be(49, "char[49]: 48 characters then a nul");
+        BoothPackets.TypeOffset.Should().Be(56);
+        BoothPackets.CountOffset.Should().Be(57);
+        BoothPackets.ItemsOffset.Should().Be(59);
+        BoothPackets.StartBoothMinLength.Should().Be(59);
+        BoothPackets.StartBoothItemSize.Should().Be(16);
+        BoothPackets.MaxBoothItemCount.Should().Be(8);
+        BoothPackets.StopBoothLength.Should().Be(7);
+    }
+
+    [Test]
     public void BoothPackets_CarryTheirEpic73IdsAndNothingElseOfTheFamily()
     {
         ((ushort)GamePackets.TM_CS_START_BOOTH).Should().Be(700);
