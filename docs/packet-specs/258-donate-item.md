@@ -305,9 +305,93 @@ choix appartient à Killian et doit figurer dans la description de la MR.
 | client de référence | `reference/client73/db_string.rdb` sha256 `4e8e3e06d08391bed554d4520992d3e629713589978b197342091d13b8f299e1` | §2, §7 |
 | client de référence | `reference/client73/extraction-manifest.json` (index d'extraction des 83 822 entrées) | provenance des ressources ci-dessus |
 
+## 9. Implémentation livrée
+
+Branche `hermes/packet-258-donate-item`, par-dessus le commit de la fiche (`8a2598d`). Périmètre
+exactement celui de §5.3 : **lire, juger, prendre, acquitter**. Rien n'est crédité en échange (§5.4).
+
+| Fichier | Rôle |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_DONATE_ITEM = 258` |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `DonateItemEntry`, `DonateItemRequest`, `TryReadDonateItem` |
+| `Game/Services/DonateRules.cs` | jugements purs : forme de l'offre, puis solvabilité |
+| `Game/Services/ItemDonateService.cs`, `.../Interfaces/IItemDonateService.cs` | lecture → jugement → prise → acquittement |
+| `Game/Network/Clients/GameClient.cs` | bras de dispatch `TM_CS_DONATE_ITEM` + `HandleDonateItemAsync` |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | câblage du service |
+| `Tests/Game/DonateItemPacketsTests.cs`, `Tests/Game/DonateRulesTests.cs` | offsets et jugements |
+
+Offsets confirmés par les tests, tels que §3 les fixe : total `20 + 12 × N` (20 / 32 / 248 aux N
+testés), `gold` int64 signé à 7, `jp` int32 à 15, compte **signé** à 19, `handle` de
+`items[k]` à `20 + 12k`, `count` int64 à `24 + 12k`.
+
+### 9.1 Décisions prises, et pourquoi
+
+1. **Le compte est lu d'abord**, à l'offset 19, **avant** toute autre lecture de charge utile, et
+   borné : un octet ≥ `0x80` est un compte négatif et la trame est refusée sans être parcourue. Une
+   trame **plus courte** que `20 + 12 × count` est refusée sans lecture hors borne ; une trame plus
+   longue est acceptée (la spec n'exige que la contenance des enregistrements annoncés).
+2. **Une offre entièrement vide est refusée** (`InvalidArgument`) : c'est aussi ce que fait le client,
+   dont le constructeur n'émet rien quand l'or, le jp et la liste d'objets sont tous nuls (§2.4). Un
+   `gold` ou un `jp` négatif, un enregistrement demandant zéro ou moins d'unité, et un `handle` nommé
+   **deux fois** dans la même trame sont également `InvalidArgument` (§5.3).
+3. **Tous les `handle` sont résolus avant que quoi que ce soit soit pris** : une trame qui nomme une
+   pile non possédée est refusée en bloc (`NotExist`) et rien n'est débité. La possession est prouvée
+   par la résolution dans les objets du personnage (`GetItemByHandleAsync`).
+4. **La solvabilité est jugée côté serveur** (`CheckAffordable`) : `gold > CharacterGold` →
+   `NotEnoughMoney`, `jp > CharacterJp` → `NotEnoughJP`, l'or rapporté avant le jp, l'ordre de la
+   trame. La forme est jugée **avant** la solvabilité.
+5. **La réponse est `SendResult(258, code, 0)`**, sur le refus comme sur le succès. `value = 0` : la
+   spec (§5.3.3, §7.2) constate qu'aucune référence ne la renseigne, et `value` étant un champ fixe, ce
+   choix ne peut pas désaligner.
+6. **L'ordre des notifications** suit `ItemUseService` : par objet `TM_SC_DESTROY_ITEM` (254) si la
+   pile est épuisée, sinon `TM_SC_UPDATE_ITEM_COUNT` (255) ; puis `TM_SC_GOLD_UPDATE` (1001) si
+   `gold > 0` ; puis `TM_SC_EXP_UPDATE` (1003) si `jp > 0` ; puis l'accusé `TM_SC_RESULT` (0).
+7. **L'or et le jp sont persistés tout de suite** (`SaveProgressAsync`), sans attendre la sauvegarde de
+   déconnexion : un don retire de la valeur définitivement. Un échec de cette écriture est **journalisé**
+   et non transformé en refus — les objets sont déjà partis, et répondre `DBError` signalerait un échec
+   sur lequel le joueur ne peut rien.
+
+### 9.2 Limites et réserves ouvertes
+
+1. **Aucun crédit (§5.4, §7.1) — question métier, non tranchée ici.** Le paquet est acquitté et la
+   valeur est retirée ; le joueur ne reçoit rien en échange, et le 259 reste hors périmètre. C'est le
+   choix que §5.3 déclare « périmètre honnête » ; l'alternative (`AccessDenied` systématique en
+   attendant l'arbitrage) reste ouverte et appartient à Killian. C'est la réserve principale.
+2. **La prise n'est pas atomique au sens strict.** Les primitives existantes n'offrent pas de porte
+   unique pour « or + jp + N objets » : la résolution précède la consommation, et `ConsumeItemAsync`
+   puis `SaveProgressAsync` sont deux transactions. Une course (un autre paquet d'objet traité entre
+   les deux) peut laisser un débit partiel. C'est la conséquence assumée du périmètre §5.3, qui nomme
+   ces primitives ; `RemoveItemAsync` et `EraseItemsAsync` montrent la forme d'une porte unique si le
+   dépôt veut resserrer plus tard.
+3. **Un `count` supérieur à la pile consomme toute la pile** : `RemoveAmount` borne à `Math.Min(count,
+   amount)`. Ce n'est pas une règle inventée mais le comportement de la primitive ; la sémantique
+   exacte du `count` par objet reste `NON ÉTABLI` (§7.5).
+4. **Aucun refus « non donatable »** : le bit n'est pas établi (§7.3), l'enum `ItemUseFlag` du dépôt
+   étant une `[Flags]` à membres séquentiels. Non codé, volontairement.
+5. **Aucun plafond par don côté serveur** : le plafond annoncé par le client (§7.4) n'est pas lu ; la
+   seule borne appliquée est celle du protocole, portée par le compte signé à un octet (127, testé).
+6. **Les réponses attendues par le client ne sont pas prouvées** : 254/255/1001/1003 + `TM_SC_RESULT`
+   sont la convention de la famille, pas une exigence constatée (§7.2). À vérifier en jeu.
+7. **L'identité des `handle` d'objet** reste la même réserve que pour le 253 (§7.7) : le code résout
+   `handle` dans les items du personnage, ce qui est cohérent mais non prouvé par le binaire client.
+
+### 9.3 Vérification
+
+Relevé sur la branche, après implémentation et tests :
+
+| Commande | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | code **0**, 0 erreur, 160 avertissements (identique à la baseline de la fiche) |
+| `dotnet test Tests/Tests.csproj` | code **0**, **479 tests** réussis sur 479 (448 à la baseline, **+31**) |
+| `git log --oneline origin/master..master` | vide (aucun commit sur `master` locale) |
+
+Aucun champ `NON ÉTABLI` de §7 n'a été deviné : chacun est soit laissé de côté, soit reporté au §9.2.
+
 ## Note de livraison
 
-Cette fiche n'ajoute **aucun fichier de code** : elle ne touche ni `Game/`, ni `Tests/`, ni `CLAUDE.md`.
+Cette fiche n'a **pas** été livrée avec du code : la fiche seule (commit `8a2598d`) ne touche ni `Game/`,
+ni `Tests/`, ni `CLAUDE.md`. §9 ci-dessus a été ajoutée par le dev dans le même travail, après
+implémentation, et décrit un comportement constaté.
 `docs/packet-specs/` est déjà suivi par `master` (`.gitignore:473`, `!/docs/packet-specs/`), donc
 aucune modification de `.gitignore` n'est nécessaire pour cette fiche — contrairement aux fiches
 antérieures qui devaient ouvrir l'exception.
@@ -316,12 +400,12 @@ Baseline relevée sur `master` (`ec76b218cd0bd7c6498d725f253abb8b431f0cd6`) avan
 `dotnet build Navislamia.sln -c Debug` code **0** (0 erreur, 160 avertissements) ;
 `dotnet test Tests/Tests.csproj` code **0**, **448 tests** réussis sur 448.
 Le plancher de non-régression des critères transversaux (366) est donc déjà largement dépassé ; c'est
-448 qui doit être conservé comme référence pour cette branche.
+448 qui doit être conservé comme référence pour cette branche, et **479** le relevé de la branche
+livrée (§9.3).
 
 Le bloc destiné à `CLAUDE.md` (sous-section `### Paquet 258 — TM_CS_DONATE_ITEM`, sur le modèle de
-celles des paquets 203 et 253) reste à rédiger par le dev **après** implémentation : il doit décrire
-le comportement livré, que cette fiche ne peut pas encore constater. Le dev n'écrit pas `CLAUDE.md` —
-le bloc va dans la description de la MR, que le QA recopie.
+celles des paquets 203 et 253) est **rédigé dans la description de la MR** : il décrit le comportement
+livré, que §9 vient de constater. Le dev n'écrit pas `CLAUDE.md` — le QA recopie le bloc.
 
 Rappel de méthode pour l'audit de cette fiche : les preuves client proviennent d'une lecture statique
 du binaire (`strings -n 4`, `cmp`, `objdump -d -M intel --start-address/--stop-address`, et deux
