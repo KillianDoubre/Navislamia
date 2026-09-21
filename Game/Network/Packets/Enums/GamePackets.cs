@@ -45,6 +45,8 @@ public enum GamePackets : ushort
     TM_SC_HIDE_EQUIP_INFO = 222,
     TM_SC_SKIN_INFO = 224,
     TM_SC_USE_ITEM_RESULT = 283,
+    TM_CS_BIND_SKILLCARD = 284,
+    TM_SC_SKILLCARD_INFO = 286,
     TM_EQUIP_SUMMON = 303,
     TM_CS_SKILL = 400,
     TM_SC_SKILL = 401,

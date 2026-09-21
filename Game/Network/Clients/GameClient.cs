@@ -516,6 +516,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleBindSkillCardAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadBindSkillCard(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_BIND_SKILLCARD, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.SkillCardService.BindAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process skill card bind for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleLearnSkillAsync(byte[] packet)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
@@ -627,6 +645,18 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_SC_SKILLCARD_INFO is a server to client packet (rzu TS_SC_SKILLCARD_INFO.h:13): the 7.3
+            // client never sends it. An incoming one is a protocol anomaly, not a request, so it is logged
+            // and dropped instead of reaching the "Unknown Packet Type" throw below — the same rule as for
+            // TM_SC_REGION_ACK above. The member has to stay declared: it is what the server emits to
+            // answer TM_CS_BIND_SKILLCARD (284) and TM_CS_UNBIND_SKILLCARD (285).
+            if (header.ID == (ushort)GamePackets.TM_SC_SKILLCARD_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_SKILLCARD_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
@@ -708,6 +738,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_BIND_SKILLCARD)
+            {
+                _ = HandleBindSkillCardAsync(msgBuffer);
                 continue;
             }
 
