@@ -627,6 +627,17 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_SC_MIX_RESULT (257) and TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW (261) are server to client
+            // packets as well (rzu declares both SessionPacketOrigin::Server): the 7.3 client never sends
+            // them, so an incoming one is a protocol anomaly, logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below.
+            if (header.ID is (ushort)GamePackets.TM_SC_MIX_RESULT or
+                (ushort)GamePackets.TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW)
+            {
+                _logger.Warning("Server to client packet ({id}) received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
@@ -708,6 +719,21 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            // The crafting and item-enchantment family (256, 260, 262, 263, 264) goes through the
+            // structural socle, which reads and bounds the frame, resolves the handles it names and
+            // refuses: the crafting engine and its game policy are not written yet. One arm covers the
+            // five ids so that no member of GamePackets reaches the "Unknown Packet Type" throw below.
+            // See docs/packet-specs/socle-artisanat-objets.md §9.2.
+            if (header.ID is (ushort)GamePackets.TM_CS_MIX or
+                (ushort)GamePackets.TM_CS_SOULSTONE_CRAFT or
+                (ushort)GamePackets.TM_CS_REPAIR_SOULSTONE or
+                (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY or
+                (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT)
+            {
+                _ = _networkService.CraftingSocleService.HandleAsync(this, header.ID, msgBuffer);
                 continue;
             }
 

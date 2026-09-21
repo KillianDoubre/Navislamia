@@ -41,6 +41,20 @@ public enum GamePackets : ushort
     TM_CS_USE_ITEM = 253,
     TM_SC_DESTROY_ITEM = 254,
     TM_SC_UPDATE_ITEM_COUNT = 255,
+
+    // The crafting and item-enchantment family. Epic 7.3 keeps the low ids (rzu remaps them to
+    // +1000 from EPIC_9_6_3 on, which is above EPIC_7_3 = 0x070300). TM_SC_SHOW_SOULSTONE_CRAFT_WINDOW
+    // has no established 7.3 id (rzu and NGemity both declare it on 259, where op_codes.md declares
+    // TM_CS_DONATE_REWARD) and is therefore deliberately absent.
+    // See docs/packet-specs/socle-artisanat-objets.md §1 and §5.1.
+    TM_CS_MIX = 256,
+    TM_SC_MIX_RESULT = 257,
+    TM_CS_SOULSTONE_CRAFT = 260,
+    TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW = 261,
+    TM_CS_REPAIR_SOULSTONE = 262,
+    TM_CS_TRANSMIT_ETHEREAL_DURABILITY = 263,
+    TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT = 264,
+
     TM_SC_HAIR_INFO = 220,
     TM_SC_HIDE_EQUIP_INFO = 222,
     TM_SC_SKIN_INFO = 224,
