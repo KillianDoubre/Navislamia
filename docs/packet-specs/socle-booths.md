@@ -608,7 +608,7 @@ tests, sur la branche `hermes/packet-socle-booths`.
 | `Game/Services/BoothRules.cs` (nouveau) | `TryAcceptStartBooth`, `ValidateStartBooth`, `IsGuardedAction`, `GateAction` |
 | `Game/Network/Clients/ConnectionInfo.cs` | `Booth`, `IsBoothOpen`, `OpenBooth`, `CloseBooth`, `BoothLock` (verrou dédié) |
 | `Game/Network/Clients/GameClient.cs` | deux bras de dispatch, **un** garde de verrou en tête de chaîne, `HandleStartBooth` / `HandleStopBooth` |
-| `Tests/Game/BoothPacketsTests.cs` (nouveau) | 13 tests d'offsets et de lecture de trame |
+| `Tests/Game/BoothPacketsTests.cs` (nouveau) | 14 tests d'offsets et de lecture de trame |
 | `Tests/Game/BoothRulesTests.cs` (nouveau) | 20 tests de règles, de verrou et d'état |
 
 **Partage lecture / règles.** Le lecteur (`BoothPackets`) ne juge que la **trame** : `Length < 59`,
@@ -641,7 +641,7 @@ neuf ids déclarés, pas « toute action » au sens large.
 | commande | résultat |
 |---|---|
 | `dotnet build Navislamia.sln -c Debug` | **code de sortie 0**, 0 erreur, 160 avertissements (identiques à `master`) |
-| `dotnet test Tests/Tests.csproj` | **code de sortie 0**, **481 tests passés**, 0 échec, 0 ignoré (448 sur `master`, +33) |
+| `dotnet test Tests/Tests.csproj` | **code de sortie 0**, **482 tests passés**, 0 échec, 0 ignoré (448 sur `master`, +34) |
 | `git log --oneline origin/master..master` | **vide** — aucun commit sur `master` locale |
 | `git log --oneline origin/master..hermes/packet-socle-booths` | la fiche (archéologue) puis les commits du dev : implémentation, puis cette note |
 
