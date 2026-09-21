@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Game;
 
 using Serilog;
@@ -205,6 +206,59 @@ public class CharacterService : ICharacterService
     {
         return RunExclusiveAsync(() => Task.FromResult(FindByHandle(
             _characterRepository.GetCharacterByNameWithItems(characterName)?.Items, itemHandle)));
+    }
+
+    public Task<SkillCardBindResult> BindSkillCardAsync(string characterName, uint itemHandle, uint targetHandle,
+        IItemGroupCatalog itemGroups)
+    {
+        return RunExclusiveAsync(async () =>
+        {
+            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var item = FindByHandle(character?.Items, itemHandle);
+            if (item is null)
+            {
+                return new SkillCardBindResult(SkillCardBindOutcome.NotFound, character, null);
+            }
+
+            // NGemity resolves the handle first and only then judges the target
+            // (WorldSession.cpp:1683 then :1688), so a wrong target on an unknown handle reports
+            // NOT_EXIST, never NOT_ACTABLE.
+            if (!SkillCardBindRules.IsSelfTarget(targetHandle, (uint)character.Id))
+            {
+                return new SkillCardBindResult(SkillCardBindOutcome.NotActable, character, item);
+            }
+
+            var group = itemGroups.TryGetGroup(item.ItemResourceId, out var knownGroup) ? knownGroup : (ItemGroup?)null;
+            if (SkillCardBindRules.CheckBindable(group, item.WearInfo, item.SocketItemIds) != ResultCode.Success)
+            {
+                return new SkillCardBindResult(SkillCardBindOutcome.AccessDenied, character, item);
+            }
+
+            item.SocketItemIds = WriteBearerSocket(item.SocketItemIds, character.Id);
+            await _characterRepository.SaveChangesAsync();
+            return new SkillCardBindResult(SkillCardBindOutcome.Success, character, item);
+        });
+    }
+
+    /// <summary>
+    /// The bound state lives in the sockets of the row, as in NGemity (Item::SetBindTarget,
+    /// Chihiro/src/Entities/Item/Item.cpp:314-332). Socket 0 holds the bearer's character id; the
+    /// array is rebuilt rather than mutated so the change tracker always sees the row as modified.
+    /// The four slots are the ones the model bounds (TelecasterContext.cs:55) and the inventory
+    /// record serialises (GameCharacterPackets.cs:353-356); sockets 1-3 are left as they were, and a
+    /// socket 1 holding a summoned creature stays out of scope (fiche 284 §5.2 i).
+    /// </summary>
+    private static long[] WriteBearerSocket(long[] sockets, long bearerId)
+    {
+        const int socketCount = 4;
+        var updated = new long[socketCount];
+        if (sockets is not null)
+        {
+            Array.Copy(sockets, updated, Math.Min(sockets.Length, socketCount));
+        }
+
+        updated[SkillCardBindRules.BearerSocketIndex] = bearerId;
+        return updated;
     }
 
     public Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog)

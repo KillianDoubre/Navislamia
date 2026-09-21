@@ -152,6 +152,54 @@ public class ActionPacketsTests
         GameActionPackets.TryReadChangeItemPosition(new byte[15], out _).Should().BeFalse();
     }
 
+    /// <summary>
+    /// TM_CS_BIND_SKILLCARD (284): the fixed 15 byte frame of rzu TS_CS_BIND_SKILLCARD.h, the 7 byte
+    /// header then item_handle at 7 and target_handle at 11. See docs/packet-specs/284-bind-skillcard.md §3.
+    /// </summary>
+    [Test]
+    public void TryReadBindSkillCard_ReadsTheFifteenByteLayout()
+    {
+        var packet = new byte[15];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), 15);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), (ushort)GamePackets.TM_CS_BIND_SKILLCARD);
+        packet[6] = 0x2a;
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(7, 4), 0x80000123u);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(11, 4), 0x40000001u);
+
+        GameActionPackets.TryReadBindSkillCard(packet, out var request).Should().BeTrue();
+        request.ItemHandle.Should().Be(0x80000123u);
+        request.TargetHandle.Should().Be(0x40000001u);
+    }
+
+    [Test]
+    public void TryReadBindSkillCard_ReadsAZeroTargetHandle()
+    {
+        var packet = new byte[15];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(7, 4), 0x80000123u);
+
+        GameActionPackets.TryReadBindSkillCard(packet, out var request).Should().BeTrue();
+        request.ItemHandle.Should().Be(0x80000123u);
+        request.TargetHandle.Should().Be(0u);
+    }
+
+    [Test]
+    public void TryReadBindSkillCard_RejectsAFrameShorterThanFifteenBytes()
+    {
+        GameActionPackets.TryReadBindSkillCard(new byte[14], out _).Should().BeFalse();
+        GameActionPackets.TryReadBindSkillCard(new byte[15], out _).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The ids the 7.3 client binds its names to (SFrame.exe, table at VA 0x676fba). 285 belongs to its
+    /// own cycle: the pair 284/286 is what this one adds.
+    /// </summary>
+    [Test]
+    public void SkillCardIds_MatchTheEpic73Protocol()
+    {
+        ((ushort)GamePackets.TM_CS_BIND_SKILLCARD).Should().Be(284);
+        ((ushort)GamePackets.TM_SC_SKILLCARD_INFO).Should().Be(286);
+    }
+
     [Test]
     public void TryReadEraseItem_ReadsTheCountedTwelveByteRecords()
     {

@@ -211,6 +211,22 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    /// <summary>
+    /// <c>TM_SC_SKILLCARD_INFO</c> (286), the answer common to <c>TM_CS_BIND_SKILLCARD</c> (284) and
+    /// <c>TM_CS_UNBIND_SKILLCARD</c> (285). Same shape as <see cref="BuildUseItemResult"/>: rzu gives
+    /// both frames the same two handles (<c>TS_SC_SKILLCARD_INFO.h:6-7</c>), so the packet is 15 bytes
+    /// and carries the state <em>after</em> the operation: <paramref name="targetHandle"/> is the bearer
+    /// once bound, <c>0</c> once unbound (NGemity <c>Messages.cpp:1010-1017</c>).
+    /// </summary>
+    public static byte[] BuildSkillCardInfo(uint itemHandle, uint targetHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_SKILLCARD_INFO, HeaderSize + 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), targetHandle);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildEquipSummon(long[] summonSlots)
     {
         const int slotCount = 6;

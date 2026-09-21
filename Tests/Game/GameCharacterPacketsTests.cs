@@ -34,6 +34,29 @@ public class GameCharacterPacketsTests
         BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(24)).Should().Be(1);
     }
 
+    /// <summary>
+    /// TM_SC_SKILLCARD_INFO (286): the 15 byte answer of the skill card cycle, the same two handles at the
+    /// same offsets as TM_SC_USE_ITEM_RESULT. See docs/packet-specs/284-bind-skillcard.md §3.
+    /// </summary>
+    [Test]
+    public void BuildSkillCardInfo_LaysOutTheFifteenByteSkillCardState()
+    {
+        var packet = GameCharacterPackets.BuildSkillCardInfo(itemHandle: 0x80000123u, targetHandle: 0x40000001u);
+
+        packet.Length.Should().Be(15);
+        AssertFrame(packet, GamePackets.TM_SC_SKILLCARD_INFO);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x80000123u);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(11, 4)).Should().Be(0x40000001u);
+    }
+
+    [Test]
+    public void BuildSkillCardInfo_WritesAnUnboundCardAsAZeroTargetHandle()
+    {
+        var packet = GameCharacterPackets.BuildSkillCardInfo(itemHandle: 0x80000123u, targetHandle: 0u);
+
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(11, 4)).Should().Be(0u);
+    }
+
     [Test]
     public void BuildItemWearInfo_LaysOutTheEpic73ItemWearRecord()
     {

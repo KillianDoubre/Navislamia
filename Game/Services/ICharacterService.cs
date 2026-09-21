@@ -34,6 +34,20 @@ public interface ICharacterService
     Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle);
 
     /// <summary>
+    /// Binds one of the character's skill cards to the character, the whole judgement inside the
+    /// database gate so a packet handled in between cannot invalidate it: the handle is resolved among
+    /// the character's items, the target must be the character itself, then the card must be an
+    /// inventory skill card, worn by nobody and not bound yet (<see cref="SkillCardBindRules"/>).
+    /// <see cref="SkillCardBindOutcome.NotFound"/> for an unknown handle,
+    /// <see cref="SkillCardBindOutcome.NotActable"/> when the target is not the character,
+    /// <see cref="SkillCardBindOutcome.AccessDenied"/> when the card itself is refused. On success the
+    /// bearer reference is written in socket 0 of the row and saved, as NGemity's
+    /// <c>Item::SetBindTarget</c> does (Item.cpp:314-332).
+    /// </summary>
+    Task<SkillCardBindResult> BindSkillCardAsync(string characterName, uint itemHandle, uint targetHandle,
+        IItemGroupCatalog itemGroups);
+
+    /// <summary>
     /// Takes <paramref name="count"/> units off one of the character's stacks and returns the amount
     /// left, <c>0</c> when the stack ran out and was deleted, or <c>null</c> when the handle resolves to
     /// none of the character's items.
