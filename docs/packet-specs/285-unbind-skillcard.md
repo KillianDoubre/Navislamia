@@ -463,6 +463,79 @@ tests) : c'est la référence à consulter en premier au développement.
 > `TS_SC_RESULT` de succès. Piège : NGemity laisse l'objet lié et reste muet quand la compétence est
 > introuvable ; ne pas porter ce silence.
 
+## 10. Implémentation livrée (`navis-dev`)
+
+Le paquet est porté sur la branche de l'archéologue, commit `38280de` (« Unbind a skill card with
+`TM_CS_UNBIND_SKILLCARD` (285) »). Sur cette branche, `master` (`ec76b21`) ne porte rien du cycle 284 :
+le 285 est donc développé **seul et complet**, comme §5.3 le tranche, et les noms de la surface partagée
+(`SkillCardService`, `SkillCardBindRules`, `SkillCardBindResult`, `ISkillCardService`,
+`ICharacterService`) sont ceux que §5.3 fixe pour que l'intégration avec la branche 284 se réduise à une
+union, sans arbitrage de conception. Aucun fichier de la branche 284 n'a été recopié : l'unbind est
+écrit ici.
+
+| Fichier | Ce qui y a été porté |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs:48-49` | `TM_CS_UNBIND_SKILLCARD = 285`, `TM_SC_SKILLCARD_INFO = 286` (284 reste à son cycle) |
+| `Game/Network/Packets/Game/GameActionPackets.cs:21-26` et `:202-224` | `UnbindSkillCardRequest`, `TryReadUnbindSkillCard` : 15 octets exigés, toute trame plus courte est rejetée |
+| `Game/Network/Packets/Game/GameCharacterPackets.cs:213-228` | `BuildSkillCardInfo` (gabarit `BuildUseItemResult`, 15 octets, handles @7 et @11) |
+| `Game/Services/SkillCardBindResult.cs` | `SkillCardBindOutcome` {`Success`, `NotFound`, `NotActable`, `AccessDenied`} et le verdict (résultat + `ResultCode` + valeur renvoyée) |
+| `Game/Services/SkillCardBindRules.cs` | règles pures : `BearerSocketIndex` (socket 0), `SocketCount`, `IsSelfTarget`, `IsBound`, `CheckUnbindable` |
+| `Game/Services/ICharacterService.cs:37-43` + `Game/Services/CharacterService.cs:210-234` | `UnbindSkillCardAsync` : résolution du handle, jugements, écriture et `SaveChangesAsync` **sous `_databaseGate`** |
+| `Game/Services/CharacterService.cs:465-490` | `ClearBearerSocket` : tableau **refait** à quatre slots pour que le change tracker voie la ligne modifiée, sockets 1-3 conservés |
+| `Game/Services/SkillCardService.cs`, `Game/Services/Interfaces/ISkillCardService.cs` | verdict → `TS_SC_RESULT` ; succès → 286 à cible nulle **seul** ; exception → `DBError` |
+| `Game/Network/Clients/GameClient.cs:501-521` | `HandleUnbindSkillCardAsync` (lecture ratée → `InvalidArgument`) |
+| `Game/Network/Clients/GameClient.cs:744-749` | bras de réception du 285 |
+| `Game/Network/Clients/GameClient.cs:650-660` | bras « S→C reçu, journaliser et ignorer » du 286, sur le modèle du 11 |
+| `Game/Network/NetworkService.cs:35,55,73` + `DevConsole/Program.cs:240` | injection du service |
+
+### 10.1 Décisions prises au-delà de la fiche
+
+1. **Un handle de personnage nul n'est pas une auto-cible.** `IsSelfTarget` exige
+   `characterHandle != 0`, la règle déjà tranchée pour le cycle 284 (même motif : un personnage entré en
+   jeu a toujours un handle non nul, `ConnectionInfo.CharacterHandle = (uint)character.Id` ; accepter
+   zéro laisserait passer un déliage sur une carte dont le socket 0 vaut zéro, c'est-à-dire l'état
+   opposé). Ce cas n'existe pas pour le client 7.3, il ne change aucun comportement observable.
+2. **L'ordre du §5.2 e est tenu à l'intérieur de la porte** : un handle inconnu porteur d'une cible
+   fausse répond `NotExist` (1), jamais `NotActable` (5). Test
+   `CheckUnbindable_AnswersNotExistBeforeLookingAtTheTarget`.
+3. **Aucune écriture quand le verdict est un refus** : `SaveChangesAsync` n'est atteint que sur le chemin
+   `Success` (`MustNotHaveHappened` dans quatre tests).
+4. **Seul le socket 0 est écrit** (§5.2 g et §6.5) : le socket 1 (invocation) reste tel quel, le socle
+   « invocations » étant absent de `master`. L'`Enhance` de l'objet n'est touché par aucune des deux
+   références et l'enhance de compétence n'a pas de modèle ici : rien d'autre n'est écrit.
+5. **Compétence introuvable : la carte est déliée** (§6.4). Le silence de NGemity supposerait un état
+   de compétence (`Skill::m_nEnhance`) que `master` ne porte pas ; l'écart est assumé et porté à Killian.
+6. **Pas de `SendInventory` en plus du 286** : la fiche ne le demande pas (§6.3), le levier reste décrit
+   pour §7.2.
+
+### 10.2 Tests
+
+| Fichier | Ajout |
+| --- | --- |
+| `Tests/Game/UnbindSkillCardPacketsTests.cs` (nouveau, 7 tests) | ids 285/286 ; trame 285 de 15 octets (`Length` @0 = 15, `ID` @4 = 285, `Checksum` @6 = `0x2D`, `item_handle` @7, `target_handle` @11) ; rejet d'une trame de 14 octets ; octets au-delà de la trame ignorés ; écho 286 de 15 octets (`ID` @4 = 286, `target_handle` @11 = `0`) |
+| `Tests/Game/SkillCardUnbindTests.cs` (nouveau, 17 tests) | règles pures (`IsBound`, `IsSelfTarget`, `CheckUnbindable` et ses six cas, ressource inconnue non gatée) et exécution sous la porte : socket 0 remis à `0`, sockets 1-3 conservés, `NotFound`/`NotActable`/`AccessDenied` sans écriture |
+
+`dotnet build Navislamia.sln -c Debug` → **0 erreur** (160 avertissements préexistants) ;
+`dotnet test Tests/Tests.csproj` → **472 réussis, 0 échec** (448 au commit précédent, +24).
+
+### 10.3 Réserves reportées à l'arbitrage
+
+- §7.1 (libellé du geste), §7.2 (le 286 seul suffit-il ?), §7.3, §7.4 et §7.5 (données `Arcadia`) :
+  inchangées, contrôlables seulement en jeu ou sur une base importée.
+- Le 286 est déclaré sur cette branche comme §5.3 le tranche ; la suppression du doublon à l'intégration
+  (une ligne d'enum, un bras de dispatch, une méthode de construction) reste à faire par le cycle intégré
+  en second.
+- §7.6 : la convention « socket 0 = `Id` du porteur » reste à entériner par la revue de la MR 284.
+
+### 10.4 État de la branche après le développement
+
+- Commits de la branche : `0f33ffc` (fiche), `3bcda44` (renvois à l'implémentation 284) puis `38280de`
+  (« Unbind a skill card with `TM_CS_UNBIND_SKILLCARD` (285) »).
+- `git log --oneline origin/master..master` **vide** avant et après les commits : `master` n'a pas
+  bougé, aucune autre branche n'est créée, aucun rebase ni merge, aucun push.
+- Le bloc destiné à `CLAUDE.md` est celui du §9, **inchangé** : l'implémentation ne l'a pas démenti
+  (ids courts, socket 0 comme état, 286 à cible nulle comme unique succès).
+
 ## A VERIFIER PAR KILLIAN
 
 Les points ci-dessous sont des décisions ou des réserves **vérifiables**, pas des suppositions. Ils
@@ -507,3 +580,5 @@ n'empêchent pas le développement du 285 sur cette branche.
   critère 2 en exige 366 au minimum, il ne doit jamais baisser.
 - Réserve principale : le sort du 286 sur cette branche (§5.3) — décision tranchée ici, intégration à
   confirmer avant le merge de la MR 284.
+- Développement (`navis-dev`) : le code décrit au §10 est livré par le commit `38280de` sur cette même
+  branche. La note ci-dessus décrit l'état au commit de la fiche et reste vraie pour `navis-ref`.
