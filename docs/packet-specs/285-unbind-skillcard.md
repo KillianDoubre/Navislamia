@@ -224,9 +224,13 @@ est déclaré sur cette branche, un bras « paquet S→C reçu, journaliser et i
 membre atteindrait la bascule finale `_ => throw new Exception("Unknown Packet Type")`
 (`GameClient.cs:802`), ce que le critère 4 interdit.
 
-**e. Traitement.** Un service dédié (modèle `ItemUseService` : `ItemUseService.cs:17-103`, ou
-extension cohérente avec l'architecture des services d'objets) applique les trois jugements de
-NGemity **dans son ordre**, puis délie :
+**e. Traitement.** Le jumeau 284 a déjà posé l'architecture sur sa branche (`SkillCardService`,
+`SkillCardBindRules`, `SkillCardBindResult`, `ICharacterService.BindSkillCardAsync` — voir le §10 de
+`284-bind-skillcard.md`, commit `67319ce`) : le 285 doit **prolonger ces fichiers**, pas en créer
+d'autres (`UnbindAsync` dans `SkillCardService`, `CheckUnbindable` dans les règles — `IsBound` y est
+déjà, `BuildSkillCardInfo` aussi). S'ils sont absents (branche 284 non mergée et cycle 285 développé
+seul), le modèle de repli est `ItemUseService` (`ItemUseService.cs:17-103`). Dans tous les cas le
+service applique les trois jugements de NGemity **dans son ordre**, puis délie :
 
 | Ordre | Condition | Réponse |
 | --- | --- | --- |
@@ -248,13 +252,16 @@ Le groupe d'objet est lu par `ItemGroupCatalog.TryGetGroup((int)item.ItemResourc
 refuser serait un refus non prouvé, la déliaison est donc **laissée non gatée** dans ce cas, comme le
 253 le fait pour les niveaux d'utilisation (`ItemUseService.cs:57-59`).
 
-**f. Persistance.** L'écriture doit être celle du cycle 284 sur le même socket : sous
+**f. Persistance.** L'écriture doit inverser exactement celle du cycle 284 : sous
 `RunExclusiveAsync` (`CharacterService.cs:441-445`), lire le personnage par son nom
 (`:204-208`), remettre `SocketItemIds[0]` à `0` en préservant les sockets 1 à 3, sauvegarder
 (`:431-434`). Sur `master`, **cette primitive n'existe pas** : la branche 284 ajoute un
-`WriteBearerSocket` (fiche 284 §5.2 f). Si elle est déjà sur la branche de base, la réutiliser ;
-sinon ajouter l'équivalent inverse (`ClearBearerSocketAsync(characterName, itemHandle)`), strictement
-sur le socket 0.
+`WriteBearerSocket` (fiche 284 §5.2 f ; sur sa branche, `CharacterService.cs:251-262`, qui **refait**
+le tableau `SocketItemIds` à quatre slots pour que le change tracker voie la ligne modifiée et
+conserve les sockets 1-3). Si elle est déjà sur la branche de base, la réutiliser avec `0` comme
+valeur ; sinon ajouter l'équivalent inverse (`ClearBearerSocketAsync(characterName, itemHandle)`),
+strictement sur le socket 0, et **ne pas écrire** quand le verdict est un refus (décision 4 du
+§10.1 de la fiche 284).
 
 **g. Compétence et enhance (question 5 du cadrage).** Délier ne change, côté Navislamia, **que le
 socket 0 de l'objet** :
@@ -275,7 +282,9 @@ rafraîchissement des info-bulles) n'est **pas** démontrable statiquement : §7
 (`Tests/`) : trame 285 de **15** octets (`Length` @0 = 15, `ID` @4 = 285, `Checksum` @6,
 `item_handle` @7, `target_handle` @11), trame de 14 octets rejetée, écho 286 de **15** octets
 (`ID` @4 = 286, `target_handle` @11 = `0`), et les refus 3/4/5/7 avec la valeur exacte de
-`TS_SC_RESULT`. Les tests de 284 sur sa branche couvrent la même trame montante et le même écho :
+`TS_SC_RESULT`. Plancher mesuré à ce commit de `master` : `dotnet build` 0 erreur et `dotnet test`
+**448 réussis / 0 échec** (le critère 2 en exige 366 ; la branche 284 en est à 471 après son propre
+cycle). Les tests de 284 sur sa branche couvrent la même trame montante et le même écho :
 la duplication est attendue tant que les deux branches ne sont pas intégrées (§5.3).
 
 **i. Garde de session.** Ne pas porter l'asymétrie de NGemity (§5.1, asymétrie 1) : le service
@@ -310,6 +319,15 @@ l'intégration suit une règle unique :
 - sinon, ce cycle les ajoute à l'identique ; **c'est celui qui est intégré en second qui supprime son
   doublon** (une ligne dans `GamePackets.cs`, un bras dans `GameClient.cs`, une méthode dans
   `GameCharacterPackets.cs` — trois conflits triviaux, pas une divergence de conception).
+
+Le reste du corpus 284 est également **dupliqué par construction** si les deux cycles avancent en
+parallèle : `SkillCardService`, `SkillCardBindRules`, `SkillCardBindResult`, le contrat
+`ICharacterService`, `WriteBearerSocket` et les tests de trame. La règle ci-dessus s'y applique
+ligne à ligne : mêmes noms, mêmes signatures, un seul exemplaire après intégration. Le cycle 285
+**peut** être développé seul (c'est le choix tranché ici) : il est alors complet sur sa branche et
+l'intégration se réduit à supprimer les doublons, jamais à arbitrer un choix de conception.
+Le §10 de `284-bind-skillcard.md` documente l'implémentation 284 réellement livrée (fichiers, lignes,
+tests) : c'est la référence à consulter en premier au développement.
 
 ### 5.4 Primitives réutilisables (vérifiées sur `master` `ec76b21`)
 
@@ -471,3 +489,21 @@ n'empêchent pas le développement du 285 sur cette branche.
 8. **Correction apportée à la fiche 284** (§2.2) : le geste d'émission est désormais établi pour
    **284 et 285 ensemble** (deux sous-commandes d'un même handler). Le §7.1 de la fiche 284 peut être
    clos à ce titre lors de la revue de sa MR.
+
+## Note de livraison
+
+- Branche : `hermes/packet-285-unbind-skillcard`, créée depuis `master`
+  `ec76b218cd0bd7c6498d725f253abb8b431f0cd6` (dépôt propre, `git log --oneline origin/master..master`
+  vide avant et après les commits).
+- Commits : `0f33ffc` (« Document TM_CS_UNBIND_SKILLCARD (285) in its packet spec ») puis celui qui
+  porte les renvois à l'implémentation 284 livrée (§5.2 e/f, §5.3, §5.2 h).
+- Aucun fichier de code touché : cette fiche est le seul livrable de `navis-ref`.
+- `master` n'est pas modifié, aucune autre branche créée, aucun rebase ni merge ; aucune exécution du
+  client, de Lua ou d'un script du client (lecture statique par `objdump` et `strings` uniquement).
+- Contrôle de non-régression sur cette branche (changement documentaire uniquement) :
+  `dotnet build Navislamia.sln -c Debug` → **0 erreur** (160 avertissements préexistants) ;
+  `dotnet test Tests/Tests.csproj` → **448 réussis, 0 échec**
+  (`NUGET_PACKAGES=/srv/navislamia/.nuget-cache`). C'est le plancher réel du dépôt à ce commit ; le
+  critère 2 en exige 366 au minimum, il ne doit jamais baisser.
+- Réserve principale : le sort du 286 sur cette branche (§5.3) — décision tranchée ici, intégration à
+  confirmer avant le merge de la MR 284.
