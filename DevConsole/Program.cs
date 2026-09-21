@@ -237,6 +237,7 @@ public class Program
         services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
+        services.AddSingleton<IQuestService, QuestService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<MonsterWorldState>();

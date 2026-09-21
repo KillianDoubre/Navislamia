@@ -66,6 +66,29 @@ public class CharacterRepository : ICharacterRepository
         _context.Remove(item);
     }
 
+    public async Task<List<CharacterQuestEntity>> GetQuestsAsync(string characterName)
+    {
+        return await QuestsOf(characterName).AsNoTracking().OrderBy(quest => quest.Code).ToListAsync();
+    }
+
+    public Task<CharacterQuestEntity> GetQuestAsync(string characterName, int code)
+    {
+        return QuestsOf(characterName).FirstOrDefaultAsync(quest => quest.Code == code);
+    }
+
+    public void DeleteQuest(CharacterQuestEntity quest)
+    {
+        _context.CharacterQuests.Remove(quest);
+    }
+
+    private IQueryable<CharacterQuestEntity> QuestsOf(string characterName)
+    {
+        return from quest in _context.CharacterQuests
+               join character in _context.Characters on quest.CharacterId equals character.Id
+               where character.CharacterName == characterName
+               select quest;
+    }
+
     public int CharacterCount(int accountId)
     {
         return _context.Characters.Count(c => c.AccountId == accountId);
