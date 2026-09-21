@@ -546,6 +546,9 @@ Aucun : S1, S2 et S3 exigent tous du code. Le socle ne peut pas être « documen
 | 7 | Signification des colonnes de catégorie (§8.5) | recherche par catégorie de 1300 |
 | 8 | Sort de l'objet invendu ou rendu : entrepôt du personnage ou inventaire direct ? | 1310, 1303, et la reprise via `AUSIMSG_REQ_AUCTION_ITEM_KEEPING_LIST` |
 | 9 | La correction de `socle-booths.md` (§7.5) doit-elle donner lieu à une carte de correction ? | cohérence entre les fiches |
+| 10 | `item_info.flag` d'un objet sans flag part en `0xFFFFFFFF` (suite de `ItemFlag.None = -1`, §12.3.1) : écrire `0`, ou corriger la conversion ? | contenu des trois réponses, comme la question 3 |
+| 11 | Nom de table retenu pour `AuctionCateryResource` (convention EF `AuctionCateryResources` vs `AuctionCateryResource` du SQL) et voie de provisionnement (§12.3.3) | la requête de catégories lira la mauvaise table si les deux diffèrent |
+| 12 | La paire `(catery_id, sub_catery_id)` est-elle unique dans la table réelle ? (§12.3.2) | suivi d'entités de `AuctionCateryResourceRepository` |
 
 Les constats de la carte Trello `UFWEvY0q` ont tous été revérifiés dans les références locales
 (§7.5 pour le seul écart relevé) : le champ et le gating `version >= EPIC_7_2` de
@@ -585,6 +588,109 @@ ressource, aucune mécanique (`SecRouteAuction = 130107` y est une constante orp
 validation vient du client et du modèle déjà présent dans le dépôt (`AuctionEntity`,
 `ItemStorageEntity.RelatedAuctionId`, les neuf `StorageType`, la table `AuctionCateryResource` de
 `ArcadiaSchemaPSQL.sql:1-9`, qui n'est encore lue par aucune entité).
+```
+
+---
+
+## 12. Livraison du socle — `navis-dev`, branche `hermes/packet-socle-encheres`
+
+S1, S2 et S3 de la §6.1 sont livrés ; S4 n'exigeait aucun code. Le motif de la §3.7 et les trois
+trames de la §3.8/§3.9 sont désormais **exécutables et testés**, ce qui fixe leur disposition mieux
+qu'aucune relecture : toute divergence future des offsets casse un test au lieu de désaligner le
+client en silence.
+
+### 12.1 Ce qui est livré
+
+| lot | fichier | contenu |
+|---|---|---|
+| S1 | `Game/Network/Packets/Game/ItemFixedInfoWriter.cs` | `ItemFixedInfo` (les 16 champs de la §3.7), `ItemFixedInfoWriter.Size = 75`, `Write(Span<byte>, in ItemFixedInfo)`, `ItemFixedInfo.FromItem(ItemEntity)` |
+| S1 | `Game/Network/Packets/Game/GameCharacterPackets.cs` | `InventoryItemSize` devient `ItemFixedInfoWriter.Size + 10` ; `WriteInventoryItem` délègue les 75 premiers octets et n'écrit plus que la queue de position |
+| S2 | `Game/Network/Packets/Game/GameAuctionPackets.cs` | `AuctionInfo` (96), `SearchedAuctionInfo` (128), `RegisteredAuctionInfo` (97, 1303), `BiddedAuctionInfo` (97, 1305), et `BuildAuctionSearch` / `BuildAuctionSellingList` / `BuildAuctionBiddedList` |
+| S2 | `Game/Network/Packets/Enums/GamePackets.cs` | `TM_SC_AUCTION_SEARCH = 1301`, `TM_SC_AUCTION_SELLING_LIST = 1303`, `TM_SC_AUCTION_BIDDED_LIST = 1305` |
+| S2 | `Game/Network/Clients/GameClient.cs` | un bras `log + continue` pour ces trois identifiants, au-dessus du `switch` final, sur le patron de `TM_SC_REGION_ACK` |
+| S3 | `Game/DataAccess/Entities/Arcadia/AuctionCateryResourceEntity.cs` | les six colonnes de la §5.5 |
+| S3 | `Game/DataAccess/Contexts/ArcadiaContext.cs` | `DbSet<AuctionCateryResourceEntity> AuctionCateryResources` et clé composée `(CateryId, SubCateryId)` |
+| S3 | `.../Repositories/AuctionCateryResourceRepository.cs` + `.../Interfaces/IAuctionCateryResourceRepository.cs` | `GetAll()` sans suivi, sur le patron de `LevelResourceRepository` |
+| S3 | `DevConsole/Program.cs` | enregistrement singleton de l'interface |
+| tests | `Tests/Game/AuctionPacketsTests.cs` | 13 tests, dont les 16 offsets du motif et les trois tailles de trame |
+
+Les sept paquets client → serveur restent hors lot (§6.2) : **aucun** membre `TM_CS_AUCTION_*`
+n'a été ajouté à `GamePackets`, un membre sans branche de dispatch atteindrait le
+`throw new Exception("Unknown Packet Type")`.
+
+### 12.2 Décisions prises par le lot
+
+1. **Le motif est partagé, pas dupliqué.** L'inventaire continue de produire exactement 85 octets
+   (`wear_position` 75, `own_summon_handle` 77, `index` 81), mais les 75 premiers octets viennent
+   maintenant du même writer que les enchères : `appearance_code`, qui avait déjà valeur 0 dans
+   l'inventaire, est écrit explicitement et ne peut plus diverger entre les deux familles.
+2. **`elemental_effect.remain_time` (59) et `appearance_code` (71) restent à 0.** Ce sont les deux
+   champs que le sérialiseur d'inventaire n'a jamais remplis ; `FromItem` les pose à zéro
+   explicitement au lieu de compter sur un tampon vierge. La question du contenu reste la §8.3.
+3. **Les 40 emplacements sont toujours écrits, et leur contenu hors compte est zéro.** Les
+   constructeurs zéro-remplissent la table par construction (`new byte[]`), écrivent
+   `auction_info_count` plafonné à 40 et refusent d'écrire au-delà du quarantième emplacement : un
+   appelant négligent ne peut pas produire une trame courte ni un débordement.
+4. **`flag` (127) et `status` (96) sont transportés, jamais interprétés.** Le socle les recopie
+   tels quels : leur sémantique est la §8.1/§8.2, donc la §9 question 3.
+5. **`page_num` et `total_page_count` sont des paramètres, pas des calculs.** Le premier est l'écho
+   de la requête (§3.8) ; le second n'a pas de règle établie (§8.6), le socle ne l'invente pas.
+
+### 12.3 Réserves de la livraison
+
+1. **`item_info.flag` sur le fil quand l'objet n'a pas de flag.** `ItemFixedInfo.FromItem` reprend
+   la conversion de l'inventaire, `unchecked((uint)item.Flag)` : un objet dont `Flag` vaut
+   `ItemFlag.None = -1` envoie `0xFFFFFFFF` au client, et non `0`. C'est le comportement déjà livré
+   par l'inventaire et le motif §5.5 de `203-drop-item.md` ; le lot ne le corrige pas, il le rend
+   visible (le test de `FromItem` épingle la valeur pour `ItemFlag.Card` uniquement).
+2. **Clé composée de `AuctionCateryResource`.** `ArcadiaSchemaPSQL.sql:1-9` ne déclare ni clé ni
+   contrainte d'unicité : la paire `(catery_id, sub_catery_id)` est la clé naturelle retenue, par
+   analogie avec `EnhanceResourceEntity` et `SetItemEffectResourceEntity`. Si la table réelle
+   admettait des doublons sur cette paire, le suivi d'entités échouerait.
+3. **Nom de table et migration.** Aucune surcharge de nom n'est posée : l'entité suit la convention
+   du dépôt, où le nom du `DbSet` fait le nom de table (`NpcResources`, `MonsterResources` —
+   `Migrations/Arcadia/20260712205315_AddNpcResource.cs:16`). La table de la base de production
+   s'appelle `AuctionCateryResource` (singulier, `ArcadiaSchemaPSQL.sql:1`). Aucune migration n'a pu
+   être générée : `dotnet ef` n'est pas installé dans le conteneur. À trancher avec la voie de
+   provisionnement retenue (migrations EF ou script SQL).
+4. **`GetAll()` n'a aucun consommateur.** L'interface est enregistrée en singleton mais rien ne
+   l'injecte encore : c'est le point d'entrée de la carte 1300, pas un service en fonctionnement. Ce
+   chemin n'est donc couvert par aucun test (le modèle EF l'est, pas la requête).
+
+### 12.4 Bloc destiné à `CLAUDE.md` (version livrée)
+
+Remplace le bloc de la §10, qui décrivait le cadrage et non le code.
+
+```markdown
+## Enchères (famille `TM_*_AUCTION_*`, 1300-1310)
+
+`docs/packet-specs/socle-encheres.md` fixe le format de la famille ; le socle est implémenté.
+Trois points à ne pas redécouvrir :
+
+- Une seule structure d'objet sur le fil vaut **75 octets** à Epic 7.3 : le motif d'objet de base,
+  sans `wear_position` / `own_summon_handle` / `index`. L'inventaire `TM_SC_INVENTORY` y ajoute ces
+  dix octets et porte 85 ; les enchères s'arrêtent à 75. Ce motif est écrit une seule fois, dans
+  `Game/Network/Packets/Game/ItemFixedInfoWriter.cs` (`Size = 75`, `Write`, `FromItem`) : l'inventaire
+  passe par lui, et toute nouvelle famille d'objets doit en faire autant. rzu nomme ce motif
+  `TS_ITEM_FIXED_INFO`, NGemity `TS_ITEM_BASE_INFO`.
+- Le client **lit `appearance_code`** dans ce motif (offset 71) alors que rzu gate le champ à
+  `>= EPIC_7_4`. Le client prime : sans ces 4 octets, chaque entrée d'enchère est désalignée de
+  4 octets, et les réponses valent 4979/3739 au lieu de **5139/3899**.
+- Les trois réponses `1301` (5139), `1303` et `1305` (3899) copient leur tableau en bloc, **sans
+  regarder** `auction_info_count` : `GameAuctionPackets` écrit toujours les 40 emplacements, vides
+  ou non, et plafonne le compte à 40.
+
+Les trois identifiants serveur → client (`1301`, `1303`, `1305`) sont dans `GamePackets` et ont un
+bras `log + continue` dans `GameClient`, comme `TM_SC_REGION_ACK` : le client ne les envoie jamais,
+mais un membre d'enum sans branche atteindrait le `throw "Unknown Packet Type"`. Les sept paquets
+client → serveur de la famille (`1300`, `1302`, `1304`, `1306`, `1308`, `1309`, `1310`) restent à
+implémenter, chacun avec son bras de dispatch.
+
+L'hôtel des ventes n'est **pas** porté depuis NGemity : il n'y implémente aucun handler, aucune
+ressource, aucune mécanique (`SecRouteAuction = 130107` y est une constante orpheline). La
+validation vient du client et du modèle déjà présent dans le dépôt (`AuctionEntity`,
+`ItemStorageEntity.RelatedAuctionId`, les neuf `StorageType`, la table `AuctionCateryResource`,
+lue par `AuctionCateryResourceRepository`).
 ```
 
 ---
