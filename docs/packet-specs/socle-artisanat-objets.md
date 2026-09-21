@@ -1192,6 +1192,9 @@ deux `if` de dispatch, et le refus est à un seul endroit pour les trois lobes �
   reprise : le socle répond `NotExist` pour tout handle irrésolu, comme le chemin 203.
 - **Aucune lecture de `MixResource`/`EnhanceResource`**, aucun `EnhanceInfo`, aucun châssis
   touché : rien de la §9.3, rien de la §9.5.
+- **Rien de `MIX_ENHANCE_SKILL_CARD` (102), et rien des châsses de compétence** : leur modèle vit
+  sur les branches **non mergées** 214/215/284 (aucun `Game/Services/SkillCardService.cs` sur
+  `master`). Le socle s'arrête à ce que `master` porte, et l'arbitrage de §9.3.4 reste dû.
 
 ### 11.7 Vérifications relevées (21/09/2026)
 
