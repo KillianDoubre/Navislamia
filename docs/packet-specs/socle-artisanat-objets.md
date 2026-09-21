@@ -1096,3 +1096,172 @@ Politique de jeu : une constante choisie au hasard serait un défaut, pas une so
 9. **Le nom de table `EnhanceResource`/`EnhanceResources`** et la fragilité du mapper
    `int.Parse(dst.enhance_type)` (`NON ÉTABLI` 9, 11) : à trancher avant le premier chargement,
    sinon la migration sera à refaire.
+
+---
+
+## 11. Implémentation — navis-dev (21/09/2026)
+
+**Périmètre livré : l'étape 1 seule** (§9.2), sur la branche de cette fiche. Aucune table de
+ressources n'est chargée, aucun taux n'est tiré, aucune politique d'échec, aucun coût, aucune
+règle de sertissage : le socle **lit, borne, résout et refuse**, et rien d'autre.
+
+### 11.1 Décisions tranchées dans le code
+
+| Point | Décision | Source |
+| --- | --- | --- |
+| Ids ajoutés à `GamePackets` | 256, 257, 260, 261, 262, 263, 264 | §1, `op_codes.md:83-92` |
+| 259 | **absent** de l'énumération (et verrouillé par un test) | §1.1 : id non établi |
+| 257 et 261 | membres d'énumération **et** bras « serveur → client reçu par erreur » : log + drop | §9.2.6, motif `TM_SC_REGION_ACK` |
+| Bras de réception | **un seul** `if (header.ID is …)` couvre les cinq ids clients | critère 4 : aucun membre ne peut atteindre le `switch` final de `GameClient.Receive` |
+| 264 | `Length == 11` **exactement** : la forme de 12 octets (champ `target` d'`EPIC_8_1`) est refusée au lecteur, pas seulement ignorée | §5.2, commit rzu `bdd362a6` |
+| Compte de slots de 256 | le champ de l'offset 13 est **lu et comparé** à `(Length - 15) / 6` ; une divergence refuse la trame | §3.1 : c'est la longueur du tableau écrite par l'émetteur, pas un `mix_type` |
+| Handles nuls | **jamais** résolus : ce sont les sentinelles d'un emplacement vide | §6.1.a `WorldSession.cpp:1451`, §6.2 `:1521` |
+| Refus d'une trame lisible | `TM_SC_RESULT` (0), `request_msg_id` = id reçu, `InvalidArgument` (28), **valeur 0** | §9.2.5, `WorldSession.cpp:1463-1466` |
+| Refus d'un handle inconnu | `NotExist` (1), **valeur = handle** | §9.2.4, convention du chemin 203 (`203-drop-item.md` §5.3), `ItemUseService.cs:53` |
+| Lecture impossible en base | `DBError` (8), valeur = handle | convention du dépôt (`ItemUseService.cs:45`) |
+| Hors du monde | `ConnectionInfo.CharacterHandle == 0` → journal + abandon silencieux, aucune réponse | motif 550 (`GameClient.HandleGetRegionInfo`) |
+
+### 11.2 Ce que le refus `InvalidArgument` signifie, et ce qu'il ne signifie pas
+
+Une trame **bien formée et intégralement résolvable** reçoit aujourd'hui `InvalidArgument` : c'est
+le refus de socle, pas un verdict de jeu. Le client affichera donc un échec à chaque clic de
+combinaison, de sertissage ou de durabilité éthérée — c'est le comportement honnête d'une
+fonctionnalité non écrite, et il est **impossible de le confondre** avec un échec métier
+(`InvalidArgument` est aussi le code de NGemity quand aucun mix ne correspond,
+`WorldSession.cpp:1463-1466`). Le jour où un lobe atterrit, c'est cette ligne de refus qui
+disparaît : elle est isolée dans `CraftingSocleService.HandleAsync`, en fin de méthode.
+
+### 11.3 Offsets livrés (tous en 7.3, en-tête de 7 octets compris)
+
+| Id | Paquet | Taille | Champs lus | Lecteur |
+| --- | --- | --- | --- | --- |
+| 256 | `TM_CS_MIX` | `15 + 6N` | handle @7, count @11, compte déclaré @13, puis `N` × (handle @15+6i, count @19+6i) | `GameActionPackets.TryReadMix` |
+| 260 | `TM_CS_SOULSTONE_CRAFT` | 27 | handle @7, 4 pierres @11, 15, 19, 23 | `TryReadSoulstoneCraft` |
+| 262 | `TM_CS_REPAIR_SOULSTONE` | 31 | 6 handles @7, 11, 15, 19, 23, 27 | `TryReadRepairSoulstone` |
+| 263 | `TM_CS_TRANSMIT_ETHEREAL_DURABILITY` | 11 | handle @7 | `TryReadTransmitEtherealDurability` |
+| 264 | `…_TO_EQUIPMENT` | 11 | `rate` `float32` @7 | `TryReadTransmitEtherealDurabilityToEquipment` |
+
+Bornes refusées : 256 → `Length < 15`, queue non multiple de 6, `N > 9`, compte déclaré ≠ `N` ;
+260 → ≠ 27 ; 262 → ≠ 31 ; 263 → ≠ 11 ; 264 → ≠ 11 (donc la forme de 12 octets d'`EPIC_8_1`).
+
+### 11.4 Fichiers livrés
+
+| Fichier | Nature |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | +7 membres, aucun autre |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `MaxSubItems`, 5 records de requête, 5 lecteurs |
+| `Game/Services/CraftingSocleRules.cs` | **neuf** — quels handles une requête nomme réellement (les zéros ne sont pas des objets) |
+| `Game/Services/CraftingSocleService.cs` + `Game/Services/Interfaces/ICraftingSocleService.cs` | **neuf** — lecture, bornage, résolution, refus |
+| `Game/Network/NetworkService.cs` | champ + paramètre de constructeur |
+| `DevConsole/Program.cs` | un enregistrement `AddSingleton` |
+| `Game/Network/Clients/GameClient.cs` | **deux** bras : les cinq ids clients, et le drop de 257/261 |
+| `Tests/Game/CraftingSoclePacketsTests.cs` | **neuf** — 42 tests |
+
+Le socle vit dans un service, et non dans `GameClient`, pour une raison de collision : `GameClient.cs`
+est touché par presque toutes les cartes de paquets en cours. Le diff de `GameClient` se limite à
+deux `if` de dispatch, et le refus est à un seul endroit pour les trois lobes à venir (§9.5).
+
+### 11.5 Pièges rencontrés, à ne pas réintroduire
+
+1. **Le `switch` final de `GameClient.Receive` tue la boucle de réception.** Sept membres sont
+   ajoutés à `GamePackets` : les sept doivent être dispatchables. 257 et 261 n'ont aucun bras
+   « métier » et pourtant en ont un — celui qui les journalise et les jette, sinon un client
+   malveillant déconnecte son lecteur en envoyant un paquet descendant.
+2. **Lire 264 avec `>= 11` accepterait la trame 8.1** en lisant `rate` puis un octet `target`
+   fantôme : le gating de version se joue dans la comparaison de taille, pas dans le commentaire.
+3. **Le compte de slots de 256 n'est pas un `mix_type`** : la trame 7.3 ne porte pas le champ
+   `type` de 257 (`EPIC_8_1`), et l'offset 13 est bien la longueur du tableau. Le lire comme un
+   identifiant de recette serait une erreur silencieuse (aucun test ne l'attraperait).
+4. **Un handle nul n'est pas un objet manquant.** Les quatre pierres de 260 et les six handles de
+   262 sont écrits en position fixes : résoudre les zéros ferait répondre `NotExist` à une trame
+   parfaitement légitime (châssis laissé vide).
+5. **`client.ConnectionInfo.CharacterName` n'est lisible qu'en jeu** : les cinq bras sont atteints
+   avant l'entrée en monde si le client est mal élevé, d'où la garde `CharacterHandle == 0`.
+
+### 11.6 Ce qui n'est pas porté, et pourquoi
+
+- **Aucun émetteur.** Ni `TM_SC_MIX_RESULT` (257), ni `TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW` (261)
+  n'est construit : la première demande toute la politique de mix (§9.3), la seconde le
+  déclencheur de fenêtre (§9.4, carte dédiée au PO).
+- **`TM_SC_SHOW_SOULSTONE_CRAFT_WINDOW` (259) reste absent** : id non établi (§1.1).
+- **La garde `LastContact` de 260 n'est pas reproduite** (§6.2 étape 1) : le sous-système de
+  contact PNJ n'existe pas. NGemity répond *rien* dans ce cas ; le socle, lui, refuse
+  `InvalidArgument`. C'est un écart assumé : sans contact, il n'y a de toute façon aucune
+  fenêtre ouverte côté serveur.
+- **La distinction `NOT_EXIST` / `ACCESS_DENIED` de NGemity** sur les pierres de 260 n'est pas
+  reprise : le socle répond `NotExist` pour tout handle irrésolu, comme le chemin 203.
+- **Aucune lecture de `MixResource`/`EnhanceResource`**, aucun `EnhanceInfo`, aucun châssis
+  touché : rien de la §9.3, rien de la §9.5.
+
+### 11.7 Vérifications relevées (21/09/2026)
+
+```
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug     → code de sortie 0 (160 avertissements, 0 erreur)
+dotnet test  Tests/Tests.csproj          → code de sortie 0 — Failed: 0, Passed: 490, Total: 490
+git log --oneline origin/master..master  → vide
+```
+
+Base mesurée par cette fiche (§8.5) : **448** tests. Après livraison : **490**, soit **+42**
+(offset de chaque champ, bornes de refus, sentinelles nulles, gates de version). Aucun test
+existant n'a été modifié ni supprimé.
+
+### 11.8 Bloc prêt à coller dans `CLAUDE.md`
+
+````markdown
+### Socle artisanat et enchantement — `TM_CS_MIX` 256, `TM_CS_SOULSTONE_CRAFT` 260,
+`TM_CS_REPAIR_SOULSTONE` 262, `TM_CS_TRANSMIT_ETHEREAL_DURABILITY` 263 / `…_TO_EQUIPMENT` 264
+
+Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
+
+- **N'a été livré que le socle structurel** : `CraftingSocleService` lit la trame à sa taille 7.3,
+  la borne, résout chaque handle non nul contre l'inventaire du personnage, puis **refuse**
+  (`InvalidArgument`, valeur 0) — le moteur d'artisanat n'existe pas. Aucune table `MixResource` /
+  `EnhanceResource` n'est chargée, aucun taux n'est tiré, aucun châssis n'est touché.
+- **Tailles 7.3** : 256 = `15 + 6N` (`N <= 9`) · 260 = 27 · 262 = 31 · 263 = 11 · 264 = **11**.
+  Le champ `target` de 264 et le champ `type` de 257 sont gatés `EPIC_8_1` : la trame 8.1 de 264
+  fait 12 octets et **doit rester refusée**.
+- **256, offset 13 = nombre de slots matériaux** (longueur du tableau écrite par l'émetteur), pas
+  un identifiant de recette ; le socle la compare `(Length - 15) / 6` et refuse une divergence.
+- **Sentinelles nulles** : les slots vides (4 pierres de 260, 6 handles de 262, cible absente de
+  256) sont écrits `0` et ne sont **jamais** résolus — un zéro n'est pas un objet manquant.
+- **257 et 261 sont descendants** (`SessionPacketOrigin::Server`) : leur bras de réception les
+  journalise et les jette. Un membre de `GamePackets` sans bras atteint le `throw
+  Unknown Packet Type` final de `GameClient.Receive`, qui **casse la boucle de réception** :
+  énumération et dispatch se modifient ensemble.
+- **259 n'est pas établi** : rzu et NGemity y déclarent `TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW`,
+  `op_codes.md:86` y met `TM_CS_DONATE_REWARD`. La fenêtre de sertissage ne peut pas être émise
+  tant que l'id n'est pas tranché, et 260 n'est pas testable de bout en bout sans le
+  déclencheur de contact PNJ.
+- **Restent à trancher avant tout moteur** (détail en fin de fiche) : taux de réussite, sort des
+  châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
+  `mix_type` 801/802/803 ↔ 263/264.
+````
+
+---
+
+## 12. A VERIFIER PAR KILLIAN — ajouts du dev (21/09/2026)
+
+1. **Le refus de socle est-il le bon comportement en attendant le moteur ?** Chaque trame lisible
+   reçoit aujourd'hui `InvalidArgument` (valeur 0) : le joueur voit un échec à chaque clic. La
+   fiche le prescrit (§9.2.5) et cela n'invente rien, mais un **drop silencieux** serait l'autre
+   lecture possible. À confirmer avant que les cinq cartes `THINKING` ne repartent.
+2. **La comparaison du compte déclaré de 256** (§11.1) et le refus de la trame 8.1 de 264
+   (12 octets) sont des **décisions de rigueur**, non des observations de client : ni le client
+   7.3 ni une capture n'ont été vus. Si un jour une trame légitime est refusée par l'un de ces
+   deux contrôles, c'est ici qu'il faut regarder en premier.
+3. **Un handle irrésolu répond toujours `NotExist` (1)**, alors que NGemity distingue
+   `NOT_EXIST` (item à sertir, `:1503-1507`) et `ACCESS_DENIED` (pierre, `:1521-1526`). La
+   distinction ne peut pas être portée tant que le rôle de chaque handle de 262 et 263 n'est pas
+   établi (`NON ÉTABLI` 2 et 3) : faut-il la rétablir lobe par lobe plus tard ?
+4. **La garde `LastContact` de 260 n'est pas reproduite** (§11.6) : NGemity retourne
+   silencieusement quand aucun contact n'est armé. Le socle refuse. Cette garde appartiendra au
+   déclencheur de fenêtre (§9.4) — confirmation qu'elle n'a rien à faire dans le socle ?
+5. **Handle falsifié** : le socle répond `NotExist` avec le handle en valeur pour tout handle qui
+   n'appartient pas au personnage, donc un client peut sonder ses propres handles — sans
+   distinguer « n'existe pas » de « n'est pas à moi » — exactement comme le chemin 253. Rien à
+   faire si le dépôt accepte cette convention ; à confirmer.
+6. **Le décompte des tests** : base 448 (§8.5) → 490. Si le PO veut un garde-fou automatique sur
+   ce minimum, il faut une carte dédiée (aucun test d'inventaire du type « 366 minimum » n'existe
+   dans `Tests/`).
+
