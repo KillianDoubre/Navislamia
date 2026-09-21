@@ -34,6 +34,15 @@ public interface ICharacterService
     Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle);
 
     /// <summary>
+    /// Clears the bearer socket of one of the character's skill cards, both judgements and write inside
+    /// the database gate: the handle is resolved, the unbind rules run in the order of the reference and
+    /// the socket is written only when they all pass — a refusal leaves the item untouched. An item
+    /// resource <paramref name="catalog"/> does not know cannot be judged and is left ungated.
+    /// </summary>
+    Task<SkillCardBindResult> UnbindSkillCardAsync(string characterName, uint itemHandle, uint targetHandle,
+        IItemGroupCatalog catalog);
+
+    /// <summary>
     /// Takes <paramref name="count"/> units off one of the character's stacks and returns the amount
     /// left, <c>0</c> when the stack ran out and was deleted, or <c>null</c> when the handle resolves to
     /// none of the character's items.

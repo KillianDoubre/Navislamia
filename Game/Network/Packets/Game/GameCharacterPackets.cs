@@ -211,6 +211,20 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    /// <summary>
+    /// <c>TM_SC_SKILLCARD_INFO</c> (286): 15 bytes, the same shape as the two skill card requests
+    /// (<c>item_handle</c> at 7, <c>target_handle</c> at 11). A null target means the card is no longer
+    /// bound to anybody, which is how the reference reports a successful unbind.
+    /// </summary>
+    public static byte[] BuildSkillCardInfo(uint itemHandle, uint targetHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_SKILLCARD_INFO, HeaderSize + 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), targetHandle);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildEquipSummon(long[] summonSlots)
     {
         const int slotCount = 6;

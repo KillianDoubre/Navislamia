@@ -207,6 +207,30 @@ public class CharacterService : ICharacterService
             _characterRepository.GetCharacterByNameWithItems(characterName)?.Items, itemHandle)));
     }
 
+    public Task<SkillCardBindResult> UnbindSkillCardAsync(string characterName, uint itemHandle,
+        uint targetHandle, IItemGroupCatalog catalog)
+    {
+        // The judgement and the write share the gate: a bind handled in between could otherwise put the
+        // card back on a bearer between the read and the socket write.
+        return RunExclusiveAsync(async () =>
+        {
+            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var item = FindByHandle(character?.Items, itemHandle);
+            var characterHandle = character is null ? 0u : (uint)character.Id;
+
+            var verdict = SkillCardBindRules.CheckUnbindable(characterHandle, itemHandle, targetHandle, item,
+                catalog);
+            if (!verdict.Succeeded)
+            {
+                return verdict;
+            }
+
+            ClearBearerSocket(item);
+            await _characterRepository.SaveChangesAsync();
+            return verdict;
+        });
+    }
+
     public Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog)
     {
         return RunExclusiveAsync(async () =>
@@ -436,6 +460,26 @@ public class CharacterService : ICharacterService
     private static ItemEntity FindByHandle(IEnumerable<ItemEntity> items, uint handle)
     {
         return items?.FirstOrDefault(item => (uint)item.Id == handle);
+    }
+
+    /// <summary>
+    /// Zeroes the bearer socket of an item, rebuilding the array so the change tracker sees the row as
+    /// modified (an in place write on the converted <c>SocketItemIds</c> can go unnoticed) while sockets
+    /// 1 to 3 are carried over untouched. Socket 0 is the only state a skill card unbind changes: the
+    /// enhance of the item is left alone by both references and the enhance of the skill has no model
+    /// here (spec §5.2 g).
+    /// </summary>
+    private static void ClearBearerSocket(ItemEntity item)
+    {
+        var sockets = new long[SkillCardBindRules.SocketCount];
+        for (var i = SkillCardBindRules.BearerSocketIndex + 1;
+             i < SkillCardBindRules.SocketCount && i < (item.SocketItemIds?.Length ?? 0);
+             i++)
+        {
+            sockets[i] = item.SocketItemIds[i];
+        }
+
+        item.SocketItemIds = sockets;
     }
 
     private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> operation)
