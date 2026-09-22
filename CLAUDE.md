@@ -1367,6 +1367,27 @@ serveur n'émet toujours aucun paquet de mort.
   150 vs 180, contrôle de taille côté client.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Statut d'acteur et mode PK (sous-socle)
+
+`status` — l'information de créature de `TM_SC_ENTER` (3, offset 26) et `TM_SC_STATUS_CHANGE`
+(500, `handle` @7 puis `status` @11, 15 octets) — est un **instantané complet de l'acteur, jamais
+un delta** : publier un seul bit éteint tous les autres. Il ne se compose donc plus en dur :
+`ActorStatus.ForPlayer(bool pkModeOn)` / `ForMonster(bool dead = false)` / `ForNpc()`
+(`Game/Network/Packets/Game/ActorStatus.cs`) est le point unique des quatre sites d'envoi
+(`GameActions` deux fois — entrée en jeu et trame 500 —, `CombatService` à la mort du monstre, et
+`GameSpawnPackets.BuildEnterCreature` dont le statut est devenu un paramètre). Les bits vivent dans
+`CreatureStatus` (`Game/Network/Packets/Enums/CreatureStatus.cs`) avec leur source rzu :
+`PlayerPkOn = 1 << 11` est le **seul** bit du mode PK, et `1 << 8` vaut « mort » pour un monstre et
+« assis » pour un joueur — ne jamais envoyer un masque de mort sur un handle de joueur.
+
+`ConnectionInfo.PkMode` porte l'état de session : lu depuis `Characters.PkMode` dans
+`GameActions.OnLogin`, remis à `false` par `ClearCharacterSession`, réécrit par
+`CharacterService.SaveProgressAsync` (d'où le paramètre `bool pkMode`). Aucune migration : la
+colonne existe depuis `Version0001_TheBeginning`. Le protocole n'a **aucun paquet serveur PK** —
+`800` et `801` n'existent pas encore côté serveur, donc rien ne bascule `PkMode` en jeu aujourd'hui.
+
+Les tests d'offsets des deux trames sont dans `Tests/Game/PkModeStatusTests.cs`.
+
 ### Paquet 902 / 903 — `TM_SC_WEATHER_INFO` / `TM_CS_GET_WEATHER_INFO`
 
 (Epic 7.3 ; fiche `docs/packet-specs/902-weather-info.md`)
@@ -1479,7 +1500,7 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
   `commercial_item_uid` @7, `uint16 count` @11) lus par `GameActionPackets.TryReadTakeoutCommercialItem`,
   seule longueur acceptée. `TM_SC_COMMERCIAL_STORAGE_INFO` est émise à `0/0` à l'entrée en jeu, comme
   rzu, suivie d'une 10004 vide (9 octets, `count = 0`) — cette seconde ligne est une décision de
-  Navislamia, rzu ne l'émet pas, et se retire d'une ligne (`GameActions.cs:258-259`).
+  Navislamia, rzu ne l'émet pas, et se retire d'une ligne (`GameActions.cs:259-260`).
 - Le client 7.3 **ne recoupe jamais** le `count` de la 10004 avec `Length` : écrire exactement
   `9 + 10 × count` octets. Une liste vide (9 octets, `count = 0`) est un état traité explicitement
   par le client.
