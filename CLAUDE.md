@@ -1163,6 +1163,42 @@ ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
 
 ## Paquets
 
+### Event areas (7.3): `TM_CS_ENTER_EVENT_AREA` (15) and `TM_CS_LEAVE_EVENT_AREA` (16)
+
+The retail client loads the event-area polygons itself (`.nfe`, one file per map tile next to the
+location/attribute files) and has compiled enter/leave notifications for them, but **no reference
+proves that the Epic 7.3 client actually emits 15 or 16**; the client's packet name table has no name
+for any id in 14..19. Treat these packets as a redundant trigger, never as the only one: the server
+already loads the same polygons (`MapService._eventAreaInfo`, `.nfe`, read as id + polygon list only)
+and knows the session position, so it checks containment itself instead of trusting the claim.
+`EventAreaService` (`Game/Services/EventAreaService.cs`) does it, from the two dispatch branches in
+`GameClient.OnDataReceived` *and* from every position change (move request, region update, change of
+location); the packet is 15 bytes: header (7) + `event_area_id` (int32, offset 7) + `area_index`
+(int32, offset 11).
+
+Containment is `PolygonF.IsIncluded` (`Game/Maps/X2D/PolygonF.cs`, bounding box + crossing parity),
+**not** `PolygonF.Contains`, which only compares against the vertex list. Two port errors in
+`LineF.IntersectCcw` made `IsIncluded` answer `false` for every point inside any polygon and had to be
+fixed against NGemity (`src/X2D/Linef.cpp`): the crossing test compared `ccw123` against itself instead
+of `ccw124`, and the Y precheck compared `l2MinY` against its own maximum instead of `l1MaxY`. Also
+`PointF` has no value equality, so the reference's "point equals a vertex" shortcut never fires on a
+zone corner; and never test a `PolygonF` against `null` — its `==` overload compares to `null` through
+the same operator, so `polygon != null` recurses until the stack dies (`ReferenceEquals` instead).
+`new PolygonF(BoxF)` throws `NullReferenceException` because it calls `Set` on the null elements of a
+`PointF[]` (dead code path today, `MapService` only clones polygons).
+
+Neither rzu nor NGemity has any server packet for event areas, and NGemity has no handler at all
+(15/16 fall into its "unknown packet" debug log). The server therefore sends **nothing** back.
+`EventAreaInfo`'s other fields (times, level/race/job limits, six activation conditions,
+`count_limit`, enter/leave scripts) are not in the `.nfe`: they mirror the `EventAreaResource` table of
+`ArcadiaSchemaPSQL.sql`, which nothing imports, so they are all zero/empty today and
+`EventAreaInfo.IsActivatable` stays `false`. NGemity's `Telecaster.EventAreaEnterCount`
+(player_id, event_area_id, enter_count) shows the retail server kept a per-character, per-area entry
+counter, but the socle persists nothing.
+
+The full spec (offsets, sources, version gating, NGemity deltas, scope, open questions) is in
+`docs/packet-specs/socle-zones-evenement.md`.
+
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
 - **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`
