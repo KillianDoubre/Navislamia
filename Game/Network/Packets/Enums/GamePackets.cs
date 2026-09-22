@@ -16,6 +16,8 @@ public enum GamePackets : ushort
     TM_SC_REGION_ACK = 11,
     TM_SC_WARP = 12,
     TM_CS_QUERY = 13,
+    TM_CS_ENTER_EVENT_AREA = 15,
+    TM_CS_LEAVE_EVENT_AREA = 16,
     TM_CS_CHAT_REQUEST = 20,
     TM_SC_CHAT_LOCAL = 21,
     TM_SC_CHAT = 22,
@@ -59,7 +61,14 @@ public enum GamePackets : ushort
     TM_SC_HIDE_EQUIP_INFO = 222,
     TM_SC_SKIN_INFO = 224,
     TM_SC_USE_ITEM_RESULT = 283,
+    TM_SC_ADD_SUMMON_INFO = 301,
+    TM_SC_REMOVE_SUMMON_INFO = 302,
     TM_EQUIP_SUMMON = 303,
+    TM_SC_UNSUMMON = 305,
+    TM_SC_UNSUMMON_NOTICE = 306,
+    TM_SC_SUMMON_EVOLUTION = 307,
+    TM_SC_MOUNT_SUMMON = 320,
+    TM_SC_UNMOUNT_SUMMON = 321,
     TM_CS_SKILL = 400,
     TM_SC_SKILL = 401,
     TM_CS_LEARN_SKILL = 402,
@@ -74,9 +83,12 @@ public enum GamePackets : ushort
     TM_SC_PROPERTY = 507,
     TM_CS_SET_PROPERTY = 508,
     TM_CS_TARGETING = 511,
+    TM_CS_RESURRECTION = 513,
     TM_CS_MONSTER_RECOGNIZE = 517,
     TM_CS_GET_REGION_INFO = 550,
     TM_CS_CHANGE_LOCATION = 900,
+    TM_SC_WEATHER_INFO = 902,
+    TM_CS_GET_WEATHER_INFO = 903,
     TM_SC_STAT_INFO = 1000,
     TM_SC_GOLD_UPDATE = 1001,
     TM_SC_LEVEL_UPDATE = 1002,
@@ -100,6 +112,8 @@ public enum GamePackets : ushort
 
     TM_CS_VERSION = 50,
 
+    TM_CS_ANTI_HACK = 54,
+
     TM_CS_CHARACTER_LIST = 2001,
 
     TM_CS_CREATE_CHARACTER = 2002,
@@ -109,6 +123,13 @@ public enum GamePackets : ushort
     TM_CS_ACCOUNT_WITH_AUTH = 2005,
 
     TM_CS_CHECK_CHARACTER_NAME = 2006,
+
+    // TM_CS/SC_INSTANCE_GAME_* : instance game socle, X(<id>, true) in rzu (EPIC_6_3 and later, hence valid
+    // for EPIC_7_3). See docs/packet-specs/socle-instances-jeu.md.
+    TM_CS_INSTANCE_GAME_ENTER = 4250,
+    TM_CS_INSTANCE_GAME_EXIT = 4251,
+    TM_CS_INSTANCE_GAME_SCORE_REQUEST = 4252,
+    TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253,
 
     TM_CS_REPORT = 8000,
 

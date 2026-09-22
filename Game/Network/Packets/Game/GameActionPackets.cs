@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using Navislamia.Game.Network.Packets.Enums;
 
 namespace Navislamia.Game.Network.Packets.Game;
 
@@ -449,6 +450,33 @@ public static class GameActionPackets
 
         request = new TransmitEtherealDurabilityToEquipmentRequest(
             BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize, 4)));
+        return true;
+    }
+
+    /// <summary>
+    /// The fixed Epic 7.3 <c>TM_CS_RESURRECTION</c> frame: the 7-byte header, the 4-byte
+    /// <c>handle</c> at offset 7 and the 1-byte <c>type</c> at offset 11, with no padding.
+    /// </summary>
+    public const int ResurrectionPacketLength = HeaderSize + 5;
+
+    public readonly record struct ResurrectionRequest(uint Handle, ResurrectionType Type);
+
+    /// <summary>
+    /// Reads <c>TM_CS_RESURRECTION</c> (513). The length must match exactly rather than merely be
+    /// sufficient: the packet is fixed at 12 bytes in Epic 7.3, and the pre-6.1 shape carries a second
+    /// boolean (13 bytes) whose extra byte would misalign every packet that follows in the stream.
+    /// </summary>
+    public static bool TryReadResurrection(ReadOnlySpan<byte> packet, out ResurrectionRequest request)
+    {
+        if (packet.Length != ResurrectionPacketLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new ResurrectionRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            (ResurrectionType)(sbyte)packet[HeaderSize + 4]);
         return true;
     }
 }
