@@ -904,6 +904,33 @@ public class GameClient : Client
             ClientTag, holicPoint);
     }
 
+    /// <summary>
+    /// TM_CS_HUNTAHOLIC_CREATE_INSTANCE (4003): the player validated the HuntaHolic room creation window. The
+    /// socle reads, validates and logs the frame (room name, maximum member count, whether a password was
+    /// supplied — the password itself is never logged) and answers nothing.
+    ///
+    /// Nothing is answered because no form of answer is established: neither rzu nor NGemity declares a server
+    /// to client packet for 4003, and the only client reaction identified — the daily quota refusal, carried by
+    /// a 16-bit field worth 0x20 inside a MSG_RESULT whose id is 4003 — has an unestablished wire layout, so no
+    /// result frame is invented. A created room would only become visible through 4001/4002 (lot S2), which are
+    /// not integrated yet. See docs/packet-specs/4003-huntaholic-create-instance.md §5.3.
+    /// </summary>
+    private void HandleHuntaholicCreateInstance(byte[] buffer)
+    {
+        if (!GameHuntaholicPackets.TryReadCreateInstance(buffer, out var request))
+        {
+            _logger.Warning("Malformed HuntaHolic create instance request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_HUNTAHOLIC_CREATE_INSTANCE ({id}) Length: {length} received from {clientTag}: " +
+            "name={name} maxMemberCount={maxMemberCount} hasPassword={hasPassword}",
+            (ushort)GamePackets.TM_CS_HUNTAHOLIC_CREATE_INSTANCE, buffer.Length, ClientTag, request.Name,
+            request.MaxMemberCount, request.HasPassword);
+    }
+
     public override void OnDataReceived(int bytesReceived)
     {
         var remainingData = bytesReceived;
@@ -1070,6 +1097,16 @@ public class GameClient : Client
                 _logger.Warning(
                     "Server to client packet TM_SC_INSTANCE_GAME_SCORE_REQUEST ({id}) received from {clientTag}",
                     header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_HUNTAHOLIC_CREATE_INSTANCE (4003): the room creation frame of the HuntaHolic lobby. Read,
+            // validated and logged, with no answer — the only client reaction identified (the daily quota
+            // refusal) has no established wire form, and a created room shows up through 4001/4002 only.
+            // See docs/packet-specs/4003-huntaholic-create-instance.md §5.3.
+            if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_CREATE_INSTANCE)
+            {
+                HandleHuntaholicCreateInstance(msgBuffer);
                 continue;
             }
 
