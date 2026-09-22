@@ -1864,6 +1864,37 @@ namespace Navislamia.Game.Migrations.Arcadia
                         });
                 });
 
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.WorldLocationEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<short>("LocationType")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("TimeId")
+                        .HasColumnType("integer");
+
+                    b.Property<short>("WeatherChangeTime")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("WeatherId")
+                        .HasColumnType("integer");
+
+                    b.Property<short>("WeatherRatio")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("X")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Y")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id", "WeatherId", "TimeId");
+
+                    b.ToTable("WorldLocations");
+                });
+
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.EffectResourceEntity", b =>
                 {
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Arcadia.ModelEffectResourceEntity", null)
