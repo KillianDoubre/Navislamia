@@ -22,6 +22,12 @@ public static class GameActionPackets
 
     public readonly record struct RegionInfoRequest(float X, float Y);
 
+    /// <summary>
+    /// <c>show_dialog</c> of TM_CS_GET_SUMMON_SETUP_INFO (324): computed by the client, replayed by the
+    /// server in the <c>open_dialog</c> byte of the 303 answer.
+    /// </summary>
+    public readonly record struct SummonSetupInfoRequest(bool ShowDialog);
+
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
         return BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
@@ -246,6 +252,27 @@ public static class GameActionPackets
         request = new RegionInfoRequest(
             BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize, 4)),
             BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
+    }
+
+    /// <summary>
+    /// TM_CS_GET_SUMMON_SETUP_INFO (324) is exactly eight bytes: the seven byte header plus one
+    /// <c>show_dialog</c> byte at offset 7. The 7.3 client computes that byte per player
+    /// (<c>show_dialog = !setting[44]</c>) and expects it back in the <c>open_dialog</c> byte of the 303
+    /// answer, so it is read here and never fixed. The client only writes 0 or 1; reading any other
+    /// non-zero value as true is a documented normalisation, not an observation. Only the 8-byte form is
+    /// accepted: the sheet defines no answer at all for a request of another length.
+    /// </summary>
+    public static bool TryReadGetSummonSetupInfo(ReadOnlySpan<byte> packet, out SummonSetupInfoRequest request)
+    {
+        const int packetLength = HeaderSize + 1;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new SummonSetupInfoRequest(packet[HeaderSize] != 0);
         return true;
     }
 }

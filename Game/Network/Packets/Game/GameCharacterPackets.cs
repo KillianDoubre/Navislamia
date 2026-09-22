@@ -211,11 +211,21 @@ public static class GameCharacterPackets
         return packet;
     }
 
-    public static byte[] BuildEquipSummon(long[] summonSlots)
+    /// <summary>
+    /// TM_EQUIP_SUMMON (303), 32 bytes: the seven byte header, the <c>open_dialog</c> byte at offset 7,
+    /// then the six formation handles at offsets 8, 12, 16, 20, 24 and 28. The same client sends a 303 in
+    /// the other direction (with <c>open_dialog = 0</c>) when the player validates a formation; this
+    /// builder only serves the two downward sites. <paramref name="openDialog"/> replays the
+    /// <c>show_dialog</c> of the 324 request: world entry passes <c>false</c>, the answer to 324 passes
+    /// what it received.
+    /// </summary>
+    public static byte[] BuildEquipSummon(long[] summonSlots, bool openDialog = false)
     {
         const int slotCount = 6;
         var packet = CreatePacket(GamePackets.TM_EQUIP_SUMMON, HeaderSize + 1 + slotCount * 4);
         var span = packet.AsSpan();
+
+        packet[HeaderSize] = (byte)(openDialog ? 1 : 0);
 
         for (var i = 0; i < slotCount && summonSlots != null && i < summonSlots.Length; i++)
         {

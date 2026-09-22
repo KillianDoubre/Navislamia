@@ -197,6 +197,36 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
     }
 
+    /// <summary>
+    /// TM_CS_GET_SUMMON_SETUP_INFO (324), 8 bytes: the client asks for the creature formation again, most
+    /// often with show_dialog set when the player opens the window. The answer is a TM_EQUIP_SUMMON (303)
+    /// carrying the same six handles as the frame sent at world entry, with the open_dialog byte replaying
+    /// what was received. Nothing is written and no TS_SC_RESULT is sent: 324 has no result packet, the
+    /// 303 is its only acknowledgement.
+    /// </summary>
+    private void HandleGetSummonSetupInfo(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadGetSummonSetupInfo(buffer, out var request))
+        {
+            _logger.Warning("Malformed summon setup info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning(
+                "Summon setup info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        Connection.Send(GameCharacterPackets.BuildEquipSummon(ConnectionInfo.SummonSlots, request.ShowDialog));
+        _logger.Debug(
+            "TM_CS_GET_SUMMON_SETUP_INFO ({id}) Length: {length} received from {clientTag}: show_dialog={showDialog}",
+            (ushort)GamePackets.TM_CS_GET_SUMMON_SETUP_INFO, buffer.Length, ClientTag, request.ShowDialog);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -702,6 +732,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION)
             {
                 _ = HandleChangeItemPositionAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_SUMMON_SETUP_INFO)
+            {
+                HandleGetSummonSetupInfo(msgBuffer);
                 continue;
             }
 

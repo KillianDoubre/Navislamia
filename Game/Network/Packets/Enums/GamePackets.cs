@@ -53,6 +53,7 @@ public enum GamePackets : ushort
     TM_SC_SUMMON_EVOLUTION = 307,
     TM_SC_MOUNT_SUMMON = 320,
     TM_SC_UNMOUNT_SUMMON = 321,
+    TM_CS_GET_SUMMON_SETUP_INFO = 324,
     TM_CS_SKILL = 400,
     TM_SC_SKILL = 401,
     TM_CS_LEARN_SKILL = 402,
