@@ -1464,6 +1464,41 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
 `CharacterEntity.HuntaholicPoint` ; les trois champs de score sans source en 7.3 partent à zéro
 (placeholder, §9.4 de la fiche). Les lots S2…S6 (famille HuntaHolic 4000-4012) restent à faire.
 
+### Socle stockage commercial — `TM_SC_COMMERCIAL_STORAGE_INFO` (10003), `TM_SC_COMMERCIAL_STORAGE_LIST` (10004), `TM_CS_TAKEOUT_COMMERCIAL_ITEM` (10005)
+
+- 7.3 = **10003 / 10004 / 10005** : rzu bascule cette famille sur 9003/9004/9005 à partir
+  d'`EPIC_9_6_3` (`TS_SC_COMMERCIAL_STORAGE_INFO.h:12-13`, `…_LIST.h:20-21`,
+  `TS_CS_TAKEOUT_COMMERCIAL_ITEM.h:12-13`) et `EPIC_7_3 = 0x070300` est sous `0x090603`.
+  **Piège** : en 7.3, 9004 et 9005 désignent déjà la famille « numéro de sécurité »
+  (`op_codes.md:270-271`) — ne jamais s'en servir comme ids de ce socle. Aucun champ de ces trois
+  paquets n'est gated par version.
+- Tailles, telles que livrées : 10003 = **11 octets** (`total_item_count` u16 @7, `new_item_count`
+  u16 @9) et 10004 = **9 + 10 × n** (`count` u16 @7, puis n entrées de 10 octets = `uint32`
+  `commercial_item_uid` @0, `int32 code` @4, `uint16 count` @8, première entrée à l'offset 9) dans
+  `Game/Network/Packets/Game/GameCommercialStoragePackets.cs` ; 10005 = **13 octets** (`uint32`
+  `commercial_item_uid` @7, `uint16 count` @11) lus par `GameActionPackets.TryReadTakeoutCommercialItem`,
+  seule longueur acceptée. `TM_SC_COMMERCIAL_STORAGE_INFO` est émise à `0/0` à l'entrée en jeu, comme
+  rzu, suivie d'une 10004 vide (9 octets, `count = 0`) — cette seconde ligne est une décision de
+  Navislamia, rzu ne l'émet pas, et se retire d'une ligne (`GameActions.cs:258-259`).
+- Le client 7.3 **ne recoupe jamais** le `count` de la 10004 avec `Length` : écrire exactement
+  `9 + 10 × count` octets. Une liste vide (9 octets, `count = 0`) est un état traité explicitement
+  par le client.
+- **Le serveur n'émet jamais 10005.** La seule trame 10005 du client est un envoi (constructeur de
+  trame client VA `0x48ce60`, appelé une fois depuis l'émetteur VA `0x49dc59`), et le seul
+  traitement identifié d'un message interne `0x2715` en réception est un envoi de `TM_CS_LOGOUT`
+  (`27`). Côté serveur : lecture stricte (`Length == 13`), journalisation, aucune réponse.
+- Aucune demande cliente n'ouvre ce conteneur : la fenêtre est locale au client (commandes
+  `/cshop` / `/cstorage`, verrous de ressource `commercial_shop` et `cash`). Le serveur **pousse** la
+  10003 à l'entrée en jeu, comme rzu (`Character.cpp:308-311`, à `0/0`).
+- **Aucune référence n'implémente la logique du conteneur** : NGemity ne traite rien, rzu n'émet
+  qu'une 10003 constante. Sans boutique, le conteneur est **vide par construction** ; ne rien
+  inventer sur le retrait (coût, plafond, code de résultat, acquittement) — décisions ouvertes dans
+  la fiche.
+- Aucun service, aucune entité et aucune migration pour ce conteneur : rien dans le dépôt ne peut
+  l'approvisionner, donc sa seule valeur exacte est vide. Les trois bras de dispatch sont posés près
+  de `TM_SC_REGION_ACK` (`GameClient.cs:803-830`), jamais à l'ancre du `switch` final.
+- Le savoir durable de ce socle est dans `docs/packet-specs/socle-stockage-commercial.md`, pas ici.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.
