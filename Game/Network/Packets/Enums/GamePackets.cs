@@ -95,6 +95,8 @@ public enum GamePackets : ushort
 
     TM_CS_VERSION = 50,
 
+    TM_CS_ANTI_HACK = 54,
+
     TM_CS_CHARACTER_LIST = 2001,
 
     TM_CS_CREATE_CHARACTER = 2002,

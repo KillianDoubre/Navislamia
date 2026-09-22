@@ -1108,6 +1108,18 @@ are bitfields derived from `limit_*` columns and are left at zero, and the
 `NameId`/`SetId`/`SummonId`/`EffectId`/`SkillId`/`StateId` foreign keys are left null because the
 referenced resource tables are still empty.
 
+## Client anti-cheat packets
+
+`TM_SC_ANTI_HACK` (`53`) and `TM_CS_ANTI_HACK` (`54`) both carry a fixed 402-byte payload: a `uint16`
+`nLength` at offset 7 followed by `uint8 byBuffer[400]` at offsets 9-408, for 409 bytes on the wire.
+Neither rzu nor NGemity/Chihiro shows a handler: NGemity has the headers and nothing else, and an
+unregistered packet there ends in a DEBUG "Got unknown packet" log. The Epic 7.3 client `SFrame.exe`
+imports no anti-cheat module at all, and its incoming dispatcher treats `53` as an explicit empty case,
+so the shipped client can neither answer the challenge nor produce the `54` blob. `nLength` semantics
+are not established by the reference - do not interpret the value. NavisLamia declares `54`, describes
+the frame, and consumes the datagram without any disposition; the operational decision (verify, record,
+ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
