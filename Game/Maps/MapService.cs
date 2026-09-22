@@ -32,6 +32,8 @@ namespace Navislamia.Game.Maps
         private static QuadTree _qtAutoBlockInfo;
         private static Dictionary<int, PropContactScriptInfo> _propScriptInfo;
         private static Dictionary<int, EventAreaInfo> _eventAreaInfo; // TODO: currently only updated but never used
+        private static EventAreaInfo[] _eventAreaSnapshot = Array.Empty<EventAreaInfo>();
+        private static readonly object EventAreaSync = new();
 
         private static int _currentLocationId;
         private static float _tileSize = 1;
@@ -58,6 +60,16 @@ namespace Navislamia.Game.Maps
             _propScriptInfo = new Dictionary<int, PropContactScriptInfo>();
             _eventAreaInfo = new Dictionary<int, EventAreaInfo>();
         }
+
+        public bool TryGetEventArea(int eventAreaId, out EventAreaInfo eventArea)
+        {
+            lock (EventAreaSync)
+            {
+                return _eventAreaInfo.TryGetValue(eventAreaId, out eventArea);
+            }
+        }
+
+        public EventAreaInfo[] GetEventAreas() => _eventAreaSnapshot;
 
         public void Start(string directory)
         {
@@ -286,7 +298,11 @@ namespace Navislamia.Game.Maps
                         point.Y = mapLength * y + point.Y * attrLen;
                     }
 
-                    _eventAreaInfo[eventAreaId] = new EventAreaInfo(eventAreaId, points);
+                    lock (EventAreaSync)
+                    {
+                        _eventAreaInfo[eventAreaId] = new EventAreaInfo(eventAreaId, points);
+                        _eventAreaSnapshot = _eventAreaInfo.Values.ToArray();
+                    }
                 }
             }
         }

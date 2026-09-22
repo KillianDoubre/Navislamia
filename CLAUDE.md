@@ -119,6 +119,16 @@ character bootstrap: stats, inventory, summon slots, wear information, gold/chao
 experience/JP, job properties, learned skills, belt slots, game time and status. It then synchronizes
 NPC and monster visibility. See `docs/character-bootstrap.md` for packet layouts and model ordering.
 
+The summon socle's server-to-client layouts live in `GameSummonPackets`, sized from
+`docs/packet-specs/socle-invocations.md`: `TS_SC_ADD_SUMMON_INFO (301)` 46 bytes,
+`TS_SC_REMOVE_SUMMON_INFO (302)` 11, `TS_SC_UNSUMMON (305)` 11, `TS_SC_UNSUMMON_NOTICE
+(306)` 15, `TS_SC_SUMMON_EVOLUTION (307)` 38, `TS_SC_MOUNT_SUMMON (320)` 24,
+`TS_SC_UNMOUNT_SUMMON (321)` 16. Epic 7.3 gives the name field 19 bytes — 18 usable
+characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
+Nothing emits these packets yet: how many summons exist, for how long, at what cost and
+what they become is still an open decision, so `BuildAddSummonInfo` takes `code` (source not
+established) and `summon_handle` from its caller instead of inventing either.
+
 Epic 7.3 key bindings are character data, not a local `.opt` setting. The server sends the single
 string property `client_info` with `TS_SC_PROPERTY (507)` during world entry, and the client writes it
 back with `TS_CS_SET_PROPERTY (508)`, normally when leaving the game. The value is an opaque,
@@ -383,9 +393,9 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
   destination has drifted past `ChaseReissueThreshold` from the one already in flight — otherwise the
   client would get a fresh move every 300 ms tick and stutter.
 - **Attack**: within the melee reach and off cooldown, `TS_SC_ATTACK_EVENT` (`101`) with the monster as
-  attacker and the player as target; the player loses `maxHp / 100` HP (**test formula**, floored so
-  HP never drops below 1 — **there is no player death or respawn**), sent as the `hp` property. **A
-  monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
+  attacker and the player as target; the player loses `maxHp / 15` HP (**test formula**), sent as the
+  `hp` property. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
+  joueur*), and a monster drops a target at 0 HP. **A monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
   freezes it at its current position and a `TS_SC_MOVE` stop is sent, so it does not slide through the
   swing (the reference's `SetMove(current, current, speed 0)` before `Attack`). The player is planted
   the same way — `CombatService` sends a stop-move for the player when a swing lands, only ever in
@@ -1098,12 +1108,55 @@ are bitfields derived from `limit_*` columns and are left at zero, and the
 `NameId`/`SetId`/`SummonId`/`EffectId`/`SkillId`/`StateId` foreign keys are left null because the
 referenced resource tables are still empty.
 
+## Client anti-cheat packets
+
+`TM_SC_ANTI_HACK` (`53`) and `TM_CS_ANTI_HACK` (`54`) both carry a fixed 402-byte payload: a `uint16`
+`nLength` at offset 7 followed by `uint8 byBuffer[400]` at offsets 9-408, for 409 bytes on the wire.
+Neither rzu nor NGemity/Chihiro shows a handler: NGemity has the headers and nothing else, and an
+unregistered packet there ends in a DEBUG "Got unknown packet" log. The Epic 7.3 client `SFrame.exe`
+imports no anti-cheat module at all, and its incoming dispatcher treats `53` as an explicit empty case,
+so the shipped client can neither answer the challenge nor produce the `54` blob. `nLength` semantics
+are not established by the reference - do not interpret the value. NavisLamia declares `54`, describes
+the frame, and consumes the datagram without any disposition; the operational decision (verify, record,
+ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
+
+## Enchères (famille `TM_*_AUCTION_*`, 1300-1310)
+
+`docs/packet-specs/socle-encheres.md` fixe le format de la famille ; le socle est implémenté.
+Trois points à ne pas redécouvrir :
+
+- Une seule structure d'objet sur le fil vaut **75 octets** à Epic 7.3 : le motif d'objet de base,
+  sans `wear_position` / `own_summon_handle` / `index`. L'inventaire `TM_SC_INVENTORY` y ajoute ces
+  dix octets et porte 85 ; les enchères s'arrêtent à 75. Ce motif est écrit une seule fois, dans
+  `Game/Network/Packets/Game/ItemFixedInfoWriter.cs` (`Size = 75`, `Write`, `FromItem`) : l'inventaire
+  passe par lui, et toute nouvelle famille d'objets doit en faire autant. rzu nomme ce motif
+  `TS_ITEM_FIXED_INFO`, NGemity `TS_ITEM_BASE_INFO`.
+- Le client **lit `appearance_code`** dans ce motif (offset 71) alors que rzu gate le champ à
+  `>= EPIC_7_4`. Le client prime : sans ces 4 octets, chaque entrée d'enchère est désalignée de
+  4 octets, et les réponses valent 4979/3739 au lieu de **5139/3899**.
+- Les trois réponses `1301` (5139), `1303` et `1305` (3899) copient leur tableau en bloc, **sans
+  regarder** `auction_info_count` : `GameAuctionPackets` écrit toujours les 40 emplacements, vides
+  ou non, et plafonne le compte à 40.
+
+Les trois identifiants serveur → client (`1301`, `1303`, `1305`) sont dans `GamePackets` et ont un
+bras `log + continue` dans `GameClient`, comme `TM_SC_REGION_ACK` : le client ne les envoie jamais,
+mais un membre d'enum sans branche atteindrait le `throw "Unknown Packet Type"`. Les sept paquets
+client → serveur de la famille (`1300`, `1302`, `1304`, `1306`, `1308`, `1309`, `1310`) restent à
+implémenter, chacun avec son bras de dispatch.
+
+L'hôtel des ventes n'est **pas** porté depuis NGemity : il n'y implémente aucun handler, aucune
+ressource, aucune mécanique (`SecRouteAuction = 130107` y est une constante orpheline). La
+validation vient du client et du modèle déjà présent dans le dépôt (`AuctionEntity`,
+`ItemStorageEntity.RelatedAuctionId`, les neuf `StorageType`, la table `AuctionCateryResource`,
+lue par `AuctionCateryResourceRepository`).
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming, group aggro (`GroupFirstAttack`), pathfinding, and **player death** — monster
-  damage is the `maxHp/100` test formula floored at 1 HP. Damage-to-monster, attack speed, walk speed
+  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding; monster damage is the
+  `maxHp/15` test formula, and a player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them
+  back in town. Damage-to-monster, attack speed, walk speed
   and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
   as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
@@ -1139,6 +1192,42 @@ referenced resource tables are still empty.
   remain POC work
 
 ## Paquets
+
+### Event areas (7.3): `TM_CS_ENTER_EVENT_AREA` (15) and `TM_CS_LEAVE_EVENT_AREA` (16)
+
+The retail client loads the event-area polygons itself (`.nfe`, one file per map tile next to the
+location/attribute files) and has compiled enter/leave notifications for them, but **no reference
+proves that the Epic 7.3 client actually emits 15 or 16**; the client's packet name table has no name
+for any id in 14..19. Treat these packets as a redundant trigger, never as the only one: the server
+already loads the same polygons (`MapService._eventAreaInfo`, `.nfe`, read as id + polygon list only)
+and knows the session position, so it checks containment itself instead of trusting the claim.
+`EventAreaService` (`Game/Services/EventAreaService.cs`) does it, from the two dispatch branches in
+`GameClient.OnDataReceived` *and* from every position change (move request, region update, change of
+location); the packet is 15 bytes: header (7) + `event_area_id` (int32, offset 7) + `area_index`
+(int32, offset 11).
+
+Containment is `PolygonF.IsIncluded` (`Game/Maps/X2D/PolygonF.cs`, bounding box + crossing parity),
+**not** `PolygonF.Contains`, which only compares against the vertex list. Two port errors in
+`LineF.IntersectCcw` made `IsIncluded` answer `false` for every point inside any polygon and had to be
+fixed against NGemity (`src/X2D/Linef.cpp`): the crossing test compared `ccw123` against itself instead
+of `ccw124`, and the Y precheck compared `l2MinY` against its own maximum instead of `l1MaxY`. Also
+`PointF` has no value equality, so the reference's "point equals a vertex" shortcut never fires on a
+zone corner; and never test a `PolygonF` against `null` — its `==` overload compares to `null` through
+the same operator, so `polygon != null` recurses until the stack dies (`ReferenceEquals` instead).
+`new PolygonF(BoxF)` throws `NullReferenceException` because it calls `Set` on the null elements of a
+`PointF[]` (dead code path today, `MapService` only clones polygons).
+
+Neither rzu nor NGemity has any server packet for event areas, and NGemity has no handler at all
+(15/16 fall into its "unknown packet" debug log). The server therefore sends **nothing** back.
+`EventAreaInfo`'s other fields (times, level/race/job limits, six activation conditions,
+`count_limit`, enter/leave scripts) are not in the `.nfe`: they mirror the `EventAreaResource` table of
+`ArcadiaSchemaPSQL.sql`, which nothing imports, so they are all zero/empty today and
+`EventAreaInfo.IsActivatable` stays `false`. NGemity's `Telecaster.EventAreaEnterCount`
+(player_id, event_area_id, enter_count) shows the retail server kept a per-character, per-area entry
+counter, but the socle persists nothing.
+
+The full spec (offsets, sources, version gating, NGemity deltas, scope, open questions) is in
+`docs/packet-specs/socle-zones-evenement.md`.
 
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
@@ -1196,6 +1285,60 @@ referenced resource tables are still empty.
 - Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Socle artisanat et enchantement — `TM_CS_MIX` 256, `TM_CS_SOULSTONE_CRAFT` 260, `TM_CS_REPAIR_SOULSTONE` 262, `TM_CS_TRANSMIT_ETHEREAL_DURABILITY` 263 / `…_TO_EQUIPMENT` 264
+
+Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
+
+- **N'a été livré que le socle structurel** : `CraftingSocleService` lit la trame à sa taille 7.3,
+  la borne, résout chaque handle non nul contre l'inventaire du personnage, puis **refuse**
+  (`InvalidArgument`, valeur 0) — le moteur d'artisanat n'existe pas. Aucune table `MixResource` /
+  `EnhanceResource` n'est chargée, aucun taux n'est tiré, aucun châssis n'est touché.
+- **Tailles 7.3** : 256 = `15 + 6N` (`N <= 9`) · 260 = 27 · 262 = 31 · 263 = 11 · 264 = **11**.
+  Le champ `target` de 264 et le champ `type` de 257 sont gatés `EPIC_8_1` : la trame 8.1 de 264
+  fait 12 octets et **doit rester refusée**.
+- **256, offset 13 = nombre de slots matériaux** (longueur du tableau écrite par l'émetteur), pas
+  un identifiant de recette ; le socle la compare `(Length - 15) / 6` et refuse une divergence.
+- **Sentinelles nulles** : les slots vides (4 pierres de 260, 6 handles de 262, cible absente de
+  256) sont écrits `0` et ne sont **jamais** résolus — un zéro n'est pas un objet manquant.
+- **257 et 261 sont descendants** (`SessionPacketOrigin::Server`) : leur bras de réception les
+  journalise et les jette. Un membre de `GamePackets` sans bras atteint le `throw
+  Unknown Packet Type` final de `GameClient.Receive`, qui **casse la boucle de réception** :
+  énumération et dispatch se modifient ensemble.
+- **259 n'est pas établi** : rzu et NGemity y déclarent `TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW`,
+  `op_codes.md:86` y met `TM_CS_DONATE_REWARD`. La fenêtre de sertissage ne peut pas être émise
+  tant que l'id n'est pas tranché, et 260 n'est pas testable de bout en bout sans le
+  déclencheur de contact PNJ.
+- **Restent à trancher avant tout moteur** (détail en fin de fiche) : taux de réussite, sort des
+  châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
+  `mix_type` 801/802/803 ↔ 263/264.
+
+### Mort et réapparition du personnage joueur
+
+Le client Epic 7.3 **déclare** `TM_SC_DEAD` (504) mais son répartiteur le libère **sans effet**
+(aucun handler : la table id→nom de `SFrame.exe` mappe 504 vers `TM_SC_DEAD` et le cas `cmp $0x1f8`
+saute directement à la queue de libération). Aucun paquet serveur→client de mort n'existe donc :
+le joueur est mort quand ses points de vie sont à 0, publiés par `TS_SC_ATTACK_EVENT` (`target_hp`)
+et par la propriété `hp`. La phrase précédente de ce fichier (« there is no TS_SC_DEAD in this
+version ») doit se lire ainsi.
+
+La réapparition est demandée par le client avec `TM_CS_RESURRECTION` (513) : trame fixe de **12
+octets**, `handle` (uint32) à l'offset 7 et `type` (int8) à l'offset 11. En 7.3, `type` remplace la
+paire pré-6.1 `use_state`/`use_potion` (qui ferait 13 octets) : 0 = réapparition à la ville,
+1 = par état, 2 = par objet, 3/4 = compétition/match à mort. NGemity compile en `EPIC_4_1_1`, donc
+son `WorldSession::onRevive` lit `use_state`/`use_potion` et ignore `type` : à traduire, pas à
+recopier.
+
+`TM_SC_STATUS_CHANGE` (`500`) avec `1 << 8` est le drapeau mort **d'un monstre** : pour un handle de
+joueur le même bit vaut `TCS_FlagSitdown`. Ne jamais envoyer 500 + `1 << 8` pour un joueur.
+
+La fiche complète (enchaînement côté client, écarts NGemity, découpage, réserves) est dans
+`docs/packet-specs/socle-mort-respawn.md`.
+
+Le socle est en place : `TM_CS_RESURRECTION` (513) est décodé (trame de 12 octets, toute autre taille
+refusée plutôt que lue), le personnage réapparaît à sa position persistée avec ses PV/MP au maximum,
+et un monstre lâche une cible tombée à 0 PV (les PV d'un joueur n'ont plus de plancher à 1). Le
+serveur n'émet toujours aucun paquet de mort.
+
 ### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
 
 - 7.3 = ids **550** (CS) / **11** (SC) : rzu remappe en 1550/1011 à partir d'`EPIC_9_6_3`
@@ -1224,6 +1367,34 @@ referenced resource tables are still empty.
   150 vs 180, contrôle de taille côté client.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Paquet 902 / 903 — `TM_SC_WEATHER_INFO` / `TM_CS_GET_WEATHER_INFO`
+
+(Epic 7.3 ; fiche `docs/packet-specs/902-weather-info.md`)
+
+`TM_SC_WEATHER_INFO` (902, 13 octets : `region_id` `uint32` à 7, `weather_id` `uint16` à 11) et
+`TM_CS_GET_WEATHER_INFO` (903, 11 octets : `region_id` `uint32` à 7). Les ids `1902`/`1903` sont
+`version >= EPIC_9_6_3` et ne doivent pas être ajoutés.
+
+Deux pièges. (1) `region_id` n'est **pas** un indice de région de visibilité (la 550/11, pas de
+180) : c'est l'id de `WorldLocation`, encodé `x × 10000 + y × 100 + n` sur les colonnes `x`/`y`
+de la table ; NGemity y met l'id de l'emplacement, rzu y met 0. (2) La table a **une ligne par
+`(id, weather_id, time_id)`** (la copie client en compte 6497 lignes et 407 ids, dans un ordre
+physique qui n'est pas groupé par id (114 ruptures de l'ordre `(id, weather_id, time_id)`), ce qui
+rend le tri `ORDER BY Id, WeatherId, TimeId` du dépôt nécessaire) : elle doit être repliée en un
+enregistrement par id avec `weather_ratio[weather_id][time_id]`, comme
+`WorldLocationManager::RegisterWorldLocation`, sinon les lignes s'écrasent.
+
+Le client 7.3 **consomme** la 902 (il lit `+7` et `+11`) et, dans le binaire fourni, **n'émet
+jamais** la 903 : la constante `0x387` n'y apparaît que dans la table id→nom, sans constructeur.
+Aucune référence (NGemity, rzu) n'implémente de réponse à la 903. La réponse est donc défensive :
+une 902 à l'id demandé si l'id est connu, rien sinon.
+
+NGemity ne charge la table que pour la replier, **n'affecte jamais `current_weather`** (sa 902 vaut
+toujours `weather_id = 0`) et ne pousse la 902 qu'au changement d'emplacement, calculé depuis les
+données de carte du client — données que Navislamia n'a pas. Le socle suit rzu : une 902 `{0, 0}`
+à l'entrée dans le monde. L'appariement position → id d'emplacement reste `NON ÉTABLI` (taille de
+cellule inconnue) et mérite une carte dédiée.
+
 ### Paquet 1202 — `TM_CS_EMOTION` (émotion)
 
 - 7.3 = ids **1202** (CS) / **1201** (SC) : rzu remappe en 2202/2201 à partir d'`EPIC_9_6_3`
@@ -1250,6 +1421,49 @@ referenced resource tables are still empty.
   `CHAT_EMOTION` ; la portée réelle de la 1201.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Socle instances de jeu — 4250-4253 et famille HuntaHolic 4000-4012
+
+**17 opcodes, tous `X(<id>, true)` chez rzu : aucun n'est renuméroté en 7.3.** Ils n'existent
+qu'à partir d'`EPIC_6_3` (4250-4253, 4011, 4012), et `EPIC_7_3 = 0x070300 > EPIC_6_3`, donc tous
+valides. Fiche complète : `docs/packet-specs/socle-instances-jeu.md`.
+
+**Le piège de cette famille est le gating des champs de 4253** :
+`TS_SC_INSTANCE_GAME_SCORE_REQUEST` porte cinq champs `version >= EPIC_8_1`
+(`battle_arena_point`, `battle_arena_mvp_count`, `battle_arena_record_classic/slaughter/bingo`,
+32 octets au total). En 7.3 le paquet fait **23 octets**, pas 55 : `holicpoint` à 7,
+`bearroad_ranking` à 11, `deathmatch_kill_count` à 15, `deathmatch_death_count` à 19. Le client
+7.3 lit 16 octets de charge utile — c'est la source de vérité.
+
+**Tailles à écrire en dur** (source : rzu + constructeurs du client 7.3) :
+4250 = 11, 4251 = 7, 4252 = 7, 4253 = 23 ; 4000 = 11, 4001 = 23 + 38·N, 4002 = 45,
+4003 = 56, 4004 = 28, 4005 = 7, 4006 = 48, 4007 = 15, 4008 = 7, 4009 = 11, 4010 = 7,
+4011 = 7, 4012 = 7. Les chaînes de 4003/4004 sont des tampons **fixes** de 31 et 17 octets
+(NUL compris) ; `ar_time_t` de 4009 vaut **4 octets** ; le pas du tableau de 4001 est **38**.
+
+**`TM_CS_INSTANCE_GAME_ENTER` (4250) est une réponse du client** : le client copie dans sa charge
+utile un `int32` lu dans le message entrant qui la déclenche. Le serveur ne peut donc pas la
+provoquer tant que ce message n'est pas identifié (`NON ÉTABLI` (b) de la fiche).
+
+**Ne pas porter NGemity** : les 17 opcodes y sont déclarés et jamais traités, et le bloc
+`Skill.cpp:1418-1433` (`INSTANCE_GAME_ENTER`, `WARP_TO_HUNTAHOLIC_LOBBY`, `INSTANCE_GAME_EXIT`)
+est entièrement commenté. Les compétences 64818 et 64827 sont définies mais jamais appelées.
+
+**Déjà en place dans Navislamia** : `CharacterEntity.HuntaholicPoint` /
+`HuntaholicEnterCount` (`CharacterEntity.cs:51-52`), `PartyType.HuntaholicParty`,
+`StateTimeType.EraseOnQuitHuntaholic`, `ItemEffectInstant.IncHuntaholicPoint`,
+`ItemUseFlag.CantUseInHuntaholic`, et les tables de ressources HuntaHolic/InstanceDungeon
+(`ArcadiaSchemaPSQL.sql`). Le travail est purement protocole.
+
+**Socle minimum** : 4250/4251/4252 + 4253, seuls opcodes sans état et testables seuls. Découpage
+en 6 paquets (S1…S6) : §5.4 de la fiche.
+
+**Lot S1 implémenté** (`3fc8b8c`) : les 4 ids `TM_CS/SC_INSTANCE_GAME_*` sont dans `GamePackets`
+**et** routés dans `GameClient.OnDataReceived` (aucun n'atteint le `throw` final), les tailles
+11 / 7 / 7 / 23 sont dans `Game/Network/Packets/Game/GameInstanceGamePackets.cs` et verrouillées
+par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seulement** et porte
+`CharacterEntity.HuntaholicPoint` ; les trois champs de score sans source en 7.3 partent à zéro
+(placeholder, §9.4 de la fiche). Les lots S2…S6 (famille HuntaHolic 4000-4012) restent à faire.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.
@@ -1262,3 +1476,6 @@ referenced resource tables are still empty.
   its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
   **in the same change**: a declared id with no dispatch arm reaches
   `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
+- That rule covers client packets. An id the server only ever emits needs no arm in
+  `GameClient.Receive`, so `GameSummonPackets`' seven strictly server-to-client ids are
+  declared in `GamePackets` with no dispatch entry; 33 `TM_SC_*` members already had none.
