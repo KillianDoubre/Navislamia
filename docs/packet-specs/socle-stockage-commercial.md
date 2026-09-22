@@ -582,6 +582,95 @@ conteneur (§7c) — pas l'archéologie.
 - Le savoir durable de ce socle est dans `docs/packet-specs/socle-stockage-commercial.md`, pas ici.
 ```
 
+## 10. Implémentation livrée (dev) — lot 1
+
+Commit **`8c059e2`** sur cette branche (`hermes/packet-socle-stockage-commercial`), au-dessus de la
+fiche `23b6140`. Le **lot 1 de §9.1 est livré en entier** ; le lot 2 (§9.2) n'est pas ouvert et rien
+n'y a été préparé.
+
+| Fichier | Ce qui y est livré |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | les trois membres ajoutés **en fin d'énumération** (`TM_CS_REPORT = 8000`, puis `:101-103`, avant `TM_NONE = 9999`), conformément à §5.4.1 : la queue du fichier n'est touchée par aucune des branches en collision citées en §9.3, contrairement à la zone d'insertion après `TM_CS_VERSION` |
+| `Game/Network/Packets/Game/GameCommercialStoragePackets.cs` | fichier **nouveau**, comme les autres socles (`GameTradePackets.cs`, `GameWeatherPackets.cs`, `GameAuctionPackets.cs`) : `CommercialStorageInfoSize = 11`, `CommercialStorageListHeaderSize = 9`, `CommercialStorageItemSize = 10`, `BuildCommercialStorageInfo(ushort totalItemCount, ushort newItemCount)` et `BuildCommercialStorageList(IReadOnlyList<(uint Uid, int Code, ushort Count)> items)` — signature tuple **telle que dictée par §5.4.4**, sur le modèle de `BuildEraseItem` (`(uint Handle, long Count)`) |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TakeoutCommercialItemRequest(uint Uid, ushort Count)` et `TryReadTakeoutCommercialItem(…)` : `uid` @7, `count` @11, toute longueur ≠ 13 refusée (idiome exact de `TryReadGetRegionInfo`, §3.4) |
+| `Game/Network/Clients/GameClient.cs` | deux bras **posés à côté de `TM_SC_REGION_ACK`** (`:652-668`), pas à l'ancre du `switch` final (§5.4.3) : `Warning` + `continue` pour 10003/10004, appel de `HandleTakeoutCommercialItem` pour 10005 ; la méthode (`:208`) est voisine de `HandleGetRegionInfo` |
+| `Game/Network/Clients/Actions/GameActions.cs` | la 10003 à `0/0` **juste avant `client_info`** (`:240`), puis la 10004 vide (`:245-246`) : ancre de §5.3 |
+| `Tests/Game/CommercialStoragePacketsTests.cs` | 23 tests d'offsets, détail en §10.2 |
+
+### 10.1 Décisions prises par le dev
+
+1. **Émission de la 10004 vide : retenue**, comme le recommande §7d. Elle tient en une seule ligne
+   (`GameActions.cs:245-246`) et son retrait ne touche que l'appel : le constructeur et ses tests
+   restent le contrat documenté. Point de veto inchangé (§9.1), matériellement à une ligne de la
+   décision de Killian.
+2. **Aucune réponse à la 10005** : le serveur journalise `uid` + `count` et s'arrête là. Aucun coût,
+   aucun plafond, aucun `ResultCode` (§7b) et **aucune émission de 10005** (§5.3) : le type
+   `GameCommercialStoragePackets` ne porte que les deux constructeurs serveur → client, et un test
+   verrouille cette absence (§10.2, dernier point).
+3. **Aucun service, aucune entité, aucune migration** : le conteneur est vide par construction, donc
+   rien n'est créé pour l'alimenter (§7f, §7g, §9.2). Le lot 1 ne dépend d'aucun producteur, ce qui
+   était la condition de livrabilité de §9.1.
+4. **Placement des bras de dispatch** : au même endroit que la fiche le demandait, c'est-à-dire
+   avant l'ancre du `switch` final et après les bras `TM_CS_GET_REGION_INFO`, pour ne pas ajouter un
+   cinquième écrivain à la queue du `switch` (§9.3).
+5. **Aucun `limit_*` et aucun `break` implicite** : les trois paquets n'ont ni `_(string)`, ni
+   préfixe de longueur (§3), donc les pièges de `CLAUDE.md` ne s'appliquent pas ici ; les deux
+   constructeurs écrivent `Length` = taille totale du tableau, comme `CreatePacket` du dépôt.
+
+### 10.2 Ce que les tests verrouillent
+
+Fichier `Tests/Game/CommercialStoragePacketsTests.cs`, 23 cas (le total de la suite passe de 448 à
+**471** tests, `dotnet test` en code 0) :
+
+- **ids** : 10003 / 10004 / 10005, les trois définis dans `GamePackets` (sans quoi `OnDataReceived`
+  les jette avant tout dispatch) et la note sur la bascule rzu vers 9003/9004/9005 ;
+- **10003 = 11 octets** : `Length` @0 = 11, `ID` @4 = 10003, `Checksum` @6 = somme des octets 0..5,
+  `total_item_count` @7, `new_item_count` @9, ordre des deux compteurs vérifié par valeurs
+  asymétriques (1 puis 2), et aucune écriture au-delà de l'octet 10 ;
+- **10004 = 9 + 10 × n** : 9 octets et `count = 0` pour la liste vide ; 29 octets et `count = 2` pour
+  deux entrées, avec `(uid, code, count)` en 9/13/17 puis 19/23/27 ; `Length` et `count` cohérents
+  pour n = 0, 1, 3, 5 ; ordre `uid` puis `code` (deux `uint32`) vérifié par valeurs distinctes ;
+  liste nulle refusée ;
+- **10005 = 13 octets** : `uid` @7 et `count` @11 lus, `Length = 13` et `ID = 10005` sur la trame
+  client ; toute longueur ≠ 13 refusée (0, 7, 12, 14, 16) en gardant la requête par défaut ;
+- **verrou « le serveur n'émet jamais 10005 »** : par réflexion, `GameCommercialStoragePackets`
+  n'expose que `BuildCommercialStorageInfo` et `BuildCommercialStorageList`, et les ids qu'ils
+  écrivent sont exactement {10003, 10004} ; `GameActionPackets` n'expose qu'un seul membre dont le
+  nom contient « Takeout » : le lecteur `TryReadTakeoutCommercialItem` (bool, `ReadOnlySpan<byte>`,
+  `out TakeoutCommercialItemRequest`).
+
+**Limite assumée de ce verrou** : il porte sur les deux types du socle, pas sur l'assembly entière.
+Un constructeur de 10005 placé ailleurs ne serait pas attrapé par ce test ; il le serait par la
+relecture du diffuseur, dont les trois seuls bras pour ces ids sont ceux livrés ici. C'est une
+réserve de forme, pas de comportement : aujourd'hui, aucune ligne du dépôt n'écrit l'id 10005 dans
+une trame.
+
+### 10.3 Bloc `CLAUDE.md` à jour (à coller par la QA dans la description de la MR)
+
+Le bloc de §9.4 est valable tel quel ; seule la dernière phrase doit décrire l'état livré :
+
+```markdown
+- Tailles, telles que livrées : 10003 = **11 octets** (`total_item_count` u16 @7, `new_item_count`
+  u16 @9) et 10004 = **9 + 10 × n** (`count` u16 @7, puis n entrées de 10 octets = `uint32`
+  `commercial_item_uid` @0, `int32 code` @4, `uint16 count` @8, première entrée à l'offset 9) dans
+  `Game/Network/Packets/Game/GameCommercialStoragePackets.cs` ; 10005 = **13 octets** (`uint32`
+  `commercial_item_uid` @7, `uint16 count` @11) lus par `GameActionPackets.TryReadTakeoutCommercialItem`,
+  seule longueur acceptée. `TM_SC_COMMERCIAL_STORAGE_INFO` est émise à `0/0` à l'entrée en jeu, comme
+  rzu, suivie d'une 10004 vide (9 octets, `count = 0`) — cette seconde ligne est une décision de
+  Navislamia, rzu ne l'émet pas, et se retire d'une ligne (`GameActions.cs:245-246`).
+- Aucun service, aucune entité et aucune migration pour ce conteneur : rien dans le dépôt ne peut
+  l'approvisionner, donc sa seule valeur exacte est vide. Les trois bras de dispatch sont posés près
+  de `TM_SC_REGION_ACK` (`GameClient.cs:652-668`), jamais à l'ancre du `switch` final.
+```
+
+### 10.4 Réserves héritées, inchangées
+
+Aucune réserve de §7 n'est levée par le lot 1 : `new_item_count` (7a), la politique de retrait (7b),
+la clé du `commercial_item_uid` (7c), le modèle de persistance (7f), le producteur (7g), les verrous
+de configuration du client (7h), la lecture du garde entrant (7i) et la détection du « conteneur
+vide » (7k) restent ouvertes. Le lot 1 ne dépend d'aucune d'elles, sauf de 7d qui a été **tranchée
+par la fiche elle-même** (émission recommandée) et reste le point de veto de Killian.
+
 ## A VERIFIER PAR KILLIAN
 
 1. **`new_item_count` (§7a)** — que compte-t-il, et qui le remet à zéro ? Le lot 1 envoie `0`
@@ -591,7 +680,8 @@ conteneur (§7c) — pas l'archéologie.
 3. **Clé du `commercial_item_uid` (§7c)** — sur quoi le serveur retrouve-t-il l'objet, et comment
    garantit-il qu'il appartient au personnage ? Point de sécurité à trancher avant tout retrait réel.
 4. **Émission d'une 10004 vide à l'entrée en jeu (§7d)** — recommandée pour la cohérence de la
-   paire, rzu ne le fait pas ; retirable d'une ligne (point de veto §9.1).
+   paire, rzu ne le fait pas ; retirable d'une ligne (point de veto §9.1). **Livrée telle quelle au
+   lot 1** : `GameActions.cs:245-246`, une seule ligne à supprimer.
 5. **Modèle de persistance (§7f et §9.2)** — `PaidItem` (dump officiel) ou extension de
    `ItemStorages` / `StorageType` ? Le lot 1 ne crée rien : tant qu'aucune boutique n'alimente le
    conteneur, la valeur exacte est zéro.
