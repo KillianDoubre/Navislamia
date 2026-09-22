@@ -150,6 +150,13 @@ public enum GamePackets : ushort
     TM_CS_INSTANCE_GAME_SCORE_REQUEST = 4252,
     TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253,
 
+    // TM_CS_HUNTAHOLIC_CREATE_INSTANCE : creation of a HuntaHolic lobby room, X(4003, true) in rzu, so no
+    // version gating and no gated payload field. Only this id of the 4000-4012 family is declared: its
+    // siblings (4000/4001/4002 lobby list and info, 4004 join, and the rest) join with their own lots, and no
+    // server to client id of the family is emitted yet. See
+    // docs/packet-specs/4003-huntaholic-create-instance.md.
+    TM_CS_HUNTAHOLIC_CREATE_INSTANCE = 4003,
+
     // TM_CS_COMPETE_* : the client to server half of the player competition socle (4500-4506), X(<id>, true) in
     // rzu, so no version gating and no gated field. Only the two frames the server reads are declared; the five
     // server to client ids join with lots C2-C4. See docs/packet-specs/socle-competition-joueurs.md.
