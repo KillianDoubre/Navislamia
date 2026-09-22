@@ -627,6 +627,19 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_CS_OPEN_ITEM_SHOP (10000) is a request with an empty body: 7 bytes on the wire, header
+            // only. The 7.3 client never emits it — opening the item shop is a purely local command that
+            // builds the web shop URL from shop_url and the character it already knows — so, like
+            // TM_SC_REGION_ACK above, an incoming frame is an anomaly: logged and dropped, nothing read past
+            // the header and nothing answered. The four fields of TM_SC_OPEN_ITEM_SHOP (10001) are web shop
+            // credentials Navislamia does not hold, so no answer is invented for it.
+            if (header.ID == (ushort)GamePackets.TM_CS_OPEN_ITEM_SHOP)
+            {
+                _logger.Warning("TM_CS_OPEN_ITEM_SHOP ({id}) received from {clientTag}: no item shop backend is configured, ignoring",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
