@@ -129,6 +129,33 @@ Nothing emits these packets yet: how many summons exist, for how long, at what c
 what they become is still an open decision, so `BuildAddSummonInfo` takes `code` (source not
 established) and `summon_handle` from its caller instead of inventing either.
 
+A summon enters the world as `TS_SC_ENTER` (`3`) with `type = ET_NPC (1)` and `objType = EOT_Summon (4)` — the
+same rzu authority that fixes 1/2/3/6 for npc/item/monster/field prop, corroborated by NGemity's `SubType`
+mapping (`Object.cpp:381`, `Object.h:37`). The packet is **96 bytes**: the 26-byte creature prefix, the 38-byte
+shared creature payload, then `master_handle` u32 @64, `summon_code` as an 8-byte randomized `EncodedInt` @68,
+the 19-byte name @76 (18 usable, zero padded, the writer the creature window already uses) and `enhance`
+(Epic >= 7.1) @95. A trap worth naming: rzu declares those ids one field at a time — `npc_id` (`:105`), an
+item's `code` (`:38`) and `summon_code` (`:93`) are `EncodedInt<EncodingRandomized>`, and only `monster_id`
+(`:85`) is `EncodedInt<EncodingScrambled>`. Both share the same 8-byte layout (`EncodingScrambled::serialize`
+wraps `EncodingRandomized::serialize` after permuting: `EncodingScrambled.h:11-16`), so a single writer serves
+all four, but `ScrambledInt.Encode(...)` on a randomized field permutes an id the client reads straight — and a
+permuted `summon_code` is a summon that never shows up. `race`, `skin_color` and `energy` are 0 — nothing sets
+them for a summon. `max_hp` @38 and
+`max_mp` @46 are *not* copies of `hp`/`mp`: the caller supplies them, no reference settles a summon's maxima.
+`SummonWorldService.Enter(session, tag, connection, entry)` is their caller: it allocates the handle with
+`WorldObjectHandle.Next()`, emits 301 (it fills the creature window) then 3 (it puts the object in the world) —
+one call because no login-properties emission exists for summons yet — and `Leave` emits `TS_SC_UNSUMMON` (305)
+then `TS_SC_LEAVE` (9) on the master's connection. Only that direct copy is sent: NavisLamia has no
+player-to-player visibility, so the regional broadcast of 305/9 from §5.3 is not ported. A summon's position is
+never persisted: it is the master's (`ConnectionInfo.X/Y`, `Layer`, `master_handle = CharacterHandle`) plus a
+bounded jitter (`AddNoise` in integer arithmetic: `raw % range - range/2`, 70 on summon, 50 on login, 35 on
+warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `z`, never set, is 0 — and the
+region-cancel step of `AddNoise` is not portable either, since nothing resolves a position to a location id
+here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summon.cpp:35,88-91`), supplied by
+the caller. 302, 306, 307, 320 and 321 still have no caller: their trigger is untranched game policy (unbind
+rule, summon duration, evolution table, mount rules). No service writes `MainSummonId`/`SummonSlotItemIds` yet,
+and the reference stores *summon* sids in those six columns, not card ids.
+
 Epic 7.3 key bindings are character data, not a local `.opt` setting. The server sends the single
 string property `client_info` with `TS_SC_PROPERTY (507)` during world entry, and the client writes it
 back with `TS_CS_SET_PROPERTY (508)`, normally when leaving the game. The value is an opaque,
