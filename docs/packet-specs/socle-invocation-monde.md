@@ -85,7 +85,7 @@ reste donc entier pour le client 7.3 : cette fiche ne le tranche pas, aucun él�
 | 59 | `uint8` | `creatureInfo.is_first_enter` | 1 à la première entrée, 0 en rentrée | `Unit.cpp:119` ← `STATUS_FIRST_ENTER`, posé autour de l'ajout au monde (`World.cpp:417-423`, `471-474`) ; `TS_SC_ENTER.h:77` — réserve `NON ÉTABLI` 8 |
 | 60-63 | `int32` | `creatureInfo.energy` | **0** | `Unit.cpp:120` ; `UNIT_FIELD_ENERGY` n'est utilisé que par le système d'énergie joueur (`Unit.cpp:2794-2812`), jamais initialisé pour une invocation ; `TS_SC_ENTER.h:78` |
 | 64-67 | `uint32` | `master_handle` | handle du maître | `Summon.cpp:34` ; rzu `TS_SC_ENTER.h:92` |
-| 68-75 | `EncodedInt<EncodingRandomized>` (8 o) | `summon_code` | `SummonEntity.SummonResourceId` | `Summon.cpp:35` (`GetSummonCode()`) ; `Summon.cpp:88-91` (`m_tSummonBase->id`) ; `ObjectMgr.cpp:1147-1190` (`SELECT ... FROM SummonResource`) ; rzu `TS_SC_ENTER.h:93`, largeur `EncodingRandomized.h:11` |
+| 68-75 | `EncodedInt<EncodingRandomized>` (8 o) | `summon_code` | `SummonEntity.SummonResourceId` — **la valeur entre telle quelle**, aucune permutation (§13.9) | `Summon.cpp:35` (`GetSummonCode()`) ; `Summon.cpp:88-91` (`m_tSummonBase->id`) ; `ObjectMgr.cpp:1147-1190` (`SELECT ... FROM SummonResource`) ; rzu `TS_SC_ENTER.h:93`, largeur `EncodingRandomized.h:11` |
 | 76-94 | `char[19]` | `name` | `SummonEntity.Name`, ASCII, complété de zéros | `Summon.cpp:36` ; largeur `TS_SC_ENTER.h:94-96` (19 pour `>= EPIC_3 && < EPIC_9_6`, 20 au-delà) ; écriture `GameSummonPackets.cs:198-203` (`WriteName`, 18 caractères utiles) |
 | 95 | `uint8` | `enhance` | **0** | `TS_SC_ENTER.h:97` (`>= EPIC_7_1`) ; NGemity ne remplit jamais le champ : `Summon.cpp:32-37` remplit `creatureInfo`, `master_handle`, `summon_code`, `szName` et laisse `enhance` à zéro (`TS_SC_ENTER__SUMMON_INFO summonInfo{}`) — réserve `NON ÉTABLI` 7 |
 
@@ -361,8 +361,10 @@ attendus, sur la trame d'entrée de l'invocation :
    `packet[24] == layer`, `packet[25] == 4` (`EOT_Summon`) ;
 4. **charge commune** : `status` @26, `face_direction` @30, `hp` @34, `max_hp` @38, `mp` @42, `max_mp` @46,
    `level` @50, `packet[54] == race`, `skin_color` @55, `packet[59] == is_first_enter`, `energy` @60 ;
-5. **charge propre** : `master_handle` @64, les 8 octets du `summon_code` @68 (encodage aléatoire : comparer
-   la valeur décodée, pas les octets bruts), les 19 octets du nom @76 (dont le remplissage à zéro au-delà de
+5. **charge propre** : `master_handle` @64, les 8 octets du `summon_code` @68 en `EncodingRandomized` — mot 0
+   @68 et mot 2 @72 à zéro, moitié haute de la valeur @70, moitié basse @74, **la valeur entrant brute** : la
+   comparer telle quelle, et surtout **ne jamais la permuter** (`ScrambledInt` est `EncodingScrambled`, réservé
+   à `monster_id` — voir §13.9) —, les 19 octets du nom @76 (dont le remplissage à zéro au-delà de
    18 caractères, comme `GameSummonPackets.WriteName`), `packet[95] == enhance` ;
 6. **bornes** : aucun champ au-delà de l'octet 95, et un nom de 18 caractères ne déborde pas sur 95 ;
 7. **sortie** : 305 = 11 octets, `summon_handle` @7 ; 306 = 15 octets, `summon_handle` @7 et
@@ -411,8 +413,9 @@ chaque largeur décidée en §4 doit apparaître dans ces assertions.
 
 `BuildEnterSummon` écrit exactement §3.1 : `type = 1` @7, `objType = 4` @25, `status = 0` @26, `race = 0` @54,
 55-58 à zéro, `energy = 0` @60-63, `is_first_enter` @59, `master_handle` @64, `summon_code` @68 sur huit octets
-(`ScrambledInt.Encode`, encodage aléatoire : la valeur se compare **décodée**, pas les octets bruts), `name` @76
-sur 19 octets (18 utiles, le reste à zéro), `enhance` @95, plus longueur @0-3, id @4-5 et checksum @6. `max_hp`
+en `EncodingRandomized` — la **valeur brute**, aux mots 1 et 3 de la disposition (`GameSpawnPackets.cs:93`,
+correction §13.9) —, `name` @76 sur 19 octets (18 utiles, le reste à zéro), `enhance` @95, plus longueur @0-3,
+id @4-5 et checksum @6. `max_hp`
 @38 et `max_mp` @46 ne recopient pas `hp`/`mp` : ils viennent de l'appelant (§7, `NON ÉTABLI` 5). Les trames
 NPC et monstre sortent inchangées octet pour octet : les quatre nouveaux paramètres sont optionnels et leur
 défaut reproduit l'ancien comportement (test `BuildEnterSummon_DoesNotDisturbTheNpcAndMonsterTram`).
@@ -477,6 +480,9 @@ Hors lot, comme la carte le fixe : 304, 323, 324, 354, 355, 452.
 145 → 211, `WriteHeader` 174 → 241, `WriteEncodedInt` 180 → 247, `WriteChecksum` 188 → 269 ; `BuildEnterMonster`
 31 → 42. `BuildEnterSummon` (84) et `WriteName` (262) sont nouveaux. `GameSummonPackets.cs:198-203` inchangé.
 `GameClient.cs` : le `throw new Exception("Unknown Packet Type")` reste à **1358**, aucun bras n'a été ajouté.
+La correction de §13.9 décale trois d'entre eux de quatorze lignes : `WriteEncodedInt` **261**, `WriteName`
+**276**, `WriteChecksum` **283** ; `WriteHeader` reste 241, `BuildEnterSummon` reste 84 et l'écriture du
+`summon_code` reste :93.
 
 ### 13.6 Invariant, base de mesure et fusion
 
@@ -498,7 +504,13 @@ same rzu authority that fixes 1/2/3/6 for npc/item/monster/field prop, corrobora
 mapping (`Object.cpp:381`, `Object.h:37`). The packet is **96 bytes**: the 26-byte creature prefix, the 38-byte
 shared creature payload, then `master_handle` u32 @64, `summon_code` as an 8-byte randomized `EncodedInt` @68,
 the 19-byte name @76 (18 usable, zero padded, the writer the creature window already uses) and `enhance`
-(Epic >= 7.1) @95. `race`, `skin_color` and `energy` are 0 — nothing sets them for a summon. `max_hp` @38 and
+(Epic >= 7.1) @95. A trap worth naming: rzu declares those ids one field at a time — `npc_id` (`:105`), an
+item's `code` (`:38`) and `summon_code` (`:93`) are `EncodedInt<EncodingRandomized>`, and only `monster_id`
+(`:85`) is `EncodedInt<EncodingScrambled>`. Both share the same 8-byte layout (`EncodingScrambled::serialize`
+wraps `EncodingRandomized::serialize` after permuting: `EncodingScrambled.h:11-16`), so a single writer serves
+all four, but `ScrambledInt.Encode(...)` on a randomized field permutes an id the client reads straight — and a
+permuted `summon_code` is a summon that never shows up. `race`, `skin_color` and `energy` are 0 — nothing sets
+them for a summon. `max_hp` @38 and
 `max_mp` @46 are *not* copies of `hp`/`mp`: the caller supplies them, no reference settles a summon's maxima.
 `SummonWorldService.Enter(session, tag, connection, entry)` is their caller: it allocates the handle with
 `WorldObjectHandle.Next()`, emits 301 (it fills the creature window) then 3 (it puts the object in the world) —
@@ -521,10 +533,63 @@ Ce qu'un œil en jeu doit constater une fois un appelant câblé (§14 point 15)
 
 - à l'entrée : l'invocation apparaît au sol, nommée, à côté de son maître — jamais exactement dessus sauf
   `NoiseRange = 0` — avec son niveau, ses PV/PM et l'animation d'invocation (`is_first_enter = 1`) ;
-- si rien ne s'affiche : vérifier `objType = 4` @25 et le `summon_code` @68 **décodé** (`ScrambledInt.Decode`) —
-  c'est le point 1 des `NON ÉTABLI` ;
+- si rien ne s'affiche : vérifier `objType = 4` @25 et le `summon_code` @68 **non permuté** (les deux mots
+  centraux @70/@74 doivent recomposer le code tel quel, formulaire de `EncodingRandomized.h:34-40` ; aucun
+  `ScrambledInt` — §13.9) — c'est le point 1 des `NON ÉTABLI` ;
 - à la sortie : l'invocation disparaît sans laisser de modèle fantôme (305 puis 9), et le maître peut la
   rappeler.
+
+### 13.9 Correction : `summon_code` était écrit permuté
+
+Le premier jet de §13.1 passait `ScrambledInt.Encode(summon_code)` au writer commun des ids encodés
+(`GameSpawnPackets.cs:93`). C'était une erreur de champ, pas une convention : rzu déclare l'encodage **champ par
+champ**, et les deux encodages ne sont pas interchangeables.
+
+| champ | déclaration | encodage |
+|---|---|---|
+| `monster_id` | `TS_SC_ENTER.h:85` | `EncodedInt<EncodingScrambled>` — les 32 bits permutés |
+| `npc_id` | `TS_SC_ENTER.h:105` | `EncodedInt<EncodingRandomized>` |
+| `code` d'un objet | `TS_SC_ENTER.h:38` | `EncodedInt<EncodingRandomized>` |
+| `summon_code` | `TS_SC_ENTER.h:93` | `EncodedInt<EncodingRandomized>` |
+
+`EncodingScrambled::serialize` **enveloppe** `EncodingRandomized::serialize` après avoir permuté la valeur
+(`EncodingScrambled.h:11-16`) : la disposition de 8 octets est commune — d'où le writer unique — mais seul
+`monster_id` a le droit d'arriver permuté. Un `summon_code` permuté est un id que le client ne résout pas :
+aucune invocation à l'écran (l'hypothèse de §13.8), sans qu'aucun octet n'ait changé de place.
+
+Établi par rzu (`TS_SC_ENTER.h:93`, sans gating de version ; `EncodingRandomized.h:16-40` ;
+`EncodingScrambled.h:11-16`) et par NGemity, qui écrit le code brut (`Summon.cpp:35`,
+`summonInfo.summon_code = pSummon->GetSummonCode()`). Commits épinglés de §12 inchangés — revérifiés : rzu
+`87c1e83`, `Chihiro` `38ceb2c`, `SFrame.exe` sha256 `41e0af2e…`. **Aucun désassemblage côté client** : le
+conteneur de dev n'a ni désassembleur ni Python (`objdump`, `radare2`, `python3` absents), la lecture du champ
+par `SFrame.exe` n'a donc pas été revérifiée — c'est le point 1 des `NON ÉTABLI`, et il reste entier (§14 point 16).
+
+Ce qui change dans le dépôt :
+
+- `GameSpawnPackets.cs:93` → `WriteEncodedInt(packet.AsSpan(68, 8), summonCode)`, sans `ScrambledInt.Encode`.
+  Le writer porte maintenant le commentaire qui nomme l'encodage et l'exception du monstre.
+- `Tests/Game/SummonWorldTests.cs` : les trois tests qui lisaient le champ **via `ScrambledInt`** verrouillaient
+  le bug ; ils assertent désormais la disposition `EncodingRandomized` (mots 0 @68 et 2 @72 à zéro, moitié haute
+  @70, moitié basse @74) et rejouent le désérialiseur de la référence (`EncodingRandomized.h:34-40`), qui se
+  réduit à la valeur elle-même quand les mots aléatoires sont nuls — ce que font les deux références.
+- `Tests/Game/SpawnPacketsTests.cs` : un test de plus,
+  `EncodedIds_AreRandomizedExceptTheMonsterIdWhichIsScrambled`, fixe la règle sur les trois ids côte à côte —
+  `npc_id` et `summon_code` bruts, `monster_id` permuté. `SummonWorldTests.cs` garde ses 27 tests.
+- Vérification par mutation : remettre `ScrambledInt.Encode` à la ligne 93 fait échouer **quatre** tests
+  (`BuildEnterSummon_LaysOutThe96ByteTramFieldByField`,
+  `BuildEnterSummon_WritesTheSummonCodeAsARandomizedEncodedIntWithoutScrambling`,
+  `Enter_CarriesEveryCallerSuppliedField`, `EncodedIds_AreRandomizedExceptTheMonsterIdWhichIsScrambled`), puis
+  repasser au vert une fois la ligne restaurée.
+- Mesure : `dotnet build Navislamia.sln -c Debug` → 0 ; `dotnet test Tests/Tests.csproj` → 0,
+  **893 réussis / 0 échec** (892 + 1 ; `master` en comptait 865).
+- Citation corrigée dans `Game/Services/SummonWorldService.cs:78` : la copie directe au maître du 305 est celle de
+  `Player::DoUnSummon` (`Player.cpp:1604-1611` ; envoi conditionnel au maître `:1610`), et non
+  `Player.cpp:1008-1018`, qui est la `switch` de `Player::putoffItem` sur les emplacements d'arme.
+- Décalage de lignes dans `GameSpawnPackets.cs` : `WriteEncodedInt` 261, `WriteName` 276, `WriteChecksum` 283
+  (§13.5 mis à jour).
+
+`summon_code` n'est toujours pas une valeur établie — elle reste l'entrée de l'appelant (`NON ÉTABLI` 3) ; c'est
+son **encodage** qui est tranché ici.
 
 ## 14. A VERIFIER PAR KILLIAN
 
@@ -555,3 +620,7 @@ code prend un paramètre d'appel et le champ part tel quel.
     trames à UTF-8 d'un seul geste ?
 15. **Où appeler `Enter` / `Leave`** : login (`MainSummonId`), sort d'invocation (304/400) ou warp — les trois
     exigent d'abord les points 2 à 4.
+16. **Lecture de `summon_code` par le client 7.3** (§13.9) : l'encodage aléatoire vient de rzu et de NGemity,
+    deux références indépendantes, mais le désassemblage n'a pas pu être refait ici (ni `objdump`, ni `radare2`,
+    ni Python dans le conteneur de dev). C'est la même inconnue que le point 1 : le contrôle en jeu de §13.8 la
+    ferme ou la rouvre. Ce lot écrit la valeur brute, sans permutation.
