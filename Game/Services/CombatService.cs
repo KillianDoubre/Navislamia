@@ -18,7 +18,6 @@ public class CombatService : ICombatService
     private const int RespawnDelaySeconds = 10;
     private const int DamageHpDivisor = 3;
     private const int DeathAnimationSeconds = 6;
-    private const uint MonsterDeadStatus = 1 << 8;
 
     private readonly ILogger _logger = Log.ForContext<CombatService>();
     private readonly MonsterWorldState _worldState;
@@ -43,7 +42,11 @@ public class CombatService : ICombatService
     public void StartAttack(GameClient client, uint targetHandle)
     {
         var info = client.ConnectionInfo;
-        if (!info.TryResolveMonster(targetHandle, out var targetInstanceId)
+
+        // A character at 0 HP is dead (this version has no death packet, the hp value is the whole state):
+        // it must not start swinging, exactly as SkillCastService refuses a cast at 0 HP.
+        if (!MonsterAiRules.IsAlive(info.CharacterHp)
+            || !info.TryResolveMonster(targetHandle, out var targetInstanceId)
             || !_worldState.IsAlive(targetInstanceId))
         {
             return;
@@ -140,7 +143,10 @@ public class CombatService : ICombatService
                 && handle == session.TargetHandle;
         }
 
-        if (!visible || !_worldState.IsAlive(session.TargetInstanceId)
+        // The attack session outlives the player's death, so a swing already scheduled when the killing
+        // blow landed would keep hitting from a corpse: dead attackers stop here.
+        if (!visible || !MonsterAiRules.IsAlive(info.CharacterHp)
+            || !_worldState.IsAlive(session.TargetInstanceId)
             || !_worldState.TryGetInstance(session.TargetInstanceId, out var instance))
         {
             StopAttack(client);
@@ -214,7 +220,7 @@ public class CombatService : ICombatService
 
         client.Connection.Send(GameMovePackets.BuildStopMove(targetHandle,
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
-        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, MonsterDeadStatus));
+        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, ActorStatus.ForMonster(true)));
 
         lock (_lock)
         {

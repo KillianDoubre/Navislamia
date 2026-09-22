@@ -19,7 +19,8 @@ public static class GameSpawnPackets
         int hp, int level, byte race, int npcId)
     {
         const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8;
-        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race, ObjectTypeNpc, 0f);
+        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race, ObjectTypeNpc, 0f,
+            ActorStatus.ForNpc());
 
         WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), (uint)npcId);
         WriteChecksum(packet);
@@ -32,7 +33,7 @@ public static class GameSpawnPackets
     {
         const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8 + 1;
         var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race,
-            ObjectTypeMonster, faceDir);
+            ObjectTypeMonster, faceDir, ActorStatus.ForMonster());
 
         WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), ScrambledInt.Encode((uint)monsterId));
         packet[72] = 0;
@@ -142,7 +143,7 @@ public static class GameSpawnPackets
     }
 
     private static byte[] BuildEnterCreature(int length, uint handle, float x, float y, float z,
-        byte layer, int hp, int level, byte race, byte objectType, float faceDir)
+        byte layer, int hp, int level, byte race, byte objectType, float faceDir, uint status)
     {
         var packet = new byte[length];
         var span = packet.AsSpan();
@@ -155,7 +156,7 @@ public static class GameSpawnPackets
         BinaryPrimitives.WriteSingleLittleEndian(span.Slice(20, 4), z);
         packet[24] = layer;
         packet[25] = objectType;
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(26, 4), 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(26, 4), status);
         BinaryPrimitives.WriteSingleLittleEndian(span.Slice(30, 4), faceDir);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(34, 4), hp);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(38, 4), hp);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Stats;
 
@@ -39,11 +40,33 @@ public class ConnectionInfo
     public long CharacterJp { get; set; }
     public long CharacterGold { get; set; }
     public int CharacterChaos { get; set; }
+
+    /// <summary>
+    /// The PK mode, loaded from <c>Characters.PkMode</c> on world entry and persisted again by the
+    /// session save. It reaches the client only through the actor status mask
+    /// (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>): the protocol has
+    /// no PK packet of its own.
+    /// </summary>
+    public bool PkMode { get; set; }
     public uint ClientClockOffset { get; set; }
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
+
+    /// <summary>
+    /// The event area this session is currently inside, or 0 for none. Written only by
+    /// <c>EventAreaService</c>, from a claim the server verified against its own position, or from
+    /// its own position detection. There is no server answer for either packet.
+    /// </summary>
+    public int CurrentEventAreaId { get; set; }
+
+    /// <summary>
+    /// The <c>WorldLocation.id</c> the character currently stands in, shared by the whole 902/903 family
+    /// and, later, by the 901. It stays 0 until the position → location mapping exists: neither rzu
+    /// (which always sends 0) nor Navislamia can resolve a position to a location id today.
+    /// </summary>
+    public int CurrentLocationId { get; set; }
     public readonly object NpcVisibilityLock = new();
     public readonly object MonsterVisibilityLock = new();
     public readonly object PropVisibilityLock = new();
@@ -104,6 +127,15 @@ public class ConnectionInfo
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }
+
+    /// <summary>
+    /// The position the character reappears at after death: the position persisted with the character
+    /// at world entry, captured by <c>GameActions.OnLogin</c>. This is option (a) of the resurrection
+    /// specification's §16.1 — no new column, no migration.
+    /// </summary>
+    public float RespawnX { get; set; }
+    public float RespawnY { get; set; }
+    public byte RespawnLayer { get; set; }
     public int AccountId { get; set; }
     public int Version { get; set; }
     public float LastReadTime { get; set; }
@@ -117,6 +149,51 @@ public class ConnectionInfo
     public float LastContinuousPlayTimeProcTime;
     public string NameToDelete { get; set; }
     public bool StorageSecurityCheck { get; set; } = false;
+
+    /// <summary>Guards <see cref="Booth"/>: the receiving thread writes it, readers may not race it.</summary>
+    public readonly object BoothLock = new();
+
+    private StartBoothRequest _booth;
+
+    /// <summary>
+    /// The booth this character declared with <c>TM_CS_START_BOOTH</c> (700), or null when none is open.
+    /// Nothing is persisted and nothing is broadcast: a booth does not survive a disconnection and is
+    /// visible to no client (docs/packet-specs/socle-booths.md §5.3 point 8 and §7.7).
+    /// </summary>
+    public StartBoothRequest Booth
+    {
+        get { lock (BoothLock) { return _booth; } }
+    }
+
+    /// <summary>Whether a booth is open, i.e. whether the action lock of <c>BoothRules</c> applies.</summary>
+    public bool IsBoothOpen
+    {
+        get { lock (BoothLock) { return _booth != null; } }
+    }
+
+    /// <summary>
+    /// Opens the booth, replacing a declaration already held: the client's creation window cannot send
+    /// a second <c>700</c> without closing the exchange window first, and no source describes a
+    /// cumulative form.
+    /// </summary>
+    public void OpenBooth(StartBoothRequest booth)
+    {
+        lock (BoothLock)
+        {
+            _booth = booth;
+        }
+    }
+
+    /// <summary>Closes the booth and forgets its declared items. Returns whether one was open.</summary>
+    public bool CloseBooth()
+    {
+        lock (BoothLock)
+        {
+            var wasOpen = _booth != null;
+            _booth = null;
+            return wasOpen;
+        }
+    }
 
     public void ClearVisibleObjects()
     {
@@ -165,13 +242,20 @@ public class ConnectionInfo
         CharacterJp = 0;
         CharacterGold = 0;
         CharacterChaos = 0;
+        PkMode = false;
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
+        StorageSecurityCheck = false;
         Layer = 0;
+        CurrentEventAreaId = 0;
+        CurrentLocationId = 0;
         X = 0;
         Y = 0;
         Z = 0;
+        RespawnX = 0;
+        RespawnY = 0;
+        RespawnLayer = 0;
         NameToDelete = string.Empty;
         LearnedSkills.Clear();
         PreviousJobs.Clear();
@@ -187,6 +271,8 @@ public class ConnectionInfo
 
         SkillCooldowns.Clear();
         NextStateHandle = 0;
+        // A booth belongs to the character session: the next character never inherits it.
+        CloseBooth();
         ClearVisibleObjects();
     }
 
