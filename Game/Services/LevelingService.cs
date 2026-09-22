@@ -59,6 +59,11 @@ public class LevelingService : ILevelingService
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", maxMp));
     }
 
+    public int MaxLevel => _cumulativeExp == null ? 0 : _maxLevel;
+
+    public bool TryGetExperienceFor(int level, out long exp) =>
+        LevelCurve.TryGetExperienceFor(_cumulativeExp, _maxLevel, level, out exp);
+
     public void ApplyJobLevelUp(GameClient client, uint targetHandle)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_JOB_LEVEL_UP;

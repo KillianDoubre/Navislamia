@@ -107,6 +107,7 @@ public class GameActions : IActions
         info.CharacterGold = character.Gold;
         info.CharacterChaos = character.Chaos;
         info.PkMode = character.PkMode;
+        info.CharacterPermission = character.Permission;
         info.Layer = (byte)character.Layer;
         info.X = position[0];
         info.Y = position[1];
@@ -162,7 +163,7 @@ public class GameActions : IActions
             Z = result.Z,
             Layer = (byte)character.Layer,
             ObjType = 0,
-            Status = ActorStatus.ForPlayer(info.PkMode),
+            Status = ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking),
             FaceDirection = 0,
             Hp = hp,
             MaxHp = hp,
@@ -251,7 +252,8 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholic_ent", character.HuntaholicEnterCount));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", decimal.ToInt64(character.ImmoralPoint)));
-        client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForPlayer(info.PkMode)));
+        client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle,
+            ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking)));
 
         // TM_SC_COMMERCIAL_STORAGE_INFO (10003) at 0/0, at the very end of the world entry sequence, right
         // before client_info: this is where rzu sends it (Character.cpp:308-311, after TS_SC_WEATHER_INFO)

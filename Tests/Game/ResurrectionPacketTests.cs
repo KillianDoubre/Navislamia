@@ -378,7 +378,8 @@ public class ResurrectionPacketTests
             A.Fake<IEventAreaService>(),
             A.Fake<ICraftingSocleService>(),
             A.Fake<IStorageService>(),
-            A.Fake<IQuestService>());
+            A.Fake<IQuestService>(),
+            A.Fake<IGmCommandService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

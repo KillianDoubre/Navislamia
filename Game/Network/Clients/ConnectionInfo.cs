@@ -48,6 +48,22 @@ public class ConnectionInfo
     /// no PK packet of its own.
     /// </summary>
     public bool PkMode { get; set; }
+
+    /// <summary>
+    /// <c>Characters.Permission</c>, read on world entry. A value of
+    /// <see cref="Navislamia.Game.Services.GmCommands.GmCommandRules.GmPermission"/> or more unlocks the
+    /// privileged GM commands — NGemity's own threshold (docs/gm-commands.md).
+    /// </summary>
+    public int CharacterPermission { get; set; }
+
+    /// <summary>
+    /// The three actor states the GM commands toggle. They reach the client only through the status
+    /// mask (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>), which is a
+    /// snapshot: every send passes all of them, together with <see cref="PkMode"/>.
+    /// </summary>
+    public bool IsSitting { get; set; }
+    public bool IsBattleMode { get; set; }
+    public bool IsWalking { get; set; }
     public uint ClientClockOffset { get; set; }
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
@@ -243,6 +259,10 @@ public class ConnectionInfo
         CharacterGold = 0;
         CharacterChaos = 0;
         PkMode = false;
+        CharacterPermission = 0;
+        IsSitting = false;
+        IsBattleMode = false;
+        IsWalking = false;
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
