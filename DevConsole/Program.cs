@@ -95,6 +95,7 @@ public class Program
         ConfigureSkillCatalog(services, context);
         ConfigureMonsterDrops(services, context);
         ConfigureFieldProps(services, context);
+        ConfigureMarketCatalog(services, context);
     }
 
     /// <summary>
@@ -188,6 +189,28 @@ public class Program
         });
     }
 
+    /// <summary>
+    /// The merchant catalogue. Like the dialog catalogue it is a versioned JSON export rather than the
+    /// reference's SQL Server MarketResource table; the file may legitimately hold no row (no export
+    /// available yet), in which case every merchant refuses to open instead of showing an empty window.
+    /// </summary>
+    private static void ConfigureMarketCatalog(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "market-catalog.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<MarketCatalogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("MarketCatalog")
+            .Deserialize<MarketCatalogOptions>() ?? new MarketCatalogOptions();
+
+        services.Configure<MarketCatalogOptions>(options => options.Markets = catalog.Markets);
+    }
+
     private static void ConfigureSkillCatalog(IServiceCollection services, HostBuilderContext context)
     {
         var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "skill-catalog.73.json");
@@ -225,6 +248,8 @@ public class Program
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();
+        services.AddSingleton<IMarketCatalog, MarketCatalog>();
+        services.AddSingleton<IMarketService, MarketService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
         services.AddSingleton<IAuctionCateryResourceRepository, AuctionCateryResourceRepository>();
