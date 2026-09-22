@@ -1637,6 +1637,56 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
   de `TM_SC_REGION_ACK` (`GameClient.cs:813-840`), jamais à l'ancre du `switch` final.
 - Le savoir durable de ce socle est dans `docs/packet-specs/socle-stockage-commercial.md`, pas ici.
 
+### Socle compétition entre joueurs — 4500-4506 (`TM_CS/SC_COMPETE_*`)
+
+**Sept opcodes, tous `X(<id>, true)` chez rzu : aucun gating de version, aucun champ gaté.**
+`true` n'est pas une convention « valide partout » mais la **condition C++ littérale** substituée
+dans `if(condition_) id = id_;` (`PacketDeclaration.h:585-588`) : les sept ids sont donc identiques
+en 7.3 et dans toutes les versions. Fiche complète : `docs/packet-specs/socle-competition-joueurs.md`.
+
+**Tailles à écrire en dur** (source : rzu + constructeurs et lecteurs du client 7.3) :
+**4500 = 39**, 4501 = 39, **4502 = 9**, 4503 = 40, **4504 = 43**, 4505 = 39, **4506 = 71** octets.
+Les chaînes de `requestee` / `requester` / `competitor` / `winner` / `loser` sont des tampons
+**fixes de 31 octets** (NUL compris) ; le handle de 4504 est à l'offset **39** et le second nom de
+4506 à l'offset **40** — ce sont les deux preuves indépendantes de la largeur 31.
+
+**Direction : le client route 4501, 4503, 4504, 4505 et 4506, et ne route NI 4500 NI 4502** (ils
+tombent dans le journal « message non traité » du dispatcher entrant). Le serveur ne doit jamais
+émettre ces deux ids ; il les **reçoit**.
+
+**Ce que le joueur fait** : `4500` part du contrôle de fenêtre `request_compete` (nom de la cible,
+`compete_type = 0`), `4502` des contrôles `battle_start` (`answer_type = 0`) et `battle_reject`
+(`answer_type = 1`), plus une branche par défaut (`answer_type = 2`).
+
+**Refus** : par `TS_SC_RESULT` (id 0) avec `RequestMsgID = 4500` ou `4502`. Navislamia a déjà la
+trame (`TS_SC_RESULT.cs`, `ushort + ushort + int` = 15 octets) et l'émetteur
+(`GameClient.SendResult`). Les codes de la famille sont déjà déclarés sans lecteur :
+`ResultCode.cs:74-81` (61-68). Attention : `66` n'a **aucune** boîte pour 4500, et `63`/`66`/`67`
+aucune pour 4502 — le refus serait silencieux ; la correspondance existe en `0x4774dd`-`0x4776f7`.
+
+**Ne pas porter NGemity** : les sept ids et structures y sont déclarés et **jamais traités**
+(`Chihiro` n'a que `CRT_COMPETE`, `AF_ERASE_ON_COMPETE_START`, `AF_NOT_ACTABLE_IN_COMPETE`,
+`REVIVE_COMPETE`). `librzu` non plus. C'est du protocole pur, comme le socle instances de jeu.
+
+**Socle minimum (C1), livré** : `4500` et `4502` sont lus, validés et refusés — 39 octets exigés
+pour le premier avec un nom NUL-terminé dans ses 31 octets, 9 pour le second ; une trame mal
+formée est journalisée sans réponse. Le refus part par `TS_SC_RESULT(4500, 64)`
+(`NotInCompetablePlace`) et `TS_SC_RESULT(4502, 62)` (`NotInCompete`), deux codes que le client
+**affiche** (boîte 1633) : le socle ne joue aucun duel, donc il énonce son état réel et n'invente
+aucune règle. Les deux ids sont déclarés dans `GamePackets` **et** routés dans `GameClient.cs`
+(critère transversal n° 4) ; les cinq ids serveur → client (4501, 4503-4506) ne sont pas déclarés
+tant qu'ils ne sont pas émis. La réussite (4501/4503) exige un registre de joueurs visibles,
+absent (`ConnectionInfo.cs:47-60`, `SkillCastService.cs:284-287`, `CombatService.cs:42-50`) — d'où
+la frontière avec le socle PK 800/801, qui partage ce prérequis sans partager d'opcode. Découpage
+C1…C4 : §5.5 de la fiche ; décisions d'implémentation : §9.1.
+
+**Non tranché** : `compete_type` (seule valeur observée 0, jamais validé), `answer_type` (0/1/2,
+hors domaine journalisé puis refusé par le code 62), `end_type`, durée du compte à rebours,
+`handle_competitor`, politique de duel. Aucune de ces valeurs n'est devinée. Le choix des deux
+codes de refus et l'opportunité de répondre à un `4500` (§7m) restent l'arbitrage de Killian, et
+les deux sont des constantes d'une ligne.
+
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.
