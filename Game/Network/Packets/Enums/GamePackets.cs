@@ -96,6 +96,9 @@ public enum GamePackets : ushort
 
     TM_CS_CHECK_CHARACTER_NAME = 2006,
 
+    TM_CS_RANKING_TOP_RECORD = 5000,
+    TM_SC_RANKING_TOP_RECORD = 5001,
+
     TM_CS_REPORT = 8000,
 
     TM_NONE = 9999
