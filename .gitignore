@@ -475,3 +475,4 @@ fabric.properties
 DevConsole/appsettings.json
 AuthServer/appsettings.json
 launch-client.ps1
+tools/provision-navislamia/
