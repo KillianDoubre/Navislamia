@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Text;
 using Navislamia.Game.Network.Packets.Enums;
 
 namespace Navislamia.Game.Network.Packets.Game;
@@ -7,12 +8,22 @@ namespace Navislamia.Game.Network.Packets.Game;
 public static class GameSpawnPackets
 {
     private const int HeaderSize = 7;
+
+    /// <summary>
+    /// The fixed <c>name</c> buffer of a creature — 19 bytes in Epic 7.3 (<c>&gt;= EPIC_3 &amp;&amp; &lt;
+    /// EPIC_9_6</c>, <c>TS_SC_ENTER.h:94-96</c>): 18 usable characters plus the terminator. It is the
+    /// same width the creature window uses, so it is read from <see cref="GameSummonPackets.NameSize"/>
+    /// rather than repeated.
+    /// </summary>
+    public const int NameSize = GameSummonPackets.NameSize;
+
     private const int EncodedIdOffset = 64;
     private const byte EnterTypeCreature = 1;
     private const byte EnterTypeStaticObject = 2;
     private const byte ObjectTypeNpc = 1;
     private const byte ObjectTypeItem = 2;
     private const byte ObjectTypeMonster = 3;
+    private const byte ObjectTypeSummon = 4;
     private const byte ObjectTypeFieldProp = 6;
 
     public static byte[] BuildEnterNpc(uint handle, float x, float y, float z, byte layer,
@@ -37,6 +48,51 @@ public static class GameSpawnPackets
 
         WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), ScrambledInt.Encode((uint)monsterId));
         packet[72] = 0;
+        WriteChecksum(packet);
+
+        return packet;
+    }
+
+    /// <summary>
+    /// <c>TM_SC_ENTER</c> (3) for a summon — <b>96 bytes</b>: the 26-byte creature prefix, the 38-byte
+    /// shared creature block, then <c>master_handle</c> @64, the 8-byte randomized <c>summon_code</c> @68,
+    /// the 19-byte <c>name</c> @76 (18 usable characters, zero filled) and <c>enhance</c> @95.
+    /// <c>type</c> is <c>ET_NPC</c> (1) and <c>objType</c> is <c>EOT_Summon</c> (4); every size, offset
+    /// and version decision comes from <c>docs/packet-specs/socle-invocation-monde.md</c> §3.1 and §4.
+    /// </summary>
+    /// <param name="maxHp">
+    /// Caller-supplied: no reference settles a summon's maximum health (§7, <c>NON ÉTABLI</c> 5). Do not
+    /// substitute <paramref name="hp"/>.
+    /// </param>
+    /// <param name="maxMp">Caller-supplied for the same reason as <paramref name="maxHp"/>.</param>
+    /// <param name="z">
+    /// Caller-supplied: NGemity sends the summon's own <c>z</c>, which its placement never sets (§5.2,
+    /// <c>NON ÉTABLI</c> 6). Do not assume the master's <c>z</c>.
+    /// </param>
+    /// <param name="isFirstEnter">
+    /// 1 on the first entry into the world, 0 on a re-entry (§7, <c>NON ÉTABLI</c> 8).
+    /// </param>
+    /// <param name="enhance">
+    /// Caller-supplied: the field exists in 7.3 (<c>&gt;= EPIC_7_1</c>) but nothing fills it yet
+    /// (§7, <c>NON ÉTABLI</c> 7). Pass 0 while no source exists.
+    /// </param>
+    /// <param name="summonCode">
+    /// <c>SummonEntity.SummonResourceId</c> per the reference — the same value as <c>code</c> in
+    /// <c>TS_SC_ADD_SUMMON_INFO</c> (§3.1, §6) — but the caller supplies it: no foreign key guarantees
+    /// the column holds a <c>SummonResource.id</c> (<c>NON ÉTABLI</c> 3).
+    /// </param>
+    public static byte[] BuildEnterSummon(uint handle, float x, float y, float z, byte layer,
+        int hp, int maxHp, int mp, int maxMp, int level, float faceDir, bool isFirstEnter,
+        uint masterHandle, uint summonCode, string name, byte enhance)
+    {
+        const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 4 + 8 + NameSize + 1;
+        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, 0, ObjectTypeSummon,
+            faceDir, ActorStatus.ForSummon(), maxHp: maxHp, mp: mp, maxMp: maxMp, isFirstEnter: isFirstEnter);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(64, 4), masterHandle);
+        WriteEncodedInt(packet.AsSpan(68, 8), ScrambledInt.Encode(summonCode));
+        WriteName(packet.AsSpan(76, NameSize), name);
+        packet[95] = enhance;
         WriteChecksum(packet);
 
         return packet;
@@ -142,8 +198,19 @@ public static class GameSpawnPackets
         return packet;
     }
 
+    /// <param name="maxHp">
+    /// The <c>max_hp</c> of the creature block. Defaults to <paramref name="hp"/>, which is what the NPC
+    /// and monster callers have always sent (no maximum is modelled for them); a caller that knows its own
+    /// maximum — a summon does, its row carries <c>Hp</c> and <c>Mp</c> — passes it.
+    /// </param>
+    /// <param name="mp">The <c>mp</c> of the creature block. NPCs and monsters send 0.</param>
+    /// <param name="maxMp">The <c>max_mp</c> of the creature block. Defaults to 0, as before.</param>
+    /// <param name="isFirstEnter">
+    /// The <c>is_first_enter</c> flag of the creature block. NPCs and monsters send 0.
+    /// </param>
     private static byte[] BuildEnterCreature(int length, uint handle, float x, float y, float z,
-        byte layer, int hp, int level, byte race, byte objectType, float faceDir, uint status)
+        byte layer, int hp, int level, byte race, byte objectType, float faceDir, uint status,
+        int? maxHp = null, int mp = 0, int? maxMp = null, bool isFirstEnter = false)
     {
         var packet = new byte[length];
         var span = packet.AsSpan();
@@ -159,13 +226,13 @@ public static class GameSpawnPackets
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(26, 4), status);
         BinaryPrimitives.WriteSingleLittleEndian(span.Slice(30, 4), faceDir);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(34, 4), hp);
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(38, 4), hp);
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(42, 4), 0);
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(46, 4), 0);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(38, 4), maxHp ?? hp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(42, 4), mp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(46, 4), maxMp ?? 0);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(50, 4), level);
         packet[54] = race;
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(55, 4), 0);
-        packet[59] = 0;
+        packet[59] = isFirstEnter ? (byte)1 : (byte)0;
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(60, 4), 0);
 
         return packet;
@@ -183,6 +250,20 @@ public static class GameSpawnPackets
         BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(2, 2), (ushort)(value >> 16));
         BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(4, 2), 0);
         BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(6, 2), (ushort)value);
+    }
+
+    /// <summary>
+    /// Writes a creature's <c>name</c> into its 19-byte slot: at most 18 bytes, the rest left zero —
+    /// <c>0x00</c>-terminated on the wire (<c>MessageBuffer::writeString</c>,
+    /// <c>reference/rzu/librzu/src/lib/Packet/MessageBuffer.cpp:87-94</c>). It is byte-for-byte the writer
+    /// <c>GameSummonPackets.WriteName</c> uses for the creature window, so a name <c>TS_SC_ADD_SUMMON_INFO</c>
+    /// announced reads back identically in the world.
+    /// </summary>
+    private static void WriteName(Span<byte> target, string name)
+    {
+        var bytes = Encoding.ASCII.GetBytes(name ?? string.Empty);
+        var length = Math.Min(bytes.Length, target.Length - 1);
+        bytes.AsSpan(0, length).CopyTo(target);
     }
 
     private static void WriteChecksum(byte[] packet)

@@ -30,4 +30,11 @@ public static class ActorStatus
 
     /// <summary>An NPC's mask: this Epic 7.3 client has no NPC flag in use.</summary>
     public static uint ForNpc() => 0u;
+
+    /// <summary>
+    /// A summon's mask: no summon flag is established for 7.3 — NGemity sends the value of
+    /// <c>UNIT_FIELD_STATUS</c> (<c>Unit.cpp:110</c>) which nothing ever sets for a summon — so it reads 0
+    /// like <see cref="ForNpc"/>. See <c>docs/packet-specs/socle-invocation-monde.md</c> §3.1, offset 26.
+    /// </summary>
+    public static uint ForSummon() => 0u;
 }
