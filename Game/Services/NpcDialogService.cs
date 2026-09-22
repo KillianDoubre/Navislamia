@@ -18,10 +18,13 @@ public class NpcDialogService : INpcDialogService
     private readonly FrozenDictionary<int, string> _contacts;
     private readonly FrozenDictionary<string, CompiledDialog> _dialogs;
     private readonly IWarpService _warpService;
+    private readonly IMarketService _marketService;
 
-    public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService)
+    public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
+        IMarketService marketService)
     {
         _warpService = warpService;
+        _marketService = marketService;
         _contacts = CompileContacts(options.Value.Npcs);
         _dialogs = CompileDialogs(options.Value.Dialogs);
         _logger.Information("Loaded {npcCount} NPC dialog links and {dialogCount} dialog definitions",
@@ -102,6 +105,16 @@ public class NpcDialogService : INpcDialogService
             }
 
             _warpService.Warp(client, action.X, action.Y);
+            return;
+        }
+
+        // A merchant trigger is answered with TM_SC_MARKET (250), which opens the trade window; the
+        // catalogue lines come from the market the trigger names. The NPC dialog is deliberately left
+        // current — the window is additive, and leaving it lets the guard above validate a second
+        // selection. The packet carries this dialog's NPC handle, not a market name.
+        if (action.Kind == PropActionKind.OpenMarket)
+        {
+            _marketService.Open(client, npcHandle, action.Name);
             return;
         }
 

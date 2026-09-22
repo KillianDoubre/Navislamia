@@ -627,6 +627,16 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID is (ushort)GamePackets.TM_SC_NPC_TRADE_INFO or (ushort)GamePackets.TM_SC_MARKET)
+            {
+                // TM_SC_NPC_TRADE_INFO (240) and TM_SC_MARKET (250) are server to client packets: the 7.3
+                // client has no way to send them, so an incoming one is a protocol anomaly rather than a
+                // request. Logged and dropped, like TM_SC_REGION_ACK above, so the two ids never reach the
+                // "Unknown Packet Type" throw below.
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);

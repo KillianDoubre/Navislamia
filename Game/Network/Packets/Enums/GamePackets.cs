@@ -44,6 +44,8 @@ public enum GamePackets : ushort
     TM_SC_HAIR_INFO = 220,
     TM_SC_HIDE_EQUIP_INFO = 222,
     TM_SC_SKIN_INFO = 224,
+    TM_SC_NPC_TRADE_INFO = 240,
+    TM_SC_MARKET = 250,
     TM_SC_USE_ITEM_RESULT = 283,
     TM_EQUIP_SUMMON = 303,
     TM_CS_SKILL = 400,
