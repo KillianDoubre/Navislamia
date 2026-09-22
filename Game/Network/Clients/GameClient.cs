@@ -778,6 +778,17 @@ public class GameClient : Client
                 continue;
             }
 
+            // The three auction responses are server to client packets too; the 7.3 client only builds
+            // 1300/1302/1304/1306/1308/1309/1310 (docs/packet-specs/socle-encheres.md §4.2). Same
+            // treatment as TM_SC_REGION_ACK: log and drop, never the throw below.
+            if (header.ID is (ushort)GamePackets.TM_SC_AUCTION_SEARCH
+                or (ushort)GamePackets.TM_SC_AUCTION_SELLING_LIST
+                or (ushort)GamePackets.TM_SC_AUCTION_BIDDED_LIST)
+            {
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
             // TM_SC_MIX_RESULT (257) and TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW (261) are server to client
             // packets as well (rzu declares both SessionPacketOrigin::Server): the 7.3 client never sends
             // them, so an incoming one is a protocol anomaly, logged and dropped instead of reaching the

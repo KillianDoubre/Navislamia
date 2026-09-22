@@ -227,6 +227,7 @@ public class Program
         services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
+        services.AddSingleton<IAuctionCateryResourceRepository, AuctionCateryResourceRepository>();
         services.AddSingleton<IWorldLocationRepository, WorldLocationRepository>();
         services.AddSingleton<IWorldLocationService, WorldLocationService>();
         services.AddSingleton<ILevelingService, LevelingService>();
