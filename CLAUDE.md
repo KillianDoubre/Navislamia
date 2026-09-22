@@ -1367,6 +1367,27 @@ serveur n'émet toujours aucun paquet de mort.
   150 vs 180, contrôle de taille côté client.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Statut d'acteur et mode PK (sous-socle)
+
+`status` — l'information de créature de `TM_SC_ENTER` (3, offset 26) et `TM_SC_STATUS_CHANGE`
+(500, `handle` @7 puis `status` @11, 15 octets) — est un **instantané complet de l'acteur, jamais
+un delta** : publier un seul bit éteint tous les autres. Il ne se compose donc plus en dur :
+`ActorStatus.ForPlayer(bool pkModeOn)` / `ForMonster(bool dead = false)` / `ForNpc()`
+(`Game/Network/Packets/Game/ActorStatus.cs`) est le point unique des quatre sites d'envoi
+(`GameActions` deux fois — entrée en jeu et trame 500 —, `CombatService` à la mort du monstre, et
+`GameSpawnPackets.BuildEnterCreature` dont le statut est devenu un paramètre). Les bits vivent dans
+`CreatureStatus` (`Game/Network/Packets/Enums/CreatureStatus.cs`) avec leur source rzu :
+`PlayerPkOn = 1 << 11` est le **seul** bit du mode PK, et `1 << 8` vaut « mort » pour un monstre et
+« assis » pour un joueur — ne jamais envoyer un masque de mort sur un handle de joueur.
+
+`ConnectionInfo.PkMode` porte l'état de session : lu depuis `Characters.PkMode` dans
+`GameActions.OnLogin`, remis à `false` par `ClearCharacterSession`, réécrit par
+`CharacterService.SaveProgressAsync` (d'où le paramètre `bool pkMode`). Aucune migration : la
+colonne existe depuis `Version0001_TheBeginning`. Le protocole n'a **aucun paquet serveur PK** —
+`800` et `801` n'existent pas encore côté serveur, donc rien ne bascule `PkMode` en jeu aujourd'hui.
+
+Les tests d'offsets des deux trames sont dans `Tests/Game/PkModeStatusTests.cs`.
+
 ### Paquet 902 / 903 — `TM_SC_WEATHER_INFO` / `TM_CS_GET_WEATHER_INFO`
 
 (Epic 7.3 ; fiche `docs/packet-specs/902-weather-info.md`)
@@ -1474,7 +1495,7 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
   Forme **compacte** : rzu ajoute `4n` octets finaux non gatés, dont le client n'a pas besoin
   (`count << 4` depuis `+0xd`, `0x66ffa5`).
 - Les deux ids sont **strictement serveur → client**. Comme `TM_SC_REGION_ACK` (11), ils ont dans
-  `GameClient.cs:781-789` un bras « anomalie » qui journalise en `Warning` et fait `continue` : ne
+  `GameClient.cs:803-811` un bras « anomalie » qui journalise en `Warning` et fait `continue` : ne
   jamais les laisser atteindre `_ => throw new Exception("Unknown Packet Type")`.
 - **240 n'a aucun producteur** hors des gestionnaires de `TM_CS_BUY_ITEM` (251) / `TM_CS_SELL_ITEM`
   (252), restés hors périmètre ; `GameTradePackets.BuildNpcTradeInfo` est livré pour eux.
@@ -1494,6 +1515,41 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
   concaténé en Lua et n'a pas été capturé) et lignes de `MarketResource` (ni SQL Server ni
   PostgreSQL ici). Sans elles, tout marchand est refusé et journalisé.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Socle stockage commercial — `TM_SC_COMMERCIAL_STORAGE_INFO` (10003), `TM_SC_COMMERCIAL_STORAGE_LIST` (10004), `TM_CS_TAKEOUT_COMMERCIAL_ITEM` (10005)
+
+- 7.3 = **10003 / 10004 / 10005** : rzu bascule cette famille sur 9003/9004/9005 à partir
+  d'`EPIC_9_6_3` (`TS_SC_COMMERCIAL_STORAGE_INFO.h:12-13`, `…_LIST.h:20-21`,
+  `TS_CS_TAKEOUT_COMMERCIAL_ITEM.h:12-13`) et `EPIC_7_3 = 0x070300` est sous `0x090603`.
+  **Piège** : en 7.3, 9004 et 9005 désignent déjà la famille « numéro de sécurité »
+  (`op_codes.md:270-271`) — ne jamais s'en servir comme ids de ce socle. Aucun champ de ces trois
+  paquets n'est gated par version.
+- Tailles, telles que livrées : 10003 = **11 octets** (`total_item_count` u16 @7, `new_item_count`
+  u16 @9) et 10004 = **9 + 10 × n** (`count` u16 @7, puis n entrées de 10 octets = `uint32`
+  `commercial_item_uid` @0, `int32 code` @4, `uint16 count` @8, première entrée à l'offset 9) dans
+  `Game/Network/Packets/Game/GameCommercialStoragePackets.cs` ; 10005 = **13 octets** (`uint32`
+  `commercial_item_uid` @7, `uint16 count` @11) lus par `GameActionPackets.TryReadTakeoutCommercialItem`,
+  seule longueur acceptée. `TM_SC_COMMERCIAL_STORAGE_INFO` est émise à `0/0` à l'entrée en jeu, comme
+  rzu, suivie d'une 10004 vide (9 octets, `count = 0`) — cette seconde ligne est une décision de
+  Navislamia, rzu ne l'émet pas, et se retire d'une ligne (`GameActions.cs:259-260`).
+- Le client 7.3 **ne recoupe jamais** le `count` de la 10004 avec `Length` : écrire exactement
+  `9 + 10 × count` octets. Une liste vide (9 octets, `count = 0`) est un état traité explicitement
+  par le client.
+- **Le serveur n'émet jamais 10005.** La seule trame 10005 du client est un envoi (constructeur de
+  trame client VA `0x48ce60`, appelé une fois depuis l'émetteur VA `0x49dc59`), et le seul
+  traitement identifié d'un message interne `0x2715` en réception est un envoi de `TM_CS_LOGOUT`
+  (`27`). Côté serveur : lecture stricte (`Length == 13`), journalisation, aucune réponse.
+- Aucune demande cliente n'ouvre ce conteneur : la fenêtre est locale au client (commandes
+  `/cshop` / `/cstorage`, verrous de ressource `commercial_shop` et `cash`). Le serveur **pousse** la
+  10003 à l'entrée en jeu, comme rzu (`Character.cpp:308-311`, à `0/0`).
+- **Aucune référence n'implémente la logique du conteneur** : NGemity ne traite rien, rzu n'émet
+  qu'une 10003 constante. Sans boutique, le conteneur est **vide par construction** ; ne rien
+  inventer sur le retrait (coût, plafond, code de résultat, acquittement) — décisions ouvertes dans
+  la fiche.
+- Aucun service, aucune entité et aucune migration pour ce conteneur : rien dans le dépôt ne peut
+  l'approvisionner, donc sa seule valeur exacte est vide. Les trois bras de dispatch sont posés près
+  de `TM_SC_REGION_ACK` (`GameClient.cs:813-840`), jamais à l'ancre du `switch` final.
+- Le savoir durable de ce socle est dans `docs/packet-specs/socle-stockage-commercial.md`, pas ici.
 
 ## Change guidelines
 
