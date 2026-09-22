@@ -30,6 +30,7 @@ public class NetworkService : INetworkService
     public readonly IInventoryService InventoryService;
     public readonly IItemUseService ItemUseService;
     public readonly IGroundItemService GroundItemService;
+    public readonly ICraftingSocleService CraftingSocleService;
     public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
     public readonly IEventAreaService EventAreaService;
@@ -57,7 +58,8 @@ public class NetworkService : INetworkService
         IFieldPropService fieldPropService, IItemUseService itemUseService,
         IWorldLocationService worldLocationService,
         IResurrectionService resurrectionService,
-        IEventAreaService eventAreaService)
+        IEventAreaService eventAreaService,
+        ICraftingSocleService craftingSocleService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -73,6 +75,7 @@ public class NetworkService : INetworkService
         InventoryService = inventoryService;
         ItemUseService = itemUseService;
         GroundItemService = groundItemService;
+        CraftingSocleService = craftingSocleService;
         FieldPropService = fieldPropService;
         SkillCastService = buffService;
         EventAreaService = eventAreaService;

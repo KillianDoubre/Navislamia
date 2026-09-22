@@ -1255,6 +1255,33 @@ The full spec (offsets, sources, version gating, NGemity deltas, scope, open que
 - Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Socle artisanat et enchantement — `TM_CS_MIX` 256, `TM_CS_SOULSTONE_CRAFT` 260, `TM_CS_REPAIR_SOULSTONE` 262, `TM_CS_TRANSMIT_ETHEREAL_DURABILITY` 263 / `…_TO_EQUIPMENT` 264
+
+Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
+
+- **N'a été livré que le socle structurel** : `CraftingSocleService` lit la trame à sa taille 7.3,
+  la borne, résout chaque handle non nul contre l'inventaire du personnage, puis **refuse**
+  (`InvalidArgument`, valeur 0) — le moteur d'artisanat n'existe pas. Aucune table `MixResource` /
+  `EnhanceResource` n'est chargée, aucun taux n'est tiré, aucun châssis n'est touché.
+- **Tailles 7.3** : 256 = `15 + 6N` (`N <= 9`) · 260 = 27 · 262 = 31 · 263 = 11 · 264 = **11**.
+  Le champ `target` de 264 et le champ `type` de 257 sont gatés `EPIC_8_1` : la trame 8.1 de 264
+  fait 12 octets et **doit rester refusée**.
+- **256, offset 13 = nombre de slots matériaux** (longueur du tableau écrite par l'émetteur), pas
+  un identifiant de recette ; le socle la compare `(Length - 15) / 6` et refuse une divergence.
+- **Sentinelles nulles** : les slots vides (4 pierres de 260, 6 handles de 262, cible absente de
+  256) sont écrits `0` et ne sont **jamais** résolus — un zéro n'est pas un objet manquant.
+- **257 et 261 sont descendants** (`SessionPacketOrigin::Server`) : leur bras de réception les
+  journalise et les jette. Un membre de `GamePackets` sans bras atteint le `throw
+  Unknown Packet Type` final de `GameClient.Receive`, qui **casse la boucle de réception** :
+  énumération et dispatch se modifient ensemble.
+- **259 n'est pas établi** : rzu et NGemity y déclarent `TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW`,
+  `op_codes.md:86` y met `TM_CS_DONATE_REWARD`. La fenêtre de sertissage ne peut pas être émise
+  tant que l'id n'est pas tranché, et 260 n'est pas testable de bout en bout sans le
+  déclencheur de contact PNJ.
+- **Restent à trancher avant tout moteur** (détail en fin de fiche) : taux de réussite, sort des
+  châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
+  `mix_type` 801/802/803 ↔ 263/264.
+
 ### Mort et réapparition du personnage joueur
 
 Le client Epic 7.3 **déclare** `TM_SC_DEAD` (504) mais son répartiteur le libère **sans effet**
