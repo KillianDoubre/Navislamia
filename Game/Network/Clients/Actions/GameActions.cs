@@ -111,6 +111,13 @@ public class GameActions : IActions
         info.X = position[0];
         info.Y = position[1];
         info.Z = position[2];
+
+        // The position the character entered the world at is its return point: where it reappears
+        // after a death (docs/packet-specs/socle-mort-respawn.md §8 option (a)). It cannot drift
+        // during the session, since progress — and with it the position — is only written at logout.
+        info.RespawnX = position[0];
+        info.RespawnY = position[1];
+        info.RespawnLayer = (byte)character.Layer;
         info.LearnedSkills.Clear();
         foreach (var skill in character.Skills ?? Array.Empty<CharacterSkillEntity>())
         {
@@ -219,6 +226,12 @@ public class GameActions : IActions
         _networkService.SkillCastService.Register(client);
         client.SendGameTime();
         client.SendTimeSync();
+
+        // TM_SC_WEATHER_INFO (902) at world entry, exactly like rzu (Character.cpp:303-306): the region id and
+        // the weather id are both 0, because resolving a position into a WorldLocation.id needs the client's
+        // map data, which Navislamia does not have yet. The 7.3 client does consume a 902 and this is the only
+        // path that sends one, so sending nothing here would leave the weather family silent in game.
+        client.SendWeatherInfo(0, 0);
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", hp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", mp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.MaxHp));
