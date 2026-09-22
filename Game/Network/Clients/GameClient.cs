@@ -78,6 +78,15 @@ public class GameClient : Client
         Connection.Send(message.Data);
     }
 
+    /// <summary>
+    /// TM_SC_WEATHER_INFO (902) sent to this client alone: <paramref name="regionId"/> is the
+    /// <c>WorldLocation.id</c> of the location, never a visibility region index.
+    /// </summary>
+    public void SendWeatherInfo(uint regionId, ushort weatherId)
+    {
+        Connection.Send(GameWeatherPackets.BuildWeatherInfo(regionId, weatherId));
+    }
+
     private void HandleTimeSync(byte[] packet)
     {
         const int sampleWindow = 4;
@@ -197,6 +206,45 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
     }
 
+    /// <summary>
+    /// TM_CS_GET_WEATHER_INFO (903): the client asks for the weather of a location id. The id it sends is
+    /// opaque — no 7.3 client site builds this packet — so Navislamia reads it as the only identity both
+    /// sides can share: <c>WorldLocation.id</c>, the same value a 902 carries. A known id is answered with
+    /// a 902 to the asking client alone; an unknown one is answered with nothing at all, because no
+    /// reference defines a result or an error for this family. Only the exact 11-byte request is read.
+    /// </summary>
+    private void HandleGetWeatherInfo(byte[] buffer)
+    {
+        if (!GameWeatherPackets.TryReadGetWeatherInfo(buffer, out var regionId))
+        {
+            _logger.Warning("Malformed weather info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Weather info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        if (regionId > int.MaxValue ||
+            !_networkService.WorldLocationService.TryGet((int)regionId, out var location))
+        {
+            _logger.Debug(
+                "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: unknown location {regionId}, no answer",
+                (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId);
+            return;
+        }
+
+        SendWeatherInfo(regionId, location.CurrentWeather);
+        _logger.Debug(
+            "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: location {regionId} -> weather_id={weatherId}",
+            (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId,
+            location.CurrentWeather);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -220,6 +268,17 @@ public class GameClient : Client
         var handle = GameActionPackets.ReadCancelActionHandle(buffer);
         _logger.Verbose("{clientTag} cancelled action for handle {handle}", ClientTag, handle);
         _networkService.CombatService.StopAttack(this);
+    }
+
+    private void HandleResurrection(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadResurrection(buffer, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_RESURRECTION, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        _networkService.ResurrectionService.Resurrect(this, request);
     }
 
     private void HandleEmotion(byte[] buffer)
@@ -746,6 +805,22 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_WEATHER_INFO)
+            {
+                HandleGetWeatherInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_WEATHER_INFO is a server to client packet: the 7.3 client never sends it. An incoming one
+            // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below — exactly like TM_SC_REGION_ACK above.
+            if (header.ID == (ushort)GamePackets.TM_SC_WEATHER_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_WEATHER_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_ATTACK_REQUEST)
             {
                 HandleAttackRequest(msgBuffer);
@@ -836,6 +911,12 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_RESURRECTION)
+            {
+                HandleResurrection(msgBuffer);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_EMOTION)
             {
                 HandleEmotion(msgBuffer);
@@ -898,6 +979,22 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_LOGOUT)
             {
                 _logger.Debug("{clientTag} logging out", ClientTag);
+                continue;
+            }
+
+            // Client anti-cheat datagram (54). The operational disposition is still open — verify,
+            // record, ignore or refuse — so this arm only makes the datagram observable: it never
+            // answers, validates or disconnects. It is deliberately kept out of the
+            // TM_CS_UPDATE/TM_CS_MONSTER_RECOGNIZE/TM_CS_QUERY group above, which is a disposition
+            // already settled ("valid, no reply expected") that does not apply here.
+            // See docs/packet-specs/socle-anti-triche.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_ANTI_HACK)
+            {
+                GameAntiHackPackets.TryReadAntiHack(msgBuffer, out var declaredAntiHackLength);
+
+                _logger.Debug(
+                    "TM_CS_ANTI_HACK ({id}) Length: {length} nLength: {nLength} received from {clientTag}",
+                    header.ID, header.Length, declaredAntiHackLength, ClientTag);
                 continue;
             }
 

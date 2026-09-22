@@ -227,6 +227,8 @@ public class Program
         services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
+        services.AddSingleton<IWorldLocationRepository, WorldLocationRepository>();
+        services.AddSingleton<IWorldLocationService, WorldLocationService>();
         services.AddSingleton<ILevelingService, LevelingService>();
         services.AddSingleton<SkillCatalog>();
         services.AddSingleton<ISkillService, SkillService>();
@@ -245,6 +247,7 @@ public class Program
         services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
+        services.AddSingleton<IResurrectionService, ResurrectionService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();

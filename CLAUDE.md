@@ -119,6 +119,16 @@ character bootstrap: stats, inventory, summon slots, wear information, gold/chao
 experience/JP, job properties, learned skills, belt slots, game time and status. It then synchronizes
 NPC and monster visibility. See `docs/character-bootstrap.md` for packet layouts and model ordering.
 
+The summon socle's server-to-client layouts live in `GameSummonPackets`, sized from
+`docs/packet-specs/socle-invocations.md`: `TS_SC_ADD_SUMMON_INFO (301)` 46 bytes,
+`TS_SC_REMOVE_SUMMON_INFO (302)` 11, `TS_SC_UNSUMMON (305)` 11, `TS_SC_UNSUMMON_NOTICE
+(306)` 15, `TS_SC_SUMMON_EVOLUTION (307)` 38, `TS_SC_MOUNT_SUMMON (320)` 24,
+`TS_SC_UNMOUNT_SUMMON (321)` 16. Epic 7.3 gives the name field 19 bytes — 18 usable
+characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
+Nothing emits these packets yet: how many summons exist, for how long, at what cost and
+what they become is still an open decision, so `BuildAddSummonInfo` takes `code` (source not
+established) and `summon_handle` from its caller instead of inventing either.
+
 Epic 7.3 key bindings are character data, not a local `.opt` setting. The server sends the single
 string property `client_info` with `TS_SC_PROPERTY (507)` during world entry, and the client writes it
 back with `TS_CS_SET_PROPERTY (508)`, normally when leaving the game. The value is an opaque,
@@ -383,9 +393,9 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
   destination has drifted past `ChaseReissueThreshold` from the one already in flight — otherwise the
   client would get a fresh move every 300 ms tick and stutter.
 - **Attack**: within the melee reach and off cooldown, `TS_SC_ATTACK_EVENT` (`101`) with the monster as
-  attacker and the player as target; the player loses `maxHp / 100` HP (**test formula**, floored so
-  HP never drops below 1 — **there is no player death or respawn**), sent as the `hp` property. **A
-  monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
+  attacker and the player as target; the player loses `maxHp / 15` HP (**test formula**), sent as the
+  `hp` property. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
+  joueur*), and a monster drops a target at 0 HP. **A monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
   freezes it at its current position and a `TS_SC_MOVE` stop is sent, so it does not slide through the
   swing (the reference's `SetMove(current, current, speed 0)` before `Attack`). The player is planted
   the same way — `CombatService` sends a stop-move for the player when a swing lands, only ever in
@@ -1098,12 +1108,25 @@ are bitfields derived from `limit_*` columns and are left at zero, and the
 `NameId`/`SetId`/`SummonId`/`EffectId`/`SkillId`/`StateId` foreign keys are left null because the
 referenced resource tables are still empty.
 
+## Client anti-cheat packets
+
+`TM_SC_ANTI_HACK` (`53`) and `TM_CS_ANTI_HACK` (`54`) both carry a fixed 402-byte payload: a `uint16`
+`nLength` at offset 7 followed by `uint8 byBuffer[400]` at offsets 9-408, for 409 bytes on the wire.
+Neither rzu nor NGemity/Chihiro shows a handler: NGemity has the headers and nothing else, and an
+unregistered packet there ends in a DEBUG "Got unknown packet" log. The Epic 7.3 client `SFrame.exe`
+imports no anti-cheat module at all, and its incoming dispatcher treats `53` as an explicit empty case,
+so the shipped client can neither answer the challenge nor produce the `54` blob. `nLength` semantics
+are not established by the reference - do not interpret the value. NavisLamia declares `54`, describes
+the frame, and consumes the datagram without any disposition; the operational decision (verify, record,
+ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming, group aggro (`GroupFirstAttack`), pathfinding, and **player death** — monster
-  damage is the `maxHp/100` test formula floored at 1 HP. Damage-to-monster, attack speed, walk speed
+  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding; monster damage is the
+  `maxHp/15` test formula, and a player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them
+  back in town. Damage-to-monster, attack speed, walk speed
   and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
   as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
@@ -1196,6 +1219,33 @@ referenced resource tables are still empty.
 - Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Mort et réapparition du personnage joueur
+
+Le client Epic 7.3 **déclare** `TM_SC_DEAD` (504) mais son répartiteur le libère **sans effet**
+(aucun handler : la table id→nom de `SFrame.exe` mappe 504 vers `TM_SC_DEAD` et le cas `cmp $0x1f8`
+saute directement à la queue de libération). Aucun paquet serveur→client de mort n'existe donc :
+le joueur est mort quand ses points de vie sont à 0, publiés par `TS_SC_ATTACK_EVENT` (`target_hp`)
+et par la propriété `hp`. La phrase précédente de ce fichier (« there is no TS_SC_DEAD in this
+version ») doit se lire ainsi.
+
+La réapparition est demandée par le client avec `TM_CS_RESURRECTION` (513) : trame fixe de **12
+octets**, `handle` (uint32) à l'offset 7 et `type` (int8) à l'offset 11. En 7.3, `type` remplace la
+paire pré-6.1 `use_state`/`use_potion` (qui ferait 13 octets) : 0 = réapparition à la ville,
+1 = par état, 2 = par objet, 3/4 = compétition/match à mort. NGemity compile en `EPIC_4_1_1`, donc
+son `WorldSession::onRevive` lit `use_state`/`use_potion` et ignore `type` : à traduire, pas à
+recopier.
+
+`TM_SC_STATUS_CHANGE` (`500`) avec `1 << 8` est le drapeau mort **d'un monstre** : pour un handle de
+joueur le même bit vaut `TCS_FlagSitdown`. Ne jamais envoyer 500 + `1 << 8` pour un joueur.
+
+La fiche complète (enchaînement côté client, écarts NGemity, découpage, réserves) est dans
+`docs/packet-specs/socle-mort-respawn.md`.
+
+Le socle est en place : `TM_CS_RESURRECTION` (513) est décodé (trame de 12 octets, toute autre taille
+refusée plutôt que lue), le personnage réapparaît à sa position persistée avec ses PV/MP au maximum,
+et un monstre lâche une cible tombée à 0 PV (les PV d'un joueur n'ont plus de plancher à 1). Le
+serveur n'émet toujours aucun paquet de mort.
+
 ### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
 
 - 7.3 = ids **550** (CS) / **11** (SC) : rzu remappe en 1550/1011 à partir d'`EPIC_9_6_3`
@@ -1223,6 +1273,34 @@ referenced resource tables are still empty.
 - Restes ouverts (voir la fiche) : la 11 est-elle indispensable, redemande-t-elle après un warp,
   150 vs 180, contrôle de taille côté client.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 902 / 903 — `TM_SC_WEATHER_INFO` / `TM_CS_GET_WEATHER_INFO`
+
+(Epic 7.3 ; fiche `docs/packet-specs/902-weather-info.md`)
+
+`TM_SC_WEATHER_INFO` (902, 13 octets : `region_id` `uint32` à 7, `weather_id` `uint16` à 11) et
+`TM_CS_GET_WEATHER_INFO` (903, 11 octets : `region_id` `uint32` à 7). Les ids `1902`/`1903` sont
+`version >= EPIC_9_6_3` et ne doivent pas être ajoutés.
+
+Deux pièges. (1) `region_id` n'est **pas** un indice de région de visibilité (la 550/11, pas de
+180) : c'est l'id de `WorldLocation`, encodé `x × 10000 + y × 100 + n` sur les colonnes `x`/`y`
+de la table ; NGemity y met l'id de l'emplacement, rzu y met 0. (2) La table a **une ligne par
+`(id, weather_id, time_id)`** (la copie client en compte 6497 lignes et 407 ids, dans un ordre
+physique qui n'est pas groupé par id (114 ruptures de l'ordre `(id, weather_id, time_id)`), ce qui
+rend le tri `ORDER BY Id, WeatherId, TimeId` du dépôt nécessaire) : elle doit être repliée en un
+enregistrement par id avec `weather_ratio[weather_id][time_id]`, comme
+`WorldLocationManager::RegisterWorldLocation`, sinon les lignes s'écrasent.
+
+Le client 7.3 **consomme** la 902 (il lit `+7` et `+11`) et, dans le binaire fourni, **n'émet
+jamais** la 903 : la constante `0x387` n'y apparaît que dans la table id→nom, sans constructeur.
+Aucune référence (NGemity, rzu) n'implémente de réponse à la 903. La réponse est donc défensive :
+une 902 à l'id demandé si l'id est connu, rien sinon.
+
+NGemity ne charge la table que pour la replier, **n'affecte jamais `current_weather`** (sa 902 vaut
+toujours `weather_id = 0`) et ne pousse la 902 qu'au changement d'emplacement, calculé depuis les
+données de carte du client — données que Navislamia n'a pas. Le socle suit rzu : une 902 `{0, 0}`
+à l'entrée dans le monde. L'appariement position → id d'emplacement reste `NON ÉTABLI` (taille de
+cellule inconnue) et mérite une carte dédiée.
 
 ### Paquet 1202 — `TM_CS_EMOTION` (émotion)
 
@@ -1262,3 +1340,6 @@ referenced resource tables are still empty.
   its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
   **in the same change**: a declared id with no dispatch arm reaches
   `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
+- That rule covers client packets. An id the server only ever emits needs no arm in
+  `GameClient.Receive`, so `GameSummonPackets`' seven strictly server-to-client ids are
+  declared in `GamePackets` with no dispatch entry; 33 `TM_SC_*` members already had none.
