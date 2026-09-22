@@ -78,6 +78,15 @@ public class GameClient : Client
         Connection.Send(message.Data);
     }
 
+    /// <summary>
+    /// TM_SC_WEATHER_INFO (902) sent to this client alone: <paramref name="regionId"/> is the
+    /// <c>WorldLocation.id</c> of the location, never a visibility region index.
+    /// </summary>
+    public void SendWeatherInfo(uint regionId, ushort weatherId)
+    {
+        Connection.Send(GameWeatherPackets.BuildWeatherInfo(regionId, weatherId));
+    }
+
     private void HandleTimeSync(byte[] packet)
     {
         const int sampleWindow = 4;
@@ -146,6 +155,7 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         SyncVisibleObjects();
+        RefreshEventArea();
     }
 
     private void HandleRegionUpdate(byte[] buffer)
@@ -155,6 +165,7 @@ public class GameClient : Client
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
         SyncVisibleObjects();
+        RefreshEventArea();
     }
 
     private void HandleChangeLocation(byte[] buffer)
@@ -163,7 +174,16 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         SyncVisibleObjects();
+        RefreshEventArea();
     }
+
+    /// <summary>
+    /// The client's 15/16 packets are never the only trigger: the server knows the position and the
+    /// loaded polygons, so every position change re-checks the session's event area. This is also
+    /// what ends the area state on a map change or a warp, instead of a blind reset that would make
+    /// the next position update re-enter the area the character never left.
+    /// </summary>
+    private void RefreshEventArea() => _networkService.EventAreaService.Refresh(this);
 
     /// <summary>
     /// TM_CS_GET_REGION_INFO (550): the client converted its own position into region indices and asks for
@@ -197,6 +217,67 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
     }
 
+    /// <summary>
+    /// TM_CS_TAKEOUT_COMMERCIAL_ITEM (10005): the player pulled an item out of the commercial storage
+    /// window. The frame is read and logged and nothing is sent back — this lot implements no container
+    /// policy at all, because none is established: neither rzu nor NGemity models the container, so no
+    /// cost, no cap and no result code may be invented (spec file, reserves 7b and 7e). Any answer that
+    /// becomes necessary later goes through the ordinary inventory packets (TM_SC_INVENTORY,
+    /// TM_SC_UPDATE_ITEM_COUNT), never through a 10005, which the server must never emit.
+    /// </summary>
+    private void HandleTakeoutCommercialItem(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadTakeoutCommercialItem(buffer, out var request))
+        {
+            _logger.Warning("Malformed commercial item takeout received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_TAKEOUT_COMMERCIAL_ITEM ({id}) Length: {length} received from {clientTag}: uid={uid} count={count}",
+            (ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM, buffer.Length, ClientTag, request.Uid, request.Count);
+    }
+
+    /// <summary>
+    /// TM_CS_GET_WEATHER_INFO (903): the client asks for the weather of a location id. The id it sends is
+    /// opaque — no 7.3 client site builds this packet — so Navislamia reads it as the only identity both
+    /// sides can share: <c>WorldLocation.id</c>, the same value a 902 carries. A known id is answered with
+    /// a 902 to the asking client alone; an unknown one is answered with nothing at all, because no
+    /// reference defines a result or an error for this family. Only the exact 11-byte request is read.
+    /// </summary>
+    private void HandleGetWeatherInfo(byte[] buffer)
+    {
+        if (!GameWeatherPackets.TryReadGetWeatherInfo(buffer, out var regionId))
+        {
+            _logger.Warning("Malformed weather info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Weather info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        if (regionId > int.MaxValue ||
+            !_networkService.WorldLocationService.TryGet((int)regionId, out var location))
+        {
+            _logger.Debug(
+                "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: unknown location {regionId}, no answer",
+                (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId);
+            return;
+        }
+
+        SendWeatherInfo(regionId, location.CurrentWeather);
+        _logger.Debug(
+            "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: location {regionId} -> weather_id={weatherId}",
+            (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId,
+            location.CurrentWeather);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -220,6 +301,17 @@ public class GameClient : Client
         var handle = GameActionPackets.ReadCancelActionHandle(buffer);
         _logger.Verbose("{clientTag} cancelled action for handle {handle}", ClientTag, handle);
         _networkService.CombatService.StopAttack(this);
+    }
+
+    private void HandleResurrection(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadResurrection(buffer, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_RESURRECTION, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        _networkService.ResurrectionService.Resurrect(this, request);
     }
 
     private void HandleEmotion(byte[] buffer)
@@ -345,7 +437,7 @@ public class GameClient : Client
         {
             await _networkService.CharacterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
                 info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
-                info.CharacterChaos, info.X, info.Y);
+                info.CharacterChaos, info.X, info.Y, info.PkMode);
         }
         catch (Exception exception)
         {
@@ -504,6 +596,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleStorageAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadStorage(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_STORAGE, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.StorageService.HandleAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process storage request for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandlePutoffItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadPutoffItem(packet, out var request))
@@ -594,6 +704,87 @@ public class GameClient : Client
         SendMessage(message);
     }
 
+    /// <summary>
+    /// TM_CS_INSTANCE_GAME_ENTER (4250): the 7.3 client sends it as an answer to an incoming instance-game
+    /// message, copying the <c>instance_game_type</c> it was handed (values 0, 1 and 2 are the only ones
+    /// observed). Nothing is answered here: entering an instance is a server side move of the character (a
+    /// TM_SC_WARP / region change), not an acknowledgement of its own. The message that triggers it is not
+    /// identified yet, so the server cannot provoke a 4250 for now — NON ÉTABLI (b) of
+    /// docs/packet-specs/socle-instances-jeu.md.
+    /// </summary>
+    private void HandleInstanceGameEnter(byte[] buffer)
+    {
+        if (!GameInstanceGamePackets.TryReadEnter(buffer, out var request))
+        {
+            _logger.Warning("Malformed instance game enter request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_INSTANCE_GAME_ENTER ({id}) Length: {length} received from {clientTag}: instanceGameType={type}",
+            (ushort)GamePackets.TM_CS_INSTANCE_GAME_ENTER, buffer.Length, ClientTag, request.InstanceGameType);
+    }
+
+    /// <summary>
+    /// TM_CS_INSTANCE_GAME_EXIT (4251) carries no payload and expects no answer: the character is brought back
+    /// to the lobby by the server. The frame is only checked for its exact 7-byte form.
+    /// </summary>
+    private void HandleInstanceGameExit(byte[] buffer)
+    {
+        if (!GameInstanceGamePackets.HasNoPayload(buffer))
+        {
+            _logger.Warning("Malformed instance game exit request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug("TM_CS_INSTANCE_GAME_EXIT ({id}) Length: {length} received from {clientTag}",
+            (ushort)GamePackets.TM_CS_INSTANCE_GAME_EXIT, buffer.Length, ClientTag);
+    }
+
+    /// <summary>
+    /// TM_CS_INSTANCE_GAME_SCORE_REQUEST (4252) is answered by TM_SC_INSTANCE_GAME_SCORE_REQUEST (4253) and by
+    /// nothing else: the 4253 is never sent unsolicited. Only <c>holicpoint</c> has a source in 7.3
+    /// (CharacterEntity.HuntaholicPoint, the same value the login sequence publishes as the client property
+    /// <c>huntaholicpoint</c>). <c>bearroad_ranking</c>, <c>deathmatch_kill_count</c> and
+    /// <c>deathmatch_death_count</c> have no source anywhere in 7.3, so they are written as zero — an explicit
+    /// placeholder, not a scoring policy. See NON ÉTABLI (h) of docs/packet-specs/socle-instances-jeu.md.
+    /// </summary>
+    private void HandleInstanceGameScoreRequest(byte[] buffer)
+    {
+        if (!GameInstanceGamePackets.HasNoPayload(buffer))
+        {
+            _logger.Warning("Malformed instance game score request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning(
+                "Instance game score request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        var character = _networkService.CharacterService.GetCharacterByName(ConnectionInfo.CharacterName);
+        if (character is null)
+        {
+            _logger.Warning("Instance game score request received from {clientTag} for an unknown character {name}",
+                ClientTag, ConnectionInfo.CharacterName);
+            return;
+        }
+
+        var holicPoint = GameInstanceGamePackets.ToWireHolicPoint(character.HuntaholicPoint);
+
+        Connection.Send(GameInstanceGamePackets.BuildScoreResponse(holicPoint, 0u, 0u, 0u));
+        _logger.Debug(
+            "TM_SC_INSTANCE_GAME_SCORE_REQUEST ({id}) Length: {length} sent to {clientTag}: holicpoint={holicpoint}",
+            (ushort)GamePackets.TM_SC_INSTANCE_GAME_SCORE_REQUEST, GameInstanceGamePackets.ScoreResponseLength,
+            ClientTag, holicPoint);
+    }
+
     public override void OnDataReceived(int bytesReceived)
     {
         var remainingData = bytesReceived;
@@ -681,9 +872,119 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID is (ushort)GamePackets.TM_SC_NPC_TRADE_INFO or (ushort)GamePackets.TM_SC_MARKET)
+            {
+                // TM_SC_NPC_TRADE_INFO (240) and TM_SC_MARKET (250) are server to client packets: the 7.3
+                // client has no way to send them, so an incoming one is a protocol anomaly rather than a
+                // request. Logged and dropped, like TM_SC_REGION_ACK above, so the two ids never reach the
+                // "Unknown Packet Type" throw below.
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
+            if (header.ID is (ushort)GamePackets.TM_SC_COMMERCIAL_STORAGE_INFO
+                or (ushort)GamePackets.TM_SC_COMMERCIAL_STORAGE_LIST)
+            {
+                // TM_SC_COMMERCIAL_STORAGE_INFO (10003) and TM_SC_COMMERCIAL_STORAGE_LIST (10004) are server
+                // to client packets: the 7.3 client builds no frame for either id (SFrame.exe owns no
+                // constructor site for 0x2713/0x2714), so an incoming one is a protocol anomaly, not a
+                // request. Logged and dropped like TM_SC_REGION_ACK above, instead of reaching the
+                // "Unknown Packet Type" throw below.
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
+            // The three auction responses are server to client packets too; the 7.3 client only builds
+            // 1300/1302/1304/1306/1308/1309/1310 (docs/packet-specs/socle-encheres.md §4.2). Same
+            // treatment as TM_SC_REGION_ACK: log and drop, never the throw below.
+            if (header.ID is (ushort)GamePackets.TM_SC_AUCTION_SEARCH
+                or (ushort)GamePackets.TM_SC_AUCTION_SELLING_LIST
+                or (ushort)GamePackets.TM_SC_AUCTION_BIDDED_LIST)
+            {
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM)
+            {
+                HandleTakeoutCommercialItem(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_MIX_RESULT (257) and TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW (261) are server to client
+            // packets as well (rzu declares both SessionPacketOrigin::Server): the 7.3 client never sends
+            // them, so an incoming one is a protocol anomaly, logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below.
+            if (header.ID is (ushort)GamePackets.TM_SC_MIX_RESULT or
+                (ushort)GamePackets.TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW)
+            {
+                _logger.Warning("Server to client packet ({id}) received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_INSTANCE_GAME_ENTER (4250): the client answers an incoming instance game message with it, so
+            // the frame is recorded and nothing is sent back — the character is moved by the server instead.
+            if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_ENTER)
+            {
+                HandleInstanceGameEnter(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_EXIT)
+            {
+                HandleInstanceGameExit(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_INSTANCE_GAME_SCORE_REQUEST (4252) is the only trigger of the 4253 answer.
+            if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_SCORE_REQUEST)
+            {
+                HandleInstanceGameScoreRequest(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_INSTANCE_GAME_SCORE_REQUEST (4253) is a server to client packet: an incoming one is a
+            // protocol anomaly, not a request. Logged and dropped so that no id added by this change can reach
+            // the "Unknown Packet Type" throw below.
+            if (header.ID == (ushort)GamePackets.TM_SC_INSTANCE_GAME_SCORE_REQUEST)
+            {
+                _logger.Warning(
+                    "Server to client packet TM_SC_INSTANCE_GAME_SCORE_REQUEST ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_ENTER_EVENT_AREA)
+            {
+                _networkService.EventAreaService.HandlePacket(this, msgBuffer, isEnter: true);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_LEAVE_EVENT_AREA)
+            {
+                _networkService.EventAreaService.HandlePacket(this, msgBuffer, isEnter: false);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_WEATHER_INFO)
+            {
+                HandleGetWeatherInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_WEATHER_INFO is a server to client packet: the 7.3 client never sends it. An incoming one
+            // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below — exactly like TM_SC_REGION_ACK above.
+            if (header.ID == (ushort)GamePackets.TM_SC_WEATHER_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_WEATHER_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
                 continue;
             }
 
@@ -759,9 +1060,30 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_STORAGE)
+            {
+                _ = HandleStorageAsync(msgBuffer);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            // The crafting and item-enchantment family (256, 260, 262, 263, 264) goes through the
+            // structural socle, which reads and bounds the frame, resolves the handles it names and
+            // refuses: the crafting engine and its game policy are not written yet. One arm covers the
+            // five ids so that no member of GamePackets reaches the "Unknown Packet Type" throw below.
+            // See docs/packet-specs/socle-artisanat-objets.md §9.2.
+            if (header.ID is (ushort)GamePackets.TM_CS_MIX or
+                (ushort)GamePackets.TM_CS_SOULSTONE_CRAFT or
+                (ushort)GamePackets.TM_CS_REPAIR_SOULSTONE or
+                (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY or
+                (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT)
+            {
+                _ = _networkService.CraftingSocleService.HandleAsync(this, header.ID, msgBuffer);
                 continue;
             }
 
@@ -774,6 +1096,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CANCEL_ACTION)
             {
                 HandleCancelAction(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_RESURRECTION)
+            {
+                HandleResurrection(msgBuffer);
                 continue;
             }
 
@@ -851,6 +1179,22 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_LOGOUT)
             {
                 _logger.Debug("{clientTag} logging out", ClientTag);
+                continue;
+            }
+
+            // Client anti-cheat datagram (54). The operational disposition is still open — verify,
+            // record, ignore or refuse — so this arm only makes the datagram observable: it never
+            // answers, validates or disconnects. It is deliberately kept out of the
+            // TM_CS_UPDATE/TM_CS_MONSTER_RECOGNIZE/TM_CS_QUERY group above, which is a disposition
+            // already settled ("valid, no reply expected") that does not apply here.
+            // See docs/packet-specs/socle-anti-triche.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_ANTI_HACK)
+            {
+                GameAntiHackPackets.TryReadAntiHack(msgBuffer, out var declaredAntiHackLength);
+
+                _logger.Debug(
+                    "TM_CS_ANTI_HACK ({id}) Length: {length} nLength: {nLength} received from {clientTag}",
+                    header.ID, header.Length, declaredAntiHackLength, ClientTag);
                 continue;
             }
 
