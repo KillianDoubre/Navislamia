@@ -84,15 +84,16 @@ public class MonsterAiRulesTests
     }
 
     [Test]
-    public void the_damage_is_one_hundredth_of_max_hp()
+    public void the_damage_is_one_fifteenth_of_max_hp()
     {
-        MonsterAiRules.PlayerDamage(5000).Should().Be(50);
+        MonsterAiRules.PlayerDamage(3000).Should().Be(200);
+        MonsterAiRules.PlayerDamage(5000).Should().Be(333);
     }
 
     [Test]
     public void the_damage_never_falls_below_one()
     {
-        MonsterAiRules.PlayerDamage(50).Should().Be(1);
+        MonsterAiRules.PlayerDamage(14).Should().Be(1);
         MonsterAiRules.PlayerDamage(0).Should().Be(1);
     }
 

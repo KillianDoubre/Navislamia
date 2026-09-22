@@ -25,8 +25,8 @@ public static class MonsterAiRules
 
     public static int ScaledVisibleRange(int visibleRange) => RangeScale * Math.Max(0, visibleRange);
 
-    /// <summary>Test damage: one hundredth of the player's max HP, never below 1.</summary>
-    public static int PlayerDamage(int playerMaxHp) => Math.Max(1, playerMaxHp / 100);
+    /// <summary>Test damage: one fifteenth of the player's max HP, never below 1.</summary>
+    public static int PlayerDamage(int playerMaxHp) => Math.Max(1, playerMaxHp / 15);
 
     /// <summary>
     /// Damage lands on the player's hit points with a floor of <b>zero</b>: a character at 0 HP is a
