@@ -111,6 +111,15 @@ public class ConnectionInfo
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }
+
+    /// <summary>
+    /// The position the character reappears at after death: the position persisted with the character
+    /// at world entry, captured by <c>GameActions.OnLogin</c>. This is option (a) of the resurrection
+    /// specification's §16.1 — no new column, no migration.
+    /// </summary>
+    public float RespawnX { get; set; }
+    public float RespawnY { get; set; }
+    public byte RespawnLayer { get; set; }
     public int AccountId { get; set; }
     public int Version { get; set; }
     public float LastReadTime { get; set; }
@@ -180,6 +189,9 @@ public class ConnectionInfo
         X = 0;
         Y = 0;
         Z = 0;
+        RespawnX = 0;
+        RespawnY = 0;
+        RespawnLayer = 0;
         NameToDelete = string.Empty;
         LearnedSkills.Clear();
         PreviousJobs.Clear();

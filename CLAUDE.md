@@ -393,9 +393,9 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
   destination has drifted past `ChaseReissueThreshold` from the one already in flight — otherwise the
   client would get a fresh move every 300 ms tick and stutter.
 - **Attack**: within the melee reach and off cooldown, `TS_SC_ATTACK_EVENT` (`101`) with the monster as
-  attacker and the player as target; the player loses `maxHp / 100` HP (**test formula**, floored so
-  HP never drops below 1 — **there is no player death or respawn**), sent as the `hp` property. **A
-  monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
+  attacker and the player as target; the player loses `maxHp / 15` HP (**test formula**), sent as the
+  `hp` property. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
+  joueur*), and a monster drops a target at 0 HP. **A monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
   freezes it at its current position and a `TS_SC_MOVE` stop is sent, so it does not slide through the
   swing (the reference's `SetMove(current, current, speed 0)` before `Attack`). The player is planted
   the same way — `CombatService` sends a stop-move for the player when a swing lands, only ever in
@@ -1124,8 +1124,9 @@ ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming, group aggro (`GroupFirstAttack`), pathfinding, and **player death** — monster
-  damage is the `maxHp/100` test formula floored at 1 HP. Damage-to-monster, attack speed, walk speed
+  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding; monster damage is the
+  `maxHp/15` test formula, and a player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them
+  back in town. Damage-to-monster, attack speed, walk speed
   and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
   as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
@@ -1217,6 +1218,33 @@ ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
   (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
 - Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Mort et réapparition du personnage joueur
+
+Le client Epic 7.3 **déclare** `TM_SC_DEAD` (504) mais son répartiteur le libère **sans effet**
+(aucun handler : la table id→nom de `SFrame.exe` mappe 504 vers `TM_SC_DEAD` et le cas `cmp $0x1f8`
+saute directement à la queue de libération). Aucun paquet serveur→client de mort n'existe donc :
+le joueur est mort quand ses points de vie sont à 0, publiés par `TS_SC_ATTACK_EVENT` (`target_hp`)
+et par la propriété `hp`. La phrase précédente de ce fichier (« there is no TS_SC_DEAD in this
+version ») doit se lire ainsi.
+
+La réapparition est demandée par le client avec `TM_CS_RESURRECTION` (513) : trame fixe de **12
+octets**, `handle` (uint32) à l'offset 7 et `type` (int8) à l'offset 11. En 7.3, `type` remplace la
+paire pré-6.1 `use_state`/`use_potion` (qui ferait 13 octets) : 0 = réapparition à la ville,
+1 = par état, 2 = par objet, 3/4 = compétition/match à mort. NGemity compile en `EPIC_4_1_1`, donc
+son `WorldSession::onRevive` lit `use_state`/`use_potion` et ignore `type` : à traduire, pas à
+recopier.
+
+`TM_SC_STATUS_CHANGE` (`500`) avec `1 << 8` est le drapeau mort **d'un monstre** : pour un handle de
+joueur le même bit vaut `TCS_FlagSitdown`. Ne jamais envoyer 500 + `1 << 8` pour un joueur.
+
+La fiche complète (enchaînement côté client, écarts NGemity, découpage, réserves) est dans
+`docs/packet-specs/socle-mort-respawn.md`.
+
+Le socle est en place : `TM_CS_RESURRECTION` (513) est décodé (trame de 12 octets, toute autre taille
+refusée plutôt que lue), le personnage réapparaît à sa position persistée avec ses PV/MP au maximum,
+et un monstre lâche une cible tombée à 0 PV (les PV d'un joueur n'ont plus de plancher à 1). Le
+serveur n'émet toujours aucun paquet de mort.
 
 ### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
 

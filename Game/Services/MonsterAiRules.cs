@@ -25,8 +25,22 @@ public static class MonsterAiRules
 
     public static int ScaledVisibleRange(int visibleRange) => RangeScale * Math.Max(0, visibleRange);
 
-    /// <summary>Test damage: one hundredth of the player's max HP, never below 1.</summary>
-    public static int PlayerDamage(int playerMaxHp) => Math.Max(1, playerMaxHp / 100);
+    /// <summary>Test damage: one fifteenth of the player's max HP, never below 1.</summary>
+    public static int PlayerDamage(int playerMaxHp) => Math.Max(1, playerMaxHp / 15);
+
+    /// <summary>
+    /// Damage lands on the player's hit points with a floor of <b>zero</b>: a character at 0 HP is a
+    /// legal state. The client learns it is dead from that value — the killing swing's
+    /// <c>target_hp</c> and the <c>hp</c> property — because this version has no death packet
+    /// (docs/packet-specs/socle-mort-respawn.md §3.2).
+    /// </summary>
+    public static int PlayerHpAfterDamage(int playerHp, int damage) => Math.Max(0, playerHp - damage);
+
+    /// <summary>
+    /// Whether a character is a valid target: a dead one is neither acquired nor hit, so a monster
+    /// never swings at a corpse.
+    /// </summary>
+    public static bool IsAlive(int characterHp) => characterHp > 0;
 
     public static float Distance(float ax, float ay, float bx, float by) =>
         CombatRange.Distance(ax, ay, bx, by);
