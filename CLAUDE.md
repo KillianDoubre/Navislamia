@@ -1151,6 +1151,53 @@ validation vient du client et du modèle déjà présent dans le dépôt (`Aucti
 `ItemStorageEntity.RelatedAuctionId`, les neuf `StorageType`, la table `AuctionCateryResource`,
 lue par `AuctionCateryResourceRepository`).
 
+## Étal de joueur (socle 700/701)
+
+Le client de 7.3 n'ouvre un étal que par `TM_CS_START_BOOTH` (`700`, `59 + 16×N` octets : en-tête 7,
+nom de 49 octets terminé par un nul, `type` 1 ou 2, `count` `uint16`, puis des objets de 16 octets
+`item_handle`/`cnt`/`gold int64`) et `TM_CS_STOP_BOOTH` (`701`, 7 octets). Les deux constructeurs de
+trame sont dans `SFrame.exe` (`0x48CBD0` et `0x48CC20`) et donnent la taille directement.
+
+`TM_CS_CHECK_BOOTH_STARTABLE` (`711`) **n'existe pas dans le client de 7.3** : ni nom, ni créneau de
+dispatch. `op_codes.md:180` le liste pourtant — ne pas s'en servir pour déduire un comportement client.
+
+Pendant qu'un étal est ouvert, le client annonce lui-même que l'équipement/usage d'objets, l'usage de
+compétences et l'accès à un autre magasin sont refusés (`smsg_booth_not_*` dans `db_string.rdb`), ce qui
+correspond au `ResultCode.NotActableWhileUsingBooth` (`55`) déjà déclaré des deux côtés : le socle
+réutilise ce code existant au lieu d'en inventer un.
+
+Les objets de `703`/`710` mesurent **83** octets par enregistrement (stride `0x53` mesuré dans le
+client) = 75 + `gold int64`, donc la structure d'objet du client **inclut** le `appearance_code` de 4
+octets que rzu gate à `>= EPIC_7_4` ; c'est la même conclusion que les 85 octets de l'inventaire, avec
+laquelle elle s'additionne exactement (75 + 2 + 4 + 4 = 85). Ne pas reconstruire les 71/81 octets de rzu.
+
+---
+
+
+`TM_CS_START_BOOTH` (700) et `TM_CS_STOP_BOOTH` (701) sont déclarés dans `GamePackets` **et** dans la
+boucle de réception (`GameClient.OnDataReceived`) : un `700` est lu par `BoothPackets.TryReadStartBooth`
+(59 + 16×N octets, nom brut de 49 octets terminé au premier nul, `type` à 56, `count` à 57, objets à 59
+avec `item_handle`/`cnt`/`gold int64` à +0/+4/+8), jugé par `BoothRules` (type ∈ {1,2}, au moins un
+objet, nom de 6 à 40 octets, niveau ≥ 10 — dans cet ordre, le niveau en dernier) et rangé dans
+`ConnectionInfo` sous son propre verrou. Refus = `TS_SC_RESULT` avec le code et `request_msg_id = 700`
+(`LimitMax` au-delà de 8 objets, `NotEnoughLevel` sous le niveau 10, `InvalidArgument` sinon) ; un `700`
+accepté ne reçoit **aucune** réponse et un `701` répond `Success`, idempotent.
+
+Tant qu'un étal est ouvert, **un seul garde** en tête de la chaîne de dispatch (`BoothRules.GateAction`)
+répond `55` (`ResultCode.NotActableWhileUsingBooth`) aux actions que le client annonce lui-même comme
+refusées : 200, 201, 203, 204, 208, 218, 219, 253, 400. `700` et `701` sont hors de cette liste. Le
+garde n'est pas une protection générique : toute action ajoutée plus tard doit être pesée contre elle.
+
+Le garde `Enum.IsDefined(typeof(GamePackets), header.ID)` (`GameClient.OnDataReceived`) précède la
+chaîne : un id **non déclaré** est journalisé en `Debug` puis ignoré, **sans exception**. Le
+`_ => throw new Exception("Unknown Packet Type")` du `switch` final n'est donc atteint que par un
+membre **déclaré** sans bras de dispatch — c'est la raison exacte du critère « enum et dispatch se
+modifient ensemble ».
+
+L'état d'étal n'est ni persisté ni diffusé : aucun joueur ne le voit, pas même son propriétaire, et la
+validation des handles contre l'inventaire, le sens du `type` et l'unité du `gold` restent ouverts
+(`docs/packet-specs/socle-booths.md` §7 et §12).
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
