@@ -83,6 +83,12 @@ public enum GamePackets : ushort
     TM_SC_AURA = 407,
     TM_CS_JOB_LEVEL_UP = 410,
 
+    // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
+    // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) is deliberately absent —
+    // the 7.3 client neither knows it nor can send it (fiche §1.3).
+    TM_CS_START_BOOTH = 700,
+    TM_CS_STOP_BOOTH = 701,
+
     TM_SC_STATUS_CHANGE = 500,
     TM_SC_STATE = 505,
     TM_CS_UPDATE = 503,

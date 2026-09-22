@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Stats;
 
@@ -149,6 +150,51 @@ public class ConnectionInfo
     public string NameToDelete { get; set; }
     public bool StorageSecurityCheck { get; set; } = false;
 
+    /// <summary>Guards <see cref="Booth"/>: the receiving thread writes it, readers may not race it.</summary>
+    public readonly object BoothLock = new();
+
+    private StartBoothRequest _booth;
+
+    /// <summary>
+    /// The booth this character declared with <c>TM_CS_START_BOOTH</c> (700), or null when none is open.
+    /// Nothing is persisted and nothing is broadcast: a booth does not survive a disconnection and is
+    /// visible to no client (docs/packet-specs/socle-booths.md §5.3 point 8 and §7.7).
+    /// </summary>
+    public StartBoothRequest Booth
+    {
+        get { lock (BoothLock) { return _booth; } }
+    }
+
+    /// <summary>Whether a booth is open, i.e. whether the action lock of <c>BoothRules</c> applies.</summary>
+    public bool IsBoothOpen
+    {
+        get { lock (BoothLock) { return _booth != null; } }
+    }
+
+    /// <summary>
+    /// Opens the booth, replacing a declaration already held: the client's creation window cannot send
+    /// a second <c>700</c> without closing the exchange window first, and no source describes a
+    /// cumulative form.
+    /// </summary>
+    public void OpenBooth(StartBoothRequest booth)
+    {
+        lock (BoothLock)
+        {
+            _booth = booth;
+        }
+    }
+
+    /// <summary>Closes the booth and forgets its declared items. Returns whether one was open.</summary>
+    public bool CloseBooth()
+    {
+        lock (BoothLock)
+        {
+            var wasOpen = _booth != null;
+            _booth = null;
+            return wasOpen;
+        }
+    }
+
     public void ClearVisibleObjects()
     {
         lock (NpcVisibilityLock)
@@ -225,6 +271,8 @@ public class ConnectionInfo
 
         SkillCooldowns.Clear();
         NextStateHandle = 0;
+        // A booth belongs to the character session: the next character never inherits it.
+        CloseBooth();
         ClearVisibleObjects();
     }
 

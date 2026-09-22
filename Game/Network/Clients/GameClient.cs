@@ -536,6 +536,48 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// <c>TM_CS_START_BOOTH</c> (700). The frame is read and judged before anything is stored, and a
+    /// refusal is answered with <c>TS_SC_RESULT</c> carrying the request id, because the family has no
+    /// acknowledgement packet at all: <c>703</c>, <c>708</c>, <c>709</c> and <c>710</c> are the only
+    /// answers the 7.3 client can receive, and an accepted <c>700</c> is answered with nothing
+    /// (docs/packet-specs/socle-booths.md §5.3 points 4 and 5).
+    /// </summary>
+    private void HandleStartBooth(byte[] packet)
+    {
+        if (!BoothRules.TryAcceptStartBooth(packet, ConnectionInfo.CharacterLevel, out var request,
+                out var result))
+        {
+            _logger.Debug("TM_CS_START_BOOTH refused for {clientTag}: {result}", ClientTag, result);
+            SendResult((ushort)GamePackets.TM_CS_START_BOOTH, (ushort)result);
+            return;
+        }
+
+        ConnectionInfo.OpenBooth(request);
+        _logger.Debug("Booth opened by {clientTag}: type={type}, items={count}, nameLength={nameLength}",
+            ClientTag, request.Type, request.Items.Length, request.Name.Length);
+    }
+
+    /// <summary>
+    /// <c>TM_CS_STOP_BOOTH</c> (701). Closing with no booth open stays idempotent and answers
+    /// <c>Success</c>: it is a tranché choice, no source fixes it (docs/packet-specs/socle-booths.md
+    /// §7.4). The items the client declared are forgotten and nothing is persisted — a booth does not
+    /// survive the session.
+    /// </summary>
+    private void HandleStopBooth(byte[] packet)
+    {
+        if (!BoothPackets.TryReadStopBooth(packet))
+        {
+            SendResult((ushort)GamePackets.TM_CS_STOP_BOOTH, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        var wasOpen = ConnectionInfo.CloseBooth();
+        _logger.Debug("TM_CS_STOP_BOOTH from {clientTag}: booth was {state}", ClientTag,
+            wasOpen ? "open" : "already closed");
+        SendResult((ushort)GamePackets.TM_CS_STOP_BOOTH, (ushort)ResultCode.Success);
+    }
+
     private async Task HandleChangeItemPositionAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadChangeItemPosition(packet, out var request))
@@ -781,6 +823,18 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_NONE)
             {
                 _logger.Verbose("Keepalive (TM_NONE) Length: {length} from {clientTag}", header.Length, ClientTag);
+                continue;
+            }
+
+            // One booth gate in front of the whole chain: while a booth is open, every action the client
+            // itself announces as refused (smsg_booth_not_use_item / _use_skill / _not_action) is answered
+            // with 55 (ResultCode.NotActableWhileUsingBooth) and nothing else runs. TM_CS_STOP_BOOTH (701)
+            // is deliberately outside the set: it is the way out of the lock.
+            var boothGate = BoothRules.GateAction(ConnectionInfo.IsBoothOpen, header.ID);
+            if (boothGate != ResultCode.Success)
+            {
+                _logger.Debug("{id} refused for {clientTag}: booth open ({result})", header.ID, ClientTag, boothGate);
+                SendResult(header.ID, (ushort)boothGate);
                 continue;
             }
 
@@ -1078,6 +1132,18 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_DIALOG)
             {
                 _networkService.NpcDialogService.Select(this, msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_START_BOOTH)
+            {
+                HandleStartBooth(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_STOP_BOOTH)
+            {
+                HandleStopBooth(msgBuffer);
                 continue;
             }
 
