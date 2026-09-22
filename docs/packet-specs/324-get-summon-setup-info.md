@@ -401,9 +401,160 @@ MR et dans cette fiche.
   ne ferme pas ce piège.
 - Contenu des six handles : `CharacterEntity.SummonSlotItemIds`, **vide** en base aujourd'hui ; la
   réponse est six zéros tant que la formation n'est pas persistée. Ne rien dériver de l'inventaire.
+- Mise en œuvre (22/09/2026) : la réponse est construite par `BuildEquipSummon(slots, openDialog)` et
+  émise par `GameClient.HandleGetSummonSetupInfo`, qui refuse une trame qui n'a pas exactement 8 octets
+  et une session sans handle de personnage. Les six handles sont lus dans `ConnectionInfo.SummonSlots`,
+  posé **une seule fois** à l'entrée en jeu depuis `CharacterEntity.SummonSlotItemIds` : le 303 d'entrée
+  en jeu et celui de la 324 ne peuvent donc pas diverger. Un seul site remplit ce champ — une carte qui
+  écrira la colonne devra aussi le rafraîchir.
 ```
 
-## 11. A VERIFIER PAR KILLIAN
+## 11. Mise en œuvre livrée (dev)
+
+Section ajoutée par `navis-dev` le 22/09/2026 sur `hermes/packet-324-get-summon-setup-info`. L'analyse
+de l'archéologue (§1 à §10) est laissée intacte.
+
+### 11.1 Checklist des critères transversaux, relevée le 22/09/2026
+
+| critère | état | mesure |
+|---|---|---|
+| 1. `dotnet build Navislamia.sln -c Debug` | OK | `0 Error(s)`, code de sortie **0** |
+| 2. `dotnet test Tests/Tests.csproj` | OK | `Passed! - Failed: 0, Passed: 485, Total: 485`, code de sortie **0** (base avant travaux, sur `edca1e4` : **463**) |
+| 3. test d'offsets du paquet | OK | 22 cas dans `Tests/Game/SummonSetupInfoPacketsTests.cs` (§11.3), plus une assertion de l'octet 7 ajoutée à `BuildBaseStatePackets_UseTheExpectedEpic73Sizes` |
+| 4. énum et dispatch modifiés ensemble | OK | `TM_CS_GET_SUMMON_SETUP_INFO = 324` **et** son bras dans le même commit `40f8cec` ; invariant mesuré en §11.6 |
+| 5. savoir durable dans la fiche | OK | §10 et §11 ; `CLAUDE.md` **non modifié** (fichier d'instructions protégé, refus normal) |
+| 6. version tranchée | OK | `324` en dur dans le test avec renvoi à §4 ; aucune trace de `1324` dans le code |
+| 7. aucun commit sur `master` locale | OK | `git log --oneline origin/master..master` **vide** |
+| 8. aucun champ `NON ÉTABLI` deviné | OK | §7 intact ; le nom du réglage 44 reste non établi, aucune valeur inventée |
+
+### 11.2 Fichiers livrés
+
+| fichier | changement |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_GET_SUMMON_SETUP_INFO = 324`, inséré après `TM_SC_UNMOUNT_SUMMON = 321` (ordre croissant conservé) |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TryReadGetSummonSetupInfo(ReadOnlySpan<byte>, out SummonSetupInfoRequest)` et le `record struct` `SummonSetupInfoRequest(bool ShowDialog)` |
+| `Game/Network/Packets/Game/GameCharacterPackets.cs` | `BuildEquipSummon(long[] summonSlots, bool openDialog = false)`, octet 7 écrit explicitement |
+| `Game/Network/Clients/ConnectionInfo.cs` | `SummonSlots` (`long[]`, vide par défaut) |
+| `Game/Network/Clients/Actions/GameActions.cs` | l'entrée en jeu pose `SummonSlots` puis construit la 303 depuis ce champ (`openDialog` par défaut, donc 0) |
+| `Game/Network/Clients/GameClient.cs` | `HandleGetSummonSetupInfo(byte[])` et le bras de dispatch, placé **avant `TM_CS_USE_ITEM`** comme le recommande §5.3.3 |
+
+Commits : `40f8cec` (code), `d367d8a` (tests), puis le commit de fiche.
+
+### 11.3 Offsets livrés et noms des tests
+
+Requête, 8 octets — `Tests/Game/SummonSetupInfoPacketsTests.cs` :
+
+| test | ce qu'il fige |
+|---|---|
+| `Ids_AreTheEpic73Ones` | `324` en dur (commentaire renvoyant à §4 et à la VA `0x48c662`), `TM_EQUIP_SUMMON == 303`, `Enum.IsDefined(1324) == false`, `324` défini |
+| `ClientPacket_UsesTheEpic73Layout` | taille 8, longueur sur 4 octets à l'offset 0, id 324 à l'offset 4, checksum à 6, `show_dialog` à 7 |
+| `ClientPacket_HasNoFieldOutsideTheHeaderAndShowDialog` | aucun octet au-delà de 7 |
+| `TryReadGetSummonSetupInfo_ReadsTheShowDialogByteAtOffsetSeven` (2 cas) | faux pour l'octet 0, vrai pour l'octet 1 |
+| `TryReadGetSummonSetupInfo_ReadsAnyNonZeroByteAsTrue` (2 cas) | 2 et 255 lus comme vrai — normalisation **documentée**, pas une observation |
+| `TryReadGetSummonSetupInfo_RejectsAnyLengthOtherThanEight` (4 cas) | 0, 7, 9 et 15 octets refusés, `ShowDialog` laissé faux |
+
+Réponse, 32 octets, 303 :
+
+| test | ce qu'il fige |
+|---|---|
+| `Response_UsesTheEpic73Layout` | taille 32, longueur à 0, id 303 à 4, checksum à 6, `open_dialog = 1` à 7 quand le drapeau est vrai |
+| `Response_KeepsTheSixHandlesAtTheirOwnOffsets` | six valeurs asymétriques lues aux offsets 8, 12, 16, 20, 24, 28 ; la trame s'arrête après le sixième |
+| `Response_WritesTheHandleLittleEndian` | les quatre octets d'un handle relus un par un (04 03 02 01) |
+| `Response_ClosesTheDialogByDefault` | l'appel d'entrée en jeu (sans paramètre) laisse l'octet 7 à 0 |
+| `Response_ZerosTheSlotsMissingFromAShortFormation` | une formation de deux entrées laisse les quatre dernières à zéro |
+
+Dispatch, boucle de réception réelle (`FrameConnection` en mémoire sur un `GameClient` construit) :
+
+| test | ce qu'il exécute |
+|---|---|
+| `OnDataReceived_Answers303WithTheFormationAndTheReplayedDialog` (2 cas) | une seule trame émise : 303, 32 octets, octet 7 = `show_dialog` reçu, handles du `SummonSlots` de la session |
+| `OnDataReceived_AnswersNothingBeforeTheCharacterEnteredTheWorld` | `CharacterHandle == 0` : rien n'est émis, la trame est consommée |
+| `OnDataReceived_ConsumesAMalformedFrameWithoutThrowing` (7 et 9 octets) | refus silencieux, aucun octet laissé dans le flux |
+| `OnDataReceived_KeepsTheLoopOnAFrameCoalescedWithAnotherOne` | une 324 suivie d'un `TM_NONE` : les deux trames consommées, une seule réponse |
+
+### 11.4 Preuve de dispatch **exécutée**, et non déduite du source
+
+Le bras de dispatch a été rendu inatteignable sans casser la compilation (comparé à `TM_NONE`, membre
+existant mais à la condition fausse pour l'id testé), puis la classe relancée :
+
+```
+dotnet test Tests/Tests.csproj --filter 'FullyQualifiedName~SummonSetupInfoPacketsTests'
+Failed!  - Failed: 6, Passed: 16, Total: 22
+```
+
+Les six échecs sont tous `System.Exception: Unknown Packet Type` (deux formulations : ceux qui exigent
+l'absence de `throw`, et quatre « Did not expect any exception »). Le fichier a été restauré ensuite
+(`git checkout -- Game/Network/Clients/GameClient.cs`, `git status --porcelain` propre) et les 22 cas
+repassent. Ces six cas **exécutent** donc le bras : ils ne le constatent pas par `grep`.
+
+### 11.5 Décisions de mise en œuvre et ce qui les fonde
+
+1. **Une seule source pour les six handles.** `ConnectionInfo.SummonSlots`, posé par l'entrée en jeu
+   depuis `CharacterEntity.SummonSlotItemIds` et lu par les deux sites d'émission. Construire la 324
+   depuis un second chemin (relecture en base, ou pire une constante) aurait permis aux deux trames
+   portant le même id de diverger dans une même session. Le coût est assumé : la valeur est figée à
+   l'entrée en jeu, une carte qui écrira la colonne devra rafraîchir ce champ (§11.9-3).
+2. **Handler synchrone.** La 324 ne lit rien en base et n'écrit rien : aucun `Task`, aucun `try`/`catch`
+   de service, contrairement aux handlers d'inventaire.
+3. **Aucun `TS_SC_RESULT`.** La 324 n'a pas de paquet de résultat dans les références ; la 303 est son
+   seul accusé de réception (même règle que la fiche 57).
+4. **L'octet 7 est écrit explicitement**, même à zéro, pour que le layout de la 303 ne dépende pas du
+   zéro-remplissage de `CreatePacket`.
+5. **Trame refusée = journal + abandon**, jamais de réponse : c'est le comportement déjà tenu par
+   `HandleGetRegionInfo` (§5.3.2) et la seule politique qui n'invente rien pour un octet manquant.
+
+### 11.6 Invariant énum / dispatch, mesuré le 22/09/2026
+
+Sur la branche, `GamePackets` compte **91** membres, **50** sont référencés dans `GameClient.cs` +
+`GameActions.cs` et **41** ne le sont pas — **tous** `TM_SC_*` sauf `TM_EQUIP_SUMMON`, qui n'est qu'un
+paquet **descendant** (le serveur ne le reçoit jamais). Le même relevé sur `origin/master` donne
+90 / 49 / 41 : le membre ajouté est donc **référencé**, et l'ensemble des membres sans bras est
+**inchangé** — ce lot n'ajoute aucun id capable d'atteindre le `switch` final. `TM_EQUIP_SUMMON` sans
+bras **entrant** est exactement le piège de §5.4, laissé ouvert (§11.8).
+
+### 11.7 Fusionnabilité, mesurée
+
+`git merge-tree --write-tree --name-only <branche> HEAD` (aucune écriture dans le dépôt) :
+
+| branche essayée | code | fichiers en conflit |
+|---|---|---|
+| `master` | 0 | — |
+| `hermes/packet-253-use-item` | 0 | — |
+| `hermes/packet-socle-entrepot-personnage` | 1 | `Game/Network/Clients/GameClient.cs` (le reste fusionne, `ConnectionInfo.cs` compris) |
+
+L'ancrage retenu est celui que §5.3.3 recommande (« avant `TM_CS_USE_ITEM` »), la seule ancre de fin de
+chaîne occupée par **une** branche ouverte : le conflit avec `socle-entrepot-personnage` est donc attendu
+par la fiche elle-même et se limite aux six lignes du bras.
+
+`hotspot: Game/Network/Clients/GameClient.cs` — la chaîne de dispatch est le point chaud du dépôt :
+toutes les branches y insèrent un bras, cf. §11.7.
+
+### 11.8 Ce qui n'est pas porté, et pourquoi
+
+| point | pourquoi |
+|---|---|
+| le **303 entrant** (piège §5.4) | hors du périmètre fixé par le brief (« Le lot est 324, et rien d'autre ») et §5.4 renvoie explicitement la décision au PO : la fiche tranche que ce n'est **pas** au dev de choisir entre (a), (b) et (c). Le piège est **pré-existant** sur `master` — le client émet cette trame dès qu'un joueur valide sa formation, indépendamment de ce lot — et ce lot ne le rend ni plus atteignable ni plus dangereux (§11.6). Recommandation du dev : option (c), un bras « journal + abandon » de six lignes identique au patron `TM_SC_REGION_ACK`, dans une carte suivante, pour fermer la chute de connexion sans porter `onEquipSummon`. |
+| gating `1324` | aucune constante de version dans le dépôt (§4) |
+| remplissage de `SummonSlotItemIds` | autre sujet, cf. §12.3 |
+| `TS_SC_RESULT` pour la 324 | n'existe dans aucune référence (§11.5-3) |
+
+### 11.9 Réserves
+
+1. **Aucune vérification en jeu.** Ce conteneur n'a ni client 7.3 ni serveur démarré (interdiction de
+   lancer le jeu sur ce VPS) : le couple 324 → 303 est prouvé **au niveau du code et des tests
+   d'exécution**, jamais sur un vrai client. À confirmer en jeu (fenêtre de formation, Alt + R).
+2. **Session injectée par réflexion** dans les tests de dispatch : `Client.ConnectionInfo` est
+   `internal` et `Tests` n'est pas une *friend assembly*. C'est un contournement de test, pas un choix
+   de conception ; l'alternative (rendre la propriété publique, ou `InternalsVisibleTo`) élargirait la
+   surface du serveur pour un besoin de test et n'a pas été retenue.
+3. **Contenu vide en base** : `CharacterEntity.SummonSlotItemIds` n'est alimentée par personne, donc la
+   réponse réelle sera six zéros. Le test fige qu'une formation vide reste une trame valide de 32
+   octets, mais aucune vérification client du **contenu** n'est possible avant §12.3.
+4. **Carte Trello toujours non lue**, cette fois côté dev : ce worker `navis-dev` n'a pas non plus
+   d'outil `trello`. Le lot suit le brief (« 324, et rien d'autre ») ; si le commentaire du 2026-09-22
+   tranchait pour l'option (a) ou (c) de §5.4, c'est le seul point où ce lot s'en écarterait.
+
+## 12. A VERIFIER PAR KILLIAN
 
 > **Réserve de méthode — carte Trello non lue.** Cette fiche a été produite par un worker `navis-ref`
 > qui n'a **aucun accès Trello** (aucun outil `trello` dans le profil, aucun jeton d'API dans la
@@ -417,6 +568,9 @@ MR et dans cette fiche.
 1. **Périmètre de la carte** : la 303 client → serveur existe dans le client 7.3 et tue la boucle de
    réception (§5.4). Faut-il l'inclure dans ce lot, créer une carte distincte, ou se contenter d'un
    bras « journal + abandon » ? La fiche ne tranche pas : c'est un choix de périmètre.
+   **État du code (22/09/2026)** : le lot livré suit le brief (« Le lot est 324, et rien d'autre »), donc
+   la 303 entrante reste **ouverte** (§11.8). Le piège est pré-existant sur `master` et ce lot ne l'aggrave
+   pas (§11.6) ; la recommandation du dev est l'option (c), en carte suivante.
 2. **Réglage 44** du client (question 1 de §7) : s'il s'agit d'une option connue du serveur (par
    exemple un réglage d'interface du `client_info`), le préciser serait utile mais n'est pas
    nécessaire au fonctionnement.
@@ -428,3 +582,14 @@ MR et dans cette fiche.
    des asserts est déjà imposé par le dépôt ; si le dev veut vérifier `open_dialog = 1` de bout en
    bout, il faut un test au niveau du handler (pas seulement du constructeur), ce qui n'existe pas
    encore dans `Tests/` pour ce type de paquet.
+   **État du code (22/09/2026)** : **livré** — `Tests/Game/SummonSetupInfoPacketsTests.cs` couvre les
+   deux sens et exerce la boucle de réception réelle (§11.3, §11.4). Ce worker a copié le modèle
+   `FrameConnection` de la branche sœur `hermes/packet-57-check-illegal-user` et y a ajouté
+   l'injection de session par réflexion, seule façon d'atteindre le chemin nominal.
+5. **Cache `SummonSlots` figé à l'entrée en jeu** (§11.5-1) : la valeur est posée une fois, à l'entrée
+   en jeu. Une carte qui écrira `CharacterEntity.SummonSlotItemIds` (question 3 ci-dessus) devra
+   rafraîchir ce champ, sinon la fenêtre de formation montrera l'état d'avant l'écriture. Tranché par
+   le dev faute de mieux : c'est la seule façon d'avoir une source unique pour les deux 303.
+6. **Vérification en jeu** (§11.9-1) : rien n'a pu être essayé sur un vrai client 7.3 depuis ce
+   conteneur. Le seul point vraiment client-side encore ouvert est le rendu des six zéros (fenêtre de
+   formation ouverte avec une colonne vide) — à regarder au premier essai.
