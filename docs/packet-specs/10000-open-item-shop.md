@@ -272,6 +272,10 @@ mais rien n'est explicite non plus.
 
 ## 7. `NON ÉTABLI` / `A VERIFIER PAR KILLIAN`
 
+> **Statut après implémentation** : les sept réserves ci-dessous sont **reprises telles quelles** ;
+> aucune n'a été devinée ni fermée par le code. Le traitement réservé à chacune est récapitulé en
+> §9.5, et la liste complète est reportée dans la section « A VERIFIER PAR KILLIAN » de la MR.
+
 **a) Le convertisseur du client attend-il 8 octets de charge utile pour la 10000 ?**
 Le cas `eax == 0x2710` (`0x67e906`, `je 0x67ebfa`) construit un objet de 27 octets = 12 (en-tête
 d'objet) + **15** octets de trame, et y recopie « trame + 7 » (`u16`), « trame + 9 » (`u16`) et
@@ -335,3 +339,165 @@ avant de coder.
 | `reference/client73/SFrame.exe` | sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` | arbre de décision du client : commande `open_item_shop` (§2.1), absence de constructeur 10000 (§2.2), branche de réception 10001 (§2.3), constructeur 27 o (§2.4), table id↔nom (`0x6792cc`/`0x679321`/`0x679364`), convertisseur (`0x67e906`-`0x67ef39`) |
 | `Navislamia` (`master` au moment de la fiche) | `ec76b218cd0bd7c6498d725f253abb8b431f0cd6` | en-tête (`Header.cs`), checksum (`PacketExtensions.cs`), dispatch et précédent `TM_SC_REGION_ACK` (`GameClient.cs`), énumération (`GamePackets.cs`), `op_codes.md` |
 | Branche de ce lot | `hermes/packet-10000-open-item-shop` | porte cette fiche ; le dev y ajoute l'implémentation et les tests |
+
+## 9. Implémentation livrée (dev)
+
+**Périmètre : §5.4, à la lettre.** La demande `TM_CS_OPEN_ITEM_SHOP` (10000) est déclarée et
+traitée ; `TM_SC_OPEN_ITEM_SHOP` (10001) et les ids 9000/9001 restent **non déclarés**, et le serveur
+n'émet aucune trame pour ce lot.
+
+*Note de nommage* : §5.3 et §5.4 nomment `GameClient.Process` ; la méthode réelle est
+`GameClient.OnDataReceived` (`Game/Network/Clients/GameClient.cs`). Les numéros de ligne de la fiche
+ont bougé avec les fusions : l'ancre du `switch` final est désormais en `GameClient.cs:803`, et le
+précédent `TM_SC_REGION_ACK` en `:620-627`.
+
+### 9.1 Critères transversaux
+
+| Critère | État | Preuve |
+|---|---|---|
+| 1. `dotnet build Navislamia.sln -c Debug` | code **0** | `0 Error(s)`, 18 avertissements, aucun dans un fichier livré |
+| 2. `dotnet test Tests/Tests.csproj` | code **0**, **458** cas | 448 avant le lot, 458 après ; `Failed: 0, Skipped: 0` |
+| 3. Test d'offsets | 8 méthodes / **10 cas** (`Tests/Game/OpenItemShopPacketsTests.cs`) | trame 10000 : `Length` @0 (4 o), `ID` @4 (2 o), `Checksum` @6 (1 o), taille totale **7**, rien au-delà de l'offset 6 |
+| 4. Énumération et dispatch ensemble | oui | test de `Enum.IsDefined` **et** test de la boucle réelle ; bras rendu inatteignable ⇒ 6 échecs `Unknown Packet Type` (§9.6) |
+| 5. Savoir durable dans la fiche | ce chapitre + bloc `CLAUDE.md` en §9.9 | le dev n'écrit pas `CLAUDE.md` (fichier protégé), le bloc part dans la MR |
+| 6. Version tranchée | 7.3, gating rzu suivi | §4 : 10000/10001 retenus, 9000/9001 écartés ; deux cas de test verrouillent l'absence de 9000/9001 |
+| 7. Aucun commit sur `master` locale | `git log --oneline origin/master..master` **vide** | |
+| 8. Aucun champ `NON ÉTABLI` deviné | les sept réserves a) à g) intactes | §9.5 |
+
+### 9.2 Fichiers livrés
+
+| Fichier | Changement |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_OPEN_ITEM_SHOP = 10000,` inséré entre `TM_CS_REPORT = 8000` et `TM_NONE = 9999` |
+| `Game/Network/Clients/GameClient.cs` | bras `if (header.ID == (ushort)GamePackets.TM_CS_OPEN_ITEM_SHOP)` : `_logger.Warning(...)` puis `continue` — aucun octet lu après l'en-tête, aucune réponse |
+| `Tests/Game/OpenItemShopPacketsTests.cs` | nouveau : 8 méthodes, 10 cas, harnais `FrameConnection` local |
+
+Commit de code : `791330a` (branche `hermes/packet-10000-open-item-shop`) ; la fiche est dans
+`3c0a5f2`, ce chapitre dans le commit de documentation qui suit.
+
+### 9.3 Trame livrée et tests d'offsets
+
+`TM_CS_OPEN_ITEM_SHOP`, **7 octets** :
+
+| Offset | Type | Champ | Valeur imposée par les tests |
+|---|---|---|---|
+| 0 | `uint32` LE | `Length` | `7` |
+| 4 | `uint16` LE | `ID` | `10000` (`0x2710`, octets `10 27` en LE) |
+| 6 | `uint8` | `Checksum` | `0x3e` = `0x07 + 0x10 + 0x27`, somme des octets 0-5 |
+| 7+ | — | *(aucun)* | la trame s'arrête là ; plusieurs cas vérifient qu'aucun champ n'est lu au-delà |
+
+| Test | Ce qu'il fige |
+|---|---|
+| `Ids_AreTheEpic73Ones` | `TM_CS_OPEN_ITEM_SHOP == 10000` défini ; `10001`, `9000` et `9001` **non** définis |
+| `ClientPacket_IsHeaderOnly` | `Marshal.SizeOf<Header>() == 7`, `Header.Length == 7`, `Header.ID == 10000`, aucun octet après l'offset 6 |
+| `ClientPacket_ReadsLengthAndIdLittleEndian` | octets écrits à la main : `07 00 00 00` → 7 (et non `0x07000000`), `10 27` → 10000 (et non `0x1027`) |
+| `ClientPacket_ChecksumCoversTheLengthAndTheId` | checksum = somme des six premiers octets, et il **dépend** de l'id |
+| `OnDataReceived_ConsumesThePacketWithoutThrowing` | boucle de réception réelle : aucune exception, 7 octets consommés, aucun reste |
+| `OnDataReceived_AnswersNothing` | aucun octet émis en retour |
+| `OnDataReceived_LogsTheRefusalAsAWarning` | c'est bien le bras dédié qui traite la trame (journal `Warning`), et non la garde générique « Undefined packet ID » (`Debug`) |
+| `OnDataReceived_KeepsTheLoopOnAFrameCoalescedWithAnotherOne` | trame 10000 suivie d'un keepalive : les deux consommées, aucune réponse |
+| `OnDataReceived_IgnoresAFrameCarryingTheHypotheticalPayload` (8 o) et `OnDataReceived_IgnoresAPaddedFrame` (15 o) | l'hypothèse de §7a est tolérée : une trame plus longue est consommée **en entier** et ignorée, le flux reste synchrone |
+
+### 9.4 Ce qui n'est pas livré, volontairement
+
+- Aucune trame **10001** n'est déclarée ni construite : la structure de §3.2 reste documentée ici,
+  inactive. Déclarer l'id sans bras de dispatch ferait atteindre le `throw` final à une trame
+  entrante (critère 4), et un bras sans contenu serait du code mort.
+- Aucun `SendResult`, aucune constante de boutique, aucun modèle de compte marchand (§7c).
+- Aucune réponse à 9000/9001 : ce ne sont pas les ids de la boutique en 7.3 (§4).
+- Aucun parseur de charge utile : la `DEF` de rzu est vide et §7a n'est pas tranché.
+
+### 9.5 Réserves de §7 → traitement
+
+| Réserve | Traitement de ce lot |
+|---|---|
+| a) 8 octets de charge utile pour la 10000 ? | **Non lus** (recommandation §5.4 suivie). Deux cas de test prouvent qu'une trame de 8 ou 15 octets est consommée et ignorée sans décaler le flux, quel que soit le verdict de Killian. |
+| b) trame cliente de 27 o d'id 10001 | Non tranché, **sans effet ici** : rien n'est émis. |
+| c) valeurs de `client_id` / `account_id` / `one_time_password` / `raw_server_name` | Non produites (aucun modèle de boutique dans le dépôt). |
+| d) répondre à une 10000 reçue ? | **Non** : journal `Warning` + `continue`, aucun `SendResult` inventé. |
+| e) chemin scripté (archives `data.00x` absentes) | Inchangé ; non vérifiable sur le VPS. |
+| f) ids voisins 10010-10012 absents d'`op_codes.md` | Inchangé, hors périmètre. |
+| g) gating de 9000/9001 | Aucun des deux n'est déclaré, et leur absence est verrouillée par un test. |
+
+### 9.6 Invariant énumération / dispatch, et mesure d'inachèvement
+
+- `GamePackets` : **84** membres ; **48** référencés dans `GameClient.cs` (dont le nouveau) ;
+  **36** absents de `GameClient.cs`, dont **35** `TM_SC_*` (jamais envoyés par un client 7.3) et
+  `TM_EQUIP_SUMMON` (id serveur→client, référencé ailleurs dans `Game/`). Sur l'ensemble de `Game/`,
+  seuls `TM_SC_CHAT_RESULT` et `TM_SC_ITEM_COOL_TIME` ne sont référencés nulle part — état
+  préexistant, non touché.
+- Mesure d'inachèvement : avec la condition du bras remplacée par `(ushort)GamePackets.TM_NONE`
+  (bras inatteignable), **6 des 10 cas échouent** sur `System.Exception: Unknown Packet Type` :
+  `ConsumesThePacketWithoutThrowing`, `AnswersNothing`, `LogsTheRefusalAsAWarning`, `KeepsTheLoop`,
+  `IgnoresAFrameCarryingTheHypotheticalPayload`, `IgnoresAPaddedFrame`. Fichier restauré à
+  l'identique — sha256
+  `cf8beb56af6f86b66b85d3b395e7ca7170f8cec677986f39dcbe622ccae3596c` avant et après.
+
+### 9.7 Placement du bras et conflits de fusion
+
+Le bras est posé **à côté du bras `TM_SC_REGION_ACK`** (le précédent nommé par §5.4), et non à
+l'ancre du `switch` final. Mesure `git merge-tree --write-tree --name-only <branche> HEAD` :
+
+- à l'ancre du `switch`, le bras créait un conflit **neuf** avec `hermes/packet-223-swap-equip`,
+  `hermes/packet-57-check-illegal-user`, `hermes/packet-59-xtrap-check` et
+  `hermes/packet-socle-anti-triche` — quatre branches propres contre `master` seul avant ce lot ;
+- à l'emplacement livré, ces quatre branches fusionnent proprement. Les seuls conflits restants
+  (`221-hide-equip-info`, `9005-security-no`, `socle-invocations`, `socle-mort-respawn`,
+  `socle-zones-evenement`) existent déjà contre `master` seul : ils sont antérieurs et étrangers à
+  ce lot.
+
+*Point chaud* : `Game/Network/Clients/GameClient.cs`, ancre du `switch` final — au moins cinq
+branches ouvertes y insèrent leur bras au même endroit.
+
+### 9.8 Commandes et codes de sortie relevés
+
+```
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug     # exit 0 — 0 Error(s), 18 warnings
+dotnet test Tests/Tests.csproj           # exit 0 — Failed: 0, Passed: 458, Skipped: 0
+git log --oneline origin/master..master  # vide
+```
+
+### 9.9 Bloc prêt à coller dans `CLAUDE.md`
+
+```markdown
+### Paquet 10000 — `TM_CS_OPEN_ITEM_SHOP` (boutique d'objets)
+
+- 7.3 = ids **10000** (CS) / **10001** (SC) : rzu bascule sur **9000/9001** à partir d'`EPIC_9_6_3`
+  (`TS_CS_OPEN_ITEM_SHOP.h:8-10`, `TS_SC_OPEN_ITEM_SHOP.h:14-16`), et `EPIC_7_3 = 0x070300` est sous
+  `0x090603`. **Piège** : en 7.3, 9000/9001 désignent déjà `TM_SC_OPEN_URL` / `TM_SC_URL_LIST`
+  (`op_codes.md:268-269`) — ne jamais s'en servir comme ids de la boutique.
+- La 10000 est une **trame d'en-tête seule, 7 octets** (`TS_CS_OPEN_ITEM_SHOP_DEF` est vide, NGemity
+  identique) : aucun champ au-delà du checksum à l'offset 6. **Ne rien lire en `+7`** — le
+  convertisseur du client a une branche 10000 qui lit 8 octets de charge utile, mais rzu et NGemity
+  n'en déclarent aucun (réserve a de la fiche, non tranchée).
+- Le client 7.3 **n'émet jamais** cette trame : ouvrir la boutique est une commande locale
+  (`open_item_shop`) qui construit l'URL depuis la clé `shop_url`. L'id est donc déclaré **et**
+  traité par un bras `Warning` + `continue` (aucun corps lu, **aucune réponse**), posé à côté du
+  précédent `TM_SC_REGION_ACK`.
+- **Aucune trame 10001 n'est émise** : ses quatre champs (`client_id`, `account_id`,
+  `one_time_password`, `raw_server_name`) sont produits par le service web officiel et n'existent
+  nulle part dans ce dépôt. La réponse fait **51 octets** = 7 + 3 × `int32` + 32 ; **jamais**
+  l'idiome « longueur + données » du voisin 10002, qui décalerait tout de 4 octets.
+- `raw_server_name` est un **tampon fixe de 32 octets** terminé par un zéro (aucun préfixe de
+  longueur), complété de zéros au-delà de la chaîne — sémantique `_(string)(name, 32)`.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+```
+
+### 9.10 A VERIFIER PAR KILLIAN (reprise de §7, à reporter dans la MR)
+
+1. **Réserve a** — une 10000 reçue porte-t-elle 8 octets de charge utile que le serveur devrait lire ?
+   Le code actuel n'en lit aucun et consomme la trame quelle que soit sa longueur annoncée : le
+   choix est réversible et sans effet sur la synchronisation du flux.
+2. **Réserve b** — la trame de 27 octets d'id 10001 construite par six sites du client parle-t-elle
+   au serveur de jeu ou à un autre service (web/erreurs) ? Décision requise **avant** toute émission.
+3. **Réserve c** — la boutique : hébergée, désactivée, ou servie par Navislamia ? Sans cette décision,
+   aucune 10001 ne doit être émise (les quatre valeurs sont des données métier du service web).
+4. **Réserve d** — faut-il répondre `TM_SC_RESULT` à une 10000 reçue ? Le lot ne répond rien ; aucun
+   `ResultCode` ne décrit « boutique indisponible » aujourd'hui.
+5. **Réserve e** — archives `data.001`-`data.008` absentes du VPS : un chemin scripté déclenchant la
+   trame par nom ne serait pas visible dans `SFrame.exe`. Non vérifiable ici.
+6. **Réserve f** — `op_codes.md` est incomplet au-delà de 10005 (10010-10012 connus du client et
+   absents du dépôt) : à savoir pour les lots suivants.
+7. **Réserve g** — 9000/9001 (`TM_SC_OPEN_URL`, `TM_SC_URL_LIST`) changent d'id en 9.6.3 : les lots
+   qui les toucheront devront trancher la version avant de coder. Aucun des deux n'est déclaré ici.
