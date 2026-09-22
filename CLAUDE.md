@@ -1328,6 +1328,49 @@ cellule inconnue) et mérite une carte dédiée.
   `CHAT_EMOTION` ; la portée réelle de la 1201.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Socle instances de jeu — 4250-4253 et famille HuntaHolic 4000-4012
+
+**17 opcodes, tous `X(<id>, true)` chez rzu : aucun n'est renuméroté en 7.3.** Ils n'existent
+qu'à partir d'`EPIC_6_3` (4250-4253, 4011, 4012), et `EPIC_7_3 = 0x070300 > EPIC_6_3`, donc tous
+valides. Fiche complète : `docs/packet-specs/socle-instances-jeu.md`.
+
+**Le piège de cette famille est le gating des champs de 4253** :
+`TS_SC_INSTANCE_GAME_SCORE_REQUEST` porte cinq champs `version >= EPIC_8_1`
+(`battle_arena_point`, `battle_arena_mvp_count`, `battle_arena_record_classic/slaughter/bingo`,
+32 octets au total). En 7.3 le paquet fait **23 octets**, pas 55 : `holicpoint` à 7,
+`bearroad_ranking` à 11, `deathmatch_kill_count` à 15, `deathmatch_death_count` à 19. Le client
+7.3 lit 16 octets de charge utile — c'est la source de vérité.
+
+**Tailles à écrire en dur** (source : rzu + constructeurs du client 7.3) :
+4250 = 11, 4251 = 7, 4252 = 7, 4253 = 23 ; 4000 = 11, 4001 = 23 + 38·N, 4002 = 45,
+4003 = 56, 4004 = 28, 4005 = 7, 4006 = 48, 4007 = 15, 4008 = 7, 4009 = 11, 4010 = 7,
+4011 = 7, 4012 = 7. Les chaînes de 4003/4004 sont des tampons **fixes** de 31 et 17 octets
+(NUL compris) ; `ar_time_t` de 4009 vaut **4 octets** ; le pas du tableau de 4001 est **38**.
+
+**`TM_CS_INSTANCE_GAME_ENTER` (4250) est une réponse du client** : le client copie dans sa charge
+utile un `int32` lu dans le message entrant qui la déclenche. Le serveur ne peut donc pas la
+provoquer tant que ce message n'est pas identifié (`NON ÉTABLI` (b) de la fiche).
+
+**Ne pas porter NGemity** : les 17 opcodes y sont déclarés et jamais traités, et le bloc
+`Skill.cpp:1418-1433` (`INSTANCE_GAME_ENTER`, `WARP_TO_HUNTAHOLIC_LOBBY`, `INSTANCE_GAME_EXIT`)
+est entièrement commenté. Les compétences 64818 et 64827 sont définies mais jamais appelées.
+
+**Déjà en place dans Navislamia** : `CharacterEntity.HuntaholicPoint` /
+`HuntaholicEnterCount` (`CharacterEntity.cs:51-52`), `PartyType.HuntaholicParty`,
+`StateTimeType.EraseOnQuitHuntaholic`, `ItemEffectInstant.IncHuntaholicPoint`,
+`ItemUseFlag.CantUseInHuntaholic`, et les tables de ressources HuntaHolic/InstanceDungeon
+(`ArcadiaSchemaPSQL.sql`). Le travail est purement protocole.
+
+**Socle minimum** : 4250/4251/4252 + 4253, seuls opcodes sans état et testables seuls. Découpage
+en 6 paquets (S1…S6) : §5.4 de la fiche.
+
+**Lot S1 implémenté** (`3fc8b8c`) : les 4 ids `TM_CS/SC_INSTANCE_GAME_*` sont dans `GamePackets`
+**et** routés dans `GameClient.OnDataReceived` (aucun n'atteint le `throw` final), les tailles
+11 / 7 / 7 / 23 sont dans `Game/Network/Packets/Game/GameInstanceGamePackets.cs` et verrouillées
+par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seulement** et porte
+`CharacterEntity.HuntaholicPoint` ; les trois champs de score sans source en 7.3 partent à zéro
+(placeholder, §9.4 de la fiche). Les lots S2…S6 (famille HuntaHolic 4000-4012) restent à faire.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.
