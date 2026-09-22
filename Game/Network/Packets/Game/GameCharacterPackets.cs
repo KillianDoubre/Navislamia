@@ -51,6 +51,19 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    /// <summary>
+    /// TM_SC_EMOTION (1201) echoes the emotion received in 1202: the handle of the author first, then
+    /// the value verbatim. The client resolves both the animation and the local message itself.
+    /// </summary>
+    public static byte[] BuildEmotion(uint handle, int emotion)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_EMOTION, HeaderSize + 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), handle);
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), emotion);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildSkinInfo(uint handle, int skinColor)
     {
         var packet = CreatePacket(GamePackets.TM_SC_SKIN_INFO, HeaderSize + 8);
@@ -153,6 +166,47 @@ public static class GameCharacterPackets
             BinaryPrimitives.WriteInt64LittleEndian(record.Slice(4, 8), erased[i].Count);
         }
 
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>
+    /// <c>TS_SC_DROP_RESULT</c> (205): the inventory handle from the request, echoed even when it is
+    /// unknown, then a single byte saying whether anything was dropped. NGemity sends nothing else on
+    /// a refusal, so a refusal is this frame alone.
+    /// </summary>
+    public static byte[] BuildDropResult(uint itemHandle, bool isAccepted)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_DROP_RESULT, HeaderSize + 4 + 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        packet[HeaderSize + 4] = (byte)(isAccepted ? 1 : 0);
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildDestroyItem(uint itemHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_DESTROY_ITEM, HeaderSize + 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildUpdateItemCount(uint itemHandle, long count)
+    {
+        // count is int64 from EPIC_4_1 (rzu TS_SC_UPDATE_ITEM_COUNT).
+        var packet = CreatePacket(GamePackets.TM_SC_UPDATE_ITEM_COUNT, HeaderSize + 12);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        BinaryPrimitives.WriteInt64LittleEndian(packet.AsSpan(HeaderSize + 4, 8), count);
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildUseItemResult(uint itemHandle, uint targetHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_USE_ITEM_RESULT, HeaderSize + 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), itemHandle);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize + 4, 4), targetHandle);
         WriteChecksum(packet);
         return packet;
     }

@@ -78,6 +78,15 @@ public class GameClient : Client
         Connection.Send(message.Data);
     }
 
+    /// <summary>
+    /// TM_SC_WEATHER_INFO (902) sent to this client alone: <paramref name="regionId"/> is the
+    /// <c>WorldLocation.id</c> of the location, never a visibility region index.
+    /// </summary>
+    public void SendWeatherInfo(uint regionId, ushort weatherId)
+    {
+        Connection.Send(GameWeatherPackets.BuildWeatherInfo(regionId, weatherId));
+    }
+
     private void HandleTimeSync(byte[] packet)
     {
         const int sampleWindow = 4;
@@ -165,6 +174,77 @@ public class GameClient : Client
         SyncVisibleObjects();
     }
 
+    /// <summary>
+    /// TM_CS_GET_REGION_INFO (550): the client converted its own position into region indices and asks for
+    /// the region it occupies, so the answer is computed from the two floats it just sent — not from
+    /// ConnectionInfo.X/Y, which may lag one move behind. The divisor is the one announced to the client at
+    /// login (WorldVisibility.RegionSize, written into TS_SC_LOGIN_RESULT.RegionSize), and the division is
+    /// truncated toward zero, exactly as the client does it. Only the asking client is answered.
+    /// </summary>
+    private void HandleGetRegionInfo(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadGetRegionInfo(buffer, out var request))
+        {
+            _logger.Warning("Malformed region info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Region info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        var rx = GameMovePackets.GetRegionIndex(request.X);
+        var ry = GameMovePackets.GetRegionIndex(request.Y);
+
+        Connection.Send(GameMovePackets.BuildRegionAck(rx, ry));
+        _logger.Debug(
+            "TM_CS_GET_REGION_INFO ({id}) Length: {length} received from {clientTag}: x={x} y={y} -> rx={rx} ry={ry}",
+            (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
+    }
+
+    /// <summary>
+    /// TM_CS_GET_WEATHER_INFO (903): the client asks for the weather of a location id. The id it sends is
+    /// opaque — no 7.3 client site builds this packet — so Navislamia reads it as the only identity both
+    /// sides can share: <c>WorldLocation.id</c>, the same value a 902 carries. A known id is answered with
+    /// a 902 to the asking client alone; an unknown one is answered with nothing at all, because no
+    /// reference defines a result or an error for this family. Only the exact 11-byte request is read.
+    /// </summary>
+    private void HandleGetWeatherInfo(byte[] buffer)
+    {
+        if (!GameWeatherPackets.TryReadGetWeatherInfo(buffer, out var regionId))
+        {
+            _logger.Warning("Malformed weather info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Weather info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        if (regionId > int.MaxValue ||
+            !_networkService.WorldLocationService.TryGet((int)regionId, out var location))
+        {
+            _logger.Debug(
+                "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: unknown location {regionId}, no answer",
+                (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId);
+            return;
+        }
+
+        SendWeatherInfo(regionId, location.CurrentWeather);
+        _logger.Debug(
+            "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: location {regionId} -> weather_id={weatherId}",
+            (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId,
+            location.CurrentWeather);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -188,6 +268,24 @@ public class GameClient : Client
         var handle = GameActionPackets.ReadCancelActionHandle(buffer);
         _logger.Verbose("{clientTag} cancelled action for handle {handle}", ClientTag, handle);
         _networkService.CombatService.StopAttack(this);
+    }
+
+    private void HandleEmotion(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadEmotion(buffer, out var emotion))
+        {
+            _logger.Warning("Malformed emotion packet received from {clientTag}", ClientTag);
+            return;
+        }
+
+        // The emotion value is opaque: neither rzu nor NGemity validates a range and the client 7.3
+        // resolves the animation and the local message itself, so it is echoed verbatim. No TS_SC_RESULT
+        // is sent — nothing identifies an acknowledgement for 1202 and the 1201 alone plays the animation.
+        // Only the actor is served: no player-to-player visibility exists yet, so a broadcast would carry
+        // a handle the other clients do not know.
+        Connection.Send(GameCharacterPackets.BuildEmotion(ConnectionInfo.CharacterHandle, emotion));
+        _logger.Debug("TM_CS_EMOTION ({id}) Length: {length} received from {clientTag}: emotion={emotion}",
+            (ushort)GamePackets.TM_CS_EMOTION, buffer.Length, ClientTag, emotion);
     }
 
     private void HandleAttackRequest(byte[] buffer)
@@ -375,6 +473,25 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleDropItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadDropItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_DROP_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.GroundItemService.DropFromInventoryAsync(this, request.ItemHandle,
+                request.Count);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process drop item for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleChangeItemPositionAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadChangeItemPosition(packet, out var request))
@@ -408,6 +525,24 @@ public class GameClient : Client
         catch (Exception exception)
         {
             _logger.Error(exception, "Could not process unequip for {clientTag}", ClientTag);
+        }
+    }
+
+    private async Task HandleUseItemAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadUseItem(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_USE_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.ItemUseService.UseAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process item use for {clientTag}", ClientTag);
         }
     }
 
@@ -524,9 +659,41 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_REGION_INFO)
+            {
+                HandleGetRegionInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_REGION_ACK is a server to client packet: the 7.3 client never sends it. An incoming one
+            // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below.
+            if (header.ID == (ushort)GamePackets.TM_SC_REGION_ACK)
+            {
+                _logger.Warning("Server to client packet TM_SC_REGION_ACK ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_WEATHER_INFO)
+            {
+                HandleGetWeatherInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_WEATHER_INFO is a server to client packet: the 7.3 client never sends it. An incoming one
+            // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
+            // "Unknown Packet Type" throw below — exactly like TM_SC_REGION_ACK above.
+            if (header.ID == (ushort)GamePackets.TM_SC_WEATHER_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_WEATHER_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
                 continue;
             }
 
@@ -584,6 +751,12 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_DROP_ITEM)
+            {
+                _ = HandleDropItemAsync(msgBuffer);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_ARRANGE_ITEM)
             {
                 _ = HandleArrangeItemAsync(msgBuffer);
@@ -596,6 +769,12 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
+            {
+                _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_TARGETING)
             {
                 HandleTargeting(msgBuffer);
@@ -605,6 +784,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CANCEL_ACTION)
             {
                 HandleCancelAction(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_EMOTION)
+            {
+                HandleEmotion(msgBuffer);
                 continue;
             }
 
