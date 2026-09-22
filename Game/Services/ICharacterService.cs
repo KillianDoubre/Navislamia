@@ -25,6 +25,19 @@ public interface ICharacterService
 
     Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp);
 
+    /// <summary>
+    /// The character's carried quests, ordered by code: the state <c>TM_SC_QUEST_LIST</c> (600) exposes
+    /// and <c>TM_CS_DROP_QUEST</c> (603) erases.
+    /// </summary>
+    Task<CharacterQuestEntity[]> GetQuestsAsync(string characterName);
+
+    /// <summary>
+    /// Erases the quest <paramref name="code"/> from the character's state and reports whether a row was
+    /// removed — the equivalent of NGemity's <c>CHARACTER_DEL_QUEST</c>. The character's own list is the
+    /// only condition.
+    /// </summary>
+    Task<bool> DropQuestAsync(string characterName, int code);
+
     Task<ItemEntity> UnequipItemAsync(string characterName, ItemWearType position);
 
     Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position);

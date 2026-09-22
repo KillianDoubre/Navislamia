@@ -1198,6 +1198,22 @@ L'état d'étal n'est ni persisté ni diffusé : aucun joueur ne le voit, pas m�
 validation des handles contre l'inventaire, le sens du `type` et l'unité du `gold` restent ouverts
 (`docs/packet-specs/socle-booths.md` §7 et §12).
 
+## Quêtes — socle 7.3 (600/601/603)
+
+- 603 `TM_CS_DROP_QUEST` : 11 octets, `code` int32 à l'offset 7, signé (refuser < 0). Réponse :
+  `TM_SC_RESULT` (0) taggé 603 (`Success` 0 / `NotActable` 5) **puis** `TM_SC_QUEST_LIST` (600).
+- 600 `TM_SC_QUEST_LIST` : `11 + 61·N + 8·M` octets. Deux comptes u16 obligatoires (actives à 7,
+  en attente à 9) — le client 7.3 lit le tableau à l'offset 11 et avance de 61 octets par entrée
+  (`SFrame.exe 0x00670cf4`, `0x00670dc0`). Une entrée `TS_QUEST_INFO` : code u32, startID u32,
+  value[6], status[6], progress u8, timeLimit u32.
+- 601 `TM_SC_QUEST_STATUS` : 40 octets, six `status` u32, `nProgress` int8 à 35, `nTimeLimit` u32 à
+  36 (que le client ne lit pas).
+- 602 `TM_SC_QUEST_INFOMATION` : le client 7.3 **n'a pas de handler** pour 602 (dispatch
+  `0x0067e1d9`, défaut `0x0067ef21`) : ne pas l'envoyer.
+- 604 et 605 : le client les émet, le serveur ne les traite pas encore (catalogues et politique de
+  récompenses requis).
+- Détail, sources et réserves : `docs/packet-specs/socle-quetes.md`.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when

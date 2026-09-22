@@ -23,6 +23,17 @@ public interface ICharacterRepository
     void DeleteItem(ItemEntity item);
 
     /// <summary>
+    /// The character's carried quests, ordered by code so one state always yields the same 600 frame.
+    /// Read no-tracking: it is projected into a packet, never mutated here.
+    /// </summary>
+    Task<List<CharacterQuestEntity>> GetQuestsAsync(string characterName);
+
+    /// <summary>One carried quest, tracked, so <see cref="DeleteQuest"/> can remove it.</summary>
+    Task<CharacterQuestEntity> GetQuestAsync(string characterName, int code);
+
+    void DeleteQuest(CharacterQuestEntity quest);
+
+    /// <summary>
     /// Avoid using SaveChanges directly from context as it applies modifications directly to the database.
     /// Finish all required operations for a step then call this method
     /// </summary>

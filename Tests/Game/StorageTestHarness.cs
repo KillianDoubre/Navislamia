@@ -59,7 +59,8 @@ internal static class StorageTestHarness
             A.Fake<IResurrectionService>(),
             A.Fake<IEventAreaService>(),
             A.Fake<ICraftingSocleService>(),
-            storageService ?? A.Fake<IStorageService>());
+            storageService ?? A.Fake<IStorageService>(),
+            A.Fake<IQuestService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

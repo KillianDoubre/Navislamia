@@ -232,6 +232,12 @@ public class GameActions : IActions
         // map data, which Navislamia does not have yet. The 7.3 client does consume a 902 and this is the only
         // path that sends one, so sending nothing here would leave the weather family silent in game.
         client.SendWeatherInfo(0, 0);
+
+        // The client clears its quest container on receive, so the list is emitted whole once per world
+        // entry, exactly where the reference does it (NGemity Player::SendLoginProperties,
+        // Chihiro/src/Entities/Player/Player.cpp:771). Acceptance does not exist in this socle, so the
+        // frame is empty until a quest is granted (fiche §5.6, §8.4).
+        await _networkService.QuestService.SendQuestListAsync(client);
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", hp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", mp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.MaxHp));

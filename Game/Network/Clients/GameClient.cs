@@ -626,6 +626,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleDropQuestAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadDropQuest(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_DROP_QUEST, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.QuestService.DropQuestAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process drop quest for {clientTag}", ClientTag);
+        }
+    }
+
     /// <summary>
     /// <c>TM_CS_START_BOOTH</c> (700). The frame is read and judged before anything is stored, and a
     /// refusal is answered with <c>TS_SC_RESULT</c> carrying the request id, because the family has no
@@ -1159,6 +1177,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_DROP_QUEST)
+            {
+                _ = HandleDropQuestAsync(msgBuffer);
                 continue;
             }
 

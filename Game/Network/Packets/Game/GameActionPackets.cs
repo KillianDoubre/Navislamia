@@ -105,6 +105,27 @@ public static class GameActionPackets
         return true;
     }
 
+    /// <summary>
+    /// <c>TS_CS_DROP_QUEST</c> (603), the Epic 7.3 form: a single <b>signed</b> quest code and nothing
+    /// else (the client writes <c>length = 0xb</c>). Negative values are representable and must be
+    /// refused as such instead of being reinterpreted as a large unsigned code
+    /// (<c>docs/packet-specs/socle-quetes.md</c> §3.1).
+    /// </summary>
+    public readonly record struct DropQuestRequest(int Code);
+
+    public static bool TryReadDropQuest(ReadOnlySpan<byte> packet, out DropQuestRequest request)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new DropQuestRequest(BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4)));
+        return true;
+    }
+
     public static bool TryReadEraseItem(ReadOnlySpan<byte> packet, out EraseItemRequest[] requests)
     {
         const int recordSize = 12;

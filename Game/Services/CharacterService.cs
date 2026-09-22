@@ -156,6 +156,30 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<CharacterQuestEntity[]> GetQuestsAsync(string characterName)
+    {
+        return RunExclusiveAsync(async () => (await _characterRepository.GetQuestsAsync(characterName)).ToArray());
+    }
+
+    public Task<bool> DropQuestAsync(string characterName, int code)
+    {
+        return RunExclusiveAsync(async () =>
+        {
+            // The only eligibility condition is NGemity's own: the quest is in the character's list
+            // (Player::DropQuest, Chihiro/src/Entities/Player/Player.cpp:3173-3187). No flag, no
+            // cool-down and no quest-type exclusion is invented here (fiche §8.1).
+            var quest = await _characterRepository.GetQuestAsync(characterName, code);
+            if (quest is null)
+            {
+                return false;
+            }
+
+            _characterRepository.DeleteQuest(quest);
+            await _characterRepository.SaveChangesAsync();
+            return true;
+        });
+    }
+
     public Task<ItemEntity> UnequipItemAsync(string characterName, ItemWearType position)
     {
         return RunExclusiveAsync(async () =>
