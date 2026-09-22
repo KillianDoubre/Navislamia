@@ -597,6 +597,56 @@ dispatcher recopiées à la main depuis le `.text`. **Aucune exécution du clien
 
 ---
 
+## 9. Implémentation livrée — lot C1 (4500, 4502)
+
+Branche `hermes/packet-socle-competition-joueurs`, commit `3c7aead`, base
+`ec76b218cd0bd7c6498d725f253abb8b431f0cd6`. État vérifié après le commit : `dotnet build
+Navislamia.sln -c Debug` → code 0, `dotnet test Tests/Tests.csproj` → code 0, **482 tests passés**
+(448 avant, **34 ajoutés**).
+
+| Fichier | Ce qui y est | Lignes |
+|---|---|---|
+| `Game/Network/Packets/Game/GameCompetePackets.cs` (nouveau) | offsets nommés, tailles, lecteurs `TryReadRequest` / `TryReadAnswer`, règle du NUL, `IsObservedAnswerType`, les deux constantes de code de refus | 131 |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_COMPETE_REQUEST = 4500`, `TM_CS_COMPETE_ANSWER = 4502` | 99-103 |
+| `Game/Network/Clients/GameClient.cs` | `HandleCompeteRequest`, `HandleCompeteAnswer` | 250-309 |
+| `Game/Network/Clients/GameClient.cs` | les deux bras de dispatch, avant le `switch` final | 794-809 |
+| `Tests/Game/CompetePacketsTests.cs` (nouveau) | 34 cas : tailles, offsets, ordre des champs, règle du NUL, longueurs refusées, codes de refus | 286 |
+
+### 9.1 Décisions prises à l'implémentation (aucune n'est de la politique de jeu)
+
+| # | Décision | Raison |
+|---|---|---|
+| C1-1 | Les **deux** membres ajoutés à `GamePackets` arrivent **avec** leurs deux bras de dispatch, dans le même commit | critère transversal n° 4 : un id déclaré sans bras atteint `_ => throw new Exception("Unknown Packet Type")` (`GameClient.cs:880`) et casse la boucle de réception |
+| C1-2 | Les **cinq autres ids** (4501, 4503-4506) ne sont **pas** déclarés | ils voyagent serveur → client et ne sont pas encore émis : les déclarer sans bras de dispatch violerait C1-1. Ils arrivent avec les lots C2-C4 |
+| C1-3 | Un `4500` bien formé est refusé par `TS_SC_RESULT(4500, 64)` = `NotInCompetablePlace` | code **affiché** par le client (boîte 1633, §2.4) qui ne présuppose rien sur la cible : le serveur ne reconnaît aucun lieu de compétition. `66`, sans boîte pour un 4500, est écarté ; le choix exact reste l'arbitrage (h) |
+| C1-4 | Un `4502` bien formé est refusé par `TS_SC_RESULT(4502, 62)` = `NotInCompete` | vrai par construction — aucune compétition ne peut être en cours dans ce socle — et la boîte 1633 s'affiche pour un 4502 (§2.4) |
+| C1-5 | Une trame **mal formée** (longueur ≠ 39 / ≠ 9, ou nom sans NUL dans les 31 octets) est journalisée **sans réponse** | §5.7 le prescrit pour la longueur anormale ; la fiche voisine (instances de jeu) ne répond à rien non plus. Aucun refus n'est inventé pour une trame que le client n'a pas construite |
+| C1-6 | `answer_type` hors `{0, 1, 2}` : journalisé en `Warning`, puis refusé par le **même** code 62 | §7b : la sémantique n'est pas établie. Envoyer `1` — ce que propose §5.7 — ferait porter un refus par un code **sans nom** (§7f) ; voir la réserve n° 11 |
+| C1-7 | `compete_type` n'est jamais validé, seulement journalisé | §5.7 : le client 7.3 recopie l'octet sans le tester (`0x67142f`), et son domaine n'est pas établi (§7a) |
+| C1-8 | Le refus est **inconditionnel** et le serveur ne tient aucun état « en attente de réponse » | il ne dépend donc d'aucune condition d'éligibilité, c'est-à-dire d'aucune règle de jeu : il décrit l'état réel du serveur (aucun duel implémenté) |
+
+Les deux codes sont des constantes de `GameCompetePackets` (`RequestRefusalCode`,
+`AnswerRefusalCode`) : les trancher autrement plus tard est une édition d'une ligne, plus le test
+`RefusalCodes_AreTheCodesTheClientDisplaysForEachFrame`.
+
+### 9.2 Ce que le lot ne fait pas
+
+- **aucun duel n'est jouable** : ni `4501` vers une cible, ni `4503` vers le demandeur, ni compte à
+  rebours, ni fin de duel. La famille reste « reçue et refusée » ;
+- **aucune résolution nom → joueur** : `requestee` est lu et journalisé, jamais recherché (§5.8) ;
+- **aucun état de compétition** n'est stocké sur la `ConnectionInfo` ;
+- les drapeaux `StateTimeType.EraseOnCompeteStart` / `NotActableInCompete` restent sans lecteur.
+
+### 9.3 Contradiction relevée dans cette fiche (§5.7 contre §2.4)
+
+§5.7 propose de refuser un `answer_type` hors domaine « par `TS_SC_RESULT(4502, 1)` (code sans
+boîte) », alors que le tableau de §2.4 range explicitement le code `1` dans les codes **affichés**
+pour un 4502 (boîte 1633, `0x477624`-`0x477627`). La lecture de §2.4 est la lecture directe de
+l'aiguillage client et prime ; c'est une des raisons pour lesquelles aucun code sans nom n'est
+employé.
+
+---
+
 ## Bloc prêt à coller dans `CLAUDE.md`
 
 > ### Socle compétition entre joueurs — 4500-4506 (`TM_CS/SC_COMPETE_*`)
@@ -630,14 +680,23 @@ dispatcher recopiées à la main depuis le `.text`. **Aucune exécution du clien
 > (`Chihiro` n'a que `CRT_COMPETE`, `AF_ERASE_ON_COMPETE_START`, `AF_NOT_ACTABLE_IN_COMPETE`,
 > `REVIVE_COMPETE`). `librzu` non plus. C'est du protocole pur, comme le socle instances de jeu.
 >
-> **Socle minimum (C1)** : lire et refuser 4500/4502, sans duel. La réussite (4501/4503) exige un
-> registre de joueurs visibles, absent (`ConnectionInfo.cs:47-60`, `SkillCastService.cs:284-287`,
-> `CombatService.cs:42-50`) — d'où la frontière avec le socle PK 800/801, qui partage ce prérequis
-> sans partager d'opcode. Découpage C1…C4 : §5.5 de la fiche.
+> **Socle minimum (C1), livré** : `4500` et `4502` sont lus, validés et refusés — 39 octets exigés
+> pour le premier avec un nom NUL-terminé dans ses 31 octets, 9 pour le second ; une trame mal
+> formée est journalisée sans réponse. Le refus part par `TS_SC_RESULT(4500, 64)`
+> (`NotInCompetablePlace`) et `TS_SC_RESULT(4502, 62)` (`NotInCompete`), deux codes que le client
+> **affiche** (boîte 1633) : le socle ne joue aucun duel, donc il énonce son état réel et n'invente
+> aucune règle. Les deux ids sont déclarés dans `GamePackets` **et** routés dans `GameClient.cs`
+> (critère transversal n° 4) ; les cinq ids serveur → client (4501, 4503-4506) ne sont pas déclarés
+> tant qu'ils ne sont pas émis. La réussite (4501/4503) exige un registre de joueurs visibles,
+> absent (`ConnectionInfo.cs:47-60`, `SkillCastService.cs:284-287`, `CombatService.cs:42-50`) — d'où
+> la frontière avec le socle PK 800/801, qui partage ce prérequis sans partager d'opcode. Découpage
+> C1…C4 : §5.5 de la fiche ; décisions d'implémentation : §9.1.
 >
-> **Non tranché** : `compete_type` (seule valeur observée 0), `answer_type` (0/1/2), `end_type`,
-> durée du compte à rebours, `handle_competitor`, politique de duel. Aucune de ces valeurs ne doit
-> être devinée.
+> **Non tranché** : `compete_type` (seule valeur observée 0, jamais validé), `answer_type` (0/1/2,
+> hors domaine journalisé puis refusé par le code 62), `end_type`, durée du compte à rebours,
+> `handle_competitor`, politique de duel. Aucune de ces valeurs n'est devinée. Le choix des deux
+> codes de refus et l'opportunité de répondre à un `4500` (§7m) restent l'arbitrage de Killian, et
+> les deux sont des constantes d'une ligne.
 
 ---
 
@@ -675,3 +734,13 @@ dispatcher recopiées à la main depuis le `.text`. **Aucune exécution du clien
 10. **À qui le serveur envoie-t-il `4501`** (§7k) : à la cible seule, au demandeur seul (écho), ou aux
     deux ? Aucune preuve dans le binaire : le client traite `4501` et `4503` sans indiquer lequel
     revient au demandeur.
+11. **Les deux codes de refus retenus pour le lot C1** (§9.1, C1-3 et C1-4) : `64`
+    (`NotInCompetablePlace`, boîte 1633) pour un `4500` et `62` (`NotInCompete`, boîte 1633) pour un
+    `4502`. Ils décrivent l'état réel du serveur — aucun duel, aucun lieu de compétition — et sont
+    échangés en une ligne s'il faut un autre code. Un `answer_type` hors `{0,1,2}` reçoit le même
+    code 62 et non le code `1` que propose §5.7, dont la sémantique n'a pas de nom (§7f). À
+    confirmer, ou à remplacer par le silence de la question 2.
+12. **Une trame mal formée est journalisée sans réponse** (§9.1, C1-5) : longueur autre que 39/9, ou
+    nom de `4500` sans NUL dans ses 31 octets. Choix cohérent avec §5.7 et avec le socle voisin
+    (instances de jeu), mais il laisse le drapeau « en attente » du client armé si le client
+    lui-même émettait un jour une telle trame. Faut-il répondre plutôt que journaliser ?
