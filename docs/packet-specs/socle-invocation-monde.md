@@ -326,6 +326,9 @@ dit « paramètre d'appel » ou « à vérifier en jeu ».
 
 ## 9. Bloc destiné à `CLAUDE.md`
 
+Bloc **mis à jour après implémentation en §13.7** : le texte ci-dessous est celui de l'archéologue, conservé
+pour l'historique — la version à coller dans la MR est celle de §13.7.
+
 À coller par la QA dans la description de la MR (le dev n'écrit pas `CLAUDE.md`, protégé). Style et niveau de
 détail alignés sur le paragraphe « The summon socle's server-to-client layouts… » (`CLAUDE.md:122-130`).
 
@@ -391,3 +394,164 @@ chaque largeur décidée en §4 doit apparaître dans ces assertions.
 | `reference/client73/db_creature.rdb` | sha256 `268e7cccd8a30d092140ffa6686c8e4683ad9eaa2f17d55859695845eede02a8` | ressource d'invocation du client : en-tête de 132 octets finissant par le nombre d'enregistrements (141), puis 141 enregistrements de 950 octets ; le premier porte l'id 1401 et le nom `spirit_ent_lv1` à +112 |
 | `reference/client73/db_creatureenhance.rdb` | sha256 `1e5bf9d3b3bc69ef6e518f8af94a9d07e3bb83200e8bef18a822aaef45177044` | le champ `enhance` (`>= EPIC_7_1`) existe bien côté client 7.3 |
 | `Navislamia` (base de la branche) | `5ef086eab3cbd9f8af8e2982968fc30b0db5ac57` | `master` au moment de la rédaction |
+
+## 13. Implémentation livrée (dev)
+
+### 13.1 Ce qui est écrit, et où
+
+| fichier | ajout | ancrage |
+|---|---|---|
+| `Game/Network/Packets/Game/GameSpawnPackets.cs` | `BuildEnterSummon` — la trame de §3.1, 96 octets | juste après `BuildEnterMonster` |
+| idem | `NameSize` (= `GameSummonPackets.NameSize`, 19) et `WriteName` : une seule largeur, un seul writer | en tête de classe / à côté de `WriteChecksum` |
+| idem | `BuildEnterCreature` : `maxHp`, `mp`, `maxMp`, `isFirstEnter` deviennent des paramètres optionnels | le bloc de 38 octets n'est écrit qu'une fois |
+| `Game/Network/Packets/Game/ActorStatus.cs` | `ForSummon()` → `0` | le composeur unique du masque `status` |
+| `Game/Services/SummonWorldEntry.cs` | les champs que §7 laisse « paramètre d'appel » | nouveau fichier |
+| `Game/Services/SummonWorldService.cs` | **l'appelant** : `Enter` (301 puis 3), `Leave` (305 puis 9), `Jitter` | nouveau fichier |
+| `Tests/Game/SummonWorldTests.cs` | 27 tests | nouveau fichier |
+
+`BuildEnterSummon` écrit exactement §3.1 : `type = 1` @7, `objType = 4` @25, `status = 0` @26, `race = 0` @54,
+55-58 à zéro, `energy = 0` @60-63, `is_first_enter` @59, `master_handle` @64, `summon_code` @68 sur huit octets
+(`ScrambledInt.Encode`, encodage aléatoire : la valeur se compare **décodée**, pas les octets bruts), `name` @76
+sur 19 octets (18 utiles, le reste à zéro), `enhance` @95, plus longueur @0-3, id @4-5 et checksum @6. `max_hp`
+@38 et `max_mp` @46 ne recopient pas `hp`/`mp` : ils viennent de l'appelant (§7, `NON ÉTABLI` 5). Les trames
+NPC et monstre sortent inchangées octet pour octet : les quatre nouveaux paramètres sont optionnels et leur
+défaut reproduit l'ancien comportement (test `BuildEnterSummon_DoesNotDisturbTheNpcAndMonsterTram`).
+
+### 13.2 L'appelant, exactement
+
+`SummonWorldService.Enter(session, clientTag, connection, entry)` — renvoie `0` sans rien émettre si la session,
+la connexion ou l'entrée manquent ; alloue le handle par `WorldObjectHandle.Next()` ; émet
+`TS_SC_ADD_SUMMON_INFO` (301, `BuildAddSummonInfo`) pour ce handle, puis `TS_SC_ENTER` (3) à
+`(session.X + bruit, session.Y + bruit, entry.Z, session.Layer)` avec `master_handle = session.CharacterHandle` ;
+renvoie le handle.
+
+`SummonWorldService.Leave(session, clientTag, connection, handle)` — refuse `handle == 0` ; émet
+`TS_SC_UNSUMMON` (305) puis `TS_SC_LEAVE` (9), même handle, sur la connexion du maître.
+
+`SummonWorldService.Jitter(range, raw) = raw % range - range/2` en arithmétique entière (`Skill.cpp:640`), soit
+`[-range/2, +range/2)` ; `range <= 0` rend `0` au lieu de diviser par zéro (`AddNoise` ferait `r % v`). Paliers :
+`SummonNoiseRange = 70`, `LoginNoiseRange = 50`, `WarpNoiseRange = 35` (§5.2).
+
+Rien d'autre n'est décidé : pas de durée de vie, pas de coût, pas de création d'invocation, aucune écriture en
+base (§6 et §8 point 2 restent tels quels). Le service n'est injecté nulle part, volontairement : les trois
+chemins de §2 exigent une invocation qui existe déjà (`MainSummonId` lu en base, ou une liaison carte↔invocation)
+et aucun des deux n'est livré.
+
+### 13.3 Ce qui reste sans appelant, et pourquoi
+
+301, 3 (par `Enter`), 305 et 9 (par `Leave`) ont désormais un appelant. Les cinq autres trames nommées par la
+carte restent sans appelant, parce que leur déclencheur est une politique de jeu non tranchée :
+
+| trame | ce qui manque pour l'appeler |
+|---|---|
+| 302 `TS_SC_REMOVE_SUMMON_INFO` | la règle de déliaison carte↔invocation (`ConnectionToServer.cpp:612`) : autre carte, famille « cartes » |
+| 306 `TS_SC_UNSUMMON_NOTICE` | tout : aucun émetteur côté NGemity, durée d'invocation inconnue (`NON ÉTABLI` 9) |
+| 307 `TS_SC_SUMMON_EVOLUTION` | le barème d'évolution (`NON ÉTABLI` 11) |
+| 320 / 321 `TS_SC_MOUNT_SUMMON` / `TS_SC_UNMOUNT_SUMMON` | les règles de monte et le déclencheur client (§14 points 11) |
+
+Hors lot, comme la carte le fixe : 304, 323, 324, 354, 355, 452.
+
+### 13.4 Écarts assumés par rapport à §5
+
+1. **301 et 3 enchaînés par `Enter`.** La référence les émet à deux moments (301 pendant `SendLoginProperties`,
+   3 à l'entrée dans le monde, §5.1) ; NavisLamia n'a pas d'émission « propriétés de login » pour les
+   invocations. L'ordre est respecté, le moment ne l'est pas. Quand le chemin de login sera câblé (étape 2 du
+   socle, encore en attente d'arbitrage), c'est lui qui portera le 301 et `Enter` devra cesser de l'émettre.
+2. **Pas de diffusion à la région.** §5.3 demande un 305 diffusé à la région de l'invocation plus une copie
+   directe au maître, puis un 9 diffusé. NavisLamia n'a aucune visibilité joueur↔joueur : seule la copie directe
+   au maître — que la référence envoie aussi — et le 9 sont émis. Réserve : un tiers ne verra pas l'invocation
+   disparaître.
+3. **Pas d'annulation du bruit par région** (§5.2 étape 2) : aucune résolution position → id de lieu n'existe
+   (`ConnectionInfo.CurrentLocationId` vaut 0 partout dans le dépôt). Le bruit borné est appliqué sans ce
+   garde-fou : une invocation de bord de région peut sortir de la région de son maître.
+4. **`name` écrit par le writer ASCII du socle** (`GameSummonPackets.WriteName:198-203`, dupliqué dans
+   `GameSpawnPackets.WriteName:262`) : identique octet pour octet au 301 (test croisé), donc un nom non ASCII
+   sort en `?` dans les deux trames.
+5. **`code`** : un seul champ `int` dans `SummonWorldEntry`, casté en `uint` pour le champ encodé de 3 (§6 dit
+   la même valeur). `NON ÉTABLI` 3 n'est pas fermé pour autant.
+6. **`master_handle` = `ConnectionInfo.CharacterHandle`**, le handle par lequel le client connaît le joueur.
+
+### 13.5 Lignes citées par la fiche : correspondance ancien → nouveau
+
+`GameSpawnPackets.cs` (base `5ef086e` → commit de ce lot) : `BuildEnterNpc` 18 → 29, `BuildEnterCreature`
+145 → 211, `WriteHeader` 174 → 241, `WriteEncodedInt` 180 → 247, `WriteChecksum` 188 → 269 ; `BuildEnterMonster`
+31 → 42. `BuildEnterSummon` (84) et `WriteName` (262) sont nouveaux. `GameSummonPackets.cs:198-203` inchangé.
+`GameClient.cs` : le `throw new Exception("Unknown Packet Type")` reste à **1358**, aucun bras n'a été ajouté.
+
+### 13.6 Invariant, base de mesure et fusion
+
+- `GamePackets` : **126** membres, dont **60** dans la famille `TM_CS_*`, **0** sans référence dans
+  `GameClient.cs` / `GameActions.cs`. Ce lot n'ajoute ni membre ni bras ; l'id de la trame retenue (`3`) est déjà
+  déclaré sur `origin/master` (`GamePackets.cs:9`) — contrôle demandé par la carte.
+- Base mesurée avant modification : `dotnet build Navislamia.sln -c Debug` → 0 ; `dotnet test Tests/Tests.csproj`
+  → 0, **865 réussis / 0 échec**. Après ce lot : build 0, tests 0, **892 réussis / 0 échec** (+27).
+- Fusion à blanc (`git merge-tree --write-tree HEAD <branche>`) contre les 16 branches `hermes/*` actives :
+  **aucun conflit** sur les cinq fichiers de ce lot. Les zones de conflit récurrentes du dépôt restent
+  `GameClient.cs` (10 branches), `GamePackets.cs` (8), `GameActionPackets.cs` (5), `NetworkService.cs` (4),
+  `DevConsole/Program.cs` (4), `ConnectionInfo.cs` (1) — ce lot n'y touche pas.
+
+### 13.7 Bloc destiné à `CLAUDE.md`, actualisé
+
+```markdown
+A summon enters the world as `TS_SC_ENTER` (`3`) with `type = ET_NPC (1)` and `objType = EOT_Summon (4)` — the
+same rzu authority that fixes 1/2/3/6 for npc/item/monster/field prop, corroborated by NGemity's `SubType`
+mapping (`Object.cpp:381`, `Object.h:37`). The packet is **96 bytes**: the 26-byte creature prefix, the 38-byte
+shared creature payload, then `master_handle` u32 @64, `summon_code` as an 8-byte randomized `EncodedInt` @68,
+the 19-byte name @76 (18 usable, zero padded, the writer the creature window already uses) and `enhance`
+(Epic >= 7.1) @95. `race`, `skin_color` and `energy` are 0 — nothing sets them for a summon. `max_hp` @38 and
+`max_mp` @46 are *not* copies of `hp`/`mp`: the caller supplies them, no reference settles a summon's maxima.
+`SummonWorldService.Enter(session, tag, connection, entry)` is their caller: it allocates the handle with
+`WorldObjectHandle.Next()`, emits 301 (it fills the creature window) then 3 (it puts the object in the world) —
+one call because no login-properties emission exists for summons yet — and `Leave` emits `TS_SC_UNSUMMON` (305)
+then `TS_SC_LEAVE` (9) on the master's connection. Only that direct copy is sent: NavisLamia has no
+player-to-player visibility, so the regional broadcast of 305/9 from §5.3 is not ported. A summon's position is
+never persisted: it is the master's (`ConnectionInfo.X/Y`, `Layer`, `master_handle = CharacterHandle`) plus a
+bounded jitter (`AddNoise` in integer arithmetic: `raw % range - range/2`, 70 on summon, 50 on login, 35 on
+warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `z`, never set, is 0 — and the
+region-cancel step of `AddNoise` is not portable either, since nothing resolves a position to a location id
+here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summon.cpp:35,88-91`), supplied by
+the caller. 302, 306, 307, 320 and 321 still have no caller: their trigger is untranched game policy (unbind
+rule, summon duration, evolution table, mount rules). No service writes `MainSummonId`/`SummonSlotItemIds` yet,
+and the reference stores *summon* sids in those six columns, not card ids.
+```
+
+### 13.8 Vérification client
+
+Ce qu'un œil en jeu doit constater une fois un appelant câblé (§14 point 15) :
+
+- à l'entrée : l'invocation apparaît au sol, nommée, à côté de son maître — jamais exactement dessus sauf
+  `NoiseRange = 0` — avec son niveau, ses PV/PM et l'animation d'invocation (`is_first_enter = 1`) ;
+- si rien ne s'affiche : vérifier `objType = 4` @25 et le `summon_code` @68 **décodé** (`ScrambledInt.Decode`) —
+  c'est le point 1 des `NON ÉTABLI` ;
+- à la sortie : l'invocation disparaît sans laisser de modèle fantôme (305 puis 9), et le maître peut la
+  rappeler.
+
+## 14. A VERIFIER PAR KILLIAN
+
+Questions qui exigent l'arbitrage de Killian. Aucune n'a reçu de constante inventée : là où la valeur manque, le
+code prend un paramètre d'appel et le champ part tel quel.
+
+1. **`objType = 4` dans le client 7.3 lui-même** (`NON ÉTABLI` 1) : accord rzu + NGemity, jamais désassemblé.
+2. **Colonnes `MainSummonId` / `SummonSlotItemIds`** (`NON ÉTABLI` 2) : sid d'invocation ou id de carte ? Ce lot
+   n'y écrit rien.
+3. **`SummonEntity.SummonResourceId` porte-t-il un `SummonResource.id`** (`NON ÉTABLI` 3) : c'est la valeur que
+   `code` / `summon_code` attendent, et elle reste fournie par l'appelant.
+4. **Chemin d'invocation du client 7.3 : 304 ou sort 400** (`NON ÉTABLI` 4) : décide de l'appelant de `Enter`.
+5. **`max_hp` / `max_mp` d'une invocation** (`NON ÉTABLI` 5) : paramètres d'appel, aucune formule retenue.
+6. **`z` de l'invocation** (`NON ÉTABLI` 6) : 0 (NGemity) ou `z` du maître ; paramètre d'appel, à voir en jeu.
+7. **`enhance` en 7.3** (`NON ÉTABLI` 7) : paramètre d'appel, 0 tant qu'aucune source n'existe.
+8. **`is_first_enter`** (`NON ÉTABLI` 8) : posé par l'appelant (1 première entrée, 0 rentrée), lecture à
+   confirmer visuellement.
+9. **Durée et renvoi (306)** (`NON ÉTABLI` 9) : sans elle, la trame n'a pas d'appelant.
+10. **Seuil de 24 unités et amplitude du bruit** (`NON ÉTABLI` 10) : les trois paliers 70/50/35 sont portés tels
+    quels ; le seuil de 24 unités n'est pas utilisé (il sert au refus « invocation au mauvais endroit »).
+11. **Barème d'évolution (307)** (`NON ÉTABLI` 11) et **règles de monte (320/321)** : sans elles, ces trames
+    restent sans appelant.
+12. **301 et 3 dans un même appel** (§13.4 point 1) : accepter l'enchaînement tant que le login n'émet pas de
+    301, ou exiger deux points d'appel dès maintenant ?
+13. **Diffusion à la région** (§13.4 point 2) : NavisLamia n'a aucune visibilité joueur↔joueur — accepter la
+    copie directe au maître seule, ou traiter la visibilité entre joueurs comme le prochain socle ?
+14. **Noms non ASCII** (§13.4 point 4) : garder le writer ASCII du socle pour 301 et 3, ou passer les deux
+    trames à UTF-8 d'un seul geste ?
+15. **Où appeler `Enter` / `Leave`** : login (`MainSummonId`), sort d'invocation (304/400) ou warp — les trois
+    exigent d'abord les points 2 à 4.
