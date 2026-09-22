@@ -46,6 +46,13 @@ public class ConnectionInfo
     public byte Layer { get; set; }
 
     /// <summary>
+    /// The event area this session is currently inside, or 0 for none. Written only by
+    /// <c>EventAreaService</c>, from a claim the server verified against its own position, or from
+    /// its own position detection. There is no server answer for either packet.
+    /// </summary>
+    public int CurrentEventAreaId { get; set; }
+
+    /// <summary>
     /// The <c>WorldLocation.id</c> the character currently stands in, shared by the whole 902/903 family
     /// and, later, by the 901. It stays 0 until the position → location mapping exists: neither rzu
     /// (which always sends 0) nor Navislamia can resolve a position to a location id today.
@@ -185,6 +192,7 @@ public class ConnectionInfo
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
         Layer = 0;
+        CurrentEventAreaId = 0;
         CurrentLocationId = 0;
         X = 0;
         Y = 0;

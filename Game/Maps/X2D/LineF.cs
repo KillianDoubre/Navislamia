@@ -159,7 +159,7 @@ public class LineF
         float l2MinY = Math.Min(p3.Y, p4.Y);
         float l2MaxY = Math.Max(p3.Y, p4.Y);
 
-        if (l1MinY > l2MaxY || l2MinY > l2MaxY)
+        if (l1MinY > l2MaxY || l2MinY > l1MaxY)
         {
             return IntersectResult.SEPERATE;
         }
@@ -201,7 +201,7 @@ public class LineF
         var ccw341 = CheckCloseWise(point3, point4, point1);
         var ccw342 = CheckCloseWise(point3, point4, point2);
 
-        if ((int)ccw123 * (int)ccw123 < 0 && (int)ccw341 * (int)ccw342 < 0)
+        if ((int)ccw123 * (int)ccw124 < 0 && (int)ccw341 * (int)ccw342 < 0)
         {
             return IntersectResult.INTERSECT;
         }

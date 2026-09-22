@@ -155,6 +155,7 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         SyncVisibleObjects();
+        RefreshEventArea();
     }
 
     private void HandleRegionUpdate(byte[] buffer)
@@ -164,6 +165,7 @@ public class GameClient : Client
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
         SyncVisibleObjects();
+        RefreshEventArea();
     }
 
     private void HandleChangeLocation(byte[] buffer)
@@ -172,7 +174,16 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         SyncVisibleObjects();
+        RefreshEventArea();
     }
+
+    /// <summary>
+    /// The client's 15/16 packets are never the only trigger: the server knows the position and the
+    /// loaded polygons, so every position change re-checks the session's event area. This is also
+    /// what ends the area state on a map change or a warp, instead of a blind reset that would make
+    /// the next position update re-enter the area the character never left.
+    /// </summary>
+    private void RefreshEventArea() => _networkService.EventAreaService.Refresh(this);
 
     /// <summary>
     /// TM_CS_GET_REGION_INFO (550): the client converted its own position into region indices and asks for
@@ -802,6 +813,18 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_LOCATION)
             {
                 HandleChangeLocation(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_ENTER_EVENT_AREA)
+            {
+                _networkService.EventAreaService.HandlePacket(this, msgBuffer, isEnter: true);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_LEAVE_EVENT_AREA)
+            {
+                _networkService.EventAreaService.HandlePacket(this, msgBuffer, isEnter: false);
                 continue;
             }
 

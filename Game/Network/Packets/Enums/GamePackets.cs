@@ -16,6 +16,8 @@ public enum GamePackets : ushort
     TM_SC_REGION_ACK = 11,
     TM_SC_WARP = 12,
     TM_CS_QUERY = 13,
+    TM_CS_ENTER_EVENT_AREA = 15,
+    TM_CS_LEAVE_EVENT_AREA = 16,
     TM_CS_CHAT_REQUEST = 20,
     TM_SC_CHAT_LOCAL = 21,
     TM_SC_CHAT = 22,
