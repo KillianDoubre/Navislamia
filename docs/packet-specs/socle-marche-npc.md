@@ -360,21 +360,38 @@ s'ouvre » à l'opérateur.
 
 ## 10. Bloc prêt à coller dans `CLAUDE.md`
 
-> ### Marché NPC — `TM_SC_MARKET` (250) ouvre la fenêtre, `TM_SC_NPC_TRADE_INFO` (240) en est l'écho
+État livré (commits `412cf73` / `af55c56`, §11).
+
+> ### Paquets 240 / 250 — marché NPC (`TM_SC_NPC_TRADE_INFO` / `TM_SC_MARKET`)
 >
-> - `TM_SC_MARKET` (250) porte `npc_handle` (`uint32` à 7), un compte `uint16` à 11 puis des lignes
->   de **16 octets** (`code` `int32`, `price` `int64` absolu, `huntaholic_point` `int32`) :
->   `13 + 16n`. `arena_point` (`>= EPIC_8_1`) est absent ; rzu ajoute un remplissage final de `4n`
->   non gaté (`TS_SC_MARKET.h:22-23`) dont le client n'a pas besoin (`count << 4`, `0x66ffa5`).
-> - `TM_SC_NPC_TRADE_INFO` (240) est l'**écho d'une seule transaction**, pas une liste : `is_sell`
->   (`int8` à 7), `code` (`int32` à 8), `count` (`int64` à 12), `price` (`int64` à 20),
->   `huntaholic_point` (`int32` à 28, présent car `>= EPIC_5_2`), `target` (`uint32` à 32) —
->   **36 octets**. Ses seuls producteurs sont les gestionnaires de `251`/`252`.
-> - Le déclencheur de dialogue des marchands est le littéral `open_market(` (176 entrées de
->   `DevConsole/npc-dialogs.73.json`), **tronqué** : le nom du marché n'est pas dans le catalogue.
->   `PropScript.Parse` exige aujourd'hui une parenthèse fermante et rend `None` sur cette chaîne.
-> - `MarketResource` (`ArcadiaSchemaPSQL.sql:462-469`) n'a ni entité ni chargement : le catalogue
->   marchand vient de l'extérieur du dépôt, aucune ligne n'est disponible localement.
+> - 7.3 : **240** est l'écho d'**une seule** transaction — `is_sell` (`int8` à 7), `code` (`int32` à
+>   8), `count` (`int64` à 12), `price` (`int64` à 20), `huntaholic_point` (`int32` à 28, présent car
+>   `>= EPIC_5_2`), `target` (`uint32` à 32) : **36 octets**, sans `arena_point` (`>= EPIC_8_1`).
+>   **250** ouvre la fenêtre — `npc_handle` (`uint32` à 7), compte `uint16` à 11, puis des lignes de
+>   **16 octets** (`code` `int32`, `price` `int64` absolu, `huntaholic_point` `int32`) : `13 + 16n`.
+>   Forme **compacte** : rzu ajoute `4n` octets finaux non gatés, dont le client n'a pas besoin
+>   (`count << 4` depuis `+0xd`, `0x66ffa5`).
+> - Les deux ids sont **strictement serveur → client**. Comme `TM_SC_REGION_ACK` (11), ils ont dans
+>   `GameClient.cs:630-638` un bras « anomalie » qui journalise en `Warning` et fait `continue` : ne
+>   jamais les laisser atteindre `_ => throw new Exception("Unknown Packet Type")`.
+> - **240 n'a aucun producteur** hors des gestionnaires de `TM_CS_BUY_ITEM` (251) / `TM_CS_SELL_ITEM`
+>   (252), restés hors périmètre ; `GameTradePackets.BuildNpcTradeInfo` est livré pour eux.
+> - Le déclencheur des marchands est le littéral **tronqué** `open_market(` (176 entrées de
+>   `DevConsole/npc-dialogs.73.json`) : `PropScript.Parse` l'accepte **avec ou sans** parenthèse
+>   fermante et rend `PropActionKind.OpenMarket` avec le nom du marché, vide dans la forme tronquée.
+>   `NpcDialogService.Select` route vers `MarketService` et **laisse le dialogue courant**.
+> - `MarketService` n'envoie 250 que si le nom résout un catalogue **non vide** ; sinon il refuse en
+>   `Warning` — jamais de fenêtre vide, aucun producteur connu d'un `250` de 13 octets (`n = 0`).
+> - Le catalogue vient de `DevConsole/market-catalog.73.json` (section `"MarketCatalog"`, livré
+>   **vide**) via `MarketCatalogOptions` / `MarketCatalog` : regroupement par `name`, tri par
+>   `sort_id` (égalité = ordre du fichier), comparaison ordinale, lignes de `code` nul écartées.
+>   `price` est le prix **absolu**, pas le `price_ratio` de la base (multiplié par le prix de base à
+>   l'ouverture, `ObjectMgr.cpp:851`) ; `huntaholic_point` est émis, attendu `0`
+>   (`ObjectMgr.cpp:852`).
+> - **Bloqué par des données, pas par du code** : correspondance PNJ → nom de marché (le nom était
+>   concaténé en Lua et n'a pas été capturé) et lignes de `MarketResource` (ni SQL Server ni
+>   PostgreSQL ici). Sans elles, tout marchand est refusé et journalisé.
+> - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
 ## 11. Implémentation livrée (`navis-dev`)
 
