@@ -1120,6 +1120,36 @@ are not established by the reference - do not interpret the value. NavisLamia de
 the frame, and consumes the datagram without any disposition; the operational decision (verify, record,
 ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
 
+## Enchères (famille `TM_*_AUCTION_*`, 1300-1310)
+
+`docs/packet-specs/socle-encheres.md` fixe le format de la famille ; le socle est implémenté.
+Trois points à ne pas redécouvrir :
+
+- Une seule structure d'objet sur le fil vaut **75 octets** à Epic 7.3 : le motif d'objet de base,
+  sans `wear_position` / `own_summon_handle` / `index`. L'inventaire `TM_SC_INVENTORY` y ajoute ces
+  dix octets et porte 85 ; les enchères s'arrêtent à 75. Ce motif est écrit une seule fois, dans
+  `Game/Network/Packets/Game/ItemFixedInfoWriter.cs` (`Size = 75`, `Write`, `FromItem`) : l'inventaire
+  passe par lui, et toute nouvelle famille d'objets doit en faire autant. rzu nomme ce motif
+  `TS_ITEM_FIXED_INFO`, NGemity `TS_ITEM_BASE_INFO`.
+- Le client **lit `appearance_code`** dans ce motif (offset 71) alors que rzu gate le champ à
+  `>= EPIC_7_4`. Le client prime : sans ces 4 octets, chaque entrée d'enchère est désalignée de
+  4 octets, et les réponses valent 4979/3739 au lieu de **5139/3899**.
+- Les trois réponses `1301` (5139), `1303` et `1305` (3899) copient leur tableau en bloc, **sans
+  regarder** `auction_info_count` : `GameAuctionPackets` écrit toujours les 40 emplacements, vides
+  ou non, et plafonne le compte à 40.
+
+Les trois identifiants serveur → client (`1301`, `1303`, `1305`) sont dans `GamePackets` et ont un
+bras `log + continue` dans `GameClient`, comme `TM_SC_REGION_ACK` : le client ne les envoie jamais,
+mais un membre d'enum sans branche atteindrait le `throw "Unknown Packet Type"`. Les sept paquets
+client → serveur de la famille (`1300`, `1302`, `1304`, `1306`, `1308`, `1309`, `1310`) restent à
+implémenter, chacun avec son bras de dispatch.
+
+L'hôtel des ventes n'est **pas** porté depuis NGemity : il n'y implémente aucun handler, aucune
+ressource, aucune mécanique (`SecRouteAuction = 130107` y est une constante orpheline). La
+validation vient du client et du modèle déjà présent dans le dépôt (`AuctionEntity`,
+`ItemStorageEntity.RelatedAuctionId`, les neuf `StorageType`, la table `AuctionCateryResource`,
+lue par `AuctionCateryResourceRepository`).
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
