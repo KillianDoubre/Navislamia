@@ -334,6 +334,13 @@ public class SkillCastService : ISkillCastService
         return kind is SkillCastKind.Debuff or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack;
     }
 
+    public void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks)
+    {
+        var now = ServerClock.Now;
+        ApplyState(client, stateId, 0, stateLevel, now, unchecked(now + durationTicks));
+        SendStatRefresh(client, client.ConnectionInfo);
+    }
+
     private static void ApplyBuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
     {
         var duration = BuffCurve.DurationTicks(fields, skillLevel);

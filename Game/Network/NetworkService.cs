@@ -31,6 +31,7 @@ public class NetworkService : INetworkService
     public readonly IItemUseService ItemUseService;
     public readonly IStorageService StorageService;
     public readonly IQuestService QuestService;
+    public readonly IGmCommandService GmCommandService;
     public readonly IGroundItemService GroundItemService;
     public readonly ICraftingSocleService CraftingSocleService;
     public readonly IFieldPropService FieldPropService;
@@ -63,7 +64,8 @@ public class NetworkService : INetworkService
         IEventAreaService eventAreaService,
         ICraftingSocleService craftingSocleService,
         IStorageService storageService,
-        IQuestService questService)
+        IQuestService questService,
+        IGmCommandService gmCommandService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -80,6 +82,7 @@ public class NetworkService : INetworkService
         ItemUseService = itemUseService;
         StorageService = storageService;
         QuestService = questService;
+        GmCommandService = gmCommandService;
         GroundItemService = groundItemService;
         CraftingSocleService = craftingSocleService;
         FieldPropService = fieldPropService;

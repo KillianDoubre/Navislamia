@@ -20,6 +20,7 @@ using Navislamia.Game.Network.Interfaces;
 using Navislamia.Game.Scripting;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.GmCommands;
 using Navislamia.Game.Services.Props;
 using Serilog;
 using Serilog.Exceptions;
@@ -268,6 +269,7 @@ public class Program
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IQuestService, QuestService>();
+        services.AddSingleton<IGmCommandService, GmCommandService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
