@@ -405,6 +405,15 @@ MR et dans cette fiche.
 
 ## 11. A VERIFIER PAR KILLIAN
 
+> **Réserve de méthode — carte Trello non lue.** Cette fiche a été produite par un worker `navis-ref`
+> qui n'a **aucun accès Trello** (aucun outil `trello` dans le profil, aucun jeton d'API dans la
+> configuration locale lisible) : la description de la carte `zKEmres3` et son commentaire du
+> 2026-09-22 **n'ont pas été lus**. Le brief les donnait comme source du constat initial du PO. Rien
+> ici ne les contredit — les deux sources de faisabilité qu'ils citent pour 324
+> (`WorldSession.cpp:692-695`, `Messages.cpp:122-135`) ont été vérifiées et confirmées byte à byte —
+> mais si ce commentaire nomme un fait que cette fiche ignore, c'est ce fait qui manque. À confronter
+> par le dev ou la QA, qui ont l'accès.
+
 1. **Périmètre de la carte** : la 303 client → serveur existe dans le client 7.3 et tue la boucle de
    réception (§5.4). Faut-il l'inclure dans ce lot, créer une carte distincte, ou se contenter d'un
    bras « journal + abandon » ? La fiche ne tranche pas : c'est un choix de périmètre.
