@@ -287,7 +287,7 @@ modèle de `Tests/Game/RegionInfoPacketsTests.cs` (dont
 
 Le client fourni embarque sa propre copie de la table sous forme binaire :
 `reference/client73/db_worldlocation.rdb`, 7 400 215 octets, sha256
-`effbb9ac4bbb7e1d9348b6a4aa185525dbc73512d017c0567834e14c1e1cfaee`. Décodage **par arithmétique et
+`effbb9ac4bbb7e1d9348b6a4aa185525dbc73512d017c0567843e14c1e1cfaee`. Décodage **par arithmétique et
 lectures ciblées** (aucun outil du dépôt ne le documente) :
 
 * en-tête de **132 octets** = `0x84` : date `20241103`, outil `Written by Archimedes v0.1.0`
@@ -443,7 +443,7 @@ d'affichage de la météo, et non une carte indépendante.
 | `reference/rzu` | commit `87c1e83bf84efe29bb6405e8e6da80349712f3fa` | forme des paquets, tailles, gating `EPIC_9_6_3`, envoi à l'entrée dans le monde |
 | `reference/ngemity` (NgEmu/Chihiro) | commit `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | logique serveur : `LoadWorldLocation`, `WorldLocationManager`, `Player::ChangeLocation`, `GameContent::GetLocationID` |
 | `reference/client73/SFrame.exe` | sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` (9 841 664 o.) | format sur le fil (offsets 7 et 11), table id→nom, absence d'émetteur 903, répartiteur de réception |
-| `reference/client73/db_worldlocation.rdb` | sha256 `effbb9ac4bbb7e1d9348b6a4aa185525dbc73512d017c0567834e14c1e1cfaee` (7 400 215 o.) | structure de la table `WorldLocation` 7.3, encodage de l'id, domaine de `weather_id` |
+| `reference/client73/db_worldlocation.rdb` | sha256 `effbb9ac4bbb7e1d9348b6a4aa185525dbc73512d017c0567843e14c1e1cfaee` (7 400 215 o.) | structure de la table `WorldLocation` 7.3, encodage de l'id, domaine de `weather_id` |
 | `ArcadiaSchemaPSQL.sql` | tel que versionné sur `master` (table `WorldLocation`, lignes 1672+) | ordre des colonnes, recoupement du décodage `.rdb` |
 
 ## 9. Vérifications relevées (archéologue, sur `master` avant écriture de la fiche)
