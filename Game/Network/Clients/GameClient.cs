@@ -197,6 +197,28 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_GET_REGION_INFO, buffer.Length, ClientTag, request.X, request.Y, rx, ry);
     }
 
+    /// <summary>
+    /// TM_CS_TAKEOUT_COMMERCIAL_ITEM (10005): the player pulled an item out of the commercial storage
+    /// window. The frame is read and logged and nothing is sent back — this lot implements no container
+    /// policy at all, because none is established: neither rzu nor NGemity models the container, so no
+    /// cost, no cap and no result code may be invented (spec file, reserves 7b and 7e). Any answer that
+    /// becomes necessary later goes through the ordinary inventory packets (TM_SC_INVENTORY,
+    /// TM_SC_UPDATE_ITEM_COUNT), never through a 10005, which the server must never emit.
+    /// </summary>
+    private void HandleTakeoutCommercialItem(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadTakeoutCommercialItem(buffer, out var request))
+        {
+            _logger.Warning("Malformed commercial item takeout received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_TAKEOUT_COMMERCIAL_ITEM ({id}) Length: {length} received from {clientTag}: uid={uid} count={count}",
+            (ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM, buffer.Length, ClientTag, request.Uid, request.Count);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -624,6 +646,24 @@ public class GameClient : Client
             {
                 _logger.Warning("Server to client packet TM_SC_REGION_ACK ({id}) received from {clientTag}",
                     header.ID, ClientTag);
+                continue;
+            }
+
+            if (header.ID is (ushort)GamePackets.TM_SC_COMMERCIAL_STORAGE_INFO
+                or (ushort)GamePackets.TM_SC_COMMERCIAL_STORAGE_LIST)
+            {
+                // TM_SC_COMMERCIAL_STORAGE_INFO (10003) and TM_SC_COMMERCIAL_STORAGE_LIST (10004) are server
+                // to client packets: the 7.3 client builds no frame for either id (SFrame.exe owns no
+                // constructor site for 0x2713/0x2714), so an incoming one is a protocol anomaly, not a
+                // request. Logged and dropped like TM_SC_REGION_ACK above, instead of reaching the
+                // "Unknown Packet Type" throw below.
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM)
+            {
+                HandleTakeoutCommercialItem(msgBuffer);
                 continue;
             }
 
