@@ -98,5 +98,7 @@ public enum GamePackets : ushort
 
     TM_CS_REPORT = 8000,
 
+    TM_CS_OPEN_ITEM_SHOP = 10000,
+
     TM_NONE = 9999
 }
