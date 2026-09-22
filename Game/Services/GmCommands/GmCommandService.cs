@@ -7,6 +7,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Stats;
 using Serilog;
 
 namespace Navislamia.Game.Services.GmCommands;
@@ -35,10 +36,14 @@ public class GmCommandService : IGmCommandService
     private readonly ICharacterService _characterService;
     private readonly IItemSortCatalog _itemCatalog;
     private readonly MonsterWorldState _monsterState;
+    private readonly SkillCatalog _skillCatalog;
+    private readonly ISkillCastService _skillCastService;
+    private readonly IStateCatalog _stateCatalog;
 
     public GmCommandService(IWarpService warpService, ICombatService combatService,
         ILevelingService levelingService, IStatService statService, ICharacterService characterService,
-        IItemSortCatalog itemCatalog, MonsterWorldState monsterState)
+        IItemSortCatalog itemCatalog, MonsterWorldState monsterState, SkillCatalog skillCatalog,
+        ISkillCastService skillCastService, IStateCatalog stateCatalog)
     {
         _warpService = warpService;
         _combatService = combatService;
@@ -47,6 +52,9 @@ public class GmCommandService : IGmCommandService
         _characterService = characterService;
         _itemCatalog = itemCatalog;
         _monsterState = monsterState;
+        _skillCatalog = skillCatalog;
+        _skillCastService = skillCastService;
+        _stateCatalog = stateCatalog;
     }
 
     public async Task HandleAsync(GameClient client, string message, IEnumerable<GameClient> everyone)
@@ -223,6 +231,110 @@ public class GmCommandService : IGmCommandService
                 client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", 0));
                 break;
 
+            case GmCommand.Exp:
+                if (!GmCommandRules.TryParseAmount(line.Args, true, out var exp))
+                {
+                    Usage(client, definition);
+                    break;
+                }
+
+                // The ordinary kill path: add the experience, publish it, and let the leveling service
+                // resolve however many levels it is worth (CombatService.AwardKill does the same).
+                info.CharacterExp = GmCommandRules.AddClamped(info.CharacterExp, exp);
+                client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle,
+                    info.CharacterExp, info.CharacterJp));
+                _levelingService.ApplyExperience(client);
+                Reply(client, $"Exp: {info.CharacterExp} (level {info.CharacterLevel}).");
+                break;
+
+            case GmCommand.Jp:
+                if (!GmCommandRules.TryParseAmount(line.Args, false, out var jp))
+                {
+                    Usage(client, definition);
+                    break;
+                }
+
+                info.CharacterJp = GmCommandRules.AddClamped(info.CharacterJp, jp);
+                client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle,
+                    info.CharacterExp, info.CharacterJp));
+                Reply(client, $"JP: {info.CharacterJp}.");
+                break;
+
+            case GmCommand.JobLevel:
+                RaiseJobLevel(client, definition, line);
+                break;
+
+            case GmCommand.Learn:
+                await LearnSkillAsync(client, definition, line);
+                break;
+
+            case GmCommand.Buff:
+                ApplyBuff(client, definition, line);
+                break;
+
+            case GmCommand.Immortal:
+                if (!GmCommandRules.TryParseSwitch(line.Args, !info.IsImmortal, out var immortal))
+                {
+                    Usage(client, definition);
+                    break;
+                }
+
+                info.IsImmortal = immortal;
+                Reply(client, immortal ? "Immortal: monsters deal no damage." : "Mortal again.");
+                break;
+
+            case GmCommand.Pk:
+                if (!GmCommandRules.TryParseSwitch(line.Args, !info.PkMode, out var pk))
+                {
+                    Usage(client, definition);
+                    break;
+                }
+
+                // PkMode reaches the client through the status mask only, and the session save persists it
+                // (docs/packet-specs/socle-mode-pk.md): this is what 800/801 will do once they exist.
+                info.PkMode = pk;
+                SendStatus(client);
+                Reply(client, pk ? "PK mode on." : "PK mode off.");
+                break;
+
+            case GmCommand.Home:
+                if (info.RespawnX == 0 && info.RespawnY == 0)
+                {
+                    Reply(client, "No return point is known for this session.");
+                    break;
+                }
+
+                // The resurrection return point: the position the character entered the world at, on its
+                // own layer (ResurrectionService does the same before warping).
+                info.IsSitting = false;
+                info.Layer = info.RespawnLayer;
+                _warpService.Warp(client, info.RespawnX, info.RespawnY);
+                Reply(client, "Back at the return point.");
+                break;
+
+            case GmCommand.Target:
+                DescribeTarget(client);
+                break;
+
+            case GmCommand.Save:
+                await _characterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
+                    info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
+                    info.CharacterChaos, info.X, info.Y, info.PkMode);
+                Reply(client, "Progress saved.");
+                break;
+
+            case GmCommand.Chaos:
+                if (!GmCommandRules.TryParseAmount(line.Args, false, out var chaos))
+                {
+                    Usage(client, definition);
+                    break;
+                }
+
+                info.CharacterChaos = GmCommandRules.ApplyChaos(info.CharacterChaos, chaos);
+                client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+                Reply(client, $"Chaos: {info.CharacterChaos}.");
+                break;
+
             default:
                 _logger.Error("GM command {command} has no handler", definition.Command);
                 break;
@@ -343,6 +455,144 @@ public class GmCommandService : IGmCommandService
             info.CharacterJp));
         _levelingService.ApplyExperience(client);
         Reply(client, $"Level {info.CharacterLevel}.");
+    }
+
+    /// <summary>
+    /// <c>/joblevel</c>: each step goes through <see cref="ILevelingService.ApplyJobLevelUp"/>, the path of
+    /// the JLv-up button, after crediting exactly the JP that step costs, so the JP balance is unchanged
+    /// and the client receives the very sequence it knows (exp update, <c>job_level</c> property, result
+    /// 410, stat refresh). The climb stops where the JP curve caps the tier.
+    /// </summary>
+    private void RaiseJobLevel(GameClient client, GmCommandDefinition definition, GmCommandLine line)
+    {
+        var info = client.ConnectionInfo;
+        var current = Math.Max(1, info.CharacterJobLevel);
+        if (!GmCommandRules.TryParseJobLevel(line.Args, current, out var target))
+        {
+            Reply(client, $"Usage: {definition.Usage}, above {current}.");
+            return;
+        }
+
+        while (info.CharacterJobLevel < target)
+        {
+            var cost = _levelingService.NextJobLevelCost(Math.Max(1, info.CharacterJobLevel));
+            if (cost <= 0)
+            {
+                break;
+            }
+
+            var before = info.CharacterJobLevel;
+            info.CharacterJp = GmCommandRules.AddClamped(info.CharacterJp, cost);
+            _levelingService.ApplyJobLevelUp(client, info.CharacterHandle);
+            if (info.CharacterJobLevel <= before)
+            {
+                // Refused for a reason the cost did not cover: give the credited JP back and stop.
+                info.CharacterJp = GmCommandRules.AddClamped(info.CharacterJp, -cost);
+                break;
+            }
+        }
+
+        Reply(client, info.CharacterJobLevel >= target
+            ? $"Job level {info.CharacterJobLevel}."
+            : $"Job level {info.CharacterJobLevel}: the JP curve caps the tier here.");
+    }
+
+    /// <summary>
+    /// <c>/learn</c>: writes the skill level through <see cref="ICharacterService.SaveLearnedSkillAsync"/>,
+    /// the persistence of the learning window, with the JP left untouched, then sends the one-record
+    /// <c>TS_SC_SKILL_LIST</c> and the refreshed stats a learnt passive needs. The job restriction is
+    /// ignored on purpose: a GM may learn any skill the catalogue knows.
+    /// </summary>
+    private async Task LearnSkillAsync(GameClient client, GmCommandDefinition definition, GmCommandLine line)
+    {
+        var info = client.ConnectionInfo;
+        if (!GmCommandRules.TryParseLearn(line.Args, out var skillId, out var level))
+        {
+            Usage(client, definition);
+            return;
+        }
+
+        if (!_skillCatalog.TryGetMaxLevel(skillId, out var maxLevel))
+        {
+            Reply(client, $"Unknown skill {skillId}.");
+            return;
+        }
+
+        if (level == 0)
+        {
+            level = maxLevel;
+        }
+
+        if (level > maxLevel)
+        {
+            Reply(client, $"Skill {skillId} stops at level {maxLevel}.");
+            return;
+        }
+
+        if (!await _characterService.SaveLearnedSkillAsync(info.CharacterName, skillId, level, info.CharacterJp))
+        {
+            Reply(client, "The skill could not be saved.");
+            return;
+        }
+
+        info.LearnedSkills[skillId] = level;
+        var handle = info.CharacterHandle;
+        client.Connection.Send(GameCharacterPackets.BuildSkillList(handle,
+            new[] { new KeyValuePair<int, byte>(skillId, level) }));
+
+        _statService.RefreshPassives(info);
+        var stats = _statService.Compute(info);
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.Total, StatInfoType.Total));
+        client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.ByItem, StatInfoType.ByItem));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.Total.MaxHp));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)stats.Total.MaxMp));
+        Reply(client, $"Skill {skillId} level {level} learnt.");
+    }
+
+    /// <summary>
+    /// <c>/buff</c>: the state goes through <see cref="ISkillCastService.ApplyState"/>, the same path as a
+    /// cast buff, so its icon, countdown, expiry and stat contribution are the ordinary ones. An id outside
+    /// <c>StateResource</c> is refused: the client would receive a state code nothing describes.
+    /// </summary>
+    private void ApplyBuff(GameClient client, GmCommandDefinition definition, GmCommandLine line)
+    {
+        if (!GmCommandRules.TryParseBuff(line.Args, out var stateId, out var level, out var seconds))
+        {
+            Usage(client, definition);
+            return;
+        }
+
+        if (!_stateCatalog.Exists(stateId))
+        {
+            Reply(client, $"Unknown state {stateId}.");
+            return;
+        }
+
+        _skillCastService.ApplyState(client, stateId, level, (uint)(seconds * ServerClock.TicksPerSecond));
+        Reply(client, $"State {stateId} level {level} for {seconds} s.");
+    }
+
+    /// <summary><c>/target</c>: what the server knows of the current target, read without touching it.</summary>
+    private void DescribeTarget(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        var handle = info.TargetHandle;
+        if (handle == 0)
+        {
+            Reply(client, "No target.");
+            return;
+        }
+
+        if (!info.TryResolveMonster(handle, out var instanceId) ||
+            !_monsterState.TryGetInstance(instanceId, out var monster))
+        {
+            Reply(client, $"Target {handle:X8} is not a visible monster.");
+            return;
+        }
+
+        var state = _monsterState.IsAlive(instanceId) ? string.Empty : " (dead)";
+        Reply(client, $"Monster {monster.MonsterId} lv {monster.Level} HP {_monsterState.GetHp(instanceId)}/" +
+                      $"{monster.Hp} handle {handle:X8}{state}");
     }
 
     private void RestoreVitals(GameClient client)

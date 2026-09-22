@@ -212,7 +212,7 @@ public class MonsterAiService
             client.Connection.Send(GameMovePackets.BuildStopMove(handle, startTime, info.Layer));
         }
 
-        var damage = MonsterAiRules.PlayerDamage(info.CharacterMaxHp);
+        var damage = MonsterAiRules.PlayerDamage(info.CharacterMaxHp, info.IsImmortal);
         info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,

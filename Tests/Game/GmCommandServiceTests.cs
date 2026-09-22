@@ -23,6 +23,7 @@ public class GmCommandServiceTests
     private const uint CharacterHandle = 0x80000001;
     private const long MonsterInstanceId = 0;
     private const uint MonsterHandle = 0x40000001;
+    private const int SkillId = 1011;
 
     private IWarpService _warp = null!;
     private ICombatService _combat = null!;
@@ -31,6 +32,8 @@ public class GmCommandServiceTests
     private ICharacterService _characters = null!;
     private IItemSortCatalog _items = null!;
     private MonsterWorldState _monsters = null!;
+    private ISkillCastService _skillCast = null!;
+    private IStateCatalog _states = null!;
     private GmCommandService _service = null!;
 
     [SetUp]
@@ -43,7 +46,21 @@ public class GmCommandServiceTests
         _characters = A.Fake<ICharacterService>();
         _items = A.Fake<IItemSortCatalog>();
         _monsters = BuildMonsters(hp: 500);
-        _service = new GmCommandService(_warp, _combat, _leveling, _stats, _characters, _items, _monsters);
+        _skillCast = A.Fake<ISkillCastService>();
+        _states = A.Fake<IStateCatalog>();
+        var skills = new SkillCatalog(new SkillCatalogOptions
+        {
+            Jobs =
+            {
+                new JobSkillCatalog
+                {
+                    JobId = 100,
+                    Skills = { new LearnableSkill { SkillId = SkillId, Rules = { new SkillUnlockRule { MinSkillLevel = 1, MaxSkillLevel = 5 } } } }
+                }
+            }
+        });
+        _service = new GmCommandService(_warp, _combat, _leveling, _stats, _characters, _items, _monsters,
+            skills, _skillCast, _states);
     }
 
     [Test]
@@ -346,6 +363,264 @@ public class GmCommandServiceTests
         Replies(playerConnection).Should().HaveCount(GmCommandCatalog.AvailableTo(0).Count());
         Replies(playerConnection).Should().NotContain(reply => reply.Text.StartsWith("/warp"));
         Replies(gmConnection).Should().HaveCount(GmCommandCatalog.All.Count);
+    }
+
+    [Test]
+    public async Task Exp_AddsThenRunsTheOrdinaryLevelResolution()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        StorageTestHarness.Session(client).CharacterExp = 1_000;
+
+        await _service.HandleAsync(client, "/exp 500", Array.Empty<GameClient>());
+
+        StorageTestHarness.Session(client).CharacterExp.Should().Be(1_500);
+        connection.Sent.Should().Contain(packet => Id(packet) == (ushort)GamePackets.TM_SC_EXP_UPDATE);
+        A.CallTo(() => _leveling.ApplyExperience(client)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task Exp_RefusesANegativeAmount()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(client, "/exp -500", Array.Empty<GameClient>());
+
+        A.CallTo(() => _leveling.ApplyExperience(A<GameClient>._)).MustNotHaveHappened();
+        Replies(connection).Single().Text.Should().Be("Usage: /exp <amount>");
+    }
+
+    [Test]
+    public async Task Jp_AddsAndPublishesTheJpNextToTheUnchangedExp()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        info.CharacterExp = 5_000;
+        info.CharacterJp = 100;
+
+        await _service.HandleAsync(client, "/jp 250", Array.Empty<GameClient>());
+
+        info.CharacterJp.Should().Be(350);
+        var update = connection.Sent.Single(packet => Id(packet) == (ushort)GamePackets.TM_SC_EXP_UPDATE);
+        BinaryPrimitives.ReadInt64LittleEndian(update.AsSpan(11, 8)).Should().Be(5_000, "exp sits at offset 11");
+        BinaryPrimitives.ReadInt64LittleEndian(update.AsSpan(19, 8)).Should().Be(350, "jp sits at offset 19");
+    }
+
+    [Test]
+    public async Task Jp_NeverGoesBelowZero()
+    {
+        var (client, _) = NewClient(permission: GmCommandRules.GmPermission);
+        StorageTestHarness.Session(client).CharacterJp = 100;
+
+        await _service.HandleAsync(client, "/jp -300", Array.Empty<GameClient>());
+
+        StorageTestHarness.Session(client).CharacterJp.Should().Be(0);
+    }
+
+    [Test]
+    public async Task JobLevel_CreditsEachStepCostAndGoesThroughTheButtonPath()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        info.CharacterJobLevel = 1;
+        info.CharacterJp = 7;
+        A.CallTo(() => _leveling.NextJobLevelCost(A<int>._)).Returns(40);
+        A.CallTo(() => _leveling.ApplyJobLevelUp(client, CharacterHandle)).Invokes(() =>
+        {
+            info.CharacterJp -= 40;
+            info.CharacterJobLevel++;
+        });
+
+        await _service.HandleAsync(client, "/joblevel 4", Array.Empty<GameClient>());
+
+        info.CharacterJobLevel.Should().Be(4);
+        info.CharacterJp.Should().Be(7, "each step is credited exactly its own cost");
+        A.CallTo(() => _leveling.ApplyJobLevelUp(client, CharacterHandle)).MustHaveHappened(3, Times.Exactly);
+        Replies(connection).Single().Text.Should().Be("Job level 4.");
+    }
+
+    [Test]
+    public async Task JobLevel_StopsWhereTheCurveCapsTheTier()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        info.CharacterJobLevel = 9;
+        A.CallTo(() => _leveling.NextJobLevelCost(9)).Returns(40);
+        A.CallTo(() => _leveling.NextJobLevelCost(10)).Returns(0);
+        A.CallTo(() => _leveling.ApplyJobLevelUp(client, CharacterHandle)).Invokes(() =>
+        {
+            info.CharacterJp -= 40;
+            info.CharacterJobLevel++;
+        });
+
+        await _service.HandleAsync(client, "/joblevel 20", Array.Empty<GameClient>());
+
+        info.CharacterJobLevel.Should().Be(10);
+        Replies(connection).Single().Text.Should().Contain("caps the tier");
+    }
+
+    [Test]
+    public async Task Learn_DefaultsToTheSkillMaximumAndKeepsTheJp()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        info.CharacterJp = 55;
+        A.CallTo(() => _characters.SaveLearnedSkillAsync("Tester", SkillId, 5, 55)).Returns(true);
+        A.CallTo(() => _stats.Compute(info))
+            .Returns(new CharacterStatResult(new StatBlock { MaxHp = 800, MaxMp = 300 }, new StatBlock()));
+
+        await _service.HandleAsync(client, $"/learn {SkillId}", Array.Empty<GameClient>());
+
+        info.LearnedSkills[SkillId].Should().Be(5);
+        info.CharacterJp.Should().Be(55);
+        A.CallTo(() => _stats.RefreshPassives(info)).MustHaveHappenedOnceExactly();
+        connection.Sent.Should().Contain(packet => Id(packet) == (ushort)GamePackets.TM_SC_SKILL_LIST);
+        Replies(connection).Single().Text.Should().Be($"Skill {SkillId} level 5 learnt.");
+    }
+
+    [Test]
+    public async Task Learn_RefusesAnUnknownSkillOrALevelAboveItsMaximum()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(client, "/learn 999999", Array.Empty<GameClient>());
+        await _service.HandleAsync(client, $"/learn {SkillId} 6", Array.Empty<GameClient>());
+
+        A.CallTo(() => _characters.SaveLearnedSkillAsync(A<string>._, A<int>._, A<byte>._, A<long>._))
+            .MustNotHaveHappened();
+        Replies(connection).Select(reply => reply.Text).Should()
+            .Equal("Unknown skill 999999.", $"Skill {SkillId} stops at level 5.");
+    }
+
+    [Test]
+    public async Task Buff_GoesThroughTheCastStatePathInTicks()
+    {
+        var (client, _) = NewClient(permission: GmCommandRules.GmPermission);
+        A.CallTo(() => _states.Exists(4001)).Returns(true);
+
+        await _service.HandleAsync(client, "/buff 4001 3 60", Array.Empty<GameClient>());
+
+        A.CallTo(() => _skillCast.ApplyState(client, 4001, 3, 60 * ServerClock.TicksPerSecond))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task Buff_RefusesAnUnknownState()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        A.CallTo(() => _states.Exists(4001)).Returns(false);
+
+        await _service.HandleAsync(client, "/buff 4001", Array.Empty<GameClient>());
+
+        A.CallTo(() => _skillCast.ApplyState(A<GameClient>._, A<int>._, A<int>._, A<uint>._)).MustNotHaveHappened();
+        Replies(connection).Single().Text.Should().Be("Unknown state 4001.");
+    }
+
+    [Test]
+    public async Task Immortal_TogglesTheSessionFlag()
+    {
+        var (client, _) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+
+        await _service.HandleAsync(client, "/immortal", Array.Empty<GameClient>());
+        info.IsImmortal.Should().BeTrue();
+
+        await _service.HandleAsync(client, "/immortal", Array.Empty<GameClient>());
+        info.IsImmortal.Should().BeFalse();
+
+        MonsterAiRules.PlayerDamage(1_500, immortal: true).Should().Be(0);
+        MonsterAiRules.PlayerDamage(1_500, immortal: false).Should().Be(100);
+    }
+
+    [Test]
+    public async Task Pk_SetsTheModeAndPublishesItsBit()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(client, "/pk on", Array.Empty<GameClient>());
+
+        StorageTestHarness.Session(client).PkMode.Should().BeTrue();
+        StatusChanges(connection).Single().Status.Should().Be(CreatureStatus.PlayerPkOn);
+    }
+
+    [Test]
+    public async Task Home_WarpsToTheReturnPointOnItsLayer()
+    {
+        var (client, _) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        info.RespawnX = 94454;
+        info.RespawnY = 126040;
+        info.RespawnLayer = 2;
+
+        await _service.HandleAsync(client, "/home", Array.Empty<GameClient>());
+
+        info.Layer.Should().Be(2);
+        A.CallTo(() => _warp.Warp(client, 94454f, 126040f)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task Home_WithoutAReturnPoint_IsRefused()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(client, "/home", Array.Empty<GameClient>());
+
+        A.CallTo(() => _warp.Warp(A<GameClient>._, A<float>._, A<float>._)).MustNotHaveHappened();
+        Replies(connection).Single().Text.Should().Contain("No return point");
+    }
+
+    [Test]
+    public async Task Target_DescribesTheVisibleMonster()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        lock (info.MonsterVisibilityLock)
+        {
+            info.SpawnedMonsters[MonsterInstanceId] = MonsterHandle;
+        }
+
+        info.TargetHandle = MonsterHandle;
+        _monsters.ApplyDamage(MonsterInstanceId, 120);
+
+        await _service.HandleAsync(client, "/target", Array.Empty<GameClient>());
+
+        Replies(connection).Single().Text.Should().Be("Monster 2101 lv 5 HP 380/500 handle 40000001");
+    }
+
+    [Test]
+    public async Task Target_WithNothingSelected_SaysSo()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(client, "/target", Array.Empty<GameClient>());
+
+        Replies(connection).Single().Text.Should().Be("No target.");
+    }
+
+    [Test]
+    public async Task Save_WritesTheSessionProgress()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        info.CharacterLevel = 12;
+        info.CharacterGold = 900;
+
+        await _service.HandleAsync(client, "/save", Array.Empty<GameClient>());
+
+        A.CallTo(() => _characters.SaveProgressAsync("Tester", 12, A<int>._, A<long>._, A<long>._, 900, A<int>._,
+            A<float>._, A<float>._, A<bool>._)).MustHaveHappenedOnceExactly();
+        Replies(connection).Single().Text.Should().Be("Progress saved.");
+    }
+
+    [Test]
+    public async Task Chaos_AddsAndSendsTheGoldAndChaosUpdate()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        StorageTestHarness.Session(client).CharacterChaos = 10;
+
+        await _service.HandleAsync(client, "/chaos 40", Array.Empty<GameClient>());
+
+        StorageTestHarness.Session(client).CharacterChaos.Should().Be(50);
+        connection.Sent.Should().Contain(packet => Id(packet) == (ushort)GamePackets.TM_SC_GOLD_UPDATE);
     }
 
     [Test]

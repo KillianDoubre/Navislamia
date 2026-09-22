@@ -64,6 +64,9 @@ public class LevelingService : ILevelingService
     public bool TryGetExperienceFor(int level, out long exp) =>
         LevelCurve.TryGetExperienceFor(_cumulativeExp, _maxLevel, level, out exp);
 
+    public int NextJobLevelCost(int currentJobLevel) =>
+        _jobJpCost == null ? 0 : JobLevelCurve.NextCost(_jobJpCost, currentJobLevel);
+
     public void ApplyJobLevelUp(GameClient client, uint targetHandle)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_JOB_LEVEL_UP;

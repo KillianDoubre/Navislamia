@@ -45,6 +45,17 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/level <niveau>` | oui | Navislamia | monte au niveau indiqué, jamais vers le bas |
 | `/heal` | oui | Navislamia | PV et PM au maximum ; refusé mort |
 | `/die` | oui | Navislamia | PV à 0, pour tester la mort et la réapparition |
+| `/exp <montant>` | oui | Navislamia | ajoute de l'expérience (positif seulement), niveaux compris |
+| `/jp <montant>` | oui | Navislamia | ajoute ou retire des JP, jamais sous 0 |
+| `/joblevel <niveau>` | oui | Navislamia | monte le niveau de métier, sans coût en JP |
+| `/learn <skill> [niveau]` | oui | Lua `learn_all_skill` | apprend une compétence (niveau max par défaut), sans JP |
+| `/buff <state> [niveau] [secondes]` | oui | Lua `add_state` | pose un état (niveau 1, 300 s par défaut, 1 jour au plus) |
+| `/immortal [on\|off]` | oui | Navislamia | les monstres frappent sans infliger de dégâts ; sans argument, bascule |
+| `/pk [on\|off]` | oui | Navislamia | mode PK ; sans argument, bascule |
+| `/home` | oui | Navislamia | retour au point de réapparition |
+| `/target` | oui | Navislamia | id, niveau et PV du monstre ciblé |
+| `/save` | oui | Lua `save` | sauvegarde la progression sans se déconnecter |
+| `/chaos <montant>` | oui | Navislamia | ajoute ou retire du chaos, entre 0 et `int.MaxValue` |
 
 Le nom est insensible à la casse (`/Position` marche), contrairement à la comparaison exacte de
 NGemity : rien dans le client ne distingue les deux, et un refus ne ferait que ressembler à une panne.
@@ -76,6 +87,35 @@ peut pas produire un état que le jeu lui-même ne produit pas.
 - **`/heal`** : les maxima de `StatService.Compute`, puis les propriétés `max_hp`, `hp`, `max_mp`, `mp`.
 - **`/die`** : PV à 0 et la propriété `hp`. Dans cette version la mort n'a pas de paquet à elle
   (`docs/packet-specs/socle-mort-respawn.md`).
+- **`/exp`** : ajoute à l'expérience cumulée, publie `TS_SC_EXP_UPDATE`, puis
+  `LevelingService.ApplyExperience` résout autant de niveaux que la somme en vaut — le chemin d'une
+  victoire. Positif seulement : l'expérience cumulée ne redescend jamais.
+- **`/jp`** : `ConnectionInfo.CharacterJp` puis `TS_SC_EXP_UPDATE`, qui porte le JP à l'offset 19.
+- **`/joblevel`** : chaque palier passe par `LevelingService.ApplyJobLevelUp`, le chemin du bouton,
+  après avoir crédité exactement le coût de ce palier (`NextJobLevelCost`). Le solde de JP est donc
+  inchangé et le client reçoit la séquence qu'il connaît : mise à jour d'expérience, propriété
+  `job_level`, résultat 410, statistiques. La montée s'arrête là où la courbe de JP plafonne le palier
+  (vers le niveau 10 pour le premier métier), et la réponse le dit.
+- **`/learn`** : `CharacterService.SaveLearnedSkillAsync`, la persistance de la fenêtre d'apprentissage,
+  avec le JP inchangé, puis un `TS_SC_SKILL_LIST` d'une ligne et les statistiques (une passive apprise
+  les modifie). **La restriction de métier est ignorée** : un GM peut apprendre toute compétence que
+  le catalogue connaît. Sans niveau, c'est le maximum de la compétence (`SkillCatalog.TryGetMaxLevel`).
+  Une compétence hors de l'arbre du personnage peut ne pas apparaître dans sa fenêtre côté client.
+- **`/buff`** : `ISkillCastService.ApplyState`, le chemin d'un buff lancé : même poignée d'état, même
+  expiration par le tick de 500 ms, même rafraîchissement des statistiques. L'id doit exister dans
+  `StateResource` (`IStateCatalog.Exists`), sinon le client recevrait un code d'état que rien ne décrit.
+  La durée est en secondes, convertie en ticks `ar_time` (`× 100`).
+- **`/immortal`** : `ConnectionInfo.IsImmortal`, lu par `MonsterAiRules.PlayerDamage(maxHp, immortal)`.
+  Le monstre frappe toujours, le coup vaut 0. `/die` reste possible.
+- **`/pk`** : `ConnectionInfo.PkMode` et le masque de statut, exactement ce que feront 800/801 ; la
+  sauvegarde de fin de session le persiste déjà.
+- **`/home`** : la position de retour de la mort/réapparition (`RespawnX`/`RespawnY`/`RespawnLayer`,
+  la position d'entrée dans le monde), par `WarpService.Warp`.
+- **`/target`** : lit la cible (`TargetHandle`), la résout parmi les monstres visibles, puis
+  `MonsterWorldState` pour les PV courants. Ne modifie rien. Une cible PNJ répond « pas un monstre
+  visible ».
+- **`/save`** : `CharacterService.SaveProgressAsync` avec les mêmes arguments que la déconnexion.
+- **`/chaos`** : `ConnectionInfo.CharacterChaos` puis `TS_SC_GOLD_UPDATE`, qui porte or et chaos.
 
 ## Ce qui n'est pas porté, et pourquoi
 
@@ -109,3 +149,8 @@ peut pas produire un état que le jeu lui-même ne produit pas.
 - Que `/sitdown` joue bien l'animation assise, et que se déplacer relève le personnage (le serveur ne
   suit pas le déplacement du personnage assis).
 - Que `/die` ouvre la fenêtre de mort à partir de la seule propriété `hp`.
+- Que `/learn` sur une compétence d'un autre métier s'affiche, ou non, dans la fenêtre de compétences.
+- Que `/buff` affiche l'icône et le compte à rebours (le rendu d'une icône d'état n'est pas établi
+  pour ce client, voir CLAUDE.md, *Buffs*).
+- Que `/joblevel` au-delà de quelques paliers ne perturbe pas le client, qui reçoit un résultat 410
+  par palier.

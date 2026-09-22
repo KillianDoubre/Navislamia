@@ -19,7 +19,18 @@ public enum GmCommand
     Gold,
     Level,
     Heal,
-    Die
+    Die,
+    Exp,
+    Jp,
+    JobLevel,
+    Learn,
+    Buff,
+    Immortal,
+    Pk,
+    Home,
+    Target,
+    Save,
+    Chaos
 }
 
 /// <summary>
@@ -57,7 +68,18 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Gold, "gold", true, "/gold <amount>", FromLua),
         new GmCommandDefinition(GmCommand.Level, "level", true, "/level <level>", FromRepository),
         new GmCommandDefinition(GmCommand.Heal, "heal", true, "/heal", FromRepository),
-        new GmCommandDefinition(GmCommand.Die, "die", true, "/die", FromRepository)
+        new GmCommandDefinition(GmCommand.Die, "die", true, "/die", FromRepository),
+        new GmCommandDefinition(GmCommand.Exp, "exp", true, "/exp <amount>", FromRepository),
+        new GmCommandDefinition(GmCommand.Jp, "jp", true, "/jp <amount>", FromRepository),
+        new GmCommandDefinition(GmCommand.JobLevel, "joblevel", true, "/joblevel <level>", FromRepository),
+        new GmCommandDefinition(GmCommand.Learn, "learn", true, "/learn <skill> [level]", FromLua),
+        new GmCommandDefinition(GmCommand.Buff, "buff", true, "/buff <state> [level] [seconds]", FromLua),
+        new GmCommandDefinition(GmCommand.Immortal, "immortal", true, "/immortal [on|off]", FromRepository),
+        new GmCommandDefinition(GmCommand.Pk, "pk", true, "/pk [on|off]", FromRepository),
+        new GmCommandDefinition(GmCommand.Home, "home", true, "/home", FromRepository),
+        new GmCommandDefinition(GmCommand.Target, "target", true, "/target", FromRepository),
+        new GmCommandDefinition(GmCommand.Save, "save", true, "/save", FromLua),
+        new GmCommandDefinition(GmCommand.Chaos, "chaos", true, "/chaos <amount>", FromRepository)
     };
 
     private static readonly FrozenDictionary<string, GmCommandDefinition> ByName =

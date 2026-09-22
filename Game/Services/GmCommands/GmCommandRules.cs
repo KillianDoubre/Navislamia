@@ -21,6 +21,16 @@ public static class GmCommandRules
     /// </summary>
     public const long MaxItemCount = 10_000;
 
+    /// <summary>Default duration of <c>/buff</c>, and its ceiling: one day. Both are choices of this repository.</summary>
+    public const int DefaultBuffSeconds = 300;
+    public const int MaxBuffSeconds = 86_400;
+
+    /// <summary>
+    /// The highest job level <c>/joblevel</c> asks for. The real ceiling is the JP curve, which caps the
+    /// first job tier around 10 (<c>JobLevelCurve</c>); this only refuses an absurd target.
+    /// </summary>
+    public const int MaxJobLevel = 100;
+
     public static bool CanUse(GmCommandDefinition definition, int permission) =>
         definition != null && (!definition.Privileged || permission >= GmPermission);
 
@@ -100,6 +110,86 @@ public static class GmCommandRules
                long.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out delta) &&
                delta != 0;
     }
+
+    /// <summary>
+    /// A signed, non-zero amount (<c>/jp</c>, <c>/chaos</c>). <c>/exp</c> additionally requires it to be
+    /// positive: cumulative experience never goes down, since no level loss is established.
+    /// </summary>
+    public static bool TryParseAmount(string[] args, bool positiveOnly, out long amount)
+    {
+        amount = 0;
+        return args is { Length: 1 } &&
+               long.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out amount) &&
+               amount != 0 && (!positiveOnly || amount > 0);
+    }
+
+    /// <summary>Chaos is an int32 on the wire: the balance stays in <c>0..int.MaxValue</c>.</summary>
+    public static int ApplyChaos(int current, long delta) =>
+        (int)Math.Min(AddClamped(Math.Max(0, current), delta), int.MaxValue);
+
+    /// <summary><c>/joblevel &lt;level&gt;</c>: a target above the current job level, at most <see cref="MaxJobLevel"/>.</summary>
+    public static bool TryParseJobLevel(string[] args, int currentJobLevel, out int target)
+    {
+        target = 0;
+        return args is { Length: 1 } &&
+               int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out target) &&
+               target > currentJobLevel && target <= MaxJobLevel;
+    }
+
+    /// <summary>
+    /// <c>/learn &lt;skill&gt; [level]</c>: a positive skill id, then an optional level in 1..255. A missing level
+    /// is 0 here and means "the skill's maximum", which only the catalogue knows.
+    /// </summary>
+    public static bool TryParseLearn(string[] args, out int skillId, out byte level)
+    {
+        skillId = 0;
+        level = 0;
+        if (args == null || args.Length is < 1 or > 2)
+        {
+            return false;
+        }
+
+        if (!int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out skillId) || skillId <= 0)
+        {
+            return false;
+        }
+
+        return args.Length == 1 ||
+               (byte.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out level) && level > 0);
+    }
+
+    /// <summary>
+    /// <c>/buff &lt;state&gt; [level] [seconds]</c>: a positive state id, a level in 1..65535 (1 by default) and a
+    /// duration in 1..<see cref="MaxBuffSeconds"/> seconds (<see cref="DefaultBuffSeconds"/> by default).
+    /// </summary>
+    public static bool TryParseBuff(string[] args, out int stateId, out ushort level, out int seconds)
+    {
+        stateId = 0;
+        level = 1;
+        seconds = DefaultBuffSeconds;
+        if (args == null || args.Length is < 1 or > 3)
+        {
+            return false;
+        }
+
+        if (!int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out stateId) || stateId <= 0)
+        {
+            return false;
+        }
+
+        if (args.Length >= 2 &&
+            (!ushort.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out level) || level == 0))
+        {
+            return false;
+        }
+
+        return args.Length < 3 ||
+               (int.TryParse(args[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out seconds) &&
+                seconds is > 0 and <= MaxBuffSeconds);
+    }
+
+    /// <summary>A sum that saturates at <see cref="long.MaxValue"/> and never goes below zero.</summary>
+    public static long AddClamped(long current, long delta) => ApplyGold(current, delta);
 
     /// <summary>The balance after a delta, never below zero and never wrapped past <see cref="long.MaxValue"/>.</summary>
     public static long ApplyGold(long current, long delta)

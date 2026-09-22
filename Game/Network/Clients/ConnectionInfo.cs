@@ -64,6 +64,12 @@ public class ConnectionInfo
     public bool IsSitting { get; set; }
     public bool IsBattleMode { get; set; }
     public bool IsWalking { get; set; }
+
+    /// <summary>
+    /// Set by the GM command <c>/immortal</c>: monsters still swing but deal no damage
+    /// (<see cref="Navislamia.Game.Services.MonsterAiRules.PlayerDamage(int, bool)"/>). Session only.
+    /// </summary>
+    public bool IsImmortal { get; set; }
     public uint ClientClockOffset { get; set; }
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
@@ -263,6 +269,7 @@ public class ConnectionInfo
         IsSitting = false;
         IsBattleMode = false;
         IsWalking = false;
+        IsImmortal = false;
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;

@@ -1231,8 +1231,12 @@ like an unknown one, so its existence is not revealed. Answers go to the system 
 **No command has a path of its own**: `/warp` is `WarpService.Warp`, `/doit` is
 `ICombatService.ApplyDamage` with the remaining HP, `/level` raises the cumulative exp to the target's
 threshold and lets `LevelingService.ApplyExperience` run the ordinary level-up, `/item` is
-`CharacterService.AddItemAsync` after an `ItemSortCatalog.Contains` check. A command therefore cannot
-produce a state the game itself cannot. `/sitdown`, `/battle` and `/walk` are session states carried by
+`CharacterService.AddItemAsync` after an `ItemSortCatalog.Contains` check, `/joblevel` credits each step's
+exact JP cost then calls `LevelingService.ApplyJobLevelUp` (JP balance unchanged, the button's own
+sequence), `/learn` is `SaveLearnedSkillAsync` with the JP untouched and ignores the job restriction,
+`/buff` is `ISkillCastService.ApplyState` after an `IStateCatalog.Exists` check, and `/immortal` is a
+session flag `MonsterAiRules.PlayerDamage(maxHp, immortal)` turns into a zero-damage swing. A command
+therefore cannot produce a state the game itself cannot. `/sitdown`, `/battle` and `/walk` are session states carried by
 `ActorStatus.ForPlayer`, which now composes PK, sitting, battle mode and walking — **every status send
 must pass all four**, the mask being a snapshot.
 

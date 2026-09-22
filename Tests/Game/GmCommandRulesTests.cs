@@ -234,6 +234,70 @@ public class GmCommandRulesTests
 }
 
 [TestFixture]
+public class GmCommandRulesAdditionsTests
+{
+    [Test]
+    public void TryParseAmount_CanRequireAPositiveValue()
+    {
+        GmCommandRules.TryParseAmount(new[] { "-5" }, false, out var signed).Should().BeTrue();
+        signed.Should().Be(-5);
+        GmCommandRules.TryParseAmount(new[] { "-5" }, true, out _).Should().BeFalse();
+        GmCommandRules.TryParseAmount(new[] { "0" }, false, out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void ApplyChaos_StaysInsideAnInt32()
+    {
+        GmCommandRules.ApplyChaos(10, -50).Should().Be(0);
+        GmCommandRules.ApplyChaos(10, 40).Should().Be(50);
+        GmCommandRules.ApplyChaos(int.MaxValue - 1, long.MaxValue).Should().Be(int.MaxValue);
+    }
+
+    [Test]
+    public void TryParseJobLevel_OnlyGoesUp()
+    {
+        GmCommandRules.TryParseJobLevel(new[] { "10" }, 3, out var target).Should().BeTrue();
+        target.Should().Be(10);
+        GmCommandRules.TryParseJobLevel(new[] { "3" }, 3, out _).Should().BeFalse();
+        GmCommandRules.TryParseJobLevel(new[] { (GmCommandRules.MaxJobLevel + 1).ToString() }, 3, out _)
+            .Should().BeFalse();
+    }
+
+    [Test]
+    public void TryParseLearn_LeavesTheLevelToTheCatalogueWhenMissing()
+    {
+        GmCommandRules.TryParseLearn(new[] { "1011" }, out var skill, out var level).Should().BeTrue();
+        skill.Should().Be(1011);
+        level.Should().Be(0);
+
+        GmCommandRules.TryParseLearn(new[] { "1011", "3" }, out _, out var three).Should().BeTrue();
+        three.Should().Be(3);
+
+        GmCommandRules.TryParseLearn(new[] { "1011", "0" }, out _, out _).Should().BeFalse();
+        GmCommandRules.TryParseLearn(new[] { "1011", "256" }, out _, out _).Should().BeFalse();
+        GmCommandRules.TryParseLearn(new[] { "-1" }, out _, out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void TryParseBuff_HasDefaultsAndBounds()
+    {
+        GmCommandRules.TryParseBuff(new[] { "4001" }, out var state, out var level, out var seconds).Should().BeTrue();
+        state.Should().Be(4001);
+        level.Should().Be(1);
+        seconds.Should().Be(GmCommandRules.DefaultBuffSeconds);
+
+        GmCommandRules.TryParseBuff(new[] { "4001", "2", "60" }, out _, out var two, out var sixty).Should().BeTrue();
+        two.Should().Be(2);
+        sixty.Should().Be(60);
+
+        GmCommandRules.TryParseBuff(new[] { "4001", "0" }, out _, out _, out _).Should().BeFalse();
+        GmCommandRules.TryParseBuff(new[] { "4001", "1", "0" }, out _, out _, out _).Should().BeFalse();
+        GmCommandRules.TryParseBuff(new[] { "4001", "1", (GmCommandRules.MaxBuffSeconds + 1).ToString() },
+            out _, out _, out _).Should().BeFalse();
+    }
+}
+
+[TestFixture]
 public class GmActorStatusTests
 {
     [Test]
