@@ -10,6 +10,7 @@ using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Network.Packets.Interfaces;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.GmCommands;
 using Serilog;
 
 namespace Navislamia.Game.Network.Clients;
@@ -434,6 +435,16 @@ public class GameClient : Client
         var count = input[22];
         var type = input[23];
         var message = Encoding.ASCII.GetString(input.Slice(24, count));
+
+        // A line starting with '/' is a GM command, never relayed as chat (NGemity's rule,
+        // WorldSession::onChatRequest). The handler awaits the database for /item, so it is fired and not
+        // awaited here: the receive loop must not wait on it. See docs/gm-commands.md.
+        if (GmCommandParser.IsCommand(type, message))
+        {
+            _ = _networkService.GmCommandService.HandleAsync(this, message,
+                _networkService.AuthorizedGameClients.Values);
+            return;
+        }
 
         var isLocal = type is (byte)ChatType.Normal or (byte)ChatType.Yell;
         var reply = isLocal

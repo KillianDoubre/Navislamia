@@ -29,6 +29,12 @@ public static class MonsterAiRules
     public static int PlayerDamage(int playerMaxHp) => Math.Max(1, playerMaxHp / 15);
 
     /// <summary>
+    /// The damage a monster deals to a player flagged by <c>/immortal</c> is zero: the monster still
+    /// swings, so the fight looks the same, but no HP is lost (docs/gm-commands.md).
+    /// </summary>
+    public static int PlayerDamage(int playerMaxHp, bool immortal) => immortal ? 0 : PlayerDamage(playerMaxHp);
+
+    /// <summary>
     /// Damage lands on the player's hit points with a floor of <b>zero</b>: a character at 0 HP is a
     /// legal state. The client learns it is dead from that value — the killing swing's
     /// <c>target_hp</c> and the <c>hp</c> property — because this version has no death packet

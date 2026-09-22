@@ -26,4 +26,12 @@ public class StateResourceRepository : IStateResourceRepository
             .Select(state => new StateEffectFields((int)state.Id, (int)state.EffectType, state.Values))
             .ToList();
     }
+
+    public IReadOnlyList<int> GetStateIds()
+    {
+        return _context.StateResources
+            .AsNoTracking()
+            .Select(state => (int)state.Id)
+            .ToList();
+    }
 }

@@ -34,7 +34,8 @@ internal static class StorageTestHarness
         return checksum;
     }
 
-    public static GameClient NewGameClient(Connection connection, IStorageService storageService = null)
+    public static GameClient NewGameClient(Connection connection, IStorageService storageService = null,
+        IGmCommandService gmCommandService = null)
     {
         var networkService = new NetworkService(
             A.Fake<ILogger<NetworkService>>(),
@@ -60,7 +61,8 @@ internal static class StorageTestHarness
             A.Fake<IEventAreaService>(),
             A.Fake<ICraftingSocleService>(),
             storageService ?? A.Fake<IStorageService>(),
-            A.Fake<IQuestService>());
+            A.Fake<IQuestService>(),
+            gmCommandService ?? A.Fake<IGmCommandService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

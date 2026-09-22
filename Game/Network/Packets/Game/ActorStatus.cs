@@ -16,11 +16,38 @@ namespace Navislamia.Game.Network.Packets.Game;
 public static class ActorStatus
 {
     /// <summary>
-    /// A player's mask. <paramref name="pkModeOn"/> is the only player bit the socle publishes:
-    /// <c>TCS_FlagPkOn</c> (<see cref="CreatureStatus.PlayerPkOn"/>). Sitting, booths, bloody and
-    /// demoniac states have no established server-side rule yet.
+    /// A player's mask. <paramref name="pkModeOn"/> is <c>TCS_FlagPkOn</c>
+    /// (<see cref="CreatureStatus.PlayerPkOn"/>); <paramref name="sitting"/>, <paramref name="battleMode"/>
+    /// and <paramref name="walking"/> are the three states the GM commands <c>/sitdown</c>, <c>/battle</c>
+    /// and <c>/walk</c> toggle (docs/gm-commands.md). Booths, bloody and demoniac states have no
+    /// established server-side rule yet. Every flag is passed on every send: the mask is a snapshot.
     /// </summary>
-    public static uint ForPlayer(bool pkModeOn) => pkModeOn ? CreatureStatus.PlayerPkOn : 0u;
+    public static uint ForPlayer(bool pkModeOn, bool sitting = false, bool battleMode = false,
+        bool walking = false)
+    {
+        var status = 0u;
+        if (pkModeOn)
+        {
+            status |= CreatureStatus.PlayerPkOn;
+        }
+
+        if (sitting)
+        {
+            status |= CreatureStatus.PlayerSitdown;
+        }
+
+        if (battleMode)
+        {
+            status |= CreatureStatus.BattleMode;
+        }
+
+        if (walking)
+        {
+            status |= CreatureStatus.PlayerWalking;
+        }
+
+        return status;
+    }
 
     /// <summary>
     /// A monster's mask. <paramref name="dead"/> is the corpse flag; the corpse outlives the death

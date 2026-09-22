@@ -1214,6 +1214,38 @@ validation des handles contre l'inventaire, le sens du `type` et l'unité du `go
   récompenses requis).
 - Détail, sources et réserves : `docs/packet-specs/socle-quetes.md`.
 
+## GM commands
+
+A chat line whose first character is `/`, on any channel but a whisper, is a command: it is run and
+never relayed as chat (NGemity's `WorldSession::onChatRequest` rule). The 7.3 client does forward
+such a line — `/position` came back as an echo before this module. `GameClient.HandleChatRequest`
+hands it to `GmCommandService` (`Game/Services/GmCommands/`), whose parser, catalogue and argument
+rules are pure and tested. Full list, sources and what is deliberately not ported:
+`docs/gm-commands.md`.
+
+**Privileged commands need `Characters.Permission >= 100`**, NGemity's threshold, read into
+`ConnectionInfo.CharacterPermission` at world entry. Without it a privileged command answers exactly
+like an unknown one, so its existence is not revealed. Answers go to the system chat line, sender
+`@SYSTEM`, type `0x1E` (`CHAT_EXP`), NGemity's convention.
+
+**No command has a path of its own**: `/warp` is `WarpService.Warp`, `/doit` is
+`ICombatService.ApplyDamage` with the remaining HP, `/level` raises the cumulative exp to the target's
+threshold and lets `LevelingService.ApplyExperience` run the ordinary level-up, `/item` is
+`CharacterService.AddItemAsync` after an `ItemSortCatalog.Contains` check, `/joblevel` credits each step's
+exact JP cost then calls `LevelingService.ApplyJobLevelUp` (JP balance unchanged, the button's own
+sequence), `/learn` is `SaveLearnedSkillAsync` with the JP untouched and ignores the job restriction,
+`/buff` is `ISkillCastService.ApplyState` after an `IStateCatalog.Exists` check, and `/immortal` is a
+session flag `MonsterAiRules.PlayerDamage(maxHp, immortal)` turns into a zero-damage swing. A command
+therefore cannot produce a state the game itself cannot. `/sitdown`, `/battle` and `/walk` are session states carried by
+`ActorStatus.ForPlayer`, which now composes PK, sitting, battle mode and walking — **every status send
+must pass all four**, the mask being a snapshot.
+
+**Not ported, on purpose**: `/run` (executes Lua, which this repository never does), `/suicide` (it
+**shuts the server down** in NGemity, `World::StopNow`), `/regenerate` (spawning needs a mutable
+`SpatialIndex`, which the monster infrastructure does not have) and the party commands (no party).
+The `&`-prefixed command lists found online do not exist in this client: none of their strings is in
+`SFrame.exe`.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
