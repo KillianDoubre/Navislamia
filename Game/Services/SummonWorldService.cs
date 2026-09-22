@@ -76,8 +76,8 @@ public sealed class SummonWorldService
     /// <summary>
     /// Takes one summon out of the world: <c>TS_SC_UNSUMMON</c> (305) then <c>TS_SC_LEAVE</c> (9), both to
     /// the master — the direct copy <c>Player.cpp:1008-1018</c> makes in addition to the regional broadcast,
-    /// which has no equivalent here (§5.3 step 3). Returns false, and sends nothing, on a missing session,
-    /// connection or handle.
+    /// which has no equivalent here (§5.3 step 3). The <paramref name="session"/> only labels the log line.
+    /// Returns false, and sends nothing, on a missing connection or an empty handle.
     /// </summary>
     public bool Leave(ConnectionInfo session, string clientTag, Connection connection, uint summonHandle)
     {
@@ -89,7 +89,8 @@ public sealed class SummonWorldService
         connection.Send(GameSummonPackets.BuildUnsummon(summonHandle));
         connection.Send(GameSpawnPackets.BuildLeave(summonHandle));
 
-        _logger.Debug("{ClientTag} summon {Handle} leaves the world", clientTag, summonHandle);
+        _logger.Debug("{ClientTag} summon {Handle} leaves the world (master {MasterHandle})", clientTag,
+            summonHandle, session?.CharacterHandle);
 
         return true;
     }

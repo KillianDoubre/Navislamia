@@ -11,8 +11,9 @@ namespace Navislamia.Game.Services;
 public sealed class SummonWorldEntry
 {
     /// <summary>
-    /// The card the summon belongs to — <c>card_handle</c> of <c>TS_SC_ADD_SUMMON_INFO</c> (301, offset 20)
-    /// and <c>TS_SC_REMOVE_SUMMON_INFO</c> (302, offset 7). <c>SummonEntity.CardItemId</c> per §6.
+    /// The card the summon belongs to — <c>card_handle</c>, the first field of <c>TS_SC_ADD_SUMMON_INFO</c>
+    /// (301, absolute offset 7, <c>BuildAddSummonInfo</c>) and of <c>TS_SC_REMOVE_SUMMON_INFO</c> (302).
+    /// <c>SummonEntity.CardItemId</c> per §6.
     /// </summary>
     public uint CardHandle { get; init; }
 
@@ -34,7 +35,7 @@ public sealed class SummonWorldEntry
     /// <summary><c>SummonEntity.Sp</c> — the 301 only; the entry tram carries no SP (§3.1).</summary>
     public int Sp { get; init; }
 
-    /// <summary>The summon's current health: <c>hp</c> of the entry, <c>hp</c> of the 301.</summary>
+    /// <summary>The summon's current health: <c>hp</c> of the entry only — the 301 carries no HP.</summary>
     public int Hp { get; init; }
 
     /// <summary>
@@ -43,7 +44,7 @@ public sealed class SummonWorldEntry
     /// </summary>
     public int MaxHp { get; init; }
 
-    /// <summary>The summon's current mana: <c>mp</c> of the entry, <c>mp</c> of the 301.</summary>
+    /// <summary>The summon's current mana: <c>mp</c> of the entry only — the 301 carries no MP.</summary>
     public int Mp { get; init; }
 
     /// <summary><c>max_mp</c> of the entry — caller-supplied, same reserve as <see cref="MaxHp"/>.</summary>
