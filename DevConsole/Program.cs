@@ -238,6 +238,7 @@ public class Program
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
+        services.AddSingleton<IItemWearCatalog, ItemWearCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
