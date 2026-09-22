@@ -119,6 +119,16 @@ character bootstrap: stats, inventory, summon slots, wear information, gold/chao
 experience/JP, job properties, learned skills, belt slots, game time and status. It then synchronizes
 NPC and monster visibility. See `docs/character-bootstrap.md` for packet layouts and model ordering.
 
+The summon socle's server-to-client layouts live in `GameSummonPackets`, sized from
+`docs/packet-specs/socle-invocations.md`: `TS_SC_ADD_SUMMON_INFO (301)` 46 bytes,
+`TS_SC_REMOVE_SUMMON_INFO (302)` 11, `TS_SC_UNSUMMON (305)` 11, `TS_SC_UNSUMMON_NOTICE
+(306)` 15, `TS_SC_SUMMON_EVOLUTION (307)` 38, `TS_SC_MOUNT_SUMMON (320)` 24,
+`TS_SC_UNMOUNT_SUMMON (321)` 16. Epic 7.3 gives the name field 19 bytes — 18 usable
+characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
+Nothing emits these packets yet: how many summons exist, for how long, at what cost and
+what they become is still an open decision, so `BuildAddSummonInfo` takes `code` (source not
+established) and `summon_handle` from its caller instead of inventing either.
+
 Epic 7.3 key bindings are character data, not a local `.opt` setting. The server sends the single
 string property `client_info` with `TS_SC_PROPERTY (507)` during world entry, and the client writes it
 back with `TS_CS_SET_PROPERTY (508)`, normally when leaving the game. The value is an opaque,
@@ -1262,3 +1272,6 @@ referenced resource tables are still empty.
   its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
   **in the same change**: a declared id with no dispatch arm reaches
   `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
+- That rule covers client packets. An id the server only ever emits needs no arm in
+  `GameClient.Receive`, so `GameSummonPackets`' seven strictly server-to-client ids are
+  declared in `GamePackets` with no dispatch entry; 33 `TM_SC_*` members already had none.
