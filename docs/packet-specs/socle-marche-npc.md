@@ -376,7 +376,97 @@ s'ouvre » à l'opérateur.
 > - `MarketResource` (`ArcadiaSchemaPSQL.sql:462-469`) n'a ni entité ni chargement : le catalogue
 >   marchand vient de l'extérieur du dépôt, aucune ligne n'est disponible localement.
 
+## 11. Implémentation livrée (`navis-dev`)
+
+Branche `hermes/packet-socle-marche-npc`, commits `412cf73` (code) et `af55c56` (tests).
+`dotnet build Navislamia.sln -c Debug` en code 0 ; `dotnet test Tests/Tests.csproj` : **473 tests,
+0 échec** (448 avant le lot).
+
+| Fichier | Ce qui a été livré |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs:47-48` | `TM_SC_NPC_TRADE_INFO = 240`, `TM_SC_MARKET = 250`, après `TM_SC_SKIN_INFO` (§5.3) |
+| `Game/Network/Clients/GameClient.cs:630-638` | bras d'anomalie S→C **unique pour les deux ids** : `Warning` + `continue`, aucun des deux n'atteint `_ => throw new Exception("Unknown Packet Type")` (`:801`) |
+| `Game/Network/Packets/Game/GameTradePackets.cs` | `BuildMarketInfo` (250, `13 + 16n`) et `BuildNpcTradeInfo` (240, 36 octets), en-tête et `WriteChecksum` du dépôt |
+| `Configuration/Options/MarketCatalogOptions.cs` | `MarketCatalogOptions.Markets` = liste de `MarketResourceRow` (`Name`, `SortId`, `Code`, `Price`, `HuntaholicPoint`) |
+| `Game/Services/MarketCatalog.cs` + `Interfaces/IMarketCatalog.cs` | regroupement par `name`, tri par `sort_id`, `TryGetMarket(string)` |
+| `Game/Services/MarketService.cs` + `Interfaces/IMarketService.cs` | envoie 250, ou refuse en journalisant |
+| `Game/Services/Props/PropScript.cs:13,28-33,54-60,93` | `PropActionKind.OpenMarket`, `PropAction.Market(name)`, `PropAction.Name` |
+| `Game/Services/NpcDialogService.cs:21-27,110-118` | branche `OpenMarket` dans `Select` |
+| `DevConsole/Program.cs:98,197-211,251-252` | `ConfigureMarketCatalog` (section `"MarketCatalog"`), `IMarketCatalog` et `IMarketService` en singletons |
+| `DevConsole/market-catalog.73.json` (+ `DevConsole.csproj`) | fichier versionné, `{"MarketCatalog": {"Markets": []}}` |
+| `Tests/Game/MarketPacketsTests.cs` (7) | offsets de 240 et 250 |
+| `Tests/Game/MarketCatalogTests.cs` (12) | chargeur, catalogue livré, refus du service |
+| `Tests/Game/PropScriptTests.cs` (+6) | `open_market(` avec et sans nom |
+
+### Décisions
+
+1. **250 entre dans ce lot, 240 n'est livré que comme constructeur** (§9.3, recommandation
+   appliquée). `BuildNpcTradeInfo` n'a pas d'appelant : ses producteurs sont 251/252, hors
+   périmètre ; il est couvert par les tests d'offsets pour que ces deux lots n'aient plus à
+   redériver la trame.
+2. **Forme compacte `13 + 16n`, sans les `4n` octets de rzu** (réserve 2 non tranchée) : le
+   convertisseur client lit `count × 16` octets contigus depuis `+0xd` (`0x66ffa5`), donc les octets
+   surnuméraires seraient ignorés. Un test verrouille « la trame se termine avec le dernier
+   `huntaholic_point` » (`packet.Length == 13 + 16n`).
+3. **Résolution par nom de marché, jamais par PNJ.** Le seul lien disponible entre un marchand et
+   son catalogue est l'argument du déclencheur ; la correspondance PNJ → `MarketResource.name`
+   reste `NON ÉTABLIE` (réserve 2). Le service ne devine donc aucun nom : il refuse et journalise.
+   Le handle du PNJ, lui, est bien celui du dialogue (`ConnectionInfo.NpcDialogHandle`, §5.2) et
+   part dans le paquet.
+4. **Déclencheur tronqué = refus explicite, pas de fenêtre vide.** `open_market(` (et
+   `open_market()` / `open_market( )`) donnent un `PropAction.Market` de nom vide : c'est
+   `MarketService` qui refuse, avec un `Warning` nommant le handle. `PropScript.Parse` ne rend
+   **pas** `None` pour ces chaînes, sinon `Select` retomberait sur « NPC dialog action … is not
+   implemented yet » et l'échec serait muet.
+5. **Un marché sans ligne n'est pas résolu.** Une ligne de `code` nul est écartée au chargement
+   (comme un `ItemId` nul dans les tables de butin) et un `name` vide n'est pas un marché : le
+   catalogue ne contient donc que des marchés non vides, et le service refuse aussi le cas `n = 0`
+   (aucun producteur connu d'un `250` de 13 octets, §5.4).
+6. **`huntaholic_point` est émis, valeur du catalogue (attendu 0).** Le champ est gaté
+   `>= EPIC_5_2`, donc présent en 7.3 : l'omettre désalignerait la trame. Le catalogue le porte
+   explicitement plutôt que de le forcer à la compilation, pour que la réserve 6 (sémantique non
+   établie) reste tranchable sans toucher au code.
+7. **Prix absolu dans le catalogue** (`Price`, pas `price_ratio`) : la référence multiplie déjà le
+   ratio par le prix de base à l'ouverture (`ObjectMgr.cpp:851`) et le client ne reçoit que le
+   produit. Le nom du champ JSON suit ce que la trame transporte.
+8. **Lignes triées par `sort_id`, égalité = ordre du fichier.** Reproduit
+   `ORDER BY name, sort_id` (`ObjectMgr.cpp:831`) ; `sort_id` n'ayant pas d'unicité (réserve 7), un
+   tri stable laisse l'ordre du fichier décider, et l'ordre d'affichage du client reste la
+   réserve 5.
+9. **Comparaison des noms de marché ordinale** (sensible à la casse), comme
+   `GetMarketInfo(szKey)` sur la base ; un test le verrouille (`DEVA_WEAPON` ≠ `deva_weapon`).
+10. **Le dialogue NPC reste courant après `open_market`.** La fenêtre de commerce est additive et
+    un second déclencheur doit repasser la garde « déclencheur annoncé »
+    (`NpcDialogService.cs:84-92`) ; c'est aussi ce qui permet à un marchand non résolu de réessayer
+    après l'export des données.
+11. **Le catalogue vide est journalisé, pas fatal** : `Loaded 0 Markettemplates over 0 catalogue
+    lines` au niveau `Information` (§5.4), sur le patron de `ObjectMgr.cpp:833`.
+
+### Écarts et limites constatés
+
+- **La branche `OpenMarket` de `NpcDialogService.Select` n'a pas de test direct.** Y arriver exige
+  un `GameClient` dont `ConnectionInfo` porte un dialogue annoncé, or `Client.ConnectionInfo` est
+  `internal` et le projet `Game` n'a aucun `InternalsVisibleTo`. Sont testés : l'analyse du
+  déclencheur (`PropScript.Parse`), le service marché (envoi et refus) et la construction du
+  catalogue. La carte QA doit lire la branche elle-même (11 lignes).
+- **La branche `lines.Count == 0` de `MarketService` est inatteignable par le catalogue livré**
+  (un marché n'existe que s'il a une ligne) : elle est couverte par un double de test écrit à la
+  main (`EmptyMarketCatalog`) et documente la politique `n = 0`.
+- **`FieldPropUsage.CanAct` rend `false` pour `OpenMarket`** (son `switch` finit par `_ => false`) :
+  aucun prop du monde n'acquiert de comportement, et `SkillCastService` ignore ce type, ce qui est
+  le résultat voulu — `open_market` est un déclencheur de dialogue, pas une action de prop.
+- **Aucun test ne démarre le serveur** : la chaîne `Contact` → `Select` → `Connection.Send` n'est
+  vérifiée que par morceaux, faute de client socket en test.
+- Le compte de tests ne baisse pas (448 → 473) et aucun champ `NON ÉTABLI` n'a été deviné : les
+  réserves ci-dessous restent ouvertes et bloquent l'ouverture **remplie** de la fenêtre.
+
 ## A VERIFIER PAR KILLIAN
+
+**État après le socle** (commit `af55c56`, §11) : la réserve 1 attend toujours la réponse du PO ; les
+réserves 2, 3 et 5 bloquent l'ouverture **remplie** de la fenêtre — sans le nom de marché d'un PNJ
+(réserve 2) chaque déclencheur `open_market(` est refusé et journalisé, et sans lignes exportées
+(réserve 3) le catalogue livré est vide. Aucune de ces réserves n'a été comblée par une valeur
+inventée.
 
 1. **Le 250 doit-il rejoindre cette carte ?** La carte ne nomme que 240, qui n'ouvre pas la
    fenêtre (§9.3). Réponse attendue : « oui, 250 dans ce lot » ou « non, carte dédiée à 250 ».
