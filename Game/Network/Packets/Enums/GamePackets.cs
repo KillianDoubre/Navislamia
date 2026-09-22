@@ -41,6 +41,7 @@ public enum GamePackets : ushort
     TM_CS_USE_ITEM = 253,
     TM_SC_DESTROY_ITEM = 254,
     TM_SC_UPDATE_ITEM_COUNT = 255,
+    TM_CS_DONATE_REWARD = 259,
     TM_SC_HAIR_INFO = 220,
     TM_SC_HIDE_EQUIP_INFO = 222,
     TM_SC_SKIN_INFO = 224,

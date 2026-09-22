@@ -484,6 +484,38 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// TM_CS_DONATE_REWARD (259) carries only the reward selection the player confirmed in the donation
+    /// window: signed slot indices and their quantities. No reference implements a server treatment for
+    /// it (rzu and NGemity declare the structure only, §5.1), and neither the meaning of the two record
+    /// fields nor the server side reward table is established (§7.1, §7.2, §7.7): the frame is read,
+    /// validated, journalised and acknowledged, with no game effect and no invented reward mapping. The
+    /// 7.3 client has a result block for request id 259 and expects that acknowledgement (§5.2).
+    /// </summary>
+    private void HandleDonateReward(byte[] packet)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_DONATE_REWARD;
+
+        if (!GameActionPackets.TryReadDonateReward(packet, out var rewards))
+        {
+            _logger.Debug("Refused a non conforming TM_CS_DONATE_REWARD ({id}) Length: {length} from {clientTag}",
+                requestId, packet.Length, ClientTag);
+            SendResult(requestId, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        _logger.Debug("TM_CS_DONATE_REWARD ({id}) Length: {length} with {count} reward(s) received from {clientTag}",
+            requestId, packet.Length, rewards.Length, ClientTag);
+
+        foreach (var reward in rewards)
+        {
+            _logger.Debug("Donation reward slot {rewardType} carries {count} for {clientTag}",
+                reward.RewardType, reward.Count, ClientTag);
+        }
+
+        SendResult(requestId, (ushort)ResultCode.Success);
+    }
+
     private async Task HandleDropItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadDropItem(packet, out var request))
@@ -878,6 +910,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_DROP_ITEM)
             {
                 _ = HandleDropItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_DONATE_REWARD)
+            {
+                HandleDonateReward(msgBuffer);
                 continue;
             }
 

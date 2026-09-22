@@ -212,6 +212,78 @@ public static class GameActionPackets
     }
 
     /// <summary>
+    /// One <c>TS_REWARD_INFO</c> record of <c>TM_CS_DONATE_REWARD</c> (259): a signed reward slot followed
+    /// by its unsigned quantity. The record is exactly three bytes — rzu declares `int8_t` then `uint16_t`
+    /// with no padding, and the 7.3 client advances its write pointer by three per record (§3).
+    /// </summary>
+    public readonly record struct DonateRewardEntry(sbyte RewardType, ushort Count);
+
+    /// <summary>
+    /// <c>TM_CS_DONATE_REWARD</c> (259), the Epic 7.3 form: a signed record count at offset 7, then that
+    /// many three-byte records, so the whole frame is 8 + 3N bytes (8, 11, 14, 17 or 20 for N in 0..4).
+    /// The envelope is judged before any byte of a record is read: the count must agree with the announced
+    /// length (the client derives both from the same N), a 7.3 client only ever fills the four slots it
+    /// declares, each slot once, and never emits a zero quantity (§3, §5.4). The empty frame (N = 0) is a
+    /// legitimate selection and is accepted. Refusing on <c>false</c>; nothing is invented past offset 7.
+    /// </summary>
+    public static bool TryReadDonateReward(ReadOnlySpan<byte> packet, out DonateRewardEntry[] rewards)
+    {
+        const int recordSize = 3;
+        const int minPacketLength = HeaderSize + 1;
+        const int declaredRewardSlots = 4;
+
+        rewards = null;
+
+        if (packet.Length < minPacketLength)
+        {
+            return false;
+        }
+
+        var count = (sbyte)packet[HeaderSize];
+        if (count < 0 || count > declaredRewardSlots)
+        {
+            return false;
+        }
+
+        if (packet.Length != minPacketLength + count * recordSize)
+        {
+            return false;
+        }
+
+        var records = new DonateRewardEntry[count];
+        var seenSlots = 0;
+
+        for (var i = 0; i < count; i++)
+        {
+            var record = packet.Slice(minPacketLength + i * recordSize, recordSize);
+            var rewardType = (sbyte)record[0];
+
+            if (rewardType < 0 || rewardType >= declaredRewardSlots)
+            {
+                return false;
+            }
+
+            if ((seenSlots & (1 << rewardType)) != 0)
+            {
+                return false;
+            }
+
+            seenSlots |= 1 << rewardType;
+
+            var recordCount = BinaryPrimitives.ReadUInt16LittleEndian(record.Slice(1, 2));
+            if (recordCount == 0)
+            {
+                return false;
+            }
+
+            records[i] = new DonateRewardEntry(rewardType, recordCount);
+        }
+
+        rewards = records;
+        return true;
+    }
+
+    /// <summary>
     /// TM_CS_EMOTION (1202) carries one opaque emotion value. The server never interprets it: the
     /// client owns the animation and the local message, and neither rzu nor NGemity validates a
     /// range, so an invented bound would refuse legitimate emotions.
