@@ -234,6 +234,7 @@ public class Program
         services.AddSingleton<IWorldRepository, WorldRepository>();
         services.AddSingleton<ICharacterRepository, CharacterRepository>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
+        services.AddSingleton<IStorageRepository, StorageRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
         services.AddSingleton<IJobResourceRepository, JobResourceRepository>();
         services.AddSingleton<IJobLevelBonusRepository, JobLevelBonusRepository>();
@@ -263,6 +264,7 @@ public class Program
         services.AddSingleton<IItemGroupCatalog, ItemGroupCatalog>();
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
+        services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();

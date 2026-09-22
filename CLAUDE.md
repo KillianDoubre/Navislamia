@@ -1048,7 +1048,8 @@ Armor, 401 Soulstone) and `type` is the coarse tab category, while `group` is th
 (1 Weapon, 2 Armor, 17 Bag). Mapping `type` onto `ItemType` compiles and imports cleanly but silently
 produces a nonsensical order.
 
-Storage is not implemented, so `is_storage = 1` answers `NotActable` for both packets.
+`is_storage = 1` answers `NotActable` for both packets: the character storage of 211/212 is a
+separate path and neither ordering packet acts on it.
 
 `TS_CS_ERASE_ITEM` (`208`) destroys items: a `count` byte @7 then that many 12-byte records of
 `item_handle` (uint32) + `count` (int64). A record whose count reaches the stack amount removes the
@@ -1183,8 +1184,10 @@ lue par `AuctionCateryResourceRepository`).
   items (63) and states. **Stats still barely drive gameplay**: a heal reads `magicPoint`, but combat
   ignores them entirely — damage is the monster's max HP divided by 3 and attack speed is fixed, so an
   attack-speed buff changes nothing
-- Inventory sorting and drag-swap work; storage/warehouse is not implemented and the sort order follows
-  the client's tab categories rather than the original server's comparator
+- Inventory sorting and drag-swap work; the character storage (211/212) moves items between the bag and
+  the account storage, but its capacity is unbounded and the two gold modes answer `NotActable` (no
+  column holds the stored gold), and the sort order follows the client's tab categories rather than the
+  original server's comparator
 - The client clock is synchronized, but `TS_SC_GAME_TIME.game_time` (the in-world day/night clock) is
   still zero, and movement still applies `ClientClockOffset` by hand rather than trusting the sync
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
@@ -1262,6 +1265,42 @@ The full spec (offsets, sources, version gating, NGemity deltas, scope, open que
   bits une fois lu en `uint` (il est exclu explicitement). La garde restera inerte tant que rien
   n'écrit ce bit (`AddItemAsync` ne pose aucun flag).
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquets 211 / 212 — entrepôt de personnage (`TM_SC_OPEN_STORAGE` / `TM_CS_STORAGE`)
+
+- **L'entrepôt de personnage (`TM_CS_STORAGE` 212 / `TM_SC_OPEN_STORAGE` 211) est implémenté.** Le
+  `212` (client → serveur) est une trame fixe de **20 octets** : en-tête 7, `item_handle` `uint32` à
+  l'offset 7, `mode` `uint8` à l'offset 11 (0 = objets inventaire→entrepôt, 1 = entrepôt→inventaire,
+  2 = or inventaire→entrepôt, 3 = or entrepôt→inventaire, 4 = fermeture) et `count` **`int64`** à
+  l'offset 12 (gating rzu `version >= EPIC_4_1_1`). Le `211` (serveur → client) fait **7 octets en
+  7.3, en-tête seul** : le champ `maxStorageItemCount` de rzu n'apparaît qu'à partir d'`EPIC_7_4`
+  (`0x070400`), et son `10000` par défaut n'est donc **pas** une capacité 7.3. Les deux ids basculent
+  à 1211/1212 seulement à partir d'`EPIC_9_6_3`.
+- **Déclencheur : une action de dialogue, pas une fenêtre client.** 20 PNJ du catalogue 7.3
+  (`DevConsole/npc-dialogs.73.json`, contacts `NPC_Storage_*`) proposent une entrée de menu dont le
+  déclencheur est `open_storage()`, et le client 7.3 porte ce littéral en propre. Le serveur doit donc
+  le reconnaître dans `NpcDialogService.Select`, comme il reconnaît déjà `RunTeleport`, puis envoyer
+  `211` + le contenu en `TM_SC_INVENTORY` (207, mêmes tranches que l'inventaire) + la propriété
+  `storage_gold`. Aucun Lua n'est exécuté.
+- **Le stockage est commandé par le compte, pas par le personnage** : rzu (`DB_StorageItem.cpp`) et
+  NGemity (`CharacterDatabase.cpp:93-97`) écrivent tous deux
+  `account_id = ? AND owner_id = 0 AND auction_id = 0 AND keeping_id = 0` sur la **même** table
+  d'objets que l'inventaire (qui est `account_id = 0 AND owner_id = ?`). `ItemStorageEntity` du dépôt
+  est l'entrepôt **des enchères** (`StorageType` 1..4/30..34), pas l'entrepôt de comptoir.
+- **Réponses et refus** : aucun accusé de succès pour le 212 (NGemity ne fait que `Save(true)`) — ce
+  sont les trames d'items (207/255/254) et les propriétés d'or qui informent le client ; les refus sont
+  des `TS_SC_RESULT` portant l'id **212** et un `item_handle` recopié, avec les codes NGemity réels
+  `NotActable` (5), `NotExist` (1), `AccessDenied` (6), `TooMuchMoney` (53), `NotEnoughMoney` (10).
+  **Correction de prémisse** : NGemity déclare `NOT_ACTABLE_WHILE_USING_STORAGE` (51) et
+  `TARGET_IS_USING_STORAGE` (88) mais ne les envoie **jamais** ; le client 7.3 sait les afficher, donc
+  les employer reste possible, mais ce serait un choix du dépôt et non un portage.
+- **Réserves vérifiables** (fiche §7) : la tolérance du client 7.3 à une charge après l'en-tête du
+  `211` n'est pas établie (on envoie la forme stricte à 7 octets) ; la **capacité maximale** de
+  l'entrepôt en 7.3 n'est établie par aucune source (le `10000` de rzu est ≥ 7.4, la mise en page du
+  client n'est pas extraite) et **aucune borne serveur n'est inventée** ; le geste exact qui émet le
+  `212` n'a pas été identifié ; le mode 4 (fermeture) doit être accepté sans erreur mais ne doit pas
+  être le seul chemin de libération de l'état serveur ; la persistance de l'or d'entrepôt reste à
+  trancher (NGemity détourne une ligne d'objet de code 0 — défaut visible à ne pas répliquer).
 
 ### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
 

@@ -200,6 +200,7 @@ public class ConnectionInfo
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
+        StorageSecurityCheck = false;
         Layer = 0;
         CurrentEventAreaId = 0;
         CurrentLocationId = 0;

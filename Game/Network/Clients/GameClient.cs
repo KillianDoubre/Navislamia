@@ -554,6 +554,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleStorageAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadStorage(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_STORAGE, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.StorageService.HandleAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process storage request for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandlePutoffItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadPutoffItem(packet, out var request))
@@ -985,6 +1003,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION)
             {
                 _ = HandleChangeItemPositionAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_STORAGE)
+            {
+                _ = HandleStorageAsync(msgBuffer);
                 continue;
             }
 

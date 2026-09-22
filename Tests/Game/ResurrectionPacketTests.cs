@@ -376,7 +376,8 @@ public class ResurrectionPacketTests
             new ResurrectionService(realWarp ? services.WarpService : services.WarpCalls,
                 services.StatService),
             A.Fake<IEventAreaService>(),
-            A.Fake<ICraftingSocleService>());
+            A.Fake<ICraftingSocleService>(),
+            A.Fake<IStorageService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

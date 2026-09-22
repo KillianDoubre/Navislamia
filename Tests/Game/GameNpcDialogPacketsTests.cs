@@ -93,7 +93,7 @@ public class GameNpcDialogPacketsTests
         catalog.Dialogs["NPC_lost_island_colbai_contact"].Menu.Should().ContainSingle()
             .Which.Label.Should().Be("@90010002");
         var compileCatalog = () => new NpcDialogService(Options.Create(catalog), A.Fake<IWarpService>(),
-            A.Fake<IMarketService>());
+            A.Fake<IStorageService>(), A.Fake<IMarketService>());
         compileCatalog.Should().NotThrow();
     }
 

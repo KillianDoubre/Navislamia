@@ -29,6 +29,7 @@ public class NetworkService : INetworkService
     public readonly IEquipmentService EquipmentService;
     public readonly IInventoryService InventoryService;
     public readonly IItemUseService ItemUseService;
+    public readonly IStorageService StorageService;
     public readonly IGroundItemService GroundItemService;
     public readonly ICraftingSocleService CraftingSocleService;
     public readonly IFieldPropService FieldPropService;
@@ -59,7 +60,8 @@ public class NetworkService : INetworkService
         IWorldLocationService worldLocationService,
         IResurrectionService resurrectionService,
         IEventAreaService eventAreaService,
-        ICraftingSocleService craftingSocleService)
+        ICraftingSocleService craftingSocleService,
+        IStorageService storageService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -74,6 +76,7 @@ public class NetworkService : INetworkService
         EquipmentService = equipmentService;
         InventoryService = inventoryService;
         ItemUseService = itemUseService;
+        StorageService = storageService;
         GroundItemService = groundItemService;
         CraftingSocleService = craftingSocleService;
         FieldPropService = fieldPropService;

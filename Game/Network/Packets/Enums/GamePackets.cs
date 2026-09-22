@@ -36,6 +36,10 @@ public enum GamePackets : ushort
     TM_CS_TAKE_ITEM = 204,
     TM_SC_DROP_RESULT = 205,
     TM_SC_TAKE_ITEM_RESULT = 210,
+    // The storage family, declared with the item ids rather than after TM_CS_VERSION, where the sibling
+    // packet branches anchor their own members.
+    TM_SC_OPEN_STORAGE = 211,
+    TM_CS_STORAGE = 212,
     TM_SC_BELT_SLOT_INFO = 216,
     TM_SC_ITEM_COOL_TIME = 217,
     TM_CS_CHANGE_ITEM_POSITION = 218,
