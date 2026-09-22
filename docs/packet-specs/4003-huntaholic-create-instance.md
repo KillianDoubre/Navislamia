@@ -19,7 +19,7 @@ mentionné ici que là où la preuve client est **commune aux deux ids**, jamais
 | Nom `TM_CS_*` | `TM_CS_HUNTAHOLIC_CREATE_INSTANCE` | idem |
 | Sens | client → serveur | rzu `TS_CS_HUNTAHOLIC_CREATE_INSTANCE.h:13` (`SessionPacketOrigin::Client`) |
 | Taille totale | **56 octets** (en-tête de 7 + 49 de charge utile) | §3.2 |
-| État du dépôt | **absent** de `GamePackets.cs` au commit de base `a1c4950` : l'énumération passe de `TM_CS_CHECK_CHARACTER_NAME = 2006` à `TM_CS_INSTANCE_GAME_ENTER = 4250` (`Game/Network/Packets/Enums/GamePackets.cs:144-148`) | lecture du fichier |
+| État du dépôt | **absent** de `GamePackets.cs` au commit de base `a1c4950` : l'énumération passe de `TM_CS_CHECK_CHARACTER_NAME = 2006` à `TM_CS_INSTANCE_GAME_ENTER = 4250` (`Game/Network/Packets/Enums/GamePackets.cs:144-148`) — son **intégration par le lot S4** est décrite au §10 | lecture du fichier |
 | Nature | **commande de création de salle** du lobby HuntaHolic : pas de réponses serveur → client déclarées pour cet id dans rzu ni dans NGemity (§5.1) | — |
 
 ---
@@ -108,7 +108,8 @@ Un test d'offsets sur `byte[]` construit à la main, dans le style du dépôt
 
 1. `Length` à l'offset 0 = **56** et `ID` à l'offset 4 = **4003** ;
 2. `name` : champ de 31 octets **à l'offset 7** — un nom de 30 caractères est suivi de son NUL **dans**
-   les 31 octets, un nom de 31 caractères est refusé/tronqué (jamais de débordement sur l'octet 38) ;
+   les 31 octets, un nom de 31 caractères est **refusé** — décision tranchée à l'implémentation, §10.1 ; la
+   lecture ne dépasse alors jamais l'octet 37, elle ne peut pas mordre sur l'octet 38 ;
 3. `max_member_count` : 1 octet **à l'offset 38**, type `int8_t` chez rzu — un test sur `0xFF`
    fige la convention de lecture (octet signé ou non) ;
 4. `password` : champ de 17 octets **à l'offset 39** — 16 caractères + NUL, fin de trame à 56 ;
@@ -348,6 +349,61 @@ versionné), en lecture seule : enregistrements parcourus séquentiellement à p
 > table. `TM_CS_HUNTAHOLIC_CREATE_INSTANCE = 4003` doit être déclaré dans `GamePackets` **et** routé
 > dans `GameClient.OnDataReceived` (aucun id ne doit atteindre le `throw` final). Ordre du socle :
 > `S2 → S4` (créer suppose lister).
+
+---
+
+## 10. Implémentation (lot S4, livré)
+
+Commit `71af0f6` sur `hermes/packet-4003-huntaholic-create-instance` (base `a1c4950` + fiche `f8546f6`).
+
+| Fichier | Apport |
+|---|---|
+| `Game/Network/Packets/Game/GameHuntaholicPackets.cs` | **nouveau** : constantes de disposition, `HuntaholicCreateInstanceRequest`, `TryReadCreateInstance` |
+| `Game/Network/Packets/Enums/GamePackets.cs:153-158` | `TM_CS_HUNTAHOLIC_CREATE_INSTANCE = 4003`, inséré **après** le bloc `TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253` et **avant** le bloc `TM_CS_COMPETE_*` |
+| `Game/Network/Clients/GameClient.cs:907-932` | handler `HandleHuntaholicCreateInstance` (lecture, journal, **aucune réponse**) |
+| `Game/Network/Clients/GameClient.cs:1103-1111` | bras de dispatch, inséré après le bras d'anomalie `TM_SC_INSTANCE_GAME_SCORE_REQUEST` et avant `TM_CS_CHANGE_LOCATION` |
+| `Tests/Game/HuntaholicCreateInstancePacketsTests.cs` | **nouveau** : 29 tests d'offsets et de bornes |
+
+Constantes figées (toutes vérifiées par `PacketConstants_FixTheFiftySixByteLayout`) : `NameOffset` 7,
+`NameFieldLength` 31, `MaxMemberCountOffset` 38, `PasswordOffset` 39, `PasswordFieldLength` 17,
+`PayloadLength` 49, `CreateInstanceLength` **56**.
+
+### 10.1 Décisions prises à l'implémentation
+
+| Sujet | Décision | Raison |
+|---|---|---|
+| Longueur | **56 exactement** ; toute autre longueur (7, 38, 39, 55, 57, 72) est refusée et journalisée en `Warning`, **sans réponse** | le client écrit `Length = 0x38` en dur (`0x563c56`) ; une trame plus courte n'a pas de champ mot de passe, une plus longue ne vient pas de ce client (§5.3) |
+| Nom sans NUL dans ses 31 octets | **refus de la trame** (pas de troncature) | le client ne peut pas la produire (fenêtre limitée à 30 caractères, tampon memset avant la copie bornée) ; c'est aussi la règle du lecteur frère `GameCompetePackets.TryReadRequest` (4500). Le §3.4 laissait « refusé/tronqué » ouvert : c'est **refusé** qui a été retenu, et il borne la lecture au champ sans jamais lire l'octet 38 |
+| Mot de passe sans NUL dans ses 17 octets | **refus de la trame**, même règle | `_(string)(password, 17)` réserve la place du NUL ; un champ plein de 17 octets ne vient pas de ce client (fenêtre à 16) |
+| `max_member_count` | lu comme l'`int8_t` signé de rzu (`(sbyte)packet[38]`), **non validé** : `0xFF` vaut `-1`, `0` comme `40` sont acceptés | le client copie l'octet de sa fenêtre sans extension de signe — les deux lectures s'accordent sur l'octet ; le type signé est celui **déclaré**. Le domaine est une politique de jeu (§7 point 6, `NON ÉTABLI`) |
+| Mot de passe vide | `PasswordLength = 0`, `HasPassword = false` ; **la trame est acceptée** | le client saute la copie quand le champ est vide et laisse 17 zéros ; accepter une salle publique ou refuser est un choix de jeu (Killian), donc le lecteur ne tranche pas |
+| Valeur du mot de passe | **jamais transportée hors du lecteur** (seule `PasswordLength` sort) | la trame est journalisée à l'arrivée : un mot de passe de salle ne doit pas pouvoir se retrouver dans un log. Un test fige l'absence de propriété `Password` |
+| Réponse | **aucune** | §5.2/§7 points 1-3 : la forme sur le fil du refus par quota n'est pas établie ; aucun paquet serveur → client de la famille n'existe. Aucun paquet de résultat n'est inventé |
+| État, base | **rien** : pas de lobby, pas d'instance, pas d'écriture en base, aucune lecture de `ConnectionInfo` | périmètre du socle (§5.3) ; le lot S4 reste inerte côté client tant que S2 (4001/4002) n'est pas livré |
+
+### 10.2 Preuves d'exécution
+
+- `dotnet build Navislamia.sln -c Debug` → **0 erreur** (163 avertissements préexistants).
+- `dotnet test Tests/Tests.csproj` → **1005 tests, 0 échec** (base `a1c4950` : 976 ; le fichier de tests en
+  ajoute 29). Aucun test n'est supprimé.
+- Critère transversal n° 4 : l'id est déclaré **et** routé dans le même commit ; le bras de dispatch précède
+  le `switch` final, donc un 4003 n'atteint jamais `_ => throw new Exception("Unknown Packet Type")` ni le
+  filtre `Enum.IsDefined` de `GameClient.cs:936`.
+- `git log --oneline origin/master..master` → **vide** (aucun commit sur `master` locale).
+
+### 10.3 Zones de recouvrement (à signaler dans la MR)
+
+`Game/Network/Packets/Enums/GamePackets.cs`, `Game/Network/Clients/GameClient.cs` et le fichier **neuf**
+`Game/Network/Packets/Game/GameHuntaholicPackets.cs` sont touchés par les cinq autres cartes de la famille
+4000-4012 : le nom du fichier neuf est un point de collision `add/add` si une branche sœur crée le même, et
+l'ancrage choisi (après le bloc 4253, après le bras d'anomalie 4253) vise à s'éloigner du point d'insertion
+le plus probable des sœurs (juste après `TM_CS_CHECK_CHARACTER_NAME = 2006`, avant le bloc 4250).
+
+### 10.4 Ce que la fiche laisse inchangé
+
+Les points 1 à 6 de la section `## A VERIFIER PAR KILLIAN` restent ouverts : cette livraison ne tranche ni la
+forme sur le fil de la réponse à 4003, ni la signification de `0x20`, ni le quota et la colonne cible, ni
+l'ordre S2 → S4, ni les longueurs 30/16 de la fenêtre. Aucun de ces points n'est deviné dans le code.
 
 ---
 
