@@ -332,6 +332,34 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_EMOTION, buffer.Length, ClientTag, emotion);
     }
 
+    /// <summary>
+    /// TM_CS_RANKING_TOP_RECORD (5000): the client asks for the top records of one ranking and expects a
+    /// single TM_SC_RANKING_TOP_RECORD (5001) — no TS_SC_RESULT, and no state is armed on its side.
+    /// The minimum socle answers with an empty answer (records = 0, 20 bytes) that echoes the requested
+    /// ranking_type; the data behind it (which ranking, which metric, how many entries, the requester's
+    /// own rank) is a later lot and belongs to Killian (spec §5.5, §7a-§7f). Both scores are therefore
+    /// written as zero — no ranking source exists server-side yet, and the value a non ranked player
+    /// should carry is not established (§7d).
+    /// </summary>
+    private void HandleRankingTopRecord(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadRankingTopRecord(buffer, out var request))
+        {
+            // A length other than 8 cannot come from the 7.3 client; the specification decides no answer
+            // for it, and a TS_SC_RESULT tagged 5000 has no established display (§5.3, §7i).
+            _logger.Warning("Malformed ranking top record request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        Connection.Send(GameRankingPackets.BuildRankingTopRecord(
+            request.RankingType, 0, 0, Array.Empty<GameRankingPackets.RankingRecord>()));
+
+        _logger.Debug(
+            "TM_CS_RANKING_TOP_RECORD ({id}) Length: {length} received from {clientTag}: ranking_type={rankingType}",
+            (ushort)GamePackets.TM_CS_RANKING_TOP_RECORD, buffer.Length, ClientTag, request.RankingType);
+    }
+
     private void HandleAttackRequest(byte[] buffer)
     {
         var target = GameAttackPackets.ReadAttackTarget(buffer);
@@ -1170,6 +1198,22 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_EMOTION)
             {
                 HandleEmotion(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_RANKING_TOP_RECORD)
+            {
+                HandleRankingTopRecord(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_RANKING_TOP_RECORD is a server to client packet: the 7.3 client only routes it as an
+            // incoming packet and never sends it. An incoming one is a protocol anomaly, not a request, so
+            // it is logged and dropped instead of reaching the "Unknown Packet Type" throw below.
+            if (header.ID == (ushort)GamePackets.TM_SC_RANKING_TOP_RECORD)
+            {
+                _logger.Warning("Server to client packet TM_SC_RANKING_TOP_RECORD ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
                 continue;
             }
 

@@ -1687,6 +1687,52 @@ codes de refus et l'opportunité de répondre à un `4500` (§7m) restent l'arbi
 les deux sont des constantes d'une ligne.
 
 
+### Socle classements de joueurs — 5000/5001 (`TM_CS/SC_RANKING_TOP_RECORD`)
+
+**Deux opcodes, tous deux `X(<id>, true)` chez rzu : aucun gating de version, aucun champ gaté.**
+`true` n'est pas une convention « valide partout » mais la **condition C++ littérale** substituée
+dans `if(condition_) id = id_;` (`PacketDeclaration.h:587-589`) : `5000` et `5001` sont donc
+identiques en 7.3 et dans toutes les versions. La plage 5002-5999 est vide dans rzu comme chez
+NGemity. Fiche complète : `docs/packet-specs/socle-classements.md`.
+
+**Tailles à écrire en dur** (source : rzu + constructeur et analyseur du client 7.3) :
+`5000` = **8** octets fixes (`int8 ranking_type` à l'offset **7**) ; `5001` = **20 + 41 × n**
+octets, soit **20** à vide — en-tête, `int8 ranking_type` (7), `uint16 requester_rank` (8),
+`int64 requester_score` (10), `uint16 records` (18), puis `records` entrées de **41** octets
+commençant à l'offset **20** : `uint16 rank` (+0), `char[31] ranker_name` (+2),
+`int64 score` (+33). **Aucun remplissage** entre le compteur et la première entrée.
+
+**Le client 7.3 émet bien `5000`** : constructeur de trame `0x48d160` (longueur `8`), appelé depuis
+l'unique site `0x49d2de`, avec `ranking_type = 0` écrit en clair (`0x49d2e9`). Il part de la
+commande UI enregistrée sous le nom `Ranking_Top_Record` (fenêtre `window_donation_ranking.nui`).
+Aucun autre `ranking_type` n'est atteignable. Le client **route `5001`** (dispatcher entrant
+`0x67e7bc`, `cmp $0x1389`, analyseur `0x671660`) et ne route pas `5000`.
+
+**Trois obligations que le client impose au serveur, et qu'aucune référence n'écrit** : (1)
+`records` égale le nombre réel d'entrées — le client boucle `records` fois et ne lit jamais
+l'en-tête de longueur ; (2) **`records ≤ 10`** — le message interne du client fait 442 octets,
+soit 32 d'en-tête + 41 × 10, et rien ne borne le compteur côté client ; (3) chaque
+`ranker_name` contient un **NUL dans ses 31 octets** — la copie du client est un `strcpy`
+(`0x671700`). Enfin, **les deux `score` sont divisés par 10 000 par le client** avant tout usage :
+la valeur du fil est la valeur affichée **× 10 000**.
+
+**Ne pas porter NGemity** : les deux structures y sont déclarées et **jamais traitées** (`Chihiro`
+n'a aucun `Ranking`). `librzu` non plus. C'est du protocole pur, comme les socles compétition et
+instances de jeu.
+
+**Socle minimum (K1)** : `5000` déclaré dans `GamePackets` **et** routé dans `GameClient.cs`
+(critère transversal n° 4), `Length == 8` exigée, puis réponse `5001` à `records = 0` (20 octets,
+`ranking_type` recopié, `requester_rank`/`requester_score` à zéro) construite avec
+`CreatePacket` + `WriteChecksum` (`GameCharacterPackets.cs:19`, `:382-388`). `5001` est déclaré
+parce qu'il est émis. Aucune donnée de classement, aucune métrique, aucune cadence : la source
+des données est le lot K2, et elle appartient à Killian. Découpage K1…K3 : §5.5 de la fiche.
+
+**Non tranché** : domaine de `ranking_type` (le client n'émet que `0` ; la fenêtre s'appelle
+`donation_ranking`, seul indice), métrique et échelle du `score`, nombre d'entrées effectif
+(≤ 10 est une borne de protocole, pas un choix), valeur du rang et du score d'un joueur non
+classé, source des données, cadence, refus d'une trame mal formée, effet perçu d'une liste vide.
+Aucune de ces valeurs n'est devinée.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.

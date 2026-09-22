@@ -33,6 +33,8 @@ public static class GameActionPackets
 
     public readonly record struct TakeoutCommercialItemRequest(uint Uid, ushort Count);
 
+    public readonly record struct RankingTopRecordRequest(sbyte RankingType);
+
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
         return BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
@@ -525,6 +527,27 @@ public static class GameActionPackets
         request = new TakeoutCommercialItemRequest(
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
             BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(HeaderSize + 4, 2)));
+        return true;
+    }
+
+    /// <summary>
+    /// TM_CS_RANKING_TOP_RECORD (5000) carries one <c>int8 ranking_type</c> and nothing else: the 7.3
+    /// client writes the length 8 in hard from its only emission site, so a frame of any other length
+    /// comes from a non conforming client. The specification decides no answer for it (log and drop,
+    /// spec §5.3 / §7i), which is why only the exact 8-byte form is accepted. The domain of the value
+    /// is not established (§7a): it crosses the server untouched and is copied back into the answer.
+    /// See docs/packet-specs/socle-classements.md and <see cref="GameRankingPackets"/>.
+    /// </summary>
+    public static bool TryReadRankingTopRecord(ReadOnlySpan<byte> packet, out RankingTopRecordRequest request)
+    {
+        const int packetLength = HeaderSize + 1;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new RankingTopRecordRequest((sbyte)packet[HeaderSize]);
         return true;
     }
 }
