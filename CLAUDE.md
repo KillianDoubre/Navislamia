@@ -1138,6 +1138,118 @@ referenced resource tables are still empty.
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work
 
+## Paquets
+
+### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
+
+- **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`
+  `uint32` à l'offset 7, `count` `int32` à l'offset 11 (gating rzu `version >= EPIC_4_1`, donc
+  `int32` en 7.3 ; le paquet bascule à 1203 seulement à partir d'`EPIC_9_6_3`). Aucune position n'est
+  transmise : l'objet au sol est créé à la position du joueur (`ConnectionInfo.X/Y/Z/Layer`), sans
+  dispersion, avec la durée de vie des drops de monstres (120 s).
+- **Réponses** : `TM_SC_DROP_RESULT` (205), **12 octets** — `item_handle` recopié puis `isAccepted`
+  `uint8` — précédé en cas de succès de `TM_SC_ENTER` (70 octets, objet au sol, `BuildEnterItem`) puis
+  de `TM_SC_ERASE_ITEM` (209, 20 octets pour une paire `handle`/`count`, `BuildEraseItem`). Le retrait
+  passe par `CharacterService.RemoveItemAsync`, qui juge les refus et borne le compte **dans la même
+  section exclusive** que le retrait (un équipement traité entre deux ne peut pas s'intercaler), et
+  renvoie ce qui a réellement été retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
+  `popItem` a échoué — défaut à ne pas répliquer). Aucun `TS_SC_RESULT` de succès, aucun 254/255.
+- L'objet lâché n'est **visible et ramassable que par le joueur qui l'a lâché** :
+  `TakeAsync` exige `ReferenceEquals(item.Owner, client)` et `ConnectionInfo` ne suit aucun objet au
+  sol (pas de `SpawnedItems`). L'écart avec NGemity (diffusion à la région, ordre de ramassage 3/4/5 s)
+  est assumé et documenté dans `docs/packet-specs/203-drop-item.md`.
+- **Réserves vérifiables** (fiche §7) : l'émission du 203 par le client 7.3 n'est pas prouvée (table
+  d'annotation partielle) ; le geste d'émission (aucune classe `SInput*Drop*`) ; le flag de jetabilité
+  (`flag_drop` / `item_use_flag` bit 15) n'est pas exploitable dans le dépôt et **aucun refus « non
+  jetable » n'est implémenté** — le client refuse déjà localement (`smsg_dump_fail`) ; `count > pile`
+  est borné (choix fixé, NGemity refuse en bloc).
+- **Un objet équipé est refusé** (`WearInfo != None` → `205 { handle, 0 }`,
+  `GroundItemDropRules.IsEquipped`) : aucune référence ne le fait, mais sans ce refus la ligne est
+  supprimée alors que ni 202 ni 287 ne partent, et le modèle et les stats gardent l'objet porté.
+- La garde NGemity « carte d'invocation liée » est portée : `ItemGroup.Summoncard = 13` correspond à
+  `GROUP_SUMMONCARD = 13`, et la garde teste le **bit 31** du bitset retail
+  (`GroundItemDropRules.SummonFlagMask = 0x80000000u` = `ITEM_FLAG_SUMMON`). Attention au piège :
+  `ItemFlag.Summon = 31` est l'**index** du bit, pas le masque, et `ItemFlag.None = -1` vaut tous les
+  bits une fois lu en `uint` (il est exclu explicitement). La garde restera inerte tant que rien
+  n'écrit ce bit (`AddItemAsync` ne pose aucun flag).
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
+
+- Trame cliente de **47** octets : en-tête 7, `item_handle` à 7, `target_handle` à 11,
+  `szParameter` sur 32 octets à 15. Le paramètre est consommé pour sa taille seulement : son
+  contenu n'est pas établi.
+- Un succès consomme **un exemplaire**, sauf pour le type `ItemBaseType.Use` (6, réutilisable, 404
+  ressources) comme NGemity `Player::UseItem`. La mise à jour de pile part **avant** le résultat :
+  `TM_SC_UPDATE_ITEM_COUNT` (255, `item_handle` + `count` int64, 19 octets) ou, au dernier
+  exemplaire, `TM_SC_DESTROY_ITEM` (254, `item_handle`, 11 octets) et la ligne supprimée via
+  `DeleteItem`.
+- Puis la réponse en **deux** trames, dans cet ordre : `TS_SC_RESULT` (253, `Success`,
+  `item_handle`) puis `TM_SC_USE_ITEM_RESULT` (283), qui réémet les deux handles.
+- Seul le niveau de l'objet est jugé : `use_min_level` → `LimitMin`, `use_max_level` → `LimitMax`,
+  le plafond testé avant le plancher comme dans NGemity `Player::IsUseableItem`. Un handle inconnu
+  ou non possédé donne `NotExist`.
+- `ItemUseFlag` n'est pas lu : la valeur réellement importée n'est pas documentée dans le dépôt.
+  Ne jamais l'utiliser comme masque binaire sans arbitrage.
+- Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
+  (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
+- Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
+
+- 7.3 = ids **550** (CS) / **11** (SC) : rzu remappe en 1550/1011 à partir d'`EPIC_9_6_3`
+  (`TS_CS_GET_REGION_INFO.h:9-11`, `TS_SC_REGION_ACK.h:11-13`) ; `EPIC_7_3 = 0x070300` est sous
+  `0x090603`. NGemity compile en `EPIC_4_1_1` et confirme la branche basse.
+- **15 octets des deux côtés** : en-tête 7, `x` (float) @7 et `y` (float) @11 pour la demande
+  (taille confirmée par le constructeur client VA `0x684b60`, `Length = 0xf`) ; `rx` (int32) @7 et
+  `ry` (int32) @11 pour la réponse. Aucun autre champ, aucun handle.
+- Le client 7.3 construit lui-même la 550 dans `SGameWorld::Process`, à chaque **franchissement de
+  frontière de région** — pas à chaque pas : elle n'est pas un flux, et le client ne redemande pas
+  tant que sa paire d'indices n'a pas changé (caches `0xc4f6e0` / `0xc4f6dc`).
+- **Diviseur : `WorldVisibility.RegionSize` (180)**, la valeur annoncée au login dans
+  `TS_SC_LOGIN_RESULT.RegionSize` (`GameActions.cs:128`). **Jamais** `WorldOption.RegionSize`
+  (150) : c'est le défaut pré-login du client (global `.data` `0xc20508`), et l'utiliser fait
+  dériver la fenêtre de visibilité du client d'un facteur 6/5.
+- Division **tronquée vers zéro** (`(int)(x / 180f)`), jamais arrondie ; **ne pas** caster en `uint`
+  (une position négative deviendrait un indice énorme).
+- `rx`/`ry` sont les indices de la grille de régions **du client** (fenêtre 7 × 7, rayon 3), pas des
+  identifiants de bloc terrain. Ils se calculent sur les `float` **reçus dans la 550**, pas sur
+  `ConnectionInfo.X/Y` (qui peut retarder d'un déplacement).
+- Réponse **au seul client demandeur**, jamais diffusée. `Length != 15` → journal + abandon, sans
+  `TM_SC_RESULT` ; `ConnectionInfo.CharacterHandle == 0` → journal + abandon.
+- NGemity ne lit jamais la 550 (`WorldSession.h:59-122`) et pousse la 11 de sa propre initiative
+  depuis `World::enterProc` (`World.cpp:287-302`) : écart assumé, le push reste hors périmètre.
+- Restes ouverts (voir la fiche) : la 11 est-elle indispensable, redemande-t-elle après un warp,
+  150 vs 180, contrôle de taille côté client.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 1202 — `TM_CS_EMOTION` (émotion)
+
+- 7.3 = ids **1202** (CS) / **1201** (SC) : rzu remappe en 2202/2201 à partir d'`EPIC_9_6_3`
+  (`TS_CS_EMOTION.h:8-10`). NGemity compile en `EPIC_4_1_1` et ne voit pas ce gating.
+- Trame cliente de **11** octets : en-tête 7, `emotion` (int32) à 7. Réponse de **15** octets :
+  en-tête 7, `handle` (uint32) à 7, `emotion` (int32) à 11. Aucun tableau, aucune chaîne.
+- La valeur d'émotion est **opaque** : le client 7.3 la résout lui-même (14 animations `emote_*`,
+  14 icônes `icon_emotion_0001..0014`, 11 messages client `smsq_emotion_*` id 700…710). Le serveur
+  la réémet telle quelle — **ne jamais** écrire de table émotion → animation ni de borne
+  d'intervalle : l'ordre des ids n'est pas établi (l'asset d'interface est dans les archives
+  `data.001..008`, absentes).
+- Le serveur répond par un simple **écho** : `handle` = `ConnectionInfo.CharacterHandle`,
+  `emotion` inchangée, checksum recalculé. **Aucun `TM_SC_RESULT`** n'est identifié pour 1202, et
+  aucun refus n'est inventé sur la valeur.
+- La boucle de réception ne garantit que `Length`/`Checksum` : la garde de taille (11 octets) est
+  dans le handler, et elle répond par un `Warning` seul.
+- Portée : Navislamia n'a **aucune** visibilité joueur↔joueur (`TS_SC_ENTER_PLAYER` n'est envoyé
+  qu'au client qui entre, `GameActions.cs:180`) : n'émettre que vers l'acteur tant qu'elle n'existe
+  pas.
+- Aucun traitement dans NGemity ni dans rzu (0 occurrence) : rien à porter. Ne pas confondre avec
+  `CHAT_EMOTION` (0x5, type de chat reçu par la passerelle, `IrcClient.cpp:189`), qui n'est pas le
+  véhicule de l'émotion.
+- Restes ouverts (voir la fiche) : le client émet-il 1202 ou un `CHAT_REQUEST` de type
+  `CHAT_EMOTION` ; la portée réelle de la 1201.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.

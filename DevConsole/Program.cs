@@ -232,8 +232,11 @@ public class Program
         services.AddSingleton<ISkillService, SkillService>();
         services.AddSingleton<IEquipmentService, EquipmentService>();
         services.AddSingleton<IItemResourceRepository, ItemResourceRepository>();
+        services.AddSingleton<IItemGroupCatalog, ItemGroupCatalog>();
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
+        services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
+        services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<MonsterWorldState>();

@@ -16,7 +16,11 @@ public static class GameActionPackets
 
     public readonly record struct PutonItemRequest(sbyte Position, uint ItemHandle, uint TargetHandle);
 
+    public readonly record struct UseItemRequest(uint ItemHandle, uint TargetHandle);
+
     public readonly record struct ChangeItemPositionRequest(bool IsStorage, uint ItemHandle1, uint ItemHandle2);
+
+    public readonly record struct RegionInfoRequest(float X, float Y);
 
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
@@ -42,6 +46,27 @@ public static class GameActionPackets
     }
 
     public readonly record struct EraseItemRequest(uint ItemHandle, long Count);
+
+    /// <summary>
+    /// <c>TS_CS_DROP_ITEM</c> (203), the Epic 7.3 form: an inventory handle then a signed unit count.
+    /// No position is carried — the reference server relocates the dropped item on the character.
+    /// </summary>
+    public readonly record struct DropItemRequest(uint ItemHandle, int Count);
+
+    public static bool TryReadDropItem(ReadOnlySpan<byte> packet, out DropItemRequest request)
+    {
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new DropItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
+    }
 
     public static bool TryReadEraseItem(ReadOnlySpan<byte> packet, out EraseItemRequest[] requests)
     {
@@ -152,6 +177,23 @@ public static class GameActionPackets
         return true;
     }
 
+    public static bool TryReadUseItem(ReadOnlySpan<byte> packet, out UseItemRequest request)
+    {
+        // 7 header + item_handle (4) + target_handle (4) + szParameter (32). The 32 trailing bytes
+        // are consumed for their size only: their content is not established (spec §7.3).
+        const int packetLength = HeaderSize + 40;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new UseItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
+    }
+
     public static bool TryReadLearnSkill(ReadOnlySpan<byte> packet, out LearnSkillRequest request)
     {
         const int packetLength = HeaderSize + 10;
@@ -166,5 +208,44 @@ public static class GameActionPackets
             BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)),
             packet[HeaderSize + 8]);
         return packet[HeaderSize + 9] == 0;
+    }
+
+    /// <summary>
+    /// TM_CS_EMOTION (1202) carries one opaque emotion value. The server never interprets it: the
+    /// client owns the animation and the local message, and neither rzu nor NGemity validates a
+    /// range, so an invented bound would refuse legitimate emotions.
+    /// </summary>
+    public static bool TryReadEmotion(ReadOnlySpan<byte> packet, out int emotion)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length < packetLength)
+        {
+            emotion = 0;
+            return false;
+        }
+
+        emotion = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
+
+    /// <summary>
+    /// TM_CS_GET_REGION_INFO (550) carries the current position of the client, as two floats, after the
+    /// client converted that very position into its own region indices. Only the exact 15-byte form is
+    /// accepted: the specification defines no answer at all for a request of another length, so a
+    /// short or padded one is refused rather than partially read.
+    /// </summary>
+    public static bool TryReadGetRegionInfo(ReadOnlySpan<byte> packet, out RegionInfoRequest request)
+    {
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new RegionInfoRequest(
+            BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
     }
 }
