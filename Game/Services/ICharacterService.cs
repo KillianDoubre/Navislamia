@@ -68,8 +68,13 @@ public interface ICharacterService
     Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests);
 
+    /// <summary>
+    /// Persists the progress a session accumulated. <paramref name="pkMode"/> is the PK mode of the
+    /// session, written back to the pre-existing <c>Characters.PkMode</c> column: it is the only
+    /// piece of that state that no other writer touches.
+    /// </summary>
     Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold,
-        int chaos, float x, float y);
+        int chaos, float x, float y, bool pkMode);
 
     void SaveChanges();
 

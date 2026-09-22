@@ -95,6 +95,7 @@ public class Program
         ConfigureSkillCatalog(services, context);
         ConfigureMonsterDrops(services, context);
         ConfigureFieldProps(services, context);
+        ConfigureMarketCatalog(services, context);
     }
 
     /// <summary>
@@ -188,6 +189,28 @@ public class Program
         });
     }
 
+    /// <summary>
+    /// The merchant catalogue. Like the dialog catalogue it is a versioned JSON export rather than the
+    /// reference's SQL Server MarketResource table; the file may legitimately hold no row (no export
+    /// available yet), in which case every merchant refuses to open instead of showing an empty window.
+    /// </summary>
+    private static void ConfigureMarketCatalog(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "market-catalog.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<MarketCatalogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("MarketCatalog")
+            .Deserialize<MarketCatalogOptions>() ?? new MarketCatalogOptions();
+
+        services.Configure<MarketCatalogOptions>(options => options.Markets = catalog.Markets);
+    }
+
     private static void ConfigureSkillCatalog(IServiceCollection services, HostBuilderContext context)
     {
         var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "skill-catalog.73.json");
@@ -211,6 +234,7 @@ public class Program
         services.AddSingleton<IWorldRepository, WorldRepository>();
         services.AddSingleton<ICharacterRepository, CharacterRepository>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
+        services.AddSingleton<IStorageRepository, StorageRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
         services.AddSingleton<IJobResourceRepository, JobResourceRepository>();
         services.AddSingleton<IJobLevelBonusRepository, JobLevelBonusRepository>();
@@ -225,8 +249,13 @@ public class Program
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();
+        services.AddSingleton<IMarketCatalog, MarketCatalog>();
+        services.AddSingleton<IMarketService, MarketService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
+        services.AddSingleton<IAuctionCateryResourceRepository, AuctionCateryResourceRepository>();
+        services.AddSingleton<IWorldLocationRepository, WorldLocationRepository>();
+        services.AddSingleton<IWorldLocationService, WorldLocationService>();
         services.AddSingleton<ILevelingService, LevelingService>();
         services.AddSingleton<SkillCatalog>();
         services.AddSingleton<ISkillService, SkillService>();
@@ -235,17 +264,21 @@ public class Program
         services.AddSingleton<IItemGroupCatalog, ItemGroupCatalog>();
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
+        services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IQuestService, QuestService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
+        services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();
         services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
+        services.AddSingleton<IEventAreaService, EventAreaService>();
+        services.AddSingleton<IResurrectionService, ResurrectionService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();
