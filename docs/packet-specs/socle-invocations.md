@@ -582,11 +582,11 @@ envoie, donc aucun de ces membres ne peut atteindre
 changement » vise les paquets **traités en réception** (`CLAUDE.md`, *Change guidelines*) : elle
 n'impose pas d'inventer une trame C→S pour un id que le serveur ne fait qu'émettre.
 
-C'est déjà la convention du dépôt, et c'est mesurable : `GamePackets` compte 80 membres, 44 sont
-référencés par la chaîne de réception (`GameClient.cs` + `GameActions.cs`), et **28 membres
+C'est déjà la convention du dépôt, et c'est mesurable : `GamePackets` compte 90 membres, 49 sont
+référencés par la chaîne de réception (`GameClient.cs` + `GameActions.cs`), et **33 membres
 `TM_SC_*` antérieurs à ce lot n'ont aucun bras** (`TM_SC_SKIN_INFO` 224, `TM_SC_HAIR_INFO` 220,
 `TM_SC_ITEM_WEAR_INFO` 287, `TM_SC_CHAT` 22, `TM_SC_WARP` 12, `TM_SC_PROPERTY` 507… ). Ce lot
-porte ce total de 28 à 35 sans changer la règle. 303 reste le seul id de la famille employé dans
+porte ce total de 33 à 40 sans changer la règle. 303 reste le seul id de la famille employé dans
 les deux sens, et il n'est pas touché ici.
 
 Un test garde la propriété qui compte pour ce `switch` : **aucune valeur de `GamePackets` n'est
