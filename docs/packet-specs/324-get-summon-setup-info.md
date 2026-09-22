@@ -438,7 +438,8 @@ de l'archéologue (§1 à §10) est laissée intacte.
 | `Game/Network/Clients/Actions/GameActions.cs` | l'entrée en jeu pose `SummonSlots` puis construit la 303 depuis ce champ (`openDialog` par défaut, donc 0) |
 | `Game/Network/Clients/GameClient.cs` | `HandleGetSummonSetupInfo(byte[])` et le bras de dispatch, placé **avant `TM_CS_USE_ITEM`** comme le recommande §5.3.3 |
 
-Commits : `40f8cec` (code), `d367d8a` (tests), puis le commit de fiche.
+Commits : `40f8cec` (code), `d367d8a` (tests), `f94793a` (cette section ; `CLAUDE.md` lui-même reste
+intact, le bloc de §10 part dans la description de la MR).
 
 ### 11.3 Offsets livrés et noms des tests
 
