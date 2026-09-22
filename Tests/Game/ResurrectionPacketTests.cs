@@ -371,6 +371,8 @@ public class ResurrectionPacketTests
             A.Fake<IGroundItemService>(),
             A.Fake<ISkillCastService>(),
             A.Fake<IFieldPropService>(),
+            A.Fake<IItemUseService>(),
+            A.Fake<IWorldLocationService>(),
             new ResurrectionService(realWarp ? services.WarpService : services.WarpCalls,
                 services.StatService));
 

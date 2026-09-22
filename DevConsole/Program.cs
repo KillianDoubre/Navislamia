@@ -227,13 +227,18 @@ public class Program
         services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
+        services.AddSingleton<IWorldLocationRepository, WorldLocationRepository>();
+        services.AddSingleton<IWorldLocationService, WorldLocationService>();
         services.AddSingleton<ILevelingService, LevelingService>();
         services.AddSingleton<SkillCatalog>();
         services.AddSingleton<ISkillService, SkillService>();
         services.AddSingleton<IEquipmentService, EquipmentService>();
         services.AddSingleton<IItemResourceRepository, ItemResourceRepository>();
+        services.AddSingleton<IItemGroupCatalog, ItemGroupCatalog>();
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
+        services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
+        services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<MonsterWorldState>();

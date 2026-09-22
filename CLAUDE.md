@@ -34,6 +34,13 @@ projects referencing `Game`. PostgreSQL databases are `Arcadia`, `Telecaster` an
 - `MigrateDatabase`: legacy migration utilities
 - `Tests`: NUnit, FluentAssertions and FakeItEasy tests
 - `docs`: current technical documentation and historical implementation plans
+- `docs/packet-specs`: **one sheet per client packet integrated since 2026-09-18**, named
+  `<opcode>-<name>.md`. Each sheet is the durable record for that packet: wire layout with a
+  `file:line` source per field, the total byte size, the Epic 7.3 decision for every field rzu
+  gates by version, what the reference servers do with it, the assumed deviations, and an
+  explicit `NON ÉTABLI` section for what could not be established. **Read the sheet before
+  touching a packet it covers** — it is where the reasoning lives, so this file does not repeat
+  it per packet.
 
 ## Protocol fundamentals
 
@@ -111,6 +118,16 @@ archives and the server sends nothing for them, so no server change can make the
 character bootstrap: stats, inventory, summon slots, wear information, gold/chaos, level/job level,
 experience/JP, job properties, learned skills, belt slots, game time and status. It then synchronizes
 NPC and monster visibility. See `docs/character-bootstrap.md` for packet layouts and model ordering.
+
+The summon socle's server-to-client layouts live in `GameSummonPackets`, sized from
+`docs/packet-specs/socle-invocations.md`: `TS_SC_ADD_SUMMON_INFO (301)` 46 bytes,
+`TS_SC_REMOVE_SUMMON_INFO (302)` 11, `TS_SC_UNSUMMON (305)` 11, `TS_SC_UNSUMMON_NOTICE
+(306)` 15, `TS_SC_SUMMON_EVOLUTION (307)` 38, `TS_SC_MOUNT_SUMMON (320)` 24,
+`TS_SC_UNMOUNT_SUMMON (321)` 16. Epic 7.3 gives the name field 19 bytes — 18 usable
+characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
+Nothing emits these packets yet: how many summons exist, for how long, at what cost and
+what they become is still an open decision, so `BuildAddSummonInfo` takes `code` (source not
+established) and `summon_handle` from its caller instead of inventing either.
 
 Epic 7.3 key bindings are character data, not a local `.opt` setting. The server sends the single
 string property `client_info` with `TS_SC_PROPERTY (507)` during world entry, and the client writes it
@@ -757,9 +774,19 @@ instance of the same state, reusing its `state_handle`; `state_type` (`SG_NORMAL
 **`ConnectionInfo.CharacterMp` did not exist** — MP was only ever sent as a property, never tracked — so
 casting had nothing to spend. It is seeded at login and on level-up alongside `CharacterHp`.
 
-`state_code` is the `StateResource` id and the client resolves the icon and name from its own
-`db_state.rdb`, like `npc_id` and item codes: **a 9.4-only state id renders nothing**, the same
-unresolved 7.3 gap as ground items.
+`state_code` is the `StateResource` id, and **how the client turns it into an icon and a name is
+not established**. This file used to say it resolved them from its own `db_state.rdb`, like
+`npc_id` and item codes. **There is no `db_state.rdb` in this client**: its `data.000` index holds
+83 822 entries and exactly 50 `db_*.rdb` files, none of them for states, and no per-state icon
+asset exists either (measured 2026-09-18 with `tools/provision-navislamia/extract_client.py`; the
+50 names are listed in `reference/client73/extraction-manifest.json` on the pipeline VPS). The
+plausible candidates are `db_skill.rdb` and `db_effectresource.rdb`, since a state's visual may
+hang off the skill that applied it — but nothing has been read to prove it.
+
+So the practical consequence — **a 9.4-only state id may render nothing** — stays a presumption
+rather than a proven mechanism, and "the same unresolved 7.3 gap as ground items" was an
+inference from a file that does not exist. Whether this client renders a state icon at all is
+still unverified.
 
 **Percentage values are ratios, not percent numbers.** A `ParameterAmp` state or an `AmpParameterA` item
 carries `0.05` for "+5%", and `StatBlock.Amplify` does `stat * (1 + ratio)` exactly like the reference's
@@ -1081,6 +1108,18 @@ are bitfields derived from `limit_*` columns and are left at zero, and the
 `NameId`/`SetId`/`SummonId`/`EffectId`/`SkillId`/`StateId` foreign keys are left null because the
 referenced resource tables are still empty.
 
+## Client anti-cheat packets
+
+`TM_SC_ANTI_HACK` (`53`) and `TM_CS_ANTI_HACK` (`54`) both carry a fixed 402-byte payload: a `uint16`
+`nLength` at offset 7 followed by `uint8 byBuffer[400]` at offsets 9-408, for 409 bytes on the wire.
+Neither rzu nor NGemity/Chihiro shows a handler: NGemity has the headers and nothing else, and an
+unregistered packet there ends in a DEBUG "Got unknown packet" log. The Epic 7.3 client `SFrame.exe`
+imports no anti-cheat module at all, and its incoming dispatcher treats `53` as an explicit empty case,
+so the shipped client can neither answer the challenge nor produce the `54` blob. `nLength` semantics
+are not established by the reference - do not interpret the value. NavisLamia declares `54`, describes
+the frame, and consumes the datagram without any disposition; the operational decision (verify, record,
+ignore, or refuse) is still open. See `docs/packet-specs/socle-anti-triche.md`.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
@@ -1121,6 +1160,146 @@ referenced resource tables are still empty.
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work
 
+## Paquets
+
+### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
+
+- **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`
+  `uint32` à l'offset 7, `count` `int32` à l'offset 11 (gating rzu `version >= EPIC_4_1`, donc
+  `int32` en 7.3 ; le paquet bascule à 1203 seulement à partir d'`EPIC_9_6_3`). Aucune position n'est
+  transmise : l'objet au sol est créé à la position du joueur (`ConnectionInfo.X/Y/Z/Layer`), sans
+  dispersion, avec la durée de vie des drops de monstres (120 s).
+- **Réponses** : `TM_SC_DROP_RESULT` (205), **12 octets** — `item_handle` recopié puis `isAccepted`
+  `uint8` — précédé en cas de succès de `TM_SC_ENTER` (70 octets, objet au sol, `BuildEnterItem`) puis
+  de `TM_SC_ERASE_ITEM` (209, 20 octets pour une paire `handle`/`count`, `BuildEraseItem`). Le retrait
+  passe par `CharacterService.RemoveItemAsync`, qui juge les refus et borne le compte **dans la même
+  section exclusive** que le retrait (un équipement traité entre deux ne peut pas s'intercaler), et
+  renvoie ce qui a réellement été retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
+  `popItem` a échoué — défaut à ne pas répliquer). Aucun `TS_SC_RESULT` de succès, aucun 254/255.
+- L'objet lâché n'est **visible et ramassable que par le joueur qui l'a lâché** :
+  `TakeAsync` exige `ReferenceEquals(item.Owner, client)` et `ConnectionInfo` ne suit aucun objet au
+  sol (pas de `SpawnedItems`). L'écart avec NGemity (diffusion à la région, ordre de ramassage 3/4/5 s)
+  est assumé et documenté dans `docs/packet-specs/203-drop-item.md`.
+- **Réserves vérifiables** (fiche §7) : l'émission du 203 par le client 7.3 n'est pas prouvée (table
+  d'annotation partielle) ; le geste d'émission (aucune classe `SInput*Drop*`) ; le flag de jetabilité
+  (`flag_drop` / `item_use_flag` bit 15) n'est pas exploitable dans le dépôt et **aucun refus « non
+  jetable » n'est implémenté** — le client refuse déjà localement (`smsg_dump_fail`) ; `count > pile`
+  est borné (choix fixé, NGemity refuse en bloc).
+- **Un objet équipé est refusé** (`WearInfo != None` → `205 { handle, 0 }`,
+  `GroundItemDropRules.IsEquipped`) : aucune référence ne le fait, mais sans ce refus la ligne est
+  supprimée alors que ni 202 ni 287 ne partent, et le modèle et les stats gardent l'objet porté.
+- La garde NGemity « carte d'invocation liée » est portée : `ItemGroup.Summoncard = 13` correspond à
+  `GROUP_SUMMONCARD = 13`, et la garde teste le **bit 31** du bitset retail
+  (`GroundItemDropRules.SummonFlagMask = 0x80000000u` = `ITEM_FLAG_SUMMON`). Attention au piège :
+  `ItemFlag.Summon = 31` est l'**index** du bit, pas le masque, et `ItemFlag.None = -1` vaut tous les
+  bits une fois lu en `uint` (il est exclu explicitement). La garde restera inerte tant que rien
+  n'écrit ce bit (`AddItemAsync` ne pose aucun flag).
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
+
+- Trame cliente de **47** octets : en-tête 7, `item_handle` à 7, `target_handle` à 11,
+  `szParameter` sur 32 octets à 15. Le paramètre est consommé pour sa taille seulement : son
+  contenu n'est pas établi.
+- Un succès consomme **un exemplaire**, sauf pour le type `ItemBaseType.Use` (6, réutilisable, 404
+  ressources) comme NGemity `Player::UseItem`. La mise à jour de pile part **avant** le résultat :
+  `TM_SC_UPDATE_ITEM_COUNT` (255, `item_handle` + `count` int64, 19 octets) ou, au dernier
+  exemplaire, `TM_SC_DESTROY_ITEM` (254, `item_handle`, 11 octets) et la ligne supprimée via
+  `DeleteItem`.
+- Puis la réponse en **deux** trames, dans cet ordre : `TS_SC_RESULT` (253, `Success`,
+  `item_handle`) puis `TM_SC_USE_ITEM_RESULT` (283), qui réémet les deux handles.
+- Seul le niveau de l'objet est jugé : `use_min_level` → `LimitMin`, `use_max_level` → `LimitMax`,
+  le plafond testé avant le plancher comme dans NGemity `Player::IsUseableItem`. Un handle inconnu
+  ou non possédé donne `NotExist`.
+- `ItemUseFlag` n'est pas lu : la valeur réellement importée n'est pas documentée dans le dépôt.
+  Ne jamais l'utiliser comme masque binaire sans arbitrage.
+- Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
+  (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
+- Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
+
+- 7.3 = ids **550** (CS) / **11** (SC) : rzu remappe en 1550/1011 à partir d'`EPIC_9_6_3`
+  (`TS_CS_GET_REGION_INFO.h:9-11`, `TS_SC_REGION_ACK.h:11-13`) ; `EPIC_7_3 = 0x070300` est sous
+  `0x090603`. NGemity compile en `EPIC_4_1_1` et confirme la branche basse.
+- **15 octets des deux côtés** : en-tête 7, `x` (float) @7 et `y` (float) @11 pour la demande
+  (taille confirmée par le constructeur client VA `0x684b60`, `Length = 0xf`) ; `rx` (int32) @7 et
+  `ry` (int32) @11 pour la réponse. Aucun autre champ, aucun handle.
+- Le client 7.3 construit lui-même la 550 dans `SGameWorld::Process`, à chaque **franchissement de
+  frontière de région** — pas à chaque pas : elle n'est pas un flux, et le client ne redemande pas
+  tant que sa paire d'indices n'a pas changé (caches `0xc4f6e0` / `0xc4f6dc`).
+- **Diviseur : `WorldVisibility.RegionSize` (180)**, la valeur annoncée au login dans
+  `TS_SC_LOGIN_RESULT.RegionSize` (`GameActions.cs:128`). **Jamais** `WorldOption.RegionSize`
+  (150) : c'est le défaut pré-login du client (global `.data` `0xc20508`), et l'utiliser fait
+  dériver la fenêtre de visibilité du client d'un facteur 6/5.
+- Division **tronquée vers zéro** (`(int)(x / 180f)`), jamais arrondie ; **ne pas** caster en `uint`
+  (une position négative deviendrait un indice énorme).
+- `rx`/`ry` sont les indices de la grille de régions **du client** (fenêtre 7 × 7, rayon 3), pas des
+  identifiants de bloc terrain. Ils se calculent sur les `float` **reçus dans la 550**, pas sur
+  `ConnectionInfo.X/Y` (qui peut retarder d'un déplacement).
+- Réponse **au seul client demandeur**, jamais diffusée. `Length != 15` → journal + abandon, sans
+  `TM_SC_RESULT` ; `ConnectionInfo.CharacterHandle == 0` → journal + abandon.
+- NGemity ne lit jamais la 550 (`WorldSession.h:59-122`) et pousse la 11 de sa propre initiative
+  depuis `World::enterProc` (`World.cpp:287-302`) : écart assumé, le push reste hors périmètre.
+- Restes ouverts (voir la fiche) : la 11 est-elle indispensable, redemande-t-elle après un warp,
+  150 vs 180, contrôle de taille côté client.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 902 / 903 — `TM_SC_WEATHER_INFO` / `TM_CS_GET_WEATHER_INFO`
+
+(Epic 7.3 ; fiche `docs/packet-specs/902-weather-info.md`)
+
+`TM_SC_WEATHER_INFO` (902, 13 octets : `region_id` `uint32` à 7, `weather_id` `uint16` à 11) et
+`TM_CS_GET_WEATHER_INFO` (903, 11 octets : `region_id` `uint32` à 7). Les ids `1902`/`1903` sont
+`version >= EPIC_9_6_3` et ne doivent pas être ajoutés.
+
+Deux pièges. (1) `region_id` n'est **pas** un indice de région de visibilité (la 550/11, pas de
+180) : c'est l'id de `WorldLocation`, encodé `x × 10000 + y × 100 + n` sur les colonnes `x`/`y`
+de la table ; NGemity y met l'id de l'emplacement, rzu y met 0. (2) La table a **une ligne par
+`(id, weather_id, time_id)`** (la copie client en compte 6497 lignes et 407 ids, dans un ordre
+physique qui n'est pas groupé par id (114 ruptures de l'ordre `(id, weather_id, time_id)`), ce qui
+rend le tri `ORDER BY Id, WeatherId, TimeId` du dépôt nécessaire) : elle doit être repliée en un
+enregistrement par id avec `weather_ratio[weather_id][time_id]`, comme
+`WorldLocationManager::RegisterWorldLocation`, sinon les lignes s'écrasent.
+
+Le client 7.3 **consomme** la 902 (il lit `+7` et `+11`) et, dans le binaire fourni, **n'émet
+jamais** la 903 : la constante `0x387` n'y apparaît que dans la table id→nom, sans constructeur.
+Aucune référence (NGemity, rzu) n'implémente de réponse à la 903. La réponse est donc défensive :
+une 902 à l'id demandé si l'id est connu, rien sinon.
+
+NGemity ne charge la table que pour la replier, **n'affecte jamais `current_weather`** (sa 902 vaut
+toujours `weather_id = 0`) et ne pousse la 902 qu'au changement d'emplacement, calculé depuis les
+données de carte du client — données que Navislamia n'a pas. Le socle suit rzu : une 902 `{0, 0}`
+à l'entrée dans le monde. L'appariement position → id d'emplacement reste `NON ÉTABLI` (taille de
+cellule inconnue) et mérite une carte dédiée.
+
+### Paquet 1202 — `TM_CS_EMOTION` (émotion)
+
+- 7.3 = ids **1202** (CS) / **1201** (SC) : rzu remappe en 2202/2201 à partir d'`EPIC_9_6_3`
+  (`TS_CS_EMOTION.h:8-10`). NGemity compile en `EPIC_4_1_1` et ne voit pas ce gating.
+- Trame cliente de **11** octets : en-tête 7, `emotion` (int32) à 7. Réponse de **15** octets :
+  en-tête 7, `handle` (uint32) à 7, `emotion` (int32) à 11. Aucun tableau, aucune chaîne.
+- La valeur d'émotion est **opaque** : le client 7.3 la résout lui-même (14 animations `emote_*`,
+  14 icônes `icon_emotion_0001..0014`, 11 messages client `smsq_emotion_*` id 700…710). Le serveur
+  la réémet telle quelle — **ne jamais** écrire de table émotion → animation ni de borne
+  d'intervalle : l'ordre des ids n'est pas établi (l'asset d'interface est dans les archives
+  `data.001..008`, absentes).
+- Le serveur répond par un simple **écho** : `handle` = `ConnectionInfo.CharacterHandle`,
+  `emotion` inchangée, checksum recalculé. **Aucun `TM_SC_RESULT`** n'est identifié pour 1202, et
+  aucun refus n'est inventé sur la valeur.
+- La boucle de réception ne garantit que `Length`/`Checksum` : la garde de taille (11 octets) est
+  dans le handler, et elle répond par un `Warning` seul.
+- Portée : Navislamia n'a **aucune** visibilité joueur↔joueur (`TS_SC_ENTER_PLAYER` n'est envoyé
+  qu'au client qui entre, `GameActions.cs:180`) : n'émettre que vers l'acteur tant qu'elle n'existe
+  pas.
+- Aucun traitement dans NGemity ni dans rzu (0 occurrence) : rien à porter. Ne pas confondre avec
+  `CHAT_EMOTION` (0x5, type de chat reçu par la passerelle, `IrcClient.cpp:189`), qui n'est pas le
+  véhicule de l'émotion.
+- Restes ouverts (voir la fiche) : le client émet-il 1202 ou un `CHAT_REQUEST` de type
+  `CHAT_EMOTION` ; la portée réelle de la 1201.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.
@@ -1129,3 +1308,10 @@ referenced resource tables are still empty.
 - Keep resource queries no-tracking and project only fields required at runtime.
 - Add tests for packet offsets, encodings, spatial boundaries and spawn expansion.
 - Do not edit generated EF migration designer files manually unless the migration itself changes.
+- A newly handled client packet gets a sheet in `docs/packet-specs/` (see Solution layout), and
+  its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
+  **in the same change**: a declared id with no dispatch arm reaches
+  `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop.
+- That rule covers client packets. An id the server only ever emits needs no arm in
+  `GameClient.Receive`, so `GameSummonPackets`' seven strictly server-to-client ids are
+  declared in `GamePackets` with no dispatch entry; 33 `TM_SC_*` members already had none.
