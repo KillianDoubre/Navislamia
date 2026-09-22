@@ -31,8 +31,12 @@ public class NetworkService : INetworkService
     public readonly IItemUseService ItemUseService;
     public readonly IStorageService StorageService;
     public readonly IGroundItemService GroundItemService;
+    public readonly ICraftingSocleService CraftingSocleService;
     public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
+    public readonly IEventAreaService EventAreaService;
+    public readonly IResurrectionService ResurrectionService;
+    public readonly IWorldLocationService WorldLocationService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -52,7 +56,12 @@ public class NetworkService : INetworkService
         ICombatService combatService, ILevelingService levelingService, ISkillService skillService,
         IEquipmentService equipmentService, IInventoryService inventoryService,
         IGroundItemService groundItemService, ISkillCastService buffService,
-        IFieldPropService fieldPropService, IItemUseService itemUseService, IStorageService storageService)
+        IFieldPropService fieldPropService, IItemUseService itemUseService,
+        IWorldLocationService worldLocationService,
+        IResurrectionService resurrectionService,
+        IEventAreaService eventAreaService,
+        ICraftingSocleService craftingSocleService,
+        IStorageService storageService)
     {
         _logger = logger;
         CharacterService = characterService;
@@ -69,8 +78,12 @@ public class NetworkService : INetworkService
         ItemUseService = itemUseService;
         StorageService = storageService;
         GroundItemService = groundItemService;
+        CraftingSocleService = craftingSocleService;
         FieldPropService = fieldPropService;
         SkillCastService = buffService;
+        EventAreaService = eventAreaService;
+        ResurrectionService = resurrectionService;
+        WorldLocationService = worldLocationService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
     }
