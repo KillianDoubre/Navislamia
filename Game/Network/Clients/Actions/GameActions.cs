@@ -246,6 +246,19 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", decimal.ToInt64(character.ImmoralPoint)));
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForPlayer(info.PkMode)));
+
+        // TM_SC_COMMERCIAL_STORAGE_INFO (10003) at 0/0, at the very end of the world entry sequence, right
+        // before client_info: this is where rzu sends it (Character.cpp:308-311, after TS_SC_WEATHER_INFO)
+        // and 0/0 is the only value the reference ever states. No shop feeds this container in this
+        // repository, so the exact content is empty and no counter may be invented.
+        client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageInfo(0, 0));
+
+        // Companion empty list: 9 bytes, count = 0, a state the 7.3 client handles explicitly. rzu does not
+        // send it, so this is a choice and not a precedent — deleting this single line reverts to the
+        // reference behaviour without touching anything else (spec file, reserve 7d, veto point 9.1).
+        client.Connection.Send(
+            GameCommercialStoragePackets.BuildCommercialStorageList(Array.Empty<(uint Uid, int Code, ushort Count)>()));
+
         client.Connection.Send(GameStatPackets.BuildStringProperty(handle, "client_info", character.ClientInfo));
 
         _logger.Debug("{clientTag} entered game as {name} (lv {lv}) at ({x},{y},{z})", client.ClientTag,

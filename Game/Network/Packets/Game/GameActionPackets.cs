@@ -31,6 +31,8 @@ public static class GameActionPackets
 
     public readonly record struct RegionInfoRequest(float X, float Y);
 
+    public readonly record struct TakeoutCommercialItemRequest(uint Uid, ushort Count);
+
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
         return BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
@@ -477,6 +479,28 @@ public static class GameActionPackets
         request = new ResurrectionRequest(
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
             (ResurrectionType)(sbyte)packet[HeaderSize + 4]);
+        return true;
+    }
+
+    /// <summary>
+    /// TM_CS_TAKEOUT_COMMERCIAL_ITEM (10005), the gesture of pulling one line out of the commercial
+    /// storage window: <c>commercial_item_uid</c> at offset 7 then <c>count</c> at offset 11. The frame
+    /// is exactly 13 bytes and no other length is accepted — the client's own frame builder hardcodes
+    /// <c>0xd</c> (<c>SFrame.exe</c> VA <c>0x48ce93</c>) and has no outgoing constraint, so the server is
+    /// the only guard. The uid is opaque: the client hands back verbatim the value read in 10004.
+    /// </summary>
+    public static bool TryReadTakeoutCommercialItem(ReadOnlySpan<byte> packet, out TakeoutCommercialItemRequest request)
+    {
+        const int packetLength = HeaderSize + 6;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new TakeoutCommercialItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(HeaderSize + 4, 2)));
         return true;
     }
 }
