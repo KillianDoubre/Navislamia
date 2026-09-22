@@ -98,7 +98,7 @@ public class CharacterDefaultsTests
             repository,
             A.Fake<ILogger<CharacterService>>());
 
-        await service.SaveProgressAsync("Character", 1, 5, 100, 200, 300, 400, 0f, 0f);
+        await service.SaveProgressAsync("Character", 1, 5, 100, 200, 300, 400, 0f, 0f, true);
 
         character.Lv.Should().Be(1);
         character.MaxReachedLv.Should().Be(1);
@@ -107,6 +107,7 @@ public class CharacterDefaultsTests
         character.Jp.Should().Be(200);
         character.Gold.Should().Be(300);
         character.Chaos.Should().Be(400);
+        character.PkMode.Should().BeTrue();
         A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
     }
 
