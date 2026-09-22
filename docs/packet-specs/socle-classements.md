@@ -520,6 +520,48 @@ RTTI MSVC par `vtable-4 → COL → +0xC → type descriptor → +8`. **Aucune e
 
 ---
 
+## 9. Implémentation du lot K1
+
+Livré sur la branche `hermes/packet-socle-classements`, dans la continuité du commit de cette fiche.
+L'état du dépôt après le lot : `dotnet build Navislamia.sln -c Debug` → code 0 (0 erreur, 160
+avertissements préexistants), `dotnet test Tests/Tests.csproj` → code 0, **482 tests passés** (448
+avant le lot, 34 ajoutés).
+
+| Élément | Fichier | Contenu |
+|---|---|---|
+| Énumération | `Game/Network/Packets/Enums/GamePackets.cs:99-100` | `TM_CS_RANKING_TOP_RECORD = 5000`, `TM_SC_RANKING_TOP_RECORD = 5001` |
+| Lecture de `5000` | `Game/Network/Packets/Game/GameActionPackets.cs` (`RankingTopRecordRequest`, `TryReadRankingTopRecord`) | `Length` **exactement 8** exigée, `ranking_type` lu en `sbyte` à l'offset 7 |
+| Écriture de `5001` | `Game/Network/Packets/Game/GameRankingPackets.cs` | `BuildRankingTopRecord(ranking_type, requester_rank, requester_score, records)` ; constantes `AnswerHeaderSize = 20`, `RecordSize = 41`, `NameLength = 31`, `MaxNameLength = 30`, `MaxRecords = 10` ; `GetAnswerSize(n) = 20 + 41n`, `GetRecordOffset(i) = 20 + 41i` |
+| Dispatch | `Game/Network/Clients/GameClient.cs` | bras `TM_CS_RANKING_TOP_RECORD` → `HandleRankingTopRecord` ; bras `TM_SC_RANKING_TOP_RECORD` → `Warning` + `continue` (patron `TM_SC_REGION_ACK`) |
+| Tests | `Tests/Game/RankingTopRecordPacketsTests.cs` | 34 tests d'offsets, de tailles, de NUL et de bornes |
+
+Comportement effectif du handler, pour un `5000` reçu :
+
+1. `Length != 8` → `Warning` nommant le client et la longueur, **aucune réponse** (arbitrage §7i) ;
+2. sinon → `BuildRankingTopRecord(ranking_type recopié, requester_rank = 0, requester_score = 0,
+   records vide)` : une `5001` de **20** octets, envoyée au seul client demandeur ;
+3. aucun `TS_SC_RESULT`, aucun état d'attente (K-K8) ; le `checksum` est recalculé (K-K7).
+
+### 9.1 Décisions prises dans le code là où la fiche laissait un choix
+
+| # | Situation | Décision du lot | Pourquoi |
+|---|---|---|---|
+| I1 | Plus de 10 entrées fournies à l'écrivain | **plafonnement silencieux à 10** (pas d'exception) | un `throw` dans un chemin d'envoi casse la boucle de réception ; le plafond préserve l'invariant K-K1 (compteur = entrées réellement écrites), une exception le reporterait sur tous les appelants |
+| I2 | Nom de plus de 30 caractères ou sans NUL | tronqué à **30** puis NUL, champ NUL-rempli | K-K3 : le `strcpy` du client déborderait sur le `score` de l'entrée |
+| I3 | `records` vide / `null` | traité comme zéro entrée → 20 octets | le lot n'a aucune source de données |
+| I4 | `ranking_type` ≠ 0 reçu | accepté, journalisé, **recopié** dans la réponse, `records = 0` | K-K5, §5.7 : ne pas déconnecter, ne rien inventer sur le domaine (§7a) |
+| I5 | `5001` reçue du client | `Warning` + `continue` | critère transversal n° 4 : aucun membre de `GamePackets` ne doit atteindre `_ => throw new Exception("Unknown Packet Type")` |
+| I6 | Échelle des `score` | l'écrivain reçoit la **valeur du fil** et ne multiplie pas | §3.6/K-K4 : le seul endroit qui connaît la métrique est le producteur de données (lot K2/K3) ; l'écrivain ne devine ni ne transforme |
+
+### 9.2 Ce que le lot K1 ne fait pas
+
+Aucune donnée de classement : `records` est toujours vide et les deux champs du demandeur valent `0`.
+Le lot K2 (source, métrique, nombre d'entrées) et le lot K3 (rang et score du demandeur) restent
+entiers, et dépendent des arbitrages §7a-§7f. Le paquet est désormais **reçu et traité proprement**
+au lieu de lever `Unknown Packet Type`.
+
+---
+
 ## Bloc prêt à coller dans `CLAUDE.md`
 
 > ### Socle classements de joueurs — 5000/5001 (`TM_CS/SC_RANKING_TOP_RECORD`)
@@ -576,6 +618,8 @@ RTTI MSVC par `vtable-4 → COL → +0xC → type descriptor → +8`. **Aucune e
    seule réserve du lot minimal : la trame est valide, mais ce que le client affiche alors (liste
    vide ? fenêtre vide ? rien ?) n'est pas établissable sans exécuter le client, ce qui est
    interdit ici. L'alternative — ne rien répondre du tout — est plus prudente et coûte une ligne.
+   **État livré par K1 : oui, une `5001` à `records = 0` est envoyée** ; passer à « aucune réponse »
+   ne coûte qu'une suppression dans `GameClient.HandleRankingTopRecord`.
 2. **Quel classement pour `ranking_type = 0`, et y en a-t-il d'autres ?** (§7a) Le client n'émet que
    `0`. Faut-il traiter le champ comme opaque (on recopie la valeur demandée) ou définir un domaine
    et autant de jeux de données ?
@@ -590,7 +634,9 @@ RTTI MSVC par `vtable-4 → COL → +0xC → type descriptor → +8`. **Aucune e
    (top 10, top 5, liste complète) est un choix de contenu.
 6. **Que valent `requester_rank` et `requester_score` quand le demandeur n'est pas classé ?**
    (§7d) `0`, `0xFFFF`, ou la dernière place ? La fenêtre a un contrôle `myrank_01`, donc le cas se
-   produira. Aucune valeur n'est devinée dans cette fiche.
+   produira. Aucune valeur n'est devinée dans cette fiche. **État livré par K1 : les deux champs
+   valent `0`** (aucune source de données n'existe encore) — si `0` s'affichait comme « rang 0 » dans
+   la fenêtre, c'est cette valeur qu'il faut trancher avant le lot K3.
 7. **Quelle source de données, et à quelle cadence ?** (§7e, §7f) Aucun chemin n'existe : ni table,
    ni compteur, ni tâche périodique, et `ICharacterService` ne lit un personnage que par compte ou
    par nom (un top de classement exige un ordre et une agrégation, donc probablement une table ou
@@ -603,3 +649,11 @@ RTTI MSVC par `vtable-4 → COL → +0xC → type descriptor → +8`. **Aucune e
 10. **Le socle doit-il être scindé en deux cartes** — K1 (protocole, livrable tout de suite) et K2/K3
     (données et politique, bloqués sur les points 1 à 7) ? Cette fiche tranche « oui » par
     construction (§5.5) ; c'est le PO qui scinde la carte Trello.
+11. **L'échelle ×10 000 des `score` doit-elle être appliquée par l'écrivain ?** (§3.6, §9.1-I6) K1
+    livre un écrivain qui reçoit la **valeur du fil** telle quelle : c'est le producteur de données
+    (K2/K3) qui doit écrire `valeur affichée × 10 000`. Si tu préfères que l'écrivain multiplie
+    lui-même (pour rendre l'oubli impossible), c'est une ligne et un test à changer.
+12. **Le plafond de 10 entrées doit-il être silencieux ou bruyant ?** (§9.1-I1) K1 tronque la liste à 10
+    sans rien dire, pour ne jamais lever dans un chemin d'envoi et pour que le compteur du fil reste
+    égal au nombre d'entrées écrites. Un échec explicite (log `Error` + liste vide) est une variante
+    défendable si tu préfères qu'un bug d'appelant se voie.
