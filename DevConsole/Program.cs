@@ -228,6 +228,8 @@ public class Program
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
         services.AddSingleton<IAuctionCateryResourceRepository, AuctionCateryResourceRepository>();
+        services.AddSingleton<IWorldLocationRepository, WorldLocationRepository>();
+        services.AddSingleton<IWorldLocationService, WorldLocationService>();
         services.AddSingleton<ILevelingService, LevelingService>();
         services.AddSingleton<SkillCatalog>();
         services.AddSingleton<ISkillService, SkillService>();
@@ -240,12 +242,15 @@ public class Program
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
+        services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();
         services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
+        services.AddSingleton<IEventAreaService, EventAreaService>();
+        services.AddSingleton<IResurrectionService, ResurrectionService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<IMapService, MapService>();

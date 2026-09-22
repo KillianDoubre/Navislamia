@@ -44,6 +44,20 @@ public class ConnectionInfo
     public DateTime NextInventoryArrangeAt { get; set; }
     public string CharacterName { get; set; }
     public byte Layer { get; set; }
+
+    /// <summary>
+    /// The event area this session is currently inside, or 0 for none. Written only by
+    /// <c>EventAreaService</c>, from a claim the server verified against its own position, or from
+    /// its own position detection. There is no server answer for either packet.
+    /// </summary>
+    public int CurrentEventAreaId { get; set; }
+
+    /// <summary>
+    /// The <c>WorldLocation.id</c> the character currently stands in, shared by the whole 902/903 family
+    /// and, later, by the 901. It stays 0 until the position → location mapping exists: neither rzu
+    /// (which always sends 0) nor Navislamia can resolve a position to a location id today.
+    /// </summary>
+    public int CurrentLocationId { get; set; }
     public readonly object NpcVisibilityLock = new();
     public readonly object MonsterVisibilityLock = new();
     public readonly object PropVisibilityLock = new();
@@ -104,6 +118,15 @@ public class ConnectionInfo
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }
+
+    /// <summary>
+    /// The position the character reappears at after death: the position persisted with the character
+    /// at world entry, captured by <c>GameActions.OnLogin</c>. This is option (a) of the resurrection
+    /// specification's §16.1 — no new column, no migration.
+    /// </summary>
+    public float RespawnX { get; set; }
+    public float RespawnY { get; set; }
+    public byte RespawnLayer { get; set; }
     public int AccountId { get; set; }
     public int Version { get; set; }
     public float LastReadTime { get; set; }
@@ -169,9 +192,14 @@ public class ConnectionInfo
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
         Layer = 0;
+        CurrentEventAreaId = 0;
+        CurrentLocationId = 0;
         X = 0;
         Y = 0;
         Z = 0;
+        RespawnX = 0;
+        RespawnY = 0;
+        RespawnLayer = 0;
         NameToDelete = string.Empty;
         LearnedSkills.Clear();
         PreviousJobs.Clear();

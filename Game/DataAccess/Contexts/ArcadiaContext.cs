@@ -28,6 +28,7 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<NpcResourceEntity> NpcResources { get; set; }
     public DbSet<MonsterResourceEntity> MonsterResources { get; set; }
     public DbSet<AuctionCateryResourceEntity> AuctionCateryResources { get; set; }
+    public DbSet<WorldLocationEntity> WorldLocations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -45,6 +46,7 @@ public class ArcadiaContext : SoftDeletionContext
         ConfigureBannedWordsResource(modelBuilder);
         ConfigureMonsterResource(modelBuilder);
         ConfigureAuctionCateryResource(modelBuilder);
+        ConfigureWorldLocations(modelBuilder);
     }
 
     /// <summary>
@@ -57,6 +59,14 @@ public class ArcadiaContext : SoftDeletionContext
     {
         modelBuilder.Entity<AuctionCateryResourceEntity>()
             .HasKey(catery => new { catery.CateryId, catery.SubCateryId });
+    }
+
+    private static void ConfigureWorldLocations(ModelBuilder modelBuilder)
+    {
+        // WorldLocation has no primary key of its own and one row per (id, weather_id, time_id): the three
+        // columns together are the natural key.
+        modelBuilder.Entity<WorldLocationEntity>()
+            .HasKey(location => new { location.Id, location.WeatherId, location.TimeId });
     }
 
     private static void ConfigureMonsterResource(ModelBuilder modelBuilder)
