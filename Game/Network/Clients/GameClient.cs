@@ -246,6 +246,68 @@ public class GameClient : Client
         _networkService.CombatService.StartAttack(this, target);
     }
 
+    /// <summary>
+    /// TM_CS_COMPETE_REQUEST (4500), the duel invitation: <c>compete_type</c> at offset 7 and the target's name as
+    /// a fixed 31-byte C string at offset 8. This socle implements no duel at all — there is no player to player
+    /// registry and no duel state — so every well formed request is refused with the code the 7.3 client displays
+    /// for a 4500 (<see cref="GameCompetePackets.RequestRefusalCode"/>, box 1633).
+    ///
+    /// A malformed frame (length other than 39, or a name without its NUL inside the 31 bytes) is only logged:
+    /// no refusal is sent for a frame the client did not build. The server must never emit a 4500 — the 7.3
+    /// client does not route that id (it falls into its "message non traité" log).
+    /// See docs/packet-specs/socle-competition-joueurs.md, lot C1.
+    /// </summary>
+    private void HandleCompeteRequest(byte[] buffer)
+    {
+        if (!GameCompetePackets.TryReadRequest(buffer, out var request))
+        {
+            _logger.Warning("Malformed compete request received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
+        // compete_type is not validated: the 7.3 client copies it without testing it and every observed frame
+        // carries 0. Its domain is not established, so the value is only logged (NON ÉTABLI (a) of the sheet).
+        _logger.Debug(
+            "TM_CS_COMPETE_REQUEST ({id}) Length: {length} received from {clientTag}: competeType={competeType}, requestee={requestee}",
+            (ushort)GamePackets.TM_CS_COMPETE_REQUEST, buffer.Length, ClientTag, request.CompeteType,
+            request.Requestee);
+
+        SendResult((ushort)GamePackets.TM_CS_COMPETE_REQUEST, (ushort)GameCompetePackets.RequestRefusalCode);
+    }
+
+    /// <summary>
+    /// TM_CS_COMPETE_ANSWER (4502), the answer to an invitation: <c>compete_type</c> at offset 7 and
+    /// <c>answer_type</c> at offset 8. No competition can be in progress here, so a well formed answer is always
+    /// refused with <see cref="GameCompetePackets.AnswerRefusalCode"/> (box 1633), including one whose
+    /// <c>answer_type</c> is outside the three values the client emits — that case is logged as a warning.
+    /// A malformed frame (length other than 9) is only logged.
+    /// See docs/packet-specs/socle-competition-joueurs.md, lot C1.
+    /// </summary>
+    private void HandleCompeteAnswer(byte[] buffer)
+    {
+        if (!GameCompetePackets.TryReadAnswer(buffer, out var answer))
+        {
+            _logger.Warning("Malformed compete answer received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
+        if (!GameCompetePackets.IsObservedAnswerType(answer.AnswerType))
+        {
+            _logger.Warning(
+                "TM_CS_COMPETE_ANSWER ({id}) from {clientTag} carries an answer type outside the observed values 0, 1 and 2: {answerType}",
+                (ushort)GamePackets.TM_CS_COMPETE_ANSWER, ClientTag, answer.AnswerType);
+        }
+
+        _logger.Debug(
+            "TM_CS_COMPETE_ANSWER ({id}) Length: {length} received from {clientTag}: competeType={competeType}, answerType={answerType}",
+            (ushort)GamePackets.TM_CS_COMPETE_ANSWER, buffer.Length, ClientTag, answer.CompeteType,
+            answer.AnswerType);
+
+        SendResult((ushort)GamePackets.TM_CS_COMPETE_ANSWER, (ushort)GameCompetePackets.AnswerRefusalCode);
+    }
+
     private void HandleChatRequest(byte[] buffer)
     {
         var input = buffer.AsSpan(7);
@@ -726,6 +788,22 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_EMOTION)
             {
                 HandleEmotion(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_COMPETE_REQUEST (4500) and TM_CS_COMPETE_ANSWER (4502) are the two client to server frames of
+            // the competition socle (lot C1): read, validated, then refused by a TS_SC_RESULT carrying a code the
+            // 7.3 client displays. The five remaining ids of the family travel server to client and are not
+            // emitted yet, so they are not declared in GamePackets either.
+            if (header.ID == (ushort)GamePackets.TM_CS_COMPETE_REQUEST)
+            {
+                HandleCompeteRequest(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_COMPETE_ANSWER)
+            {
+                HandleCompeteAnswer(msgBuffer);
                 continue;
             }
 

@@ -96,6 +96,12 @@ public enum GamePackets : ushort
 
     TM_CS_CHECK_CHARACTER_NAME = 2006,
 
+    // TM_CS_COMPETE_* : the client to server half of the player competition socle (4500-4506), X(<id>, true) in
+    // rzu, so no version gating and no gated field. Only the two frames the server reads are declared; the five
+    // server to client ids join with lots C2-C4. See docs/packet-specs/socle-competition-joueurs.md.
+    TM_CS_COMPETE_REQUEST = 4500,
+    TM_CS_COMPETE_ANSWER = 4502,
+
     TM_CS_REPORT = 8000,
 
     TM_NONE = 9999
