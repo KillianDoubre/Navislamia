@@ -6,7 +6,7 @@ Sept opcodes, une seule famille, **aucun handler** dans les deux références se
 |---|---|---|
 | `/srv/navislamia/reference/rzu` | format, tailles, ordre des champs, gating par version | `87c1e83bf84efe29bb6405e8e6da80349712f3fa` |
 | `/srv/navislamia/reference/ngemity` | logique (version plus récente) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` |
-| `/srv/navislamia/reference/client73` | client Epic 7.3, tranche les divergences | pas un dépôt git : `SFrame.exe`, 9 841 664 octets, sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` |
+| `/srv/navislamia/reference/client73` | client Epic 7.3, tranche les divergences. **Pas un dépôt git** : pas de commit, seulement le fichier de ressource `SFrame.exe`, 9 841 664 octets, empreinte de fichier sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e`, et la méthode de lecture statique décrite en §8 | — |
 | `/srv/navislamia/Navislamia` | état du serveur | `ec76b218cd0bd7c6498d725f253abb8b431f0cd6` |
 
 Méthode : **lecture statique** uniquement. Le binaire du client a été lu par `objdump -d`, par lecture
@@ -420,6 +420,20 @@ Dépendances : **C1 est indépendant de tout**. C2 → C3 → C4, et C2 exige un
 Rien n'oblige à faire les quatre lots : `C1` seul est un lot livrable, testable et sans décision de
 gameplay.
 
+Les cinq **paquets restants**, prêts à rouvrir sans refaire l'archéologie (format détaillé au §3,
+prérequis nommés) :
+
+| Paquet | Opcode | Sens | Format (charge utile → total) | Prérequis pour le rouvrir |
+|---|---|---|---|---|
+| `TM_SC_COMPETE_REQUEST` | 4501 | S → C | `int8 compete_type` + `char[31] requester` → **39** (§3.3) | lot **C2** ; résolution nom → joueur (§5.8) |
+| `TM_SC_COMPETE_ANSWER` | 4503 | S → C | `int8 compete_type` + `int8 answer_type` + `char[31] requestee` → **40** (§3.5) | lot **C2** ; sémantique de `answer_type` (§7b) |
+| `TM_SC_COMPETE_COUNTDOWN` | 4504 | S → C | `int8 compete_type` + `char[31] competitor` + `uint32 handle_competitor` (lu à l'offset **39**) → **43** (§3.6) | lot **C3** ; durée et cadence du compte à rebours (§7d), sens du handle (§7j) |
+| `TM_SC_COMPETE_START` | 4505 | S → C | `int8 compete_type` + `char[31] competitor` → **39** (§3.7) | lot **C3** |
+| `TM_SC_COMPETE_END` | 4506 | S → C | `int8 compete_type` + `int8 end_type` + `char[31] winner` + `char[31] loser` (lu à l'offset **40**) → **71** (§3.8) | lot **C4** ; domaine de `end_type` (§7c) et politique de fin de duel (§7i) |
+
+Chacun de ces cinq paquets est **à écrire**, jamais à recevoir (§2.3) : c'est le serveur qui décide
+de les envoyer, et le client les traite sans condition.
+
 ### 5.6 Points d'implémentation à respecter
 
 | Point | Règle | Source |
@@ -573,7 +587,7 @@ trame ; seul le drapeau interne `+0x45` de la fenêtre existe). Question : le so
 | `reference/ngemity` | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` | déclarations (ids et structures) ; confirme l'absence de logique |
 | `Navislamia` (base) | `ec76b218cd0bd7c6498d725f253abb8b431f0cd6` | `GamePackets`, `ResultCode`, `TS_SC_RESULT`, `SendResult`, `ConnectionInfo`, `CombatService` |
 | Fiche du socle voisin | branche `hermes/packet-socle-instances-jeu`, `docs/packet-specs/socle-instances-jeu.md` | famille 4250-4253 / HuntaHolic, aiguillage `TS_SC_RESULT` (nuance de lecture en §2.4) |
-| Client Epic 7.3 | `reference/client73/SFrame.exe`, 9 841 664 octets, sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` (pas un dépôt git) | toutes les preuves `0x…` de cette fiche |
+| Client Epic 7.3 | fichier de ressource `reference/client73/SFrame.exe` — **pas un dépôt git, donc aucun commit** : 9 841 664 octets, empreinte de fichier sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` (empreinte de fichier, pas un commit de dépôt) | toutes les preuves `0x…` de cette fiche |
 
 Méthode de lecture du client, reproductible : `objdump -d SFrame.exe` ; mapping des sections PE
 (`.text` VA `0x401000` / offset `0x400`, `.rdata` VA `0xa0f000` / offset `0x60da00`, `.data` VA
@@ -635,12 +649,13 @@ dispatcher recopiées à la main depuis le `.text`. **Aucune exécution du clien
 2. **Le lot C1 répond-il quelque chose à un `4500` reçu ?** (§7m) Le client n'affiche rien si le
    serveur se tait ; le socle voisin (instances de jeu) ne répond à rien sur ses deux trames. Refus
    explicite par `TS_SC_RESULT`, ou silence ?
-3. **Quel code exact pour chaque refus** (§7h) : six codes conviennent à `4500`, cinq à `4502`, et
-   certains sont **silencieux** côté client (`66` pour 4500 ; `63`, `66`, `67` pour 4502). Le socle
-   doit-il n'utiliser que les codes qui affichent une boîte ?
-4. **Politique de duel** (§7i) : durée de l'invitation, temporisation du compte à rebours,
-   éligibilité, ce qui arrive au perdant, récompenses, classement. Rien n'est sourçable : c'est un
-   choix de contenu, et il conditionne C3/C4.
+3. **Quel code exact pour chaque refus** (§7h, §7f) : six codes conviennent à `4500`, cinq à `4502`,
+   et certains sont **silencieux** côté client (`66` pour 4500 ; `63`, `66`, `67` pour 4502). Le socle
+   doit-il n'utiliser que les codes qui affichent une boîte ? Et quels codes employer pour un refus
+   générique (`1`, `2`, `26` sont testés par le client mais n'ont pas de nom dans la famille) ?
+4. **Politique de duel** (§7i, §7d) : durée de l'invitation, temporisation du compte à rebours et sa
+   cadence, éligibilité, ce qui arrive au perdant, récompenses, classement. Rien n'est sourçable :
+   c'est un choix de contenu, et il conditionne C3/C4.
 5. **Résolution de la cible par nom** (§7g) : `requestee` est un nom, pas un handle, et le serveur
    n'a aucun registre de joueurs visibles. Le socle C2 dépend-il du socle PK 800/801 (ou d'un socle
    « registre de joueurs » à créer) ?
@@ -654,3 +669,9 @@ dispatcher recopiées à la main depuis le `.text`. **Aucune exécution du clien
    (`https://trello.com/c/BY6qivuo` et `https://trello.com/c/zNSZ9eX3`) : la fiche conclut à deux
    socles **complémentaires** partageant le prérequis « registre de joueurs » (§5.8). Faut-il créer
    ce prérequis comme carte propre, ou le rattacher à l'un des deux socles ?
+9. **`handle_competitor` de `4504`** (§7j) : le client lit 4 octets à l'offset 39 et les range dans
+   son message interne sans autre usage observable. Handle du rival, de son invocation, ou d'un objet
+   d'arène ? Le lot C3 ne peut pas être écrit sans cette réponse.
+10. **À qui le serveur envoie-t-il `4501`** (§7k) : à la cible seule, au demandeur seul (écho), ou aux
+    deux ? Aucune preuve dans le binaire : le client traite `4501` et `4503` sans indiquer lequel
+    revient au demandeur.
