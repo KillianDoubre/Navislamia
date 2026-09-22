@@ -39,8 +39,6 @@ public class SummonWorldTests
             hp: 120, maxHp: 900, mp: 30, maxMp: 450, level: 5, faceDir: 1.5f, isFirstEnter: true,
             masterHandle: MasterHandle, summonCode: SummonCode, name: SummonName, enhance: 0);
 
-        var encoded = ScrambledInt.Encode(SummonCode);
-
         packet.Length.Should().Be(PacketLength);
         BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0, 4)).Should().Be(PacketLength);
         BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)).Should().Be((ushort)GamePackets.TM_SC_ENTER);
@@ -64,29 +62,48 @@ public class SummonWorldTests
         packet[59].Should().Be(1, "first entry into the world");
         BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(60, 4)).Should().Be(0, "energy is a player-only field");
         BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(64, 4)).Should().Be(MasterHandle);
-        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(68, 2)).Should().Be(0);
-        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(70, 2)).Should().Be((ushort)((encoded >> 16) & 0xFFFF));
-        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(72, 2)).Should().Be(0);
-        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(74, 2)).Should().Be((ushort)(encoded & 0xFFFF));
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(68, 2)).Should().Be(0, "a randomized word");
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(70, 2)).Should().Be((ushort)(SummonCode >> 16),
+            "the high half of the id goes in untouched — summon_code is randomized, not scrambled");
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(72, 2)).Should().Be(0, "a randomized word");
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(74, 2)).Should().Be((ushort)(SummonCode & 0xFFFF));
         Encoding.ASCII.GetString(packet, 76, SummonName.Length).Should().Be(SummonName);
         packet[95].Should().Be(0, "enhance is the last byte of the 96");
     }
 
+    /// <summary>
+    /// <c>summon_code</c> is an <c>EncodedInt&lt;EncodingRandomized&gt;</c> (<c>TS_SC_ENTER.h:93</c>), <b>not</b>
+    /// an <c>EncodingScrambled</c> one: the id's bits are not permuted, and <see cref="ScrambledInt"/> — the
+    /// encoding <c>monster_id</c> alone uses (<c>TS_SC_ENTER.h:85</c>) — has no business on this field. A
+    /// permuted id is invisible on this side and fatal in the client, which resolves the summon resource from
+    /// the code it reads back.
+    /// </summary>
     [Test]
-    public void BuildEnterSummon_WritesTheSummonCodeAsARandomizedEncodedInt()
+    public void BuildEnterSummon_WritesTheSummonCodeAsARandomizedEncodedIntWithoutScrambling()
     {
         var packet = GameSpawnPackets.BuildEnterSummon(
             handle: 1u, x: 0f, y: 0f, z: 0f, layer: 1, hp: 1, maxHp: 1, mp: 1, maxMp: 1, level: 1,
             faceDir: 0f, isFirstEnter: false, masterHandle: MasterHandle, summonCode: SummonCode,
             name: SummonName, enhance: 0);
 
-        ScrambledInt.Encode(SummonCode).Should().NotBe(SummonCode, "the wire value is scrambled, not the id");
+        var word0 = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(68, 2));
+        var word1 = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(70, 2));
+        var word2 = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(72, 2));
+        var word3 = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(74, 2));
 
-        var high = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(70, 2));
-        var low = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(74, 2));
-        var onWire = ((uint)high << 16) | low;
+        word0.Should().Be(0, "both references serialize the randomized words as zero");
+        word2.Should().Be(0);
 
-        ScrambledInt.Decode(onWire).Should().Be(SummonCode);
+        // The reference's own deserializer, transcribed from EncodingRandomized.h:34-40. Zeros make it reduce
+        // to the value itself, so an unwritten random part is decodable by either implementation.
+        var high = (ushort)(word1 - 2 * (word2 - word0));
+        var low = (ushort)(word3 + 2 * (word2 + word0));
+        (((uint)high << 16) | low).Should().Be(SummonCode, "the client reads the id straight out of the field");
+
+        var encoded = ScrambledInt.Encode(SummonCode);
+        encoded.Should().NotBe(SummonCode, "ScrambledInt really is a bit permutation");
+        (((uint)word1 << 16) | word3).Should().NotBe(encoded,
+            "monster_id's scrambled encoding must not be applied to a randomized field");
     }
 
     [Test]
@@ -251,6 +268,11 @@ public class SummonWorldTests
         entry[59].Should().Be(1);
         entry[95].Should().Be(0);
         Encoding.ASCII.GetString(entry, 76, SummonName.Length).Should().Be(SummonName);
+
+        var high = BinaryPrimitives.ReadUInt16LittleEndian(entry.AsSpan(70, 2));
+        var low = BinaryPrimitives.ReadUInt16LittleEndian(entry.AsSpan(74, 2));
+        (((uint)high << 16) | low).Should().Be(SummonCode,
+            "the entry's code must reach the wire as it is: Enter is the only caller, and it does not encode");
     }
 
     [Test]

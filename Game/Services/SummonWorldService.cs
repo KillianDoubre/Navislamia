@@ -75,8 +75,12 @@ public sealed class SummonWorldService
 
     /// <summary>
     /// Takes one summon out of the world: <c>TS_SC_UNSUMMON</c> (305) then <c>TS_SC_LEAVE</c> (9), both to
-    /// the master — the direct copy <c>Player.cpp:1008-1018</c> makes in addition to the regional broadcast,
-    /// which has no equivalent here (§5.3 step 3). The <paramref name="session"/> only labels the log line.
+    /// the master — the direct copy <c>Player::DoUnSummon</c> makes in addition to the regional broadcast
+    /// (<c>src/Entities/Player/Player.cpp:1604-1611</c>: the frame is built at :1605, broadcast at :1606-1607,
+    /// then sent to the master at :1610), which has no equivalent here (§5.3 étape 3). The reference only makes
+    /// that direct copy while the master is <b>not</b> in a visible region of the summon
+    /// (<c>Player.cpp:1608-1610</c>); nothing here resolves a position to a region, so it always goes out.
+    /// The <paramref name="session"/> only labels the log line.
     /// Returns false, and sends nothing, on a missing connection or an empty handle.
     /// </summary>
     public bool Leave(ConnectionInfo session, string clientTag, Connection connection, uint summonHandle)

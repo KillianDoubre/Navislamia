@@ -90,7 +90,7 @@ public static class GameSpawnPackets
             faceDir, ActorStatus.ForSummon(), maxHp: maxHp, mp: mp, maxMp: maxMp, isFirstEnter: isFirstEnter);
 
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(64, 4), masterHandle);
-        WriteEncodedInt(packet.AsSpan(68, 8), ScrambledInt.Encode(summonCode));
+        WriteEncodedInt(packet.AsSpan(68, 8), summonCode);
         WriteName(packet.AsSpan(76, NameSize), name);
         packet[95] = enhance;
         WriteChecksum(packet);
@@ -244,6 +244,20 @@ public static class GameSpawnPackets
         BinaryPrimitives.WriteUInt16LittleEndian(packet.Slice(4, 2), (ushort)id);
     }
 
+    /// <summary>
+    /// Writes an <c>EncodedInt&lt;EncodingRandomized&gt;</c>: the 8-byte layout that encoding gives
+    /// (<c>reference/rzu/librzu/src/lib/Packet/EncodingRandomized.h:16-32</c>) — two zero words, the value's
+    /// high 16 bits at +2 and its low 16 bits at +6. <b>The value goes in untouched</b>: the other two words
+    /// are the randomized part, and both references serialize them as zero.
+    /// <para>
+    /// <see cref="ScrambledInt"/> is a <b>different</b> encoding — <c>EncodingScrambled</c> permutes the bits
+    /// and then reuses this very layout (<c>EncodingScrambled.h:11-16</c>) — and rzu declares it field by
+    /// field: <c>monster_id</c> is the only scrambled id this repository emits (<c>TS_SC_ENTER.h:85</c>), while
+    /// <c>npc_id</c> (<c>:105</c>), an item's <c>code</c> (<c>:38</c>) and a summon's <c>summon_code</c>
+    /// (<c>:93</c>) are all randomized. Passing <c>ScrambledInt.Encode(...)</c> to this writer for a
+    /// randomized field permutes an id the client reads straight.
+    /// </para>
+    /// </summary>
     private static void WriteEncodedInt(Span<byte> target, uint value)
     {
         BinaryPrimitives.WriteUInt16LittleEndian(target.Slice(0, 2), 0);
