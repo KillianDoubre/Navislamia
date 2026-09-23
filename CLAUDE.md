@@ -1892,7 +1892,8 @@ without a BOM (the Korean and Chinese string tables survive). An import script l
 a temporary table of `text` columns and copies the mapped ones — `Import-SkillResourceColumns.ps1` is the
 model. `Import-MonsterResourceColumns.ps1` and `Import-MonsterSpawns.ps1` still query SQL Server
 directly. The other databases of that instance (`CHARACTER_01_DBF`, `ACCOUNT_DBF`, `RANKING_DBF`,
-`LOGGING_01_DBF`) hold the source server's player and account data and are not exported.
+`LOGGING_01_DBF`) belong to another game, not to Rappelz: they are not exported and nothing here reads
+them.
 
 ## Logging
 
