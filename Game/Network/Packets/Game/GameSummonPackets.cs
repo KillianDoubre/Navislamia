@@ -7,14 +7,16 @@ using Navislamia.Game.Network.Packets.Enums;
 namespace Navislamia.Game.Network.Packets.Game;
 
 /// <summary>
-/// The Epic 7.3 summon packets the server emits (S→C), i.e. the part of the summon socle whose wire
-/// layout is fully determined by its references. Every size, field order and version decision comes
-/// from <c>docs/packet-specs/socle-invocations.md</c> — read it before changing anything here.
+/// The Epic 7.3 summon packets whose wire layout is fully determined by its references: the part of the
+/// summon socle the server emits (S→C), plus the pet rename request it receives (C→S), 354. Every size,
+/// field order and version decision comes from <c>docs/packet-specs/socle-invocations.md</c> and
+/// <c>docs/packet-specs/354-set-pet-name.md</c> — read them before changing anything here.
 /// </summary>
 /// <remarks>
 /// Nothing in this class decides <em>when</em> a packet leaves the server: a summon existing in the
-/// world, its lifetime, its evolution and its mounting are gameplay policies that are not settled yet.
-/// The layouts below are pure encoders, so they carry no threshold, no cost and no default of their own.
+/// world, its lifetime, its evolution, its mounting and a pet being renamed are gameplay policies that
+/// are not settled yet. The builders below are pure encoders, and the one reader only takes a frame
+/// apart, so they carry no threshold, no cost and no default of their own.
 /// </remarks>
 public static class GameSummonPackets
 {
@@ -174,6 +176,79 @@ public static class GameSummonPackets
 
         WriteChecksum(packet);
         return packet;
+    }
+
+    /// <summary>
+    /// Total size of <c>TM_CS_SET_PET_NAME</c> (354) on the wire, 7-byte header included: 30 bytes. The
+    /// 7.3 client writes that length in hard (<c>0x1e</c>, <c>SFrame.exe</c> 0x48c6d0) from its only frame
+    /// builder, so any other length is a malformed frame rather than a shorter or padded variant, and a
+    /// longer one would push the <c>name</c> past the end of the field.
+    /// </summary>
+    public const int SetPetNamePacketSize = HeaderSize + 4 + NameSize;
+
+    /// <summary>
+    /// Offset of the <c>handle</c> field of the 354: 7, i.e. 0 seen from the payload
+    /// (<c>_(simple)(ar_handle_t, handle)</c>). A <c>ar_handle_t</c> is a strong typedef of a
+    /// <c>uint32_t</c>: it changes no width and the client reads and writes 4 bytes.
+    /// </summary>
+    public const int SetPetNameHandleOffset = HeaderSize;
+
+    /// <summary>
+    /// Offset of the <c>name</c> field of the 354: 11, i.e. 4 seen from the payload, right after the
+    /// 4-byte handle.
+    /// </summary>
+    public const int SetPetNameNameOffset = SetPetNameHandleOffset + 4;
+
+    /// <summary>
+    /// Usable characters of the <c>name</c> field when the client terminates it: 18, i.e.
+    /// <see cref="NameSize"/> minus the NUL. This is the width the protocol reserves, <b>not</b> a rule
+    /// the server enforces: no minimum length, no allowed character set and no uniqueness is established
+    /// for a pet name (fiche §7.4), so nothing here rejects, truncates or normalises a name.
+    /// </summary>
+    public const int SetPetNameMaxLength = NameSize - 1;
+
+    /// <summary>
+    /// <c>TM_CS_SET_PET_NAME</c> (354), the pet (familier) rename request: the 7-byte header, then a
+    /// <c>handle</c> at offsets 7-10 and a <c>char[19] name</c> at offsets 11-29 — 30 bytes in all.
+    /// <para>
+    /// The <c>handle</c> is an <b>echo</b>: the server chose it when it sent
+    /// <c>TM_SC_SHOW_SET_PET_NAME</c> (353), the client copied it into its box request and the frame
+    /// carries it straight back (<c>SFrame.exe</c> 0x66f751 → 0x63c4c7 → 0x48e184). It is returned as it
+    /// stands: which object it designates, and therefore how to resolve it, is not established (fiche
+    /// §7.2), so no lookup happens here.
+    /// </para>
+    /// <para>
+    /// Only the exact 30-byte form is accepted. The <c>name</c> is read <b>bounded to its field</b>: the
+    /// bytes before the first NUL, or all 19 bytes of the field when the client sent none. Unlike 323 —
+    /// whose frame builder zeroes the field and forces a NUL into its last byte — the client's 354 sender
+    /// is a raw <c>memcpy</c> of 19 bytes out of a <c>std::string</c> (0x48e19c), so a name longer than
+    /// the field arrives with no NUL at all; refusing such a frame would refuse a name the client really
+    /// typed, and reading past the field would spill the bytes that follow. What follows the first NUL
+    /// inside the field is ignored.
+    /// </para>
+    /// <para>
+    /// The value crosses the server <strong>unapplied</strong>: this reader decides nothing about which
+    /// pet is renamed, what a name may contain, whether it is unique, where it is persisted or what it
+    /// costs (fiche §5.2, §7.3-4). See docs/packet-specs/354-set-pet-name.md.
+    /// </para>
+    /// </summary>
+    public static bool TryReadSetPetName(ReadOnlySpan<byte> packet, out uint handle, out string name)
+    {
+        handle = 0;
+        name = null;
+
+        if (packet.Length != SetPetNamePacketSize)
+        {
+            return false;
+        }
+
+        handle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(SetPetNameHandleOffset, 4));
+
+        var field = packet.Slice(SetPetNameNameOffset, NameSize);
+        var terminator = field.IndexOf((byte)0);
+        name = Encoding.ASCII.GetString(terminator < 0 ? field : field.Slice(0, terminator));
+
+        return true;
     }
 
     private static byte[] CreatePacket(GamePackets id, int total)

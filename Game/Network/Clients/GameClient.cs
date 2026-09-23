@@ -1750,6 +1750,50 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_CS_SET_PET_NAME (354), the pet (familier) rename request. The 7.3 client does send it: its
+            // only frame builder writes the id 0x162 and the length 0x1e in hard (SFrame.exe 0x48e170,
+            // fiche §2.2, §3.1), and the frame carries back the handle the server itself put in
+            // TM_SC_SHOW_SET_PET_NAME (353) plus the typed name. This lot reads and journals the frame, and
+            // stops there on purpose:
+            //   * nothing is answered — no reference holds a result frame for a pet rename, so neither a
+            //     refusal nor a 353 echo is invented (fiche §5.2-6); replaying 353 would in fact reopen the
+            //     client's name box, since the 7.3 case 125 boxes every 353 whose handle resolves (§5.3);
+            //   * no summon row is written — the handle is proven to be an echo of the one the server chose,
+            //     but which object it designates and how to resolve it is not settled (fiche §7.2), and
+            //     neither the accepted length of a pet name nor its uniqueness is (fiche §7.3-4), so no
+            //     rename policy is applied rather than guessed;
+            //   * the id is declared and routed all the same, so that a real frame is read and can never
+            //     reach the "Unknown Packet Type" throw below.
+            // The arm sits just before the anti-cheat datagram, at the end of the chain, rather than in the
+            // summon region of the tail whose insertion zone the sibling summon lots share.
+            // See docs/packet-specs/354-set-pet-name.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_SET_PET_NAME)
+            {
+                if (GameSummonPackets.TryReadSetPetName(msgBuffer, out var petHandle, out var petName))
+                {
+                    if (petName.Length == 0)
+                    {
+                        _logger.Warning(
+                            "TM_CS_SET_PET_NAME ({id}) Length: {length} received from {clientTag}: handle={handle} with an empty name (read only: no rename policy is established)",
+                            header.ID, header.Length, ClientTag, petHandle);
+                    }
+                    else
+                    {
+                        _logger.Debug(
+                            "TM_CS_SET_PET_NAME ({id}) Length: {length} received from {clientTag}: handle={handle} name=\"{name}\" (read only: handle resolution and rename policy not established)",
+                            header.ID, header.Length, ClientTag, petHandle, petName);
+                    }
+                }
+                else
+                {
+                    _logger.Warning(
+                        "Malformed TM_CS_SET_PET_NAME ({id}) Length: {length} received from {clientTag}",
+                        header.ID, header.Length, ClientTag);
+                }
+
+                continue;
+            }
+
             // Client anti-cheat datagram (54). The operational disposition is still open — verify,
             // record, ignore or refuse — so this arm only makes the datagram observable: it never
             // answers, validates or disconnects. It is deliberately kept out of the

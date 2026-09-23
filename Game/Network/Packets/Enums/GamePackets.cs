@@ -96,6 +96,11 @@ public enum GamePackets : ushort
     TM_SC_ADD_PET_INFO = 351,
     TM_SC_REMOVE_PET_INFO = 352,
 
+    // Pet rename, the Epic 7.3 pair 353/354 (docs/packet-specs/354-set-pet-name.md): 354 carries the name
+    // back with the very handle the server put in 353. The 9.6.3 remap to 1354 does not concern this
+    // repository.
+    TM_CS_SET_PET_NAME = 354,
+
     TM_CS_SKILL = 400,
     TM_SC_SKILL = 401,
     TM_CS_LEARN_SKILL = 402,
