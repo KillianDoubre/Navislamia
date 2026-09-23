@@ -93,6 +93,10 @@ public class SummonPacketsTests
         GameActionPackets.SummonFlagOffset.Should().Be(7, "the flag is the first payload byte");
         GameActionPackets.SummonCardHandleOffset.Should().Be(8);
         GameActionPackets.SummonCardHandleOffset.Should().Be(GameActionPackets.SummonFlagOffset + 1);
+
+        // Seen from the payload (fiche §3.1, socle-invocations.md §4): is_summon at 0, card_handle at 1.
+        (GameActionPackets.SummonFlagOffset - Marshal.SizeOf<Header>()).Should().Be(0);
+        (GameActionPackets.SummonCardHandleOffset - Marshal.SizeOf<Header>()).Should().Be(1);
     }
 
     [Test]
