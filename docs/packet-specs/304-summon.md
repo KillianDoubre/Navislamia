@@ -394,3 +394,11 @@ Constaté pendant la revue, **hors de ce paquet** : `TM_EQUIP_SUMMON` (303), que
 session maintenue, trames coalescées après elle perdues. À traiter avec son propre paquet.
 
 Construction `Release` et `dotnet test` : 1 181 tests, 0 échec.
+
+**Test en jeu (Killian, 2026-09-23) : le geste d'invocation n'est pas atteignable.** Une carte de
+créature donnée par `/item 540001` est **vide** : le client n'a rien à invoquer et refuse de lui-même,
+avant tout envoi. C'est attendu — une carte ne porte une créature qu'après apprivoisement, qui n'existe
+pas, et le client n'apprend la créature d'une carte que par `TS_SC_ADD_SUMMON_INFO` (301), que rien
+n'émet. Le chemin 400 → 4001 et l'absence de 304 ne pourront donc être observés qu'une fois les
+invocations modélisées (créature liée à la carte, 301 à l'entrée dans le monde). D'ici là, seuls les
+tests contre la vraie boucle de réception couvrent ce bras.
