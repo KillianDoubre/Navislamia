@@ -396,6 +396,31 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_XTRAP_CHECK, buffer.Length, checkBuffer.Length, ClientTag);
     }
 
+    /// <summary>
+    /// TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to a
+    /// creature card (click on the card window's <c>button_flip</c>). The frame is 11 bytes — a 7 byte
+    /// header plus a single uint32 <c>item_handle</c> at offset 7. It is read and bounded, and the
+    /// handle is logged so that a client capture tells what the field carries; nothing is answered.
+    /// No reference implements 452: NGemity declares it and has no handler, rzu only ships the client
+    /// side, and neither the client's incoming dispatcher nor op_codes.md names a server answer. The
+    /// hypothetical one (TM_SC_SKILL_LIST, 403) would need the card -> summon resolution the spec leaves
+    /// open, which is not established, so no table is invented and the received handle is not echoed
+    /// back as a target. See docs/packet-specs/452-summon-card-skill-list.md §5.4, §5.5, §7a §7c.
+    /// </summary>
+    private void HandleSummonCardSkillList(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadSummonCardSkillList(buffer, out var itemHandle))
+        {
+            _logger.Warning("Malformed summon card skill list frame received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_SUMMON_CARD_SKILL_LIST ({id}) Length: {length} item_handle={itemHandle} received from {clientTag}",
+            (ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST, buffer.Length, itemHandle, ClientTag);
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -1344,6 +1369,17 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_SKILL)
             {
                 HandleSkill(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to
+            // a creature card. The frame is read, bounded and logged, and nothing is answered — no
+            // reference implements 452 and the card -> summon resolution its answer would need is not
+            // established. It must stay before the throwing switch below: a member of GamePackets that
+            // reaches it breaks the receive loop. See docs/packet-specs/452-summon-card-skill-list.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST)
+            {
+                HandleSummonCardSkillList(msgBuffer);
                 continue;
             }
 

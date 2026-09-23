@@ -57,6 +57,28 @@ public static class GameActionPackets
         return true;
     }
 
+    /// <summary>
+    /// <c>TM_CS_SUMMON_CARD_SKILL_LIST</c> (452): the client asks for the skill list of the summon tied to
+    /// a creature card. The frame is of fixed size — 7-byte header plus a single <c>uint32</c>
+    /// <c>item_handle</c> at offset 7 — so the exact 11-byte form is the only one accepted: a short or
+    /// padded frame is refused rather than partially read, exactly like
+    /// <see cref="TryReadCheckIllegalUser"/>. The field is named by rzu; what the client actually puts in
+    /// it is not established (docs/packet-specs/452-summon-card-skill-list.md §7b), so the value is only
+    /// ever logged, never resolved into a card or a summon.
+    /// </summary>
+    public static bool TryReadSummonCardSkillList(ReadOnlySpan<byte> packet, out uint itemHandle)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length != packetLength)
+        {
+            itemHandle = 0;
+            return false;
+        }
+
+        itemHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
+
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
         return BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
