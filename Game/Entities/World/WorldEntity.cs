@@ -9,4 +9,5 @@ public class WorldEntity
     public IEnumerable<ItemEffectResourceEntity> ItemEffectResources { get; set; }
     public IEnumerable<SetItemEffectResourceEntity> SetItemEffectResources { get; set; }
     public IEnumerable<LevelResourceEntity> LevelResources { get; set; }
+    public IEnumerable<WorldLocationEntity> WorldLocations { get; set; }
 }

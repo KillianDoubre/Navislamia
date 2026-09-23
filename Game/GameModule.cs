@@ -204,16 +204,32 @@ public class GameModule : IGameModule
         Task.Run(AcceptClients);
     }
 
-    private async void AcceptClients()
+    /// <summary>
+    /// Accepts clients for the life of the server. One failed accept or one client that fails to set up is
+    /// logged and skipped: this used to be <c>async void</c> with no guard, so either exception terminated
+    /// the process, and the accept loop with it.
+    /// </summary>
+    private async Task AcceptClients()
     {
         while (true)
         {
-            var clientSocket = await _clientListener.AcceptAsync();
-            var client = _networkService.CreateGameClient(clientSocket);
-            
-            clientSocket.NoDelay = true;
-    
-            _logger.LogDebug("Client connected {clientTag}", client.ClientTag);
+            try
+            {
+                var clientSocket = await _clientListener.AcceptAsync();
+                clientSocket.NoDelay = true;
+
+                var client = _networkService.CreateGameClient(clientSocket);
+
+                _logger.LogDebug("Client connected {clientTag}", client.ClientTag);
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Could not accept a client");
+            }
         }
     }
 }

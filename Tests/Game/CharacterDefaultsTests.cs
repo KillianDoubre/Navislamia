@@ -77,7 +77,7 @@ public class CharacterDefaultsTests
 
         var service = new CharacterService(
             A.Fake<IStarterItemsRepository>(),
-            repository,
+            Repositories(repository), new CharacterGate(),
             A.Fake<ILogger<CharacterService>>());
 
         await service.GetCharactersByAccountNameAsync("account", true);
@@ -91,14 +91,14 @@ public class CharacterDefaultsTests
     {
         var character = new CharacterEntity { CharacterName = "Character" };
         var repository = A.Fake<ICharacterRepository>();
-        A.CallTo(() => repository.GetCharacterByName("Character")).Returns(character);
+        A.CallTo(() => repository.GetCharacterByNameAsync("Character")).Returns(character);
 
         var service = new CharacterService(
             A.Fake<IStarterItemsRepository>(),
-            repository,
+            Repositories(repository), new CharacterGate(),
             A.Fake<ILogger<CharacterService>>());
 
-        await service.SaveProgressAsync("Character", 1, 5, 100, 200, 300, 400, 0f, 0f);
+        await service.SaveProgressAsync("Character", 1, 5, 100, 200, 300, 400, 0f, 0f, true);
 
         character.Lv.Should().Be(1);
         character.MaxReachedLv.Should().Be(1);
@@ -107,6 +107,7 @@ public class CharacterDefaultsTests
         character.Jp.Should().Be(200);
         character.Gold.Should().Be(300);
         character.Chaos.Should().Be(400);
+        character.PkMode.Should().BeTrue();
         A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
     }
 
@@ -120,8 +121,8 @@ public class CharacterDefaultsTests
             Skills = new List<CharacterSkillEntity>()
         };
         var repository = A.Fake<ICharacterRepository>();
-        A.CallTo(() => repository.GetCharacterByName("Character")).Returns(character);
-        var service = new CharacterService(A.Fake<IStarterItemsRepository>(), repository,
+        A.CallTo(() => repository.GetCharacterByNameWithSkillsAsync("Character")).Returns(character);
+        var service = new CharacterService(A.Fake<IStarterItemsRepository>(), Repositories(repository), new CharacterGate(),
             A.Fake<ILogger<CharacterService>>());
 
         (await service.SaveLearnedSkillAsync("Character", 1004, 1, 96)).Should().BeTrue();
@@ -209,12 +210,20 @@ public class CharacterDefaultsTests
         removal.Removed.Should().Be(0);
     }
 
+    /// <summary>The service now asks a factory for one repository per operation: hand it the fake.</summary>
+    private static ICharacterRepositoryFactory Repositories(ICharacterRepository repository)
+    {
+        var factory = A.Fake<ICharacterRepositoryFactory>();
+        A.CallTo(() => factory.Create()).Returns(repository);
+        return factory;
+    }
+
     private static (CharacterService, ICharacterRepository) ServiceWithItems(params ItemEntity[] items)
     {
         var character = new CharacterEntity { CharacterName = "Character", Items = items.ToList() };
         var repository = A.Fake<ICharacterRepository>();
-        A.CallTo(() => repository.GetCharacterByNameWithItems("Character")).Returns(character);
-        return (new CharacterService(A.Fake<IStarterItemsRepository>(), repository,
+        A.CallTo(() => repository.GetCharacterByNameWithItemsAsync("Character")).Returns(character);
+        return (new CharacterService(A.Fake<IStarterItemsRepository>(), Repositories(repository), new CharacterGate(),
             A.Fake<ILogger<CharacterService>>()), repository);
     }
 }

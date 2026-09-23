@@ -54,9 +54,9 @@ public static class GameRequestPackets
     public const int MinPacketSize = HeaderSize + 2;
 
     /// <summary>
-    /// Largest frame that can ever reach the receive loop. <c>Connection</c> reads into a 32768 byte
-    /// buffer (<c>Connection.cs:27</c>) and the loop refuses to advance while <c>Length</c> exceeds what
-    /// it holds, so a longer frame is never delivered — the client would simply wait.
+    /// Largest frame that can ever reach the receive loop: the 32768 byte receive buffer of
+    /// <c>Connection</c>. <c>GameClient</c> refuses a larger announced length (<c>MaxFrameLength</c>) and
+    /// disconnects, since such a frame could never be assembled.
     /// </summary>
     public const int MaxPacketSize = 32768;
 
@@ -88,11 +88,10 @@ public static class GameRequestPackets
         selector = 0;
         command = ReadOnlySpan<byte>.Empty;
 
-        if (packet.Length < MinPacketSize)
+        if (packet.Length < MinPacketSize || packet[^1] != 0)
+        {
             return false;
-
-        if (packet[^1] != 0)
-            return false;
+        }
 
         selector = packet[SelectorOffset];
         command = packet.Slice(CommandOffset, packet.Length - MinPacketSize);

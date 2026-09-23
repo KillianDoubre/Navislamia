@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Net;
@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Channels;
 
 using Navislamia.Game.Network.Interfaces;
+using Serilog;
 
 namespace Navislamia.Game.Network;
 
@@ -16,14 +17,31 @@ namespace Navislamia.Game.Network;
 /// </summary>
 public class Connection : IConnection
 {
+    private readonly ILogger _logger = Log.ForContext<Connection>();
+
     private readonly Socket _socket;
 
-    private bool _disconnectSignaled;
+    /// <summary>0 while the connection is alive, 1 once the disconnect has been signalled.</summary>
+    private int _disconnectSignaled;
 
     internal volatile int BytesSent;
     internal volatile int BytesReceived;
 
-    private int _dataLength = 0;
+    /// <summary>
+    /// Unread data is <c>ReceiveBuffer[ReadOffset .. ReadOffset + _dataLength)</c>. Reads advance the
+    /// offset; the remainder is moved to the front once per receive, in <see cref="Listen"/>.
+    /// </summary>
+    /// <remarks>
+    /// Every <see cref="Read"/> used to move the whole remainder to the front of the buffer, so a burst of
+    /// small packets coalesced in one TCP read was copied over and over: quadratic in the burst.
+    /// </remarks>
+    private int _dataLength;
+
+    protected int ReadOffset { get; private set; }
+
+    /// <summary>How many unread bytes follow <see cref="ReadOffset"/>.</summary>
+    protected int AvailableLength => _dataLength;
+
     internal readonly byte[] ReceiveBuffer = new byte[32768];
 
     /// <summary>
@@ -43,13 +61,13 @@ public class Connection : IConnection
     /// <summary>
     /// Event triggered when data has been sent to the remote connection. (includes count of bytes sent)
     /// </summary>
-    public Action<int> OnDataSent { get; set; }   
+    public Action<int> OnDataSent { get; set; }
 
     /// <summary>
     /// Event triggered when data has been received from the remote connection (includes count of bytes received)
     /// </summary>
     public Action<int> OnDataReceived { get; set; }
-        
+
     /// <summary>
     /// Event triggered when the remote connection has disconnected
     /// </summary>
@@ -76,7 +94,8 @@ public class Connection : IConnection
     }
 
     /// <summary>
-    /// Gracefully disconnects the connection
+    /// Gracefully disconnects the connection. The pending receive then completes empty or in error, and
+    /// that completion is what signals the disconnect.
     /// </summary>
     public void Disconnect()
     {
@@ -85,7 +104,14 @@ public class Connection : IConnection
             return;
         }
 
-        _socket.Disconnect(false);
+        try
+        {
+            _socket.Disconnect(false);
+        }
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+        {
+            // Already gone: the receive path signals it.
+        }
     }
 
     /// <summary>
@@ -127,9 +153,16 @@ public class Connection : IConnection
     {
         get
         {
-            if (_socket?.RemoteEndPoint is IPEndPoint remoteEp)
+            try
             {
-                return remoteEp.Address.ToString();
+                if (_socket?.RemoteEndPoint is IPEndPoint remoteEp)
+                {
+                    return remoteEp.Address.ToString();
+                }
+            }
+            catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+            {
+                // Read from error paths, where the socket may already be gone.
             }
 
             return default;
@@ -153,20 +186,25 @@ public class Connection : IConnection
     }
 
     /// <summary>
-    /// Checks if the wrapped socket is connected via polling
+    /// Whether the connection is still usable. It no longer polls the socket: the receive loop learns of
+    /// a disconnect first (an empty or failed receive) and records it.
     /// </summary>
-    public bool Connected => _socket.Connected &&
-                             (!_socket.Poll(1000, SelectMode.SelectRead) || _socket.Available != 0) &&
-                             !_disconnectSignaled;
+    public bool Connected => _socket.Connected && Volatile.Read(ref _disconnectSignaled) == 0;
 
     /// <summary>
-    /// Starts internal processes like checking for disconnect, sending messages and begins listening
+    /// Starts internal processes like sending messages and begins listening
     /// </summary>
+    /// <remarks>
+    /// A disconnect used to be detected by a loop per connection that woke every 100 ms and called
+    /// <c>Socket.Poll(1000 µs)</c>, which blocks a thread-pool thread for the whole millisecond whenever
+    /// nothing is pending, i.e. almost always: 1% of a thread per player, for information the receive
+    /// already has. A peer that closes makes the pending receive complete with 0 bytes, and a reset makes
+    /// it throw; both now signal the disconnect directly.
+    /// </remarks>
     public virtual void Start()
     {
         _cancellationToken = CancellationTokenSource.Token;
 
-        Task.Run(CheckForDisconnect, _cancellationToken);
         Task.Run(SendLoop, _cancellationToken);
 
         Listen();
@@ -179,40 +217,52 @@ public class Connection : IConnection
     /// <returns>ReadOnlySpan pointing to the data inside the receive buffer</returns>
     public virtual ReadOnlySpan<byte> Peek(int length)
     {
-        return new ReadOnlySpan<byte>(ReceiveBuffer, 0, length);
+        return new ReadOnlySpan<byte>(ReceiveBuffer, ReadOffset, length);
     }
 
     /// <summary>
-    /// Reads data from the receive buffer and moves remaining data to the front of the receive buffer
+    /// Reads data from the receive buffer and advances past it.
     /// </summary>
     /// <param name="input">Amount of data to be read</param>
     /// <returns>Byte array containing read data</returns>
     public virtual byte[] Read(int input)
     {
         // Set the read input to be the smaller of available data in the buffer or the input provided
-        var length = Math.Min(_dataLength, input);
+        var length = Math.Clamp(input, 0, _dataLength);
         var readBuffer = new byte[length];
 
-        // copy the data from the ReceiveBuffer into a message buffer
-        Buffer.BlockCopy(ReceiveBuffer, 0, readBuffer, 0, length);
+        Buffer.BlockCopy(ReceiveBuffer, ReadOffset, readBuffer, 0, length);
 
-        // reduce the available data input
-        _dataLength -= input;
+        // Wipe what was consumed. The receive buffer lives as long as the connection, and a cipher
+        // connection decodes in place, so without this a secret frame (a security password, a one-time
+        // key) would stay readable in clear until later traffic happened to overwrite it. The frame is
+        // now in the caller's hands alone, and a handler can zero that copy too.
+        Array.Clear(ReceiveBuffer, ReadOffset, length);
 
-        // move the remaining data into the front of the buffer
-        Buffer.BlockCopy(ReceiveBuffer, input, ReceiveBuffer, 0, _dataLength);
+        _dataLength -= length;
+        ReadOffset = _dataLength == 0 ? 0 : ReadOffset + length;
 
         return readBuffer;
     }
 
     /// <summary>
     /// Queues a message for sending. Derived connections must route through here rather than touch the
-    /// channel, or their messages are queued without ever waking the send loop.
+    /// channel, or their messages are queued without ever waking the send loop. The buffer is never
+    /// modified: any transformation happens on the send loop's own copy (<see cref="EncodeOutgoing"/>).
     /// </summary>
     /// <param name="buffer">Message data to be sent</param>
     public virtual void Send(byte[] buffer)
     {
         _sendChannel.Writer.TryWrite(buffer);
+    }
+
+    /// <summary>
+    /// Transforms outgoing bytes in place, in exactly the order they go on the wire. Runs on the send loop
+    /// only, so a stream cipher needs no lock: the single reader dequeues, encodes and writes in one order.
+    /// </summary>
+    /// <param name="buffer">The send loop's pooled copy; the first <paramref name="length"/> bytes are sent.</param>
+    protected virtual void EncodeOutgoing(byte[] buffer, int length)
+    {
     }
 
     /// <summary>
@@ -239,7 +289,7 @@ public class Connection : IConnection
         {
             while (await _sendChannel.Reader.WaitToReadAsync(_cancellationToken))
             {
-                if (_disconnectSignaled)
+                if (Volatile.Read(ref _disconnectSignaled) != 0)
                 {
                     return;
                 }
@@ -264,42 +314,46 @@ public class Connection : IConnection
         }
         catch (Exception)
         {
-            // The socket is gone; CheckForDisconnect owns tearing the connection down.
+            // The socket is gone.
+            SignalDisconnect();
         }
     }
 
     private async Task SendBatchAsync(List<byte[]> pending, int total)
     {
-        int sentBytes;
+        // Always a copy, even for one message: the encoding happens on it, never on the caller's array,
+        // so one packet can safely be handed to several connections.
+        var batch = ArrayPool<byte>.Shared.Rent(total);
 
-        if (pending.Count == 1)
+        try
         {
-            sentBytes = await _socket.SendAsync(pending[0], SocketFlags.None);
-        }
-        else
-        {
-            var batch = ArrayPool<byte>.Shared.Rent(total);
-
-            try
+            var offset = 0;
+            foreach (var buffer in pending)
             {
-                var offset = 0;
-                foreach (var buffer in pending)
+                Buffer.BlockCopy(buffer, 0, batch, offset, buffer.Length);
+                offset += buffer.Length;
+            }
+
+            EncodeOutgoing(batch, total);
+
+            var sent = 0;
+            while (sent < total)
+            {
+                var written = await _socket.SendAsync(batch.AsMemory(sent, total - sent), SocketFlags.None);
+                if (written <= 0)
                 {
-                    Buffer.BlockCopy(buffer, 0, batch, offset, buffer.Length);
-                    offset += buffer.Length;
+                    SignalDisconnect();
+                    return;
                 }
 
-                sentBytes = await _socket.SendAsync(batch.AsMemory(0, total), SocketFlags.None);
+                sent += written;
             }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(batch);
-            }
-        }
 
-        if (sentBytes > 0)
+            OnDataSent?.Invoke(sent);
+        }
+        finally
         {
-            OnDataSent?.Invoke(sentBytes);
+            ArrayPool<byte>.Shared.Return(batch);
         }
     }
 
@@ -308,11 +362,29 @@ public class Connection : IConnection
     /// </summary>
     protected virtual void Listen()
     {
-        if (!_disconnectSignaled)
+        if (Volatile.Read(ref _disconnectSignaled) != 0)
         {
-            // receive the data into the receive buffer @ the current data input (to preserve any partial packets that may remain in the buffer)
-            _socket.BeginReceive(ReceiveBuffer, _dataLength, ReceiveBuffer.Length - _dataLength, SocketFlags.None, OnReceive, _socket);
+            return;
         }
+
+        // Once per receive, not once per packet: move what is left unread to the front.
+        if (ReadOffset > 0)
+        {
+            Buffer.BlockCopy(ReceiveBuffer, ReadOffset, ReceiveBuffer, 0, _dataLength);
+            ReadOffset = 0;
+        }
+
+        if (_dataLength >= ReceiveBuffer.Length)
+        {
+            // A frame larger than the buffer can never complete: the peer is not speaking this protocol.
+            _logger.Warning("Receive buffer full without a complete frame from {remote}; disconnecting", RemoteIp);
+            Disconnect();
+            SignalDisconnect();
+            return;
+        }
+
+        // receive the data into the receive buffer @ the current data input (to preserve any partial packets that may remain in the buffer)
+        _socket.BeginReceive(ReceiveBuffer, _dataLength, ReceiveBuffer.Length - _dataLength, SocketFlags.None, OnReceive, _socket);
     }
 
     /// <summary>
@@ -321,64 +393,74 @@ public class Connection : IConnection
     /// <param name="ar"></param>
     private void OnReceive(IAsyncResult ar)
     {
-        if (_disconnectSignaled)
+        if (Volatile.Read(ref _disconnectSignaled) != 0)
         {
             return;
         }
-            
+
+        int receiveBytes;
         try
         {
-            var receiveBytes = _socket?.EndReceive(ar) ?? 0;
-            if (receiveBytes <= 0)
-            {
-                return;
-            }
+            receiveBytes = _socket.EndReceive(ar);
+        }
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+        {
+            // A reset or a socket closed by Disconnect.
+            SignalDisconnect();
+            return;
+        }
 
-            BytesReceived += receiveBytes;
+        if (receiveBytes <= 0)
+        {
+            // An orderly close by the peer.
+            SignalDisconnect();
+            return;
+        }
 
-            // set the available data tracker
-            _dataLength += receiveBytes;
+        BytesReceived += receiveBytes;
+        _dataLength += receiveBytes;
 
+        try
+        {
             OnDataReceived(_dataLength);
+        }
+        catch (Exception exception)
+        {
+            // This runs on an I/O completion thread: an exception escaping it terminates the process, so
+            // one malformed packet or one handler bug used to take the whole server down. The frame that
+            // failed has been consumed; the session goes on unless the handler disconnected it.
+            _logger.Error(exception, "Unhandled exception while processing data from {remote}", RemoteIp);
+        }
 
+        try
+        {
             Listen();
         }
-        catch (SocketException sockEx)
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
         {
-            // likely a disconnection by the client
-            // this will be caught on the next poll of the client, so lets be silent here
+            SignalDisconnect();
         }
     }
 
     /// <summary>
-    /// Check if the remote connection has disconnected and trigger disconnect events accordingly
+    /// Records the disconnect once, stops the send loop and raises <see cref="OnDisconnected"/>.
     /// </summary>
-    /// <returns>Nothing</returns>
-    private async Task CheckForDisconnect()
+    private void SignalDisconnect()
     {
-        while (true) 
+        if (Interlocked.Exchange(ref _disconnectSignaled, 1) != 0)
         {
-            if (!Connected)
-            {
-                OnDisconnect();
-            }
-
-            await Task.Delay(100, _cancellationToken);
+            return;
         }
-    }
 
-    /// <summary>
-    /// Perform actions related to a connection disconnecting
-    /// </summary>
-    private void OnDisconnect()
-    {
         CancellationTokenSource.Cancel();
 
-        if (!_disconnectSignaled)
+        try
         {
-            OnDisconnected();
+            OnDisconnected?.Invoke();
         }
-
-        _disconnectSignaled = true;
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Disconnect handler failed for {remote}", RemoteIp);
+        }
     }
 }

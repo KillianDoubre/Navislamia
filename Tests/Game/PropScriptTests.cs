@@ -63,4 +63,47 @@ public class PropScriptTests
     {
         PropScript.Parse(script).Should().Be(PropAction.None);
     }
+
+    [Test]
+    public void open_market_carries_the_market_name()
+    {
+        var action = PropScript.Parse("open_market(deva_weapon)");
+
+        action.Kind.Should().Be(PropActionKind.OpenMarket);
+        action.Name.Should().Be("deva_weapon");
+        action.Should().Be(PropAction.Market("deva_weapon"));
+    }
+
+    [Test]
+    public void open_market_is_read_without_its_closing_parenthesis()
+    {
+        // Every merchant entry of the Epic 7.3 dialog catalogue is the truncated "open_market(": the
+        // name was concatenated in the client's Lua and was not captured at generation.
+        var action = PropScript.Parse("open_market(");
+
+        action.Kind.Should().Be(PropActionKind.OpenMarket);
+        action.Name.Should().BeEmpty();
+    }
+
+    [TestCase("open_market()")]
+    [TestCase("open_market( )")]
+    public void open_market_is_read_with_an_empty_argument(string script)
+    {
+        var action = PropScript.Parse(script);
+
+        action.Kind.Should().Be(PropActionKind.OpenMarket);
+        action.Name.Should().BeEmpty("the market service refuses an unnamed market instead of guessing");
+    }
+
+    [Test]
+    public void open_market_tolerates_the_spacing_used_in_the_data()
+    {
+        PropScript.Parse(" open_market( deva_weapon ) ").Should().Be(PropAction.Market("deva_weapon"));
+    }
+
+    [Test]
+    public void another_kind_carries_no_market_name()
+    {
+        PropScript.Parse("common_warp_gate(105093, 137583)").Name.Should().BeNull();
+    }
 }

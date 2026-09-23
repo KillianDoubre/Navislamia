@@ -16,6 +16,8 @@ public enum GamePackets : ushort
     TM_SC_REGION_ACK = 11,
     TM_SC_WARP = 12,
     TM_CS_QUERY = 13,
+    TM_CS_ENTER_EVENT_AREA = 15,
+    TM_CS_LEAVE_EVENT_AREA = 16,
     TM_CS_CHAT_REQUEST = 20,
     TM_SC_CHAT_LOCAL = 21,
     TM_SC_CHAT = 22,
@@ -34,6 +36,10 @@ public enum GamePackets : ushort
     TM_CS_TAKE_ITEM = 204,
     TM_SC_DROP_RESULT = 205,
     TM_SC_TAKE_ITEM_RESULT = 210,
+    // The storage family, declared with the item ids rather than after TM_CS_VERSION, where the sibling
+    // packet branches anchor their own members.
+    TM_SC_OPEN_STORAGE = 211,
+    TM_CS_STORAGE = 212,
     TM_SC_BELT_SLOT_INFO = 216,
     TM_SC_ITEM_COOL_TIME = 217,
     TM_CS_CHANGE_ITEM_POSITION = 218,
@@ -41,11 +47,34 @@ public enum GamePackets : ushort
     TM_CS_USE_ITEM = 253,
     TM_SC_DESTROY_ITEM = 254,
     TM_SC_UPDATE_ITEM_COUNT = 255,
+
+    // The crafting and item-enchantment family. Epic 7.3 keeps the low ids (rzu remaps them to
+    // +1000 from EPIC_9_6_3 on, which is above EPIC_7_3 = 0x070300). TM_SC_SHOW_SOULSTONE_CRAFT_WINDOW
+    // has no established 7.3 id (rzu and NGemity both declare it on 259, where op_codes.md declares
+    // TM_CS_DONATE_REWARD) and is therefore deliberately absent.
+    // See docs/packet-specs/socle-artisanat-objets.md §1 and §5.1.
+    TM_CS_MIX = 256,
+    TM_SC_MIX_RESULT = 257,
+    TM_CS_SOULSTONE_CRAFT = 260,
+    TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW = 261,
+    TM_CS_REPAIR_SOULSTONE = 262,
+    TM_CS_TRANSMIT_ETHEREAL_DURABILITY = 263,
+    TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT = 264,
+
     TM_SC_HAIR_INFO = 220,
     TM_SC_HIDE_EQUIP_INFO = 222,
     TM_SC_SKIN_INFO = 224,
+    TM_SC_NPC_TRADE_INFO = 240,
+    TM_SC_MARKET = 250,
     TM_SC_USE_ITEM_RESULT = 283,
+    TM_SC_ADD_SUMMON_INFO = 301,
+    TM_SC_REMOVE_SUMMON_INFO = 302,
     TM_EQUIP_SUMMON = 303,
+    TM_SC_UNSUMMON = 305,
+    TM_SC_UNSUMMON_NOTICE = 306,
+    TM_SC_SUMMON_EVOLUTION = 307,
+    TM_SC_MOUNT_SUMMON = 320,
+    TM_SC_UNMOUNT_SUMMON = 321,
     TM_CS_SKILL = 400,
     TM_SC_SKILL = 401,
     TM_CS_LEARN_SKILL = 402,
@@ -54,15 +83,27 @@ public enum GamePackets : ushort
     TM_SC_AURA = 407,
     TM_CS_JOB_LEVEL_UP = 410,
 
+    // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
+    // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) is deliberately absent —
+    // the 7.3 client neither knows it nor can send it (fiche §1.3).
+    TM_CS_START_BOOTH = 700,
+    TM_CS_STOP_BOOTH = 701,
+
     TM_SC_STATUS_CHANGE = 500,
     TM_SC_STATE = 505,
     TM_CS_UPDATE = 503,
     TM_SC_PROPERTY = 507,
     TM_CS_SET_PROPERTY = 508,
     TM_CS_TARGETING = 511,
+    TM_CS_RESURRECTION = 513,
     TM_CS_MONSTER_RECOGNIZE = 517,
     TM_CS_GET_REGION_INFO = 550,
+    TM_SC_QUEST_LIST = 600,
+    TM_SC_QUEST_STATUS = 601,
+    TM_CS_DROP_QUEST = 603,
     TM_CS_CHANGE_LOCATION = 900,
+    TM_SC_WEATHER_INFO = 902,
+    TM_CS_GET_WEATHER_INFO = 903,
     TM_SC_STAT_INFO = 1000,
     TM_SC_GOLD_UPDATE = 1001,
     TM_SC_LEVEL_UPDATE = 1002,
@@ -74,6 +115,10 @@ public enum GamePackets : ushort
     TM_SC_EMOTION = 1201,
     TM_CS_EMOTION = 1202,
 
+    TM_SC_AUCTION_SEARCH = 1301,
+    TM_SC_AUCTION_SELLING_LIST = 1303,
+    TM_SC_AUCTION_BIDDED_LIST = 1305,
+
     TM_SC_DIALOG = 3000,
     TM_CS_DIALOG = 3001,
     TM_CS_CONTACT = 3002,
@@ -84,14 +129,21 @@ public enum GamePackets : ushort
     TM_CS_LOGOUT = 27,
     TM_SC_DISCONNECT_DESC = 28,
 
+    TM_CS_VERSION = 50,
+
+    TM_CS_ANTI_HACK = 54,
+
+    // TM_CS_XTRAP_CHECK (59): the XTrap integrity check the client would send — 135 bytes, a 7 byte header
+    // plus a fixed uint8[128] payload, with no length field. rzu gates the id to 59 below EPIC_9_6_3
+    // (1059 only from 9.6.3 on), so 1059 must not be declared here. Its server to client counterpart is
+    // 58 (TM_SC_XTRAP_CHECK): deliberately not declared, nothing in the server ever sends it and the 7.3
+    // client parses it into an empty branch. See docs/packet-specs/59-xtrap-check.md.
+    TM_CS_XTRAP_CHECK = 59,
+
     // TM_CS_REQUEST (60): the client's raw command channel, read and logged only (see
     // docs/packet-specs/60-request.md). rzu gates the id to 60 below EPIC_9_6_3 (1060 only from 9.6.3
-    // on), so 1060 must not be declared. The line sits here rather than next to the other 50s members:
-    // the branches adding 54, 57 and 59 all insert their member after TM_CS_VERSION = 50, and an
-    // isolated line keeps this one out of that conflict.
+    // on), so 1060 must not be declared.
     TM_CS_REQUEST = 60,
-
-    TM_CS_VERSION = 50,
 
     TM_CS_CHARACTER_LIST = 2001,
 
@@ -103,7 +155,33 @@ public enum GamePackets : ushort
 
     TM_CS_CHECK_CHARACTER_NAME = 2006,
 
+    // TM_CS/SC_INSTANCE_GAME_* : instance game socle, X(<id>, true) in rzu (EPIC_6_3 and later, hence valid
+    // for EPIC_7_3). See docs/packet-specs/socle-instances-jeu.md.
+    TM_CS_INSTANCE_GAME_ENTER = 4250,
+    TM_CS_INSTANCE_GAME_EXIT = 4251,
+    TM_CS_INSTANCE_GAME_SCORE_REQUEST = 4252,
+    TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253,
+
+    // TM_CS_COMPETE_* : the client to server half of the player competition socle (4500-4506), X(<id>, true) in
+    // rzu, so no version gating and no gated field. Only the two frames the server reads are declared; the five
+    // server to client ids join with lots C2-C4. See docs/packet-specs/socle-competition-joueurs.md.
+    TM_CS_COMPETE_REQUEST = 4500,
+    TM_CS_COMPETE_ANSWER = 4502,
+
+    TM_CS_RANKING_TOP_RECORD = 5000,
+    TM_SC_RANKING_TOP_RECORD = 5001,
+
     TM_CS_REPORT = 8000,
+
+    // TM_CS_SECURITY_NO (9005): the security password the client sends back once the server has asked for
+    // it with TM_SC_REQUEST_SECURITY_NO (9004) — 30 bytes, read and bounded but never verified (see
+    // docs/packet-specs/9005-security-no.md §5.4). rzu remaps the id to 8105 from EPIC_9_6_3 on, so 8105
+    // must not be declared here, and account(64)/result/security_no_1/_2 only exist from EPIC_9_6_7.
+    TM_CS_SECURITY_NO = 9005,
+
+    TM_SC_COMMERCIAL_STORAGE_INFO = 10003,
+    TM_SC_COMMERCIAL_STORAGE_LIST = 10004,
+    TM_CS_TAKEOUT_COMMERCIAL_ITEM = 10005,
 
     TM_NONE = 9999
 }

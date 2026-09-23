@@ -761,8 +761,10 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
 
 ### 16.7 Réserves du dev
 
-1. Le cas 11 de §9 (`Length = 0` ⇒ boucle de réception qui tourne) **reste ouvert** et n'est pas corrigé
-   ici : il est générique, pré-existant, et le corriger change la boucle partagée par toutes les fiches.
+1. ~~Le cas 11 de §9 (`Length = 0` ⇒ boucle de réception qui tourne) **reste ouvert**.~~ **Levée au
+   merge dans `master` (2026-09-23)** : le lot de performances a corrigé la boucle partagée
+   (`GameClient.OnDataReceived`) — une longueur inférieure à l'en-tête ou supérieure au tampon de
+   32768 octets déconnecte au lieu de boucler (`Tests/Game/ReceiveGuardTests.cs`).
 2. La fidélité de `Length = 9 + L` repose sur la lecture de rzu (§3.3) ; **aucune trame réelle de 60 n'a
    été observée** — le seul producteur connu n'est pas un client 7.3. Si un jour une capture montre un
    terminator absent ou un second NUL, le refus du cas 3 est le premier point à revoir.
