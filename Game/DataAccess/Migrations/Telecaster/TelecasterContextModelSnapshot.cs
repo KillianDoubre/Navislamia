@@ -332,6 +332,12 @@ namespace Navislamia.Game.Migrations.Telecaster
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("AccountName");
+
+                    b.HasIndex("CharacterName");
+
                     b.HasIndex("GuildId");
 
                     b.HasIndex("MainSummonId")
@@ -686,6 +692,8 @@ namespace Navislamia.Game.Migrations.Telecaster
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
 
                     b.HasIndex("CharacterId");
 

@@ -21,6 +21,12 @@ public static class GameActionPackets
     public readonly record struct SkillRequest(ushort SkillId, uint Caster, uint Target, float X, float Y,
         float Z, sbyte Layer, byte SkillLevel);
 
+    /// <summary>
+    /// <c>TM_CS_REQUEST_REMOVE_STATE</c> (408): the state window sends one of these per state the player
+    /// clicks, carrying only the creature the window is bound to and the state code.
+    /// </summary>
+    public readonly record struct RemoveStateRequest(uint Target, int StateCode);
+
     public readonly record struct PutoffItemRequest(sbyte Position, uint TargetHandle);
 
     public readonly record struct PutonItemRequest(sbyte Position, uint ItemHandle, uint TargetHandle);
@@ -34,6 +40,28 @@ public static class GameActionPackets
     public readonly record struct TakeoutCommercialItemRequest(uint Uid, ushort Count);
 
     public readonly record struct RankingTopRecordRequest(sbyte RankingType);
+
+    /// <summary>
+    /// <c>TM_CS_CHECK_ILLEGAL_USER</c> (57): the client's internal security watch reports a suspected
+    /// illegal program. The frame is of fixed size — 7-byte header plus a single <c>uint32</c>
+    /// <c>log_code</c> at offset 7 — so the exact 11-byte form is the only one accepted: a short or
+    /// padded frame is refused rather than partially read, exactly like <see cref="TryReadGetRegionInfo"/>.
+    /// The field is named by rzu; neither rzu nor NGemity says what a server does with it, and the client
+    /// only ever sends 0 on the single emission path found in SFrame.exe (see
+    /// docs/packet-specs/57-check-illegal-user.md §2.5, §5.5).
+    /// </summary>
+    public static bool TryReadCheckIllegalUser(ReadOnlySpan<byte> packet, out uint logCode)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length != packetLength)
+        {
+            logCode = 0;
+            return false;
+        }
+
+        logCode = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
 
     public static uint ReadTargetHandle(ReadOnlySpan<byte> packet)
     {
@@ -201,6 +229,26 @@ public static class GameActionPackets
             BinaryPrimitives.ReadSingleLittleEndian(packet.Slice(HeaderSize + 18, 4)),
             (sbyte)packet[HeaderSize + 22],
             packet[HeaderSize + 23]);
+        return true;
+    }
+
+    /// <summary>
+    /// Parses the fixed 15-byte <c>TM_CS_REQUEST_REMOVE_STATE</c>: header, <c>target</c> at offset 7,
+    /// <c>state_code</c> at offset 11. The frame length is constant, so anything else is refused rather
+    /// than truncated.
+    /// </summary>
+    public static bool TryReadRemoveState(ReadOnlySpan<byte> packet, out RemoveStateRequest request)
+    {
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new RemoveStateRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
         return true;
     }
 

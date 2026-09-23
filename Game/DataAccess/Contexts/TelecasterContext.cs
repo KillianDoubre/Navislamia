@@ -54,10 +54,21 @@ public class TelecasterContext : SoftDeletionContext
             .HasForeignKey<ItemStorageEntity>(a => a.ItemId);
         
         modelBuilder.Entity<ItemEntity>().Property(i => i.SocketItemIds).HasMaxLength(4);
+
+        // The counter storage is read by account (StorageRepository.StorageRows): without an index every
+        // storage open and every storage move scanned the whole item table.
+        modelBuilder.Entity<ItemEntity>().HasIndex(i => i.AccountId);
     }
     
     private static void ConfigureCharacters(ModelBuilder modelBuilder)
     {
+        // Every character operation resolves the row by name, the lobby by account name and the creation
+        // limit by account id. None of the three was indexed, so each one scanned the character table.
+        // Not unique: existing data is not guaranteed to be, and uniqueness is the name check's job.
+        modelBuilder.Entity<CharacterEntity>().HasIndex(c => c.CharacterName);
+        modelBuilder.Entity<CharacterEntity>().HasIndex(c => c.AccountName);
+        modelBuilder.Entity<CharacterEntity>().HasIndex(c => c.AccountId);
+
         modelBuilder.Entity<CharacterEntity>()
             .HasMany(c => c.Items)
             .WithOne(i => i.Character)

@@ -41,7 +41,7 @@ public class StorageServiceTests
         session.CharacterHandle = 42;
         session.StorageSecurityCheck = open;
 
-        return new Harness(new StorageService(repository), repository, client, connection, session);
+        return new Harness(new StorageService(repository, new CharacterGate()), repository, client, connection, session);
     }
 
     private static Task Send(Harness harness, byte mode, long count, uint handle = Handle)

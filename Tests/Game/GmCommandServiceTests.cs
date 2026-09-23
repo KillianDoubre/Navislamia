@@ -13,6 +13,7 @@ using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.GmCommands;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Rates;
 using Navislamia.Game.Services.Stats;
 
 namespace Tests.Game;
@@ -34,6 +35,9 @@ public class GmCommandServiceTests
     private MonsterWorldState _monsters = null!;
     private ISkillCastService _skillCast = null!;
     private IStateCatalog _states = null!;
+    private RatesOptions _rateOptions = null!;
+    private RateService _rates = null!;
+    private string _rateFile = null!;
     private GmCommandService _service = null!;
 
     [SetUp]
@@ -59,8 +63,20 @@ public class GmCommandServiceTests
                 }
             }
         });
+        _rateFile = Path.Combine(Path.GetTempPath(), $"navislamia-rates-{Guid.NewGuid():N}.json");
+        _rateOptions = new RatesOptions { EventStatePath = _rateFile };
+        _rates = new RateService(new StaticOptionsMonitor<RatesOptions>(_rateOptions));
         _service = new GmCommandService(_warp, _combat, _leveling, _stats, _characters, _items, _monsters,
-            skills, _skillCast, _states);
+            skills, _skillCast, _states, _rates);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (File.Exists(_rateFile))
+        {
+            File.Delete(_rateFile);
+        }
     }
 
     [Test]
@@ -423,7 +439,9 @@ public class GmCommandServiceTests
         var info = StorageTestHarness.Session(client);
         info.CharacterJobLevel = 1;
         info.CharacterJp = 7;
-        A.CallTo(() => _leveling.NextJobLevelCost(A<int>._)).Returns(40);
+        long cost;
+        A.CallTo(() => _leveling.TryGetNextJobLevelCost(A<int>._, out cost)).Returns(true)
+            .AssignsOutAndRefParameters(40L);
         A.CallTo(() => _leveling.ApplyJobLevelUp(client, CharacterHandle)).Invokes(() =>
         {
             info.CharacterJp -= 40;
@@ -444,8 +462,10 @@ public class GmCommandServiceTests
         var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
         var info = StorageTestHarness.Session(client);
         info.CharacterJobLevel = 9;
-        A.CallTo(() => _leveling.NextJobLevelCost(9)).Returns(40);
-        A.CallTo(() => _leveling.NextJobLevelCost(10)).Returns(0);
+        long cost;
+        A.CallTo(() => _leveling.TryGetNextJobLevelCost(9, out cost)).Returns(true)
+            .AssignsOutAndRefParameters(40L);
+        A.CallTo(() => _leveling.TryGetNextJobLevelCost(10, out cost)).Returns(false);
         A.CallTo(() => _leveling.ApplyJobLevelUp(client, CharacterHandle)).Invokes(() =>
         {
             info.CharacterJp -= 40;
@@ -664,6 +684,79 @@ public class GmCommandServiceTests
             .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = hp, Race = 1 } });
 
         return new MonsterWorldState(repository, Options.Create(options));
+    }
+
+    [Test]
+    public async Task Rate_StartsAnEventAndAnnouncesItToEveryPlayer()
+    {
+        var (gm, gmConnection) = NewClient(permission: GmCommandRules.GmPermission);
+        var (other, otherConnection) = NewClient(permission: 0);
+
+        await _service.HandleAsync(gm, "/rate exp 2 1h", new[] { gm, other });
+
+        _rates.Get(RateType.Exp).Should().Be(2);
+        _rates.Get(RateType.Gold).Should().Be(1, "only the named type is multiplied");
+        foreach (var connection in new[] { gmConnection, otherConnection })
+        {
+            var notice = Replies(connection).Single();
+            notice.Type.Should().Be((byte)ChatType.Notice);
+            notice.Text.Should().Be("Event: EXP x2 for 1h!");
+        }
+    }
+
+    [Test]
+    public async Task Rate_MultipliesTheConfiguredBase()
+    {
+        _rateOptions.Exp = 5;
+        var (gm, _) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(gm, "/rate all 2 30m", new[] { gm });
+
+        _rates.Get(RateType.Exp).Should().Be(10, "a x5 server in a x2 event runs at x10");
+        _rates.Get(RateType.ItemDrop).Should().Be(2);
+    }
+
+    [Test]
+    public async Task Rate_IsHiddenFromPlayersButRatesIsNot()
+    {
+        var (player, connection) = NewClient(permission: 0);
+
+        await _service.HandleAsync(player, "/rate exp 2 1h", new[] { player });
+        await _service.HandleAsync(player, "/rates", new[] { player });
+
+        _rates.Get(RateType.Exp).Should().Be(1);
+        var replies = Replies(connection).Select(reply => reply.Text).ToList();
+        replies[0].Should().Be("Unknown command: /rate. Type /help.");
+        replies.Skip(1).Should().HaveCount(RateTypes.All.Count).And.Contain("EXP x1");
+    }
+
+    [Test]
+    public async Task Rate_RequiresADurationAndBoundsTheMultiplier()
+    {
+        var (gm, connection) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(gm, "/rate exp 2", new[] { gm });
+        await _service.HandleAsync(gm, "/rate exp 101 1h", new[] { gm });
+
+        _rates.Get(RateType.Exp).Should().Be(1);
+        Replies(connection).Should().OnlyContain(reply => reply.Type == (byte)ChatType.System);
+        Replies(connection).Where(reply => reply.Text.StartsWith("Usage:")).Should().HaveCount(2);
+    }
+
+    [Test]
+    public async Task Rate_ResetEndsTheEventAndSaysWhenNothingRuns()
+    {
+        var (gm, connection) = NewClient(permission: GmCommandRules.GmPermission);
+
+        await _service.HandleAsync(gm, "/rate reset exp", new[] { gm });
+        await _service.HandleAsync(gm, "/rate drop 3 2h", new[] { gm });
+        await _service.HandleAsync(gm, "/rate reset", new[] { gm });
+
+        _rates.Get(RateType.ItemDrop).Should().Be(1);
+        Replies(connection).Select(reply => reply.Text).Should().Equal(
+            "No EXP event is running.",
+            "Event: Drop x3 for 2h!",
+            "The Drop x3 event has been ended.");
     }
 
     private static (GameClient Client, StorageTestHarness.FrameConnection Connection) NewClient(int permission)

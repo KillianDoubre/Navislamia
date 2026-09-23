@@ -476,3 +476,11 @@ DevConsole/appsettings.json
 AuthServer/appsettings.json
 launch-client.ps1
 tools/provision-navislamia/
+
+# Local CSV export of the 9.4 SQL Server databases (tools/Export-SqlServerData.ps1): read by the
+# import scripts so SQL Server does not have to run. Regenerate it, never commit it.
+/data/sqlserver/
+
+# Running /rate events, resumed after a restart (RateService). Local server state, never commit it.
+DevConsole/rate-events.json
+DevConsole/rate-events.json.tmp

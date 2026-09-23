@@ -2,9 +2,11 @@ using System;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
@@ -12,6 +14,7 @@ using Navislamia.Game.Network.Packets.Interfaces;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.GmCommands;
 using Serilog;
+using Serilog.Events;
 
 namespace Navislamia.Game.Network.Clients;
 
@@ -38,6 +41,14 @@ public class GameClient : Client
 
     public override void SendMessage(IPacket msg)
     {
+        // Serilog boxes every argument into an object[] before it checks the level once a template has
+        // more than three properties, so these two lines allocated on every packet sent, logged or not.
+        if (!_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            base.SendMessage(msg);
+            return;
+        }
+
         if (msg is Packet<TS_SC_RESULT> resultPacket)
         {
             var result = resultPacket.DataStruct;
@@ -124,8 +135,22 @@ public class GameClient : Client
         Connection.Send(message.Data);
     }
 
+    /// <summary>Header (7) + handle, x, y, cur_time (16) + speed (1) + count (2): the waypoints start at 26.</summary>
+    private const int MoveRequestFixedLength = 26;
+
     private void HandleMoveRequest(byte[] buffer)
     {
+        // The waypoint count is the client's to claim: without this check a short frame threw inside the
+        // receive callback, which terminated the whole server.
+        if (buffer.Length < MoveRequestFixedLength
+            || buffer.Length < MoveRequestFixedLength
+            + BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(24, 2)) * 8)
+        {
+            _logger.Warning("Malformed move request received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
         var input = buffer.AsSpan(7);
         var handle = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(0, 4));
         var curTime = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(12, 4));
@@ -161,6 +186,14 @@ public class GameClient : Client
 
     private void HandleRegionUpdate(byte[] buffer)
     {
+        // x, y and z are read at 11, 15 and 19.
+        if (buffer.Length < 23)
+        {
+            _logger.Warning("Malformed region update received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
@@ -171,6 +204,14 @@ public class GameClient : Client
 
     private void HandleChangeLocation(byte[] buffer)
     {
+        // x and y are read at 7 and 11.
+        if (buffer.Length < 15)
+        {
+            _logger.Warning("Malformed location change received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
@@ -185,6 +226,34 @@ public class GameClient : Client
     /// the next position update re-enter the area the character never left.
     /// </summary>
     private void RefreshEventArea() => _networkService.EventAreaService.Refresh(this);
+
+    /// <summary>
+    /// TM_CS_REQUEST (60): a raw command channel, never a player action. The frame is variable — the
+    /// selector <c>t</c> at offset 7, then the command running to the end of the datagram with its NUL
+    /// terminator, <c>Length = 9 + L</c> (see GameRequestPackets). Nothing is ported here because there
+    /// is nothing to port: rzu declares the packet and never consumes it, Chihiro logs 60 as an unknown
+    /// packet and keeps the connection, and the 7.3 client neither names nor emits it. The only producer
+    /// found anywhere is a supervision tool shipping a cipher-blobbed SQL statement, so this arm does the
+    /// strict minimum a reading without any decryption allows: bound the frame, log its sizes, execute
+    /// nothing, answer nothing, sanction nothing.
+    /// See docs/packet-specs/60-request.md §5, §8, §9.
+    /// </summary>
+    private void HandleRequest(byte[] buffer)
+    {
+        if (!GameRequestPackets.TryReadRequest(buffer, out var selector, out var command))
+        {
+            _logger.Warning("Malformed TM_CS_REQUEST received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        // Sizes and the selector only, at the Debug level the undeclared id already used. The command
+        // itself is never written to the log, not even its first bytes: it is opaque (zlib + simple
+        // cipher, hex encoded by the one producer we know) and as large as the receive buffer.
+        _logger.Debug(
+            "TM_CS_REQUEST ({id}) Length: {length} received from {clientTag}: t={selector} commandLength={commandLength}",
+            (ushort)GamePackets.TM_CS_REQUEST, buffer.Length, ClientTag, selector, command.Length);
+    }
 
     /// <summary>
     /// TM_CS_GET_REGION_INFO (550): the client converted its own position into region indices and asks for
@@ -277,6 +346,54 @@ public class GameClient : Client
             "TM_CS_GET_WEATHER_INFO ({id}) Length: {length} received from {clientTag}: location {regionId} -> weather_id={weatherId}",
             (ushort)GamePackets.TM_CS_GET_WEATHER_INFO, buffer.Length, ClientTag, regionId,
             location.CurrentWeather);
+    }
+
+    /// <summary>
+    /// TM_CS_CHECK_ILLEGAL_USER (57): the client's own security watch reports a suspected illegal program
+    /// — never a player action, and the client writes the length in hard at 11, so the frame has no other
+    /// form. There is no server to client answer of this family in rzu, NGemity, op_codes.md or the 7.3
+    /// client's own incoming dispatcher, and no reference sanctions the sender: the frame is read, logged
+    /// at Debug (the level the undeclared id already used) and dropped, without inventing a response or a
+    /// sanction. See docs/packet-specs/57-check-illegal-user.md §5.4, §5.5.
+    /// </summary>
+    private void HandleCheckIllegalUser(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadCheckIllegalUser(buffer, out var logCode))
+        {
+            _logger.Warning("Malformed illegal user report received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_CHECK_ILLEGAL_USER ({id}) Length: {length} received from {clientTag}: log_code={logCode}",
+            (ushort)GamePackets.TM_CS_CHECK_ILLEGAL_USER, buffer.Length, ClientTag, logCode);
+    }
+
+    /// <summary>
+    /// TM_CS_XTRAP_CHECK (59): the XTrap integrity check, 135 bytes of header plus a fixed 128 byte
+    /// payload. No reference server implements it and the 7.3 client never emits it — no constructor
+    /// writing id 59 exists in SFrame.exe — so there is no logic to port. The frame is read for its
+    /// declared size only and dropped: no answer (nothing in rzu, NGemity, op_codes.md or the client's
+    /// incoming dispatcher names one, and the client parses its counterpart 58 into an empty branch),
+    /// no sanction, and the opaque buffer is never interpreted or logged. Nothing about the content of
+    /// pCheckBuffer is established, so nothing can be judged from it.
+    /// See docs/packet-specs/59-xtrap-check.md §6, §9.
+    /// </summary>
+    private void HandleXtrapCheck(byte[] buffer)
+    {
+        if (!GameXtrapPackets.TryReadXtrapCheck(buffer, out var checkBuffer))
+        {
+            _logger.Warning("Malformed XTrap check frame received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        // Only the sizes are logged, at the Debug level the undeclared id already used. The 128 payload
+        // bytes are opaque and are never written to the log.
+        _logger.Debug(
+            "TM_CS_XTRAP_CHECK ({id}) Length: {length} pCheckBuffer: {bufferLength} bytes received from {clientTag}",
+            (ushort)GamePackets.TM_CS_XTRAP_CHECK, buffer.Length, checkBuffer.Length, ClientTag);
     }
 
     private void SyncVisibleObjects()
@@ -787,6 +904,28 @@ public class GameClient : Client
         }
     }
 
+    private void HandleRemoveState(byte[] packet)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE;
+        if (!GameActionPackets.TryReadRemoveState(packet, out var request))
+        {
+            // The frame is fixed-size: a 408 of any other length is not a removal request.
+            SendResult(requestId, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            _networkService.SkillCastService.RemoveState(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process state removal {stateCode} for {clientTag}",
+                request.StateCode, ClientTag);
+            SendResult(requestId, (ushort)ResultCode.Misc, request.StateCode);
+        }
+    }
+
     private async Task HandleLearnSkillAsync(byte[] packet)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
@@ -870,7 +1009,7 @@ public class GameClient : Client
     /// <c>deathmatch_death_count</c> have no source anywhere in 7.3, so they are written as zero — an explicit
     /// placeholder, not a scoring policy. See NON ÉTABLI (h) of docs/packet-specs/socle-instances-jeu.md.
     /// </summary>
-    private void HandleInstanceGameScoreRequest(byte[] buffer)
+    private async Task HandleInstanceGameScoreRequestAsync(byte[] buffer)
     {
         if (!GameInstanceGamePackets.HasNoPayload(buffer))
         {
@@ -887,7 +1026,17 @@ public class GameClient : Client
             return;
         }
 
-        var character = _networkService.CharacterService.GetCharacterByName(ConnectionInfo.CharacterName);
+        CharacterEntity character;
+        try
+        {
+            character = await _networkService.CharacterService.GetCharacterByNameAsync(ConnectionInfo.CharacterName);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not read the score of {clientTag}", ClientTag);
+            return;
+        }
+
         if (character is null)
         {
             _logger.Warning("Instance game score request received from {clientTag} for an unknown character {name}",
@@ -904,14 +1053,81 @@ public class GameClient : Client
             ClientTag, holicPoint);
     }
 
+    /// <summary>
+    /// TM_CS_SECURITY_NO (9005): the client answers TM_SC_REQUEST_SECURITY_NO (9004) with the security
+    /// password the player typed, carrying back the mode it received and the code in a fixed 19-byte
+    /// container. No reference implements the answer of the game server — rzu verifies the code on the
+    /// authentication server (40001 -> 40000) and Navislamia has neither that transport nor any storage for
+    /// the code — so the frame is read and bounded and nothing is verified, stored, answered or sanctioned
+    /// (docs/packet-specs/9005-security-no.md §5.3, §5.4).
+    /// <para>
+    /// The code is a reusable secret that guards character deletion and the warehouse alike. Only the mode
+    /// and the code's length are logged; the code is never turned into a string (an immutable copy nothing
+    /// could wipe), and this frame — the one plaintext copy the receive loop hands over — is zeroed as soon
+    /// as it has been read. <c>Connection.Read</c> wipes the receive buffer's copy.
+    /// </para>
+    /// </summary>
+    private void HandleSecurityNo(byte[] buffer)
+    {
+        try
+        {
+            if (!GameSecurityPackets.TryReadSecurityNo(buffer, out var mode, out var securityNo))
+            {
+                _logger.Warning("Malformed security password received from {clientTag} (Length: {length})",
+                    ClientTag, buffer.Length);
+                return;
+            }
+
+            _logger.Debug(
+                "TM_CS_SECURITY_NO ({id}) Length: {length} received from {clientTag}: mode={mode} securityNoLength={securityNoLength}",
+                (ushort)GamePackets.TM_CS_SECURITY_NO, buffer.Length, ClientTag, mode, securityNo.Length);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(buffer);
+        }
+    }
+
+    private static readonly int HeaderLength = Marshal.SizeOf<Header>();
+
+    /// <summary>The receive buffer's size: a frame larger than it can never be assembled.</summary>
+    private const int MaxFrameLength = 32768;
+
+    /// <summary>
+    /// Every declared <see cref="GamePackets"/> id, indexed by id. <c>Enum.IsDefined</c> boxed the id and
+    /// went through reflection on every packet received; this is one array read.
+    /// </summary>
+    private static readonly bool[] DefinedPackets = BuildDefinedPackets();
+
+    private static bool[] BuildDefinedPackets()
+    {
+        var defined = new bool[ushort.MaxValue + 1];
+        foreach (var id in Enum.GetValues<GamePackets>())
+        {
+            defined[(ushort)id] = true;
+        }
+
+        return defined;
+    }
+
     public override void OnDataReceived(int bytesReceived)
     {
         var remainingData = bytesReceived;
 
         while (remainingData >= Marshal.SizeOf<Header>())
         {
-            var header = new Header(Connection.Peek(Marshal.SizeOf<Header>()));
+            var header = new Header(Connection.Peek(HeaderLength));
             var isValidMsg = header.Checksum == header.CalculateChecksum();
+
+            // A length shorter than its own header never advances the loop (Read(0) forever, on the I/O
+            // thread), and one larger than the receive buffer can never complete.
+            if (isValidMsg && (header.Length < HeaderLength || header.Length > MaxFrameLength))
+            {
+                _logger.Error("Invalid frame length {length} (ID: {id}) received from {clientTag}", header.Length,
+                    header.ID, ClientTag);
+                Connection.Disconnect();
+                return;
+            }
 
             if (header.Length > remainingData)
             {
@@ -924,16 +1140,18 @@ public class GameClient : Client
 
             if (!isValidMsg)
             {
+                // The stream is desynchronised: nothing after this point can be framed. Disconnect and stop
+                // here instead of throwing out of the receive callback.
                 _logger.Error("Invalid Message received from {clientTag} !!!", ClientTag);
                 Connection.Disconnect();
-                throw new Exception($"Invalid Message recieved from {ClientTag}");
+                return;
             }
 
             var msgBuffer = Connection.Read((int)header.Length);
 
             remainingData -= msgBuffer.Length;
 
-            if (!Enum.IsDefined(typeof(GamePackets), header.ID))
+            if (!DefinedPackets[header.ID])
             {
                 _logger.Debug("Undefined packet ID: {id} Length: {length}) received from {clientTag}", header.ID, header.Length, ClientTag);
                 continue;
@@ -942,6 +1160,16 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_NONE)
             {
                 _logger.Verbose("Keepalive (TM_NONE) Length: {length} from {clientTag}", header.Length, ClientTag);
+                continue;
+            }
+
+            // TM_CS_SECURITY_NO (9005) is declared so that the frame is read and bounded instead of being
+            // dropped as an undefined id. Any arm for a declared id must run before the throwing switch
+            // below: a member of GamePackets that reaches it breaks the receive loop. Nothing is answered
+            // and nothing is verified.
+            if (header.ID == (ushort)GamePackets.TM_CS_SECURITY_NO)
+            {
+                HandleSecurityNo(msgBuffer);
                 continue;
             }
 
@@ -1020,6 +1248,16 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_CS_REQUEST (60) is declared so that the frame is read and bounded instead of being dropped
+            // as an undefined id. Any arm for a declared id must run before the throwing switch below: a
+            // member of GamePackets that reaches it breaks the receive loop. Nothing is answered and
+            // nothing is executed — the command is opaque.
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST)
+            {
+                HandleRequest(msgBuffer);
+                continue;
+            }
+
             if (header.ID is (ushort)GamePackets.TM_SC_NPC_TRADE_INFO or (ushort)GamePackets.TM_SC_MARKET)
             {
                 // TM_SC_NPC_TRADE_INFO (240) and TM_SC_MARKET (250) are server to client packets: the 7.3
@@ -1087,7 +1325,7 @@ public class GameClient : Client
             // TM_CS_INSTANCE_GAME_SCORE_REQUEST (4252) is the only trigger of the 4253 answer.
             if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_SCORE_REQUEST)
             {
-                HandleInstanceGameScoreRequest(msgBuffer);
+                _ = HandleInstanceGameScoreRequestAsync(msgBuffer);
                 continue;
             }
 
@@ -1157,6 +1395,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_SKILL)
             {
                 HandleSkill(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE)
+            {
+                HandleRemoveState(msgBuffer);
                 continue;
             }
 
@@ -1384,6 +1628,24 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_CS_CHECK_ILLEGAL_USER (57) is declared so that the frame is read instead of being dropped as
+            // an undefined id. It must stay before the throwing switch below: a member of GamePackets that
+            // reaches it breaks the receive loop.
+            if (header.ID == (ushort)GamePackets.TM_CS_CHECK_ILLEGAL_USER)
+            {
+                HandleCheckIllegalUser(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_XTRAP_CHECK (59) is declared so that the frame is read and bounded instead of being
+            // dropped as an undefined id. It must stay before the throwing switch below: a member of
+            // GamePackets that reaches it breaks the receive loop. The arm answers nothing.
+            if (header.ID == (ushort)GamePackets.TM_CS_XTRAP_CHECK)
+            {
+                HandleXtrapCheck(msgBuffer);
+                continue;
+            }
+
             IPacket msg = header.ID switch
             {
                 (ushort)GamePackets.TM_CS_VERSION => new Packet<TM_CS_VERSION>(msgBuffer),
@@ -1398,7 +1660,11 @@ public class GameClient : Client
                 _ => throw new Exception("Unknown Packet Type")
             };
 
-            _logger.Debug("{name} ({id}) Length: {length} received from {clientTag}", msg.StructName, msg.Id, msg.Length, ClientTag);
+            if (_logger.IsEnabled(LogEventLevel.Debug))
+            {
+                _logger.Debug("{name} ({id}) Length: {length} received from {clientTag}", msg.StructName, msg.Id,
+                    msg.Length, ClientTag);
+            }
 
             Actions.Execute(this, msg);
         }

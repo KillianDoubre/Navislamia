@@ -88,6 +88,7 @@ public enum GamePackets : ushort
     TM_SC_SKILL_LIST = 403,
     TM_SC_ADDED_SKILL_LIST = 404,
     TM_SC_AURA = 407,
+    TM_CS_REQUEST_REMOVE_STATE = 408,
     TM_CS_JOB_LEVEL_UP = 410,
 
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
@@ -140,6 +141,24 @@ public enum GamePackets : ushort
 
     TM_CS_ANTI_HACK = 54,
 
+    // TM_CS_CHECK_ILLEGAL_USER (57): the client's own security watch reports a suspected illegal program
+    // here — never a player action. rzu gates the id to 57 below EPIC_9_6_3 (1057 only from 9.6.3 on), so
+    // 1057 must not be declared. There is no server to client answer for it. See
+    // docs/packet-specs/57-check-illegal-user.md.
+    TM_CS_CHECK_ILLEGAL_USER = 57,
+
+    // TM_CS_XTRAP_CHECK (59): the XTrap integrity check the client would send — 135 bytes, a 7 byte header
+    // plus a fixed uint8[128] payload, with no length field. rzu gates the id to 59 below EPIC_9_6_3
+    // (1059 only from 9.6.3 on), so 1059 must not be declared here. Its server to client counterpart is
+    // 58 (TM_SC_XTRAP_CHECK): deliberately not declared, nothing in the server ever sends it and the 7.3
+    // client parses it into an empty branch. See docs/packet-specs/59-xtrap-check.md.
+    TM_CS_XTRAP_CHECK = 59,
+
+    // TM_CS_REQUEST (60): the client's raw command channel, read and logged only (see
+    // docs/packet-specs/60-request.md). rzu gates the id to 60 below EPIC_9_6_3 (1060 only from 9.6.3
+    // on), so 1060 must not be declared.
+    TM_CS_REQUEST = 60,
+
     TM_CS_CHARACTER_LIST = 2001,
 
     TM_CS_CREATE_CHARACTER = 2002,
@@ -167,6 +186,12 @@ public enum GamePackets : ushort
     TM_SC_RANKING_TOP_RECORD = 5001,
 
     TM_CS_REPORT = 8000,
+
+    // TM_CS_SECURITY_NO (9005): the security password the client sends back once the server has asked for
+    // it with TM_SC_REQUEST_SECURITY_NO (9004) — 30 bytes, read and bounded but never verified (see
+    // docs/packet-specs/9005-security-no.md §5.4). rzu remaps the id to 8105 from EPIC_9_6_3 on, so 8105
+    // must not be declared here, and account(64)/result/security_no_1/_2 only exist from EPIC_9_6_7.
+    TM_CS_SECURITY_NO = 9005,
 
     TM_SC_COMMERCIAL_STORAGE_INFO = 10003,
     TM_SC_COMMERCIAL_STORAGE_LIST = 10004,

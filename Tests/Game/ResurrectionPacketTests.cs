@@ -7,6 +7,8 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
+using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
@@ -14,6 +16,7 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.Stats;
 
@@ -130,41 +133,61 @@ public class ResurrectionPacketTests
     [Test]
     public void CheckRequest_AcceptsTheTownPathForTheDeadOwnCharacter()
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle, 0)
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, Handle, 0)
             .Should().Be(ResultCode.Success);
     }
 
-    [Test]
-    public void CheckRequest_RefusesAnotherCharactersHandle()
+    [TestCase(0u)]
+    [TestCase(Handle + 1)]
+    [TestCase(0xFFFFFFFFu)]
+    public void Resurrect_InTown_IgnoresTheFrameHandle(uint frameHandle)
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle + 1, 0)
-            .Should().Be(ResultCode.NotOwn);
+        // The 7.3 client's town button was refused with NotOwn in game (2026-09-23): the handle it sends
+        // is not the character's. NGemity never reads it on this path, and neither does this server.
+        var connection = new FrameConnection(ClientFrame(frameHandle, ResurrectionType.UseNone));
+        var client = NewGameClient(connection, out _, realWarp: false);
+        Seed(client, new ConnectionInfo { CharacterHandle = Handle, CharacterHp = 0 });
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
+        ConnectionInfoOf(client).CharacterHp.Should().Be(5000);
     }
 
     [Test]
     public void CheckRequest_RefusesALivingCharacter()
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle, 1)
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, Handle, 1)
             .Should().Be(ResultCode.NotActable);
+    }
+
+    [Test]
+    public void CheckRequest_AcceptsTheStatePathForTheDeadOwnCharacter()
+    {
+        ResurrectionRules.CheckRequest(ResurrectionType.UseState, Handle, 0).Should()
+            .Be(ResultCode.Success);
+    }
+
+    [Test]
+    public void CheckRequest_AcceptsTheItemPathForTheDeadOwnCharacter()
+    {
+        ResurrectionRules.CheckRequest(ResurrectionType.UsePotion, Handle, 0).Should()
+            .Be(ResultCode.Success);
     }
 
     [Test]
     public void CheckRequest_RefusesTheTypesThatBelongToALaterLot()
     {
-        foreach (var type in new[]
-                 {
-                     ResurrectionType.UseState, ResurrectionType.UsePotion, ResurrectionType.Compete,
-                     ResurrectionType.Deathmatch
-                 })
+        foreach (var type in new[] { ResurrectionType.Compete, ResurrectionType.Deathmatch })
         {
-            ResurrectionRules.CheckRequest(Handle, type, Handle, 0).Should().Be(ResultCode.NotActable);
+            ResurrectionRules.CheckRequest(type, Handle, 0).Should().Be(ResultCode.NotActable);
         }
     }
 
     [Test]
     public void CheckRequest_RefusesASessionWithoutACharacter()
     {
-        ResurrectionRules.CheckRequest(0, ResurrectionType.UseNone, 0, 0).Should().Be(ResultCode.NotActable);
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, 0, 0).Should().Be(ResultCode.NotActable);
     }
 
     [Test]
@@ -254,6 +277,97 @@ public class ResurrectionPacketTests
     }
 
     [Test]
+    public void ResurrectByState_ComesBackInPlaceConsumesTheStateAndAcknowledges()
+    {
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UseState));
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        var info = new ConnectionInfo
+        {
+            CharacterHandle = Handle,
+            CharacterHp = 0,
+            CharacterMp = 100,
+            X = 1000f,
+            Y = 2000f,
+            RespawnX = 94454f,
+            RespawnY = 126040f
+        };
+        info.ActiveBuffs.Add(new ActiveBuff(7, ResurrectionStateId, 3472, 1, 0, 180_000));
+        Seed(client, info);
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        info = ConnectionInfoOf(client);
+        info.CharacterHp.Should().Be(250, "5 % of the 5000 maximum HP");
+        info.CharacterMp.Should().Be(124, "the 100 kept plus 3 % of the 800 maximum MP");
+        A.CallTo(() => services.SkillCast.RemoveState(client, ResurrectionStateId)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => services.WarpCalls.Warp(A<GameClient>._, A<float>._, A<float>._))
+            .MustNotHaveHappened();
+        Properties(connection).Should().Equal(("hp", 250L), ("mp", 124L));
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
+    }
+
+    [Test]
+    public void ResurrectByState_WithoutAResurrectionState_IsRefusedAndChangesNothing()
+    {
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UseState));
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        var info = new ConnectionInfo { CharacterHandle = Handle, CharacterHp = 0 };
+        info.ActiveBuffs.Add(new ActiveBuff(3, 4001, 1011, 1, 0, 180_000));
+        Seed(client, info);
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.NotActable));
+        ConnectionInfoOf(client).CharacterHp.Should().Be(0);
+        A.CallTo(() => services.SkillCast.RemoveState(A<GameClient>._, A<int>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public void TrySelectState_KeepsTheHighestLevelResurrectionState()
+    {
+        var weak = new ResurrectionStateValues(0.05m, 0m, 0m, 0m);
+        var strong = new ResurrectionStateValues(0m, 0.03m, 0m, 0.03m);
+        var states = new[]
+        {
+            new ActiveBuff(1, 13472, 3472, 1, 0, 0),
+            new ActiveBuff(2, 4001, 1011, 9, 0, 0),
+            new ActiveBuff(3, 145226, 45424, 3, 0, 0)
+        };
+
+        bool Resolve(int stateId, out ResurrectionStateValues values)
+        {
+            values = stateId switch { 13472 => weak, 145226 => strong, _ => default };
+            return stateId is 13472 or 145226;
+        }
+
+        ResurrectionRules.TrySelectState(states, Resolve, out var state, out var selected).Should().BeTrue();
+        state.StateId.Should().Be(145226, "the reference keeps the highest level, not the first found");
+        selected.Should().Be(strong);
+
+        ResurrectionRules.TrySelectState(new[] { states[1] }, Resolve, out _, out _).Should().BeFalse();
+        ResurrectionRules.TrySelectState(null, Resolve, out _, out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void VitalsByState_FollowsTheReferenceFormula()
+    {
+        var perLevel = new ResurrectionStateValues(0m, 0.03m, 0m, 0.03m);
+
+        ResurrectionRules.VitalsByState(perLevel, 3, 5000f, 800f, 50).Should().Be((450, 122),
+            "(0 + 0.03 x 3) x 5000 HP, and 50 + (0 + 0.03 x 3) x 800 MP");
+    }
+
+    [Test]
+    public void VitalsByState_NeverLeavesTheCharacterDeadNorAboveItsMaxima()
+    {
+        var nothing = new ResurrectionStateValues(0m, 0m, 0m, 0m);
+        var everything = new ResurrectionStateValues(2m, 0m, 2m, 0m);
+
+        ResurrectionRules.VitalsByState(nothing, 1, 5000f, 800f, 0).Should().Be((1, 0));
+        ResurrectionRules.VitalsByState(everything, 1, 5000f, 800f, 700).Should().Be((5000, 800));
+    }
+
+    [Test]
     public void Resurrect_DoesNothingOnALivingCharacter()
     {
         var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UseNone));
@@ -272,7 +386,7 @@ public class ResurrectionPacketTests
     [Test]
     public void Resurrect_RefusesTheLaterLotTypesWithoutMoving()
     {
-        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UsePotion));
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.Compete));
         var client = NewGameClient(connection, out var services, realWarp: false);
         Seed(client, new ConnectionInfo { CharacterHandle = Handle, CharacterHp = 0 });
 
@@ -307,6 +421,138 @@ public class ResurrectionPacketTests
         Results(connection).Should().Equal(
             new[] { A574Result((ushort)ResultCode.Success), A574Result((ushort)ResultCode.NotActable) },
             "the first request raises the character, the second finds it alive");
+    }
+
+    private const int ResurrectionStateId = 13472;
+    private const int ResurrectionScrollId = 603002;
+    private const int ScrollHandle = 77;
+
+    // --- RT_UsePotion: the Resurrection Scroll (docs/packet-specs/socle-effets-resurrection.md, lot R2) ---
+
+    [Test]
+    public void ResurrectByItem_ConsumesOneScrollAndComesBackInPlace()
+    {
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UsePotion));
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        services.CarryScrolls(3);
+        Seed(client, new ConnectionInfo
+        {
+            CharacterHandle = Handle, CharacterName = "Dead", CharacterHp = 0, CharacterMp = 100
+        });
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        // Skill 6001 level 1: 10 % of the 5000 max HP; var2 = 0 gives no MP, the 100 kept stay.
+        ConnectionInfoOf(client).CharacterHp.Should().Be(500);
+        ConnectionInfoOf(client).CharacterMp.Should().Be(100);
+        Properties(connection).Should().Equal(("hp", 500L), ("mp", 100L));
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
+        A.CallTo(() => services.WarpCalls.Warp(A<GameClient>._, A<float>._, A<float>._))
+            .MustNotHaveHappened();
+
+        // The stack update (255: handle then the count left) leaves before the vitals and the result.
+        var ids = connection.Sent.Select(packet => BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)))
+            .ToList();
+        ids.First().Should().Be((ushort)GamePackets.TM_SC_UPDATE_ITEM_COUNT);
+        var update = connection.Sent[0];
+        BinaryPrimitives.ReadUInt32LittleEndian(update.AsSpan(7, 4)).Should().Be(ScrollHandle);
+        BinaryPrimitives.ReadInt64LittleEndian(update.AsSpan(11, 8)).Should().Be(2);
+    }
+
+    [Test]
+    public void ResurrectByItem_TheLastScrollIsDestroyed()
+    {
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UsePotion));
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        services.CarryScrolls(1);
+        Seed(client, new ConnectionInfo { CharacterHandle = Handle, CharacterName = "Dead", CharacterHp = 0 });
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        var destroy = connection.Sent[0];
+        BinaryPrimitives.ReadUInt16LittleEndian(destroy.AsSpan(4, 2)).Should()
+            .Be((ushort)GamePackets.TM_SC_DESTROY_ITEM);
+        BinaryPrimitives.ReadUInt32LittleEndian(destroy.AsSpan(7, 4)).Should().Be(ScrollHandle);
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
+    }
+
+    [Test]
+    public void ResurrectByItem_WithoutAResurrectionItem_IsRefusedAndChangesNothing()
+    {
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UsePotion));
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        services.CarryOnly(new ItemEntity { Id = 5, ItemResourceId = 601000, Amount = 10 });
+        Seed(client, new ConnectionInfo { CharacterHandle = Handle, CharacterName = "Dead", CharacterHp = 0 });
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.NotActable));
+        ConnectionInfoOf(client).CharacterHp.Should().Be(0);
+        Properties(connection).Should().BeEmpty();
+    }
+
+    [Test]
+    public void ResurrectByItem_ASecondRequestWhileTheFirstIsConsuming_IsRefused()
+    {
+        var frame = ClientFrame(Handle, ResurrectionType.UsePotion)
+            .Concat(ClientFrame(Handle, ResurrectionType.UsePotion))
+            .ToArray();
+        var connection = new FrameConnection(frame);
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        var release = services.CarryScrollsBehindAGate(3);
+        Seed(client, new ConnectionInfo { CharacterHandle = Handle, CharacterName = "Dead", CharacterHp = 0 });
+
+        client.OnDataReceived(frame.Length);
+
+        // The first request is waiting on the database: the second finds it in progress.
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.NotActable));
+
+        release();
+        StorageTestHarness.WaitFor(() => Results(connection).Count == 2);
+
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.NotActable),
+            A574Result((ushort)ResultCode.Success));
+        A.CallTo(() => services.Characters.ConsumeFirstAsync(A<string>._, A<Func<ItemEntity, bool>>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public void VitalsBySkill_FollowsBothReferenceFormulas()
+    {
+        // EF_RESURRECTION (504): max HP x var0 x level, max MP x var1 x level.
+        ResurrectionRules.VitalsBySkill(SkillEffectType.Resurrection, new[] { 0.1m, 0.05m }, 2, 5000f, 800f, 0)
+            .Should().Be((1000, 80));
+
+        // EF_RESURRECTION_WITH_RECOVER (30501): max HP x (var0 + var1 x level), max MP x (var2 + var3 x level).
+        ResurrectionRules.VitalsBySkill(SkillEffectType.ResurrectionWithRecover, new[] { 0.1m, 0.02m, 0.1m, 0m },
+            5, 5000f, 800f, 10).Should().Be((1000, 90));
+    }
+
+    [Test]
+    public void VitalsBySkill_NeverLeavesTheCharacterDeadNorAboveItsMaxima()
+    {
+        ResurrectionRules.VitalsBySkill(SkillEffectType.Resurrection, new[] { 0m, 0m }, 1, 5000f, 800f, 0)
+            .Should().Be((1, 0));
+        ResurrectionRules.VitalsBySkill(SkillEffectType.Resurrection, new[] { 3m, 3m }, 1, 5000f, 800f, 700)
+            .Should().Be((5000, 800));
+    }
+
+    [Test]
+    public void ResurrectionItemCatalog_ResolvesTheScrollThroughItsSkillEffectSlot()
+    {
+        // 603002 as the 9.4 data carries it: opt_type_0 = 5 (Skill), opt_var1_0 = 6001, opt_var2_0 = 1.
+        var scroll = new ItemEffectFields(ResurrectionScrollId, ItemType.Etc, new short[4], new decimal[4],
+            new decimal[4], new short[] { 5, 0, 0, 0 }, new[] { 6001m, 0m, 0m, 0m }, new[] { 1m, 0m, 0m, 0m });
+        // The Creature Resurrection Scroll points at 6013, which targets summons only: the repository never
+        // returns it, so the item is not a resurrection item for a character.
+        var creatureScroll = scroll with { Id = 608406, OptVar1 = new[] { 6013m, 0m, 0m, 0m } };
+        var skills = new[] { new ResurrectionSkillRow(6001, 504, new[] { 0.1m, 0m }) };
+
+        var catalog = ResurrectionItemCatalog.Build(new[] { scroll, creatureScroll }, skills);
+
+        catalog.Should().ContainKey(ResurrectionScrollId).And.NotContainKey(608406);
+        var item = catalog[ResurrectionScrollId];
+        (item.SkillId, item.SkillLevel, item.Effect).Should().Be((6001, 1, SkillEffectType.Resurrection));
     }
 
     private static (ushort RequestId, ushort Result) A574Result(ushort result) =>
@@ -374,7 +620,8 @@ public class ResurrectionPacketTests
             A.Fake<IItemUseService>(),
             A.Fake<IWorldLocationService>(),
             new ResurrectionService(realWarp ? services.WarpService : services.WarpCalls,
-                services.StatService),
+                services.StatService, services.StateCatalog, services.SkillCast, services.Characters,
+                services.ResurrectionItems),
             A.Fake<IEventAreaService>(),
             A.Fake<ICraftingSocleService>(),
             A.Fake<IStorageService>(),
@@ -399,8 +646,54 @@ public class ResurrectionPacketTests
 
         public IWarpService WarpCalls { get; } = A.Fake<IWarpService>();
 
+        public IStateCatalog StateCatalog { get; } = A.Fake<IStateCatalog>();
+
+        public ISkillCastService SkillCast { get; } = A.Fake<ISkillCastService>();
+
+        public ICharacterService Characters { get; } = A.Fake<ICharacterService>();
+
+        public IResurrectionItemCatalog ResurrectionItems { get; } = A.Fake<IResurrectionItemCatalog>();
+
+        /// <summary>The bag holds a stack of Resurrection Scrolls; the service consumes one of them.</summary>
+        public void CarryScrolls(long amount) =>
+            CarryOnly(new ItemEntity { Id = ScrollHandle, ItemResourceId = ResurrectionScrollId, Amount = amount });
+
+        /// <summary>
+        /// Plays the consumption against one carried item: the service's own predicate decides whether it
+        /// matches, and a matching item loses one unit — what CharacterService.ConsumeFirstAsync does.
+        /// </summary>
+        public void CarryOnly(ItemEntity item) =>
+            A.CallTo(() => Characters.ConsumeFirstAsync(A<string>._, A<Func<ItemEntity, bool>>._))
+                .ReturnsLazily((string _, Func<ItemEntity, bool> match) =>
+                    Task.FromResult<(ItemEntity Item, long Remaining)?>(match(item) ? (item, item.Amount - 1) : null));
+
+        /// <summary>As <see cref="CarryScrolls"/>, but the consumption waits until the returned action runs.</summary>
+        public Action CarryScrollsBehindAGate(long amount)
+        {
+            var gate = new TaskCompletionSource();
+            var scroll = new ItemEntity { Id = ScrollHandle, ItemResourceId = ResurrectionScrollId, Amount = amount };
+            A.CallTo(() => Characters.ConsumeFirstAsync(A<string>._, A<Func<ItemEntity, bool>>._))
+                .ReturnsLazily(async (string _, Func<ItemEntity, bool> match) =>
+                {
+                    await gate.Task;
+                    return match(scroll) ? (scroll, scroll.Amount - 1) : ((ItemEntity, long)?)null;
+                });
+            return () => gate.SetResult();
+        }
+
         public TestServices()
         {
+            var scroll = new ResurrectionItem(ResurrectionScrollId, 6001, 1, SkillEffectType.Resurrection,
+                new[] { 0.1m, 0m });
+            A.CallTo(() => ResurrectionItems.TryGet(A<int>._, out scroll)).Returns(false);
+            A.CallTo(() => ResurrectionItems.TryGet(ResurrectionScrollId, out scroll))
+                .Returns(true).AssignsOutAndRefParameters(scroll);
+
+            // State 13472 as the 9.4 data carries it: 5 % of the HP and 3 % of the MP, flat.
+            var resurrection = new ResurrectionStateValues(0.05m, 0m, 0.03m, 0m);
+            A.CallTo(() => StateCatalog.TryGetResurrection(ResurrectionStateId, out resurrection))
+                .Returns(true).AssignsOutAndRefParameters(resurrection);
+
             A.CallTo(() => StatService.Compute(A<ConnectionInfo>._)).Returns(
                 new CharacterStatResult(new StatBlock { MaxHp = 5000f, MaxMp = 800f }, new StatBlock()));
 

@@ -22,6 +22,7 @@ using Navislamia.Game.Services;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.GmCommands;
 using Navislamia.Game.Services.Props;
+using Navislamia.Game.Services.Rates;
 using Serilog;
 using Serilog.Exceptions;
 
@@ -51,6 +52,7 @@ public class Program
         host.Services.GetRequiredService<MonsterMovementService>();
         host.Services.GetRequiredService<MonsterAiService>();
         host.Services.GetRequiredService<ISkillCastService>();
+        host.Services.GetRequiredService<RateEventTicker>();
 
         await host.RunAsync();
         await Log.CloseAndFlushAsync();
@@ -91,12 +93,31 @@ public class Program
         services.Configure<ScriptOptions>(context.Configuration.GetSection("Script"));
         services.Configure<MapOptions>(context.Configuration.GetSection("Map"));
         services.Configure<ServerOptions>(context.Configuration.GetSection("Server"));
+        ConfigureRates(services, context);
         ConfigureMonsterSpawns(services, context);
         ConfigureNpcDialogs(services, context);
         ConfigureSkillCatalog(services, context);
         ConfigureMonsterDrops(services, context);
         ConfigureFieldProps(services, context);
         ConfigureMarketCatalog(services, context);
+    }
+
+    /// <summary>
+    /// The <c>Rates</c> section of the environment's settings file, read through <c>IOptionsMonitor</c>: both
+    /// settings files are loaded with <c>reloadOnChange</c>, so an edit applies without a restart. The event
+    /// state file is resolved against the content root, like the catalogues.
+    /// </summary>
+    private static void ConfigureRates(IServiceCollection services, HostBuilderContext context)
+    {
+        var contentRoot = context.HostingEnvironment.ContentRootPath;
+        services.Configure<RatesOptions>(context.Configuration.GetSection("Rates"));
+        services.PostConfigure<RatesOptions>(options =>
+        {
+            if (!string.IsNullOrWhiteSpace(options.EventStatePath) && !Path.IsPathRooted(options.EventStatePath))
+            {
+                options.EventStatePath = Path.Combine(contentRoot, options.EventStatePath);
+            }
+        });
     }
 
     /// <summary>
@@ -233,7 +254,8 @@ public class Program
     {
         services.AddSingleton<IGameModule, GameModule>();
         services.AddSingleton<IWorldRepository, WorldRepository>();
-        services.AddSingleton<ICharacterRepository, CharacterRepository>();
+        services.AddSingleton<ICharacterRepositoryFactory, CharacterRepositoryFactory>();
+        services.AddSingleton<CharacterGate>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStorageRepository, StorageRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
@@ -270,6 +292,8 @@ public class Program
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IQuestService, QuestService>();
         services.AddSingleton<IGmCommandService, GmCommandService>();
+        services.AddSingleton<IRateService, RateService>();
+        services.AddSingleton<RateEventTicker>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
@@ -280,6 +304,7 @@ public class Program
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
         services.AddSingleton<IEventAreaService, EventAreaService>();
+        services.AddSingleton<IResurrectionItemCatalog, ResurrectionItemCatalog>();
         services.AddSingleton<IResurrectionService, ResurrectionService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
@@ -299,7 +324,7 @@ public class Program
         {
             var config = serviceProvider.GetService<IConfiguration>();
             var dbOptions = config.GetSection("Database").Get<DatabaseOptions>();
-            dbOptions.InitialCatalog = "Arcadia";
+            dbOptions.InitialCatalog = dbOptions.ArcadiaCatalog;
 
             builder
                 .UseNpgsql(dbOptions.ConnectionString(), options => options.EnableRetryOnFailure());
@@ -309,7 +334,7 @@ public class Program
         {
             var config = serviceProvider.GetService<IConfiguration>();
             var dbOptions = config.GetSection("Database").Get<DatabaseOptions>();
-            dbOptions.InitialCatalog = "Telecaster";
+            dbOptions.InitialCatalog = dbOptions.TelecasterCatalog;
 
             builder
                 .UseNpgsql(dbOptions.ConnectionString(), options => options.EnableRetryOnFailure());

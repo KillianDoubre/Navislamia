@@ -93,10 +93,28 @@ length, which is exactly why a lone header-only packet only ever arrived coalesc
 
 **A derived connection must route through `base.Send`**, never touch the channel: `CipherConnection`
 used to enqueue directly, so a signal added to the base would have left its messages queued forever.
-Its `Send` now holds a lock across encode-and-queue, because **XRC4 is a stream cipher**: the combat,
-movement and cast ticks and the client's own thread all send on one connection, and two of them
-interleaving would consume the keystream out of order *and* queue in an order that no longer matches
-it — undecodable, and rare enough to look like a random disconnect.
+**XRC4 is a stream cipher**: the combat, movement and cast ticks and the client's own thread all send on
+one connection, and encoding in any order other than the wire order is undecodable — rare enough to look
+like a random disconnect. The encoding therefore happens **on the send loop**, in `EncodeOutgoing`, on the
+loop's own pooled copy: the loop is the single reader of the queue, so it encodes in wire order by
+construction and needs no lock. It used to happen in `Send`, **in place on the caller's array**, under a
+lock held across encode-and-queue — which also meant one packet array could never be sent to two
+connections (the second copy went out encrypted twice). A packet array is now never modified by sending.
+
+On the receive side, `CipherConnection` decodes each byte **once, in place**, the first time `Peek` or
+`Read` reaches it (`_decodedLength`). `Peek` used to decode a copy of the header and roll the keystream
+back — a copy plus a 256-byte cipher state per packet — for `Read` to decode the same bytes again.
+`Connection` keeps a read offset instead of moving the unread remainder to the front on every `Read`
+(quadratic in a coalesced burst); the remainder moves once per receive, in `Listen`.
+
+**A disconnect is signalled by the receive, not polled.** A loop per connection used to wake every
+100 ms and call `Socket.Poll(1000 µs)`, which blocks a pool thread for that millisecond whenever nothing
+is pending. An orderly close completes the pending receive with 0 bytes and a reset makes it throw; both
+call `SignalDisconnect`, once. **`OnReceive` catches whatever the packet handlers throw**: it runs on an
+I/O completion thread, where an escaping exception terminates the process — one short
+`TM_CS_MOVE_REQUEST` used to be enough. The game receive loop also refuses a frame length shorter than
+the header (it would read zero bytes forever) or larger than the 32 KiB buffer (it could never complete).
+Covered end to end over loopback sockets by `Tests/Network/ConnectionTests.cs`.
 
 `WorldObjectStreamer.Stream` is the single visibility loop behind `NpcSpawnService`,
 `MonsterSpawnService` and `FieldPropService`: enter what came into view, `TS_SC_LEAVE` what left, keep
@@ -271,7 +289,8 @@ backfilled.
 On death the killer is rewarded: `CombatRewards.Compute(level)` returns level-based placeholder exp, jp
 and gold (`10 + level * 5`, `5 + level * 2`, `5 + level * 3`), added to `ConnectionInfo`
 (`CharacterExp`/`CharacterJp`/`CharacterGold`, seeded in `OnLogin`) and sent with `TS_SC_EXP_UPDATE`
-(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). Real per-monster exp and gold live in the `MonsterResource`
+(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). The `Exp`/`Jp`/`Gold` rates multiply the three amounts (see
+*Rates*). Real per-monster exp and gold live in the `MonsterResource`
 reward columns (`Exp`, `GoldMin`, `GoldMax`) and replace the placeholder once backfilled. Progress
 persists once per session: `GameClient.OnDisconnect` calls `CharacterService.SaveProgress`, which writes
 exp, jp, gold and chaos; there are no per-kill database writes.
@@ -356,8 +375,9 @@ table-level pick-one); when a slot fires, a **positive** id drops that item with
 **negative** id resolves its group by weight — once per rolled count, so a slot with `count = 6-20` drops
 that many separate group picks. This is why a typical spawn monster now drops on **~78% of kills** at the
 authentic rate, several items each (piles of low-value materials), rather than the ~2% the direct-only
-catalog produced. `GroundItemService.DropChanceMultiplier` still scales every chance (clamped at 1.0) and
-stays **1, the authentic rate** — no longer a testing knob, since drops are plentiful without it.
+catalog produced. The `ItemDrop` rate scales every chance (clamped at 1.0) and defaults to **1, the
+authentic rate**; the `CreatureCardDrop` rate adds a factor to a slot whose direct item is a summon card
+(see *Rates*). It replaced the `GroundItemService.DropChanceMultiplier` constant.
 
 A ground item is `TS_SC_ENTER` with `type = ET_StaticObject (2)` and `objType = EOT_Item (2)`, 70 bytes:
 the shared header through `objType`, then `code` as the 8-byte randomized `EncodedInt` (the `npc_id`
@@ -371,7 +391,7 @@ duplicate it, then writes a new `ItemEntity` at `max(Idx) + 1`. The reply order 
 `TS_SC_INVENTORY` and the result. **`210` is what plays the pick-up animation** — its `item_taker` tells
 the client which actor to animate, which the generic `TS_SC_RESULT` cannot express, exactly like `287`
 against `202` for equipment. It is sent before the `LEAVE` so the animation starts before the object
-disappears. Items expire after 120 seconds through a 1 s tick.
+disappears. Items expire after `Rates:GroundItemLifetimeSeconds` (120 by default) through a 1 s tick.
 
 `GroundItemService` deliberately does **not** depend on `NetworkService`: `NetworkService` already
 injects the service, so taking the client list from it creates a DI cycle that only fails at runtime.
@@ -681,9 +701,12 @@ The fourth casualty was a scope decision: "none of the 111 buffs are harmful" ca
 so the `!IsToggle` filter documented above as the guard against toggle auras **protected nothing**; the
 effect-type allowlist was always the real guard.
 
-`tools/Import-SkillResourceColumns.ps1` now imports **every mappable scalar column in one pass** (94 of
+`tools/Import-SkillResourceColumns.ps1` now imports **every mappable scalar column in one pass** (96 of
 them), deriving EF property → source column by introspection and refusing to run if a required column is
-unmapped. Two traps it encodes: **a nullable column here is always a foreign key id where `0` means
+unmapped. It reads the CSV export (see *Source data*), not SQL Server. **`UseOnCharacter` and
+`UseOnMonster` were listed as "absent from the source" and read `false` for every skill**: they are
+`tf_avatar` and `tf_monster`, now overridden — the same trap one more time, and the flag that tells the
+Resurrection Scroll's 6001 (a character) from the creature scroll's 6013 (summons only). Two traps it encodes: **a nullable column here is always a foreign key id where `0` means
 "none"** and must be written `NULL` (no `StateResource` has id 0); and **`TextId`/`TooltipId`/
 `DescriptionId` cannot be imported at all** because they reference the empty `StringResources`. Prefer
 extending that script over hand-patching the next column.
@@ -812,8 +835,11 @@ hang off the skill that applied it — but nothing has been read to prove it.
 
 So the practical consequence — **a 9.4-only state id may render nothing** — stays a presumption
 rather than a proven mechanism, and "the same unresolved 7.3 gap as ground items" was an
-inference from a file that does not exist. Whether this client renders a state icon at all is
-still unverified.
+inference from a file that does not exist. **The client does render state icons** (observed
+2026-09-23 with `/buff 164401`: icon, countdown and double-click cancel), and **one 9.4-only id is
+now observed rendering nothing**: `/buff 41102536` (Guardian of Gaia) moves the stats — the server
+side works — but shows no icon, so the player cannot see or cancel it. The mechanism (which client
+file lists the known states) is still not established.
 
 **Percentage values are ratios, not percent numbers.** A `ParameterAmp` state or an `AmpParameterA` item
 carries `0.05` for "+5%", and `StatBlock.Amplify` does `stat * (1 + ratio)` exactly like the reference's
@@ -994,7 +1020,11 @@ all of them `ar_time_t`: `TS_TIMESYNC` (`2`, bidirectional, `time`), `TS_SC_SET_
 and `TS_SC_GAME_TIME` (`1101`, `t` + `game_time`).
 
 **`ar_time_t` is a 10 ms tick, never a wall clock.** `ServerClock` is the single place that defines it
-(`Environment.TickCount / 10`, `TicksPerSecond = 100`) and everything on the wire goes through it. Three
+(`Environment.TickCount64 / 10` truncated to 32 bits, `TicksPerSecond = 100`) and everything on the wire goes
+through it. **Not `Environment.TickCount`**: that `int` turns negative after 24.9 days of *machine*
+uptime, and dividing it before the cast made the clock jump by ~49.7 days at that instant, so every
+`(int)(now - end)` comparison read the past as the future — buffs stopped expiring and cooldowns locked.
+The 64-bit count wraps cleanly every 497 days, which the unchecked comparisons handle. Three
 independent confirmations: rzgame's `typedef ar_time_t rztime_t; // unit [10ms] since first call`; the
 reference emulator's `GetArTime() = ms / 10`; and the client itself, since `ITEM_ARRANGE_COOL_TIME = 3000`
 greys the sort button for a measured 30 s.
@@ -1090,20 +1120,37 @@ finds nothing left and answers `NotExist`; the client ignores it.
 
 ## Database access
 
-`CharacterRepository` is a singleton holding **one long-lived `TelecasterContext`**, and `GameClient`
-dispatches every packet handler fire-and-forget (`_ = HandleXxxAsync(...)`), so two packets can reach
-the context at the same time — EF then throws *"A second operation was started on this context
-instance"*. This is not hypothetical: the duplicate `208` above triggered it reliably.
-`CharacterService` is the only consumer of the repository and serializes every operation behind a
-`SemaphoreSlim`, so each read/mutate/`SaveChangesAsync` sequence is atomic against the shared context.
-Any new repository consumer must go through `CharacterService`, or the guarantee is gone.
+**Every operation gets its own `TelecasterContext`.** `CharacterService` asks
+`ICharacterRepositoryFactory` for a new `CharacterRepository` (a disposable unit of work) per operation,
+and `StorageRepository` opens one per call. Both used to be singletons each holding **one long-lived
+context**: every character, item and skill loaded since startup stayed tracked, so each
+`SaveChangesAsync` scanned all of them and slowed down with uptime, the memory never came back, the two
+contexts could read each other's rows stale (the storage risk), and one context forced **every player's
+database work through a single global semaphore**. Entities returned by an operation are detached
+afterwards: read them, never mutate one to save it later (the old delete path staged a removal and
+relied on a separate unawaited `SaveChanges`; `DeleteCharacterByNameAsync` now saves itself).
 
-**That shared context also masks missing `Include`s, which is a trap.** `GetCharacterByNameWithItems` used
-to `Include` only `Items`, yet `character.Skills` was still populated in the equip path — because login
-had already loaded it into the same context and EF's identity map returns that instance. Anything reading
-a navigation this way works by luck and breaks the day the load order changes. There is no lazy loading
-here: nothing registers `UseLazyLoadingProxies`, so a `virtual` navigation is only a promise. The method
-now includes `Skills` explicitly.
+**What still has to be atomic is a read-modify-write on the *same* character**: `GameClient` dispatches
+handlers fire-and-forget (`_ = HandleXxxAsync(...)`) and the client sends `208` twice per destroy. The
+`CharacterGate` singleton serialises by character name (64 stripes, bounded), and **`CharacterService`
+and `StorageService` take the same gate**, so a storage move and an inventory operation on one character
+still exclude each other while two players no longer wait on each other. Pure reads (`CharacterExistsAsync`,
+`CharacterCountAsync`, `GetCharacterByNameAsync`, quests) take no gate. All of them are asynchronous now:
+the synchronous ones blocked a thread on `SemaphoreSlim.Wait()`. World entry loads **only** the character
+entering (`GetCharacterForWorldEntryAsync`, which also checks it belongs to the account), not every
+character of the account with all of their items.
+
+**A context per operation has no identity map to hide a missing `Include`, which is the point.**
+`GetCharacterByNameWithItems` once included only `Items` and `character.Skills` was populated anyway,
+because login had loaded it into the shared context. `SaveLearnedSkillAsync` relied on exactly that and
+now loads `GetCharacterByNameWithSkillsAsync`: without the skills, an already learned skill would be
+inserted a second time. There is no lazy loading here: nothing registers `UseLazyLoadingProxies`, so a
+`virtual` navigation is only a promise. Load what the operation reads.
+
+`Characters.CharacterName`, `AccountName`, `AccountId` and `Items.AccountId` are indexed
+(`Version0009_LookupIndexes`): every character operation resolved its row by name, the lobby by account
+and the storage by account, each with a full scan. The indexes are not unique — existing data is not
+guaranteed to be.
 
 The original server's ordering could not be recovered exactly. The shipped `Game_bin` PDB proves the
 shape — `StructInventory::_ItemArrangeGreater(const StructItem*, const StructItem*)` is a comparator
@@ -1215,7 +1262,8 @@ répond `55` (`ResultCode.NotActableWhileUsingBooth`) aux actions que le client 
 refusées : 200, 201, 203, 204, 208, 218, 219, 253, 400. `700` et `701` sont hors de cette liste. Le
 garde n'est pas une protection générique : toute action ajoutée plus tard doit être pesée contre elle.
 
-Le garde `Enum.IsDefined(typeof(GamePackets), header.ID)` (`GameClient.OnDataReceived`) précède la
+Le garde `DefinedPackets[header.ID]` (`GameClient.OnDataReceived`, une table construite une fois depuis
+`GamePackets` ; c'était `Enum.IsDefined`, réflexion et boxing à chaque paquet) précède la
 chaîne : un id **non déclaré** est journalisé en `Debug` puis ignoré, **sans exception**. Le
 `_ => throw new Exception("Unknown Packet Type")` du `switch` final n'est donc atteint que par un
 membre **déclaré** sans bras de dispatch — c'est la raison exacte du critère « enum et dispatch se
@@ -1273,13 +1321,52 @@ must pass all four**, the mask being a snapshot.
 The `&`-prefixed command lists found online do not exist in this client: none of their strings is in
 `SFrame.exe`.
 
+`/rate` and `/rates` read and drive the server rates; see *Rates* below.
+
+## Rates
+
+The server rates are the `Rates` section of `DevConsole/appsettings.{env}.json` — tracked, one per
+server, and **read live through `IOptionsMonitor`**, so an edit applies without a restart — multiplied by
+the `/rate` event running on that type. A x5 server in a x2 event runs at x10. `IRateService`
+(`Game/Services/Rates/`) is the only reader; the keys, their NGemity origin and the GM commands are in
+`docs/gm-commands.md`, *Rates*.
+
+- **What they touch**: exp, JP and gold per kill (`CombatService.AwardKill`), the drop chance and the
+  summon-card factor (`GroundItemService.DropForMonster` → `DropRoll.Roll`), the monster respawn delay,
+  the ground-item lifetime, and the JP cost of a skill level (`SkillCatalog.Evaluate`) and of a job level
+  (`LevelingService`). A key exists only once something reads it: no quest, chaos-drop or PvP rate until
+  those systems do.
+- **`Jp` follows `Exp` when unset**, which is NGemity's single `EXPRate` (`World.cpp:529`).
+- **Amounts are rounded at random** (`RateMath.ScaleRandom`: 7 × 1.5 gives 10 or 11), which is what
+  NGemity's `GetIntValueByRandomInt64` means to do — **its test is always true, so it always truncates**;
+  the intent is ported, not the defect. **Costs are rounded up** (`ScaleCost`), so only a rate of 0 is free.
+- **A job-level cost of 0 was the "tier capped" signal.** A `JobLevelJpCost` of 0 would have read as capped,
+  so `ILevelingService.NextJobLevelCost` became `TryGetNextJobLevelCost(level, out cost)`: `false` is the
+  capped tier, `cost` is what is really charged, and `/joblevel` credits exactly that.
+- **The card factor is judged on the slot, before group resolution**, like NGemity's `World::checkDrop`
+  (`code > 0`): a card reached through a drop group does not get it.
+- **Events** replace, never stack (x2 then x3 is x3); a duration is required; they are saved with their UTC
+  end to `EventStatePath` (`DevConsole/rate-events.json`, ignored by git), so a restart resumes them with
+  their remaining time. An event stops counting at its end even before the tick removes it.
+- **`RateEventTicker` announces the end and the reminder** and holds `NetworkService` for the client list,
+  like `MonsterAiService`. `RateService` must not: `CombatService` and `GroundItemService` depend on it and
+  are injected into `NetworkService` — the DI cycle that only fails at runtime.
+- Whether the 7.3 client accepts a learn or a job-level request priced **below its own table** is not
+  established: it may grey the button on its own figure, and it always displays its own price.
+
+**One Telecaster per server.** `Database:TelecasterCatalog` (default `Telecaster`) and
+`Database:ArcadiaCatalog` (default `Arcadia`) replace the two names `Program.ConfigureDataAccess` used to
+hard-code; `InitialCatalog` is still overridden by them. A second game server sets its own
+`TelecasterCatalog`, otherwise it shares the characters of the first.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
   modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding; monster damage is the
   `maxHp/15` test formula, and a player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them
-  back in town. Damage-to-monster, attack speed, walk speed
+  back in town, or in place with a resurrection state or a Resurrection Scroll (resurrection by another
+  player is not implemented). Damage-to-monster, attack speed, walk speed
   and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
   as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
@@ -1353,6 +1440,69 @@ counter, but the socle persists nothing.
 
 The full spec (offsets, sources, version gating, NGemity deltas, scope, open questions) is in
 `docs/packet-specs/socle-zones-evenement.md`.
+
+### Paquet 57 — `TM_CS_CHECK_ILLEGAL_USER`
+
+- Trame cliente de **11** octets : en-tête 7 + `log_code` `uint32` à l'offset 7. Taille fixe, aucun
+  rembourrage, un seul champ.
+- `log_code` est un nom **rzu** ; le client n'envoie que `0` sur le seul chemin d'émission connu.
+  Sa sémantique et le sort du paquet côté serveur ne sont pas établis : ne rien en déduire.
+- **Aucune réponse** : il n'existe aucune trame serveur → client de cette famille (ni rzu, ni
+  NGemity, ni `op_codes.md`), et le répartiteur entrant du client 7.3 place 57 sur le chemin par
+  défaut. Le proxy rzu, lui, **jette** le paquet.
+- Gating : 57 à l'Epic 7.3, `1057` seulement à partir d'`EPIC_9_6_3` — **ne pas déclarer 1057**.
+- Le client 7.3 **émet** 57 depuis sa surveillance interne (événement `game_security_msg`, jamais une
+  action du joueur) et affiche une boîte de message du vocabulaire `msgboxdetect_*` /
+  `smsq_protect*`. Ce qui déclenche cet événement n'est pas dans le client extrait (module
+  anti-triche absent, `data.000` chiffré) : ne pas conclure à l'absence d'émission.
+- Traitement : `GameActionPackets.TryReadCheckIllegalUser` (11 octets exacts, toute autre longueur
+  refusée et journalisée en `Warning`), puis `log_code` journalisé en `Debug` et abandon — **pas de
+  réponse, pas de sanction, pas de déconnexion**. Toute politique (enregistrer, sanctionner) reste à
+  trancher.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 59 — `TM_CS_XTRAP_CHECK`
+
+- Trame cliente de **135** octets : en-tête 7 (`Length` 135, `ID` 59, checksum 194) + `pCheckBuffer`
+  `uint8[128]` à l'offset 7, **sans champ de longueur**. Taille constante, aucun rembourrage, aucune
+  variante : ne pas l'aligner sur `TM_CS_ANTI_HACK` (54), qui porte un `nLength`.
+- Gating rzu : **59** à l'Epic 7.3, `1059` seulement à partir d'`EPIC_9_6_3` (`0x090603` > `0x070300`)
+  — **ne pas déclarer 1059**. La paire est 58 (`TM_SC_XTRAP_CHECK`, même anatomie, checksum 193),
+  **non déclarée** : ce serveur ne l'émet jamais.
+- **Aucun producteur de 59 dans le client 7.3** (`SFrame.exe` sha256 `41e0af2e…` : aucun constructeur
+  d'id 59, la chaîne de nom n'est référencée qu'une fois, par la table id→nom) et **aucun handler dans
+  rzu ni NGemity** : il n'y a **aucune logique à porter**, seulement une borne d'entrée à tenir.
+- Traitement : lecture défensive seule (`GameXtrapPackets.TryReadXtrapCheck`, longueur exacte, tampon
+  rendu intact) puis abandon — **pas de réponse, pas de sanction, pas de déconnexion**. Le contenu de
+  `pCheckBuffer` n'est **pas établi** et n'est **jamais** journalisé : une trame valide ne laisse que sa
+  longueur et la taille du tampon, en `Debug` ; une trame d'une autre longueur, sa longueur seule, en
+  `Warning`, et elle est consommée entièrement pour garder la suivante alignée.
+- Le client 7.3 **parse 58 dans une branche `switch` vide** : toute réponse serait sans effet
+  observable. « Le client ne réagit pas » ne veut pas dire « le paquet est inutile » : un client patché,
+  une autre région ou un module tiers peuvent émettre 59.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
+### Paquet 60 — `TM_CS_REQUEST` (client → serveur)
+
+Seule trame **variable** de la famille : `t` (`uint8`, offset 7) + `command` (`endstring`, offset 8,
+`L` octets + **1 NUL terminal**), **`Length = 9 + L`**, checksum = somme des 6 premiers octets. Gating :
+**60** pour `version < EPIC_9_6_3`, 1060 au-delà — Epic 7.3 garde **60** ; aucun champ n'a de gating
+propre. Borne réelle : tampon de réception de 32768 octets → `L ≤ 32759`.
+
+`endstring` n'a **aucun préfixe de longueur** : la fin du champ est la fin du **datagramme**, donc
+`L = packet.Length - 9`, jamais « jusqu'au premier NUL » et jamais « jusqu'à la fin du tampon ». Une
+trame dont le dernier octet n'est pas le NUL, ou de moins de 9 octets, est refusée.
+
+Le client 7.3 ne nomme ni n'émet 60, et n'a aucun bras en réception (une trame d'id 60 y tombe sur
+« message non traité ») : **le serveur ne répond jamais par une trame d'id 60**. Ni rzu ni Chihiro n'ont
+de consommateur ; le seul producteur connu est l'outil de supervision NGemity, qui envoie `t = 'u'` et
+une requête SQL chiffrée zlib + chiffrement simple encodée en hexadécimal — c'est un canal
+d'**opérateur/SQL**, pas un canal de jeu.
+
+Règle tenue par `GameRequestPackets` / `GameClient.HandleRequest` : **lire et borner, journaliser
+`Length`, `t` et la longueur de `command`, n'exécuter aucune commande, ne pas répondre, ne pas
+sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce n'est **pas** un
+`ResultCode`. Liste blanche et réponse restent des politiques ouvertes.
 
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
@@ -1473,6 +1623,54 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
   `mix_type` 801/802/803 ↔ 263/264.
 
+### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
+
+- **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,
+  `target` `uint32` à l'offset 7 (handle de la créature dont la fenêtre d'états est affichée),
+  `state_code` `int32` à l'offset 11 (le `StateId`). Aucun gating de champ : rzu ne versionne que
+  l'id (408 pour `< EPIC_9_6_3`, 1408 au-delà), donc **408 en 7.3**. C'est le clic d'une icône d'état
+  dans `window_main_state_h_effect.nui` qui l'émet (les infobulles 9.4 disent « double-cliquer pour
+  annuler »), et le client ne le construit que pour un état dont le mot de drapeaux porte `1 << 5` —
+  `StateTimeType.EraseOnRequest = 32`, le même bit que `AF_ERASE_ON_REQUEST` de NGemity. **Ce drapeau
+  n'était lu par aucune projection du dépôt** : `StateEffectFields` ne transporte que
+  `Id`/`EffectType`/`Values`, et `StateCatalog` ne charge que les états à effet de stat (`EffectType`
+  1 ou 2) alors qu'`ActiveBuffs` en contient d'autres — d'où la seconde projection
+  `GetEraseOnRequestStateIds` → `IStateCatalog.IsEraseOnRequest`. Le savoir du paquet vit dans
+  `docs/packet-specs/408-request-remove-state.md`.
+- **`state_time_type` n'avait jamais été importé** : `StateResources` portait `0` pour les 1 949
+  lignes, comme toutes ses colonnes scalaires hors `EffectType`/`Values` (le piège des littéraux NOT
+  NULL, une fois de plus), donc la garde refusait **tout**. `tools/Import-StateResourceColumns.ps1`
+  (modèle de `Import-SkillResourceColumns.ps1`, depuis le CSV) importe les 20 colonnes scalaires : 63
+  états portent le bit 32, 350 sont `IsHarmful`. Piège : `StateTimeType` est un enum `short`
+  (`smallint`) et l'état 201085 vaut `33150` (bit 15, au-delà de tout drapeau déclaré) — le script
+  stocke le motif 16 bits tel quel (complément à deux), ce qui garde chaque bit pour le test `&`.
+  **Aucune aura et presque aucun buff castable ne porte le bit** : en jeu, on le teste par `/buff`.
+  **Validé en jeu le 2026-09-23** avec 164401 (Strength Boost) : icône, double-clic sur l'icône →
+  retrait et stats rétablies ; 13472 (sans le bit) ne s'annule pas. 41102536 (Guardian of Gaia)
+  applique ses stats mais **n'affiche aucune icône** dans ce client (id 9.4 inconnu du 7.3, voir
+  *Buffs*) : il est donc inannulable par la fenêtre, et le retrait de `max_hp`/`max_mp` par la 408
+  n'a pas été observé — seul cet état du lot annulable touche les PV/PM max.
+- **Réponse** : `TM_SC_STATE` (505), **63 octets**, `state_level`/`end_time`/`start_time` à zéro —
+  c'est exactement `BuildStateRemoval`, déjà validé en jeu à l'expiration ; NGemity encode le retrait
+  de la même façon (`Messages.cpp:1105-1123`). Suivi de `SendStatRefresh` (`RefreshBuffs` +
+  `TM_SC_STAT_INFO`/`TM_SC_PROPERTY`), puis `TS_SC_RESULT` taggé 408 `Success` (choix du dépôt, isolé
+  dans `SkillCastService.RemoveState(client, request)`). En cas d'échec, `TS_SC_RESULT` taggé 408
+  (`NotExist`/`NotActable`, `InvalidArgument` pour une trame d'une autre longueur) sans aucun effet de
+  bord : le paquet n'a aucune réponse dédiée dans tout le protocole.
+- **Une aura annulée par cette voie doit être défaite comme une aura** : couper `ActiveAuras` et
+  envoyer `TM_SC_AURA` (407) à `false`, comme `RemoveAura` le fait à la bascule. Sans cela, le client
+  garde l'icône d'aura allumée alors que le serveur l'a retirée. **Le groupe d'aura du plan est un
+  `int?`** : le groupe `0` est un vrai groupe (voir *Toggle auras*), et la première version, qui s'en
+  servait comme « pas d'aura », laissait une aura du groupe 0 allumée dans `ActiveAuras`.
+- Aucune diffusion : les états ne partent que vers la connexion du joueur concerné, ici comme pour
+  l'expiration et la bascule (NGemity, lui, diffuse à la région — écart assumé).
+- **Réserves vérifiables** (fiche §7) : l'émission effective de la trame par le client n'est pas
+  prouvée par la seule lecture (le dernier saut message interne → socket n'est pas résolu, l'opcode
+  n'apparaît dans aucun immédiat du `.text`) ; le geste exact de déclenchement ; le fait qu'une cible
+  tierce soit légitime (`window_target_state_h_effect.nui` existe) — décision : n'accepter que son
+  propre handle ; aucune valeur sentinelle « tous les états » — décision : code inconnu =
+  `NotExist` ; le client juge le bit 32 sur **ses propres** données d'état, que rien n'a lues.
+
 ### Mort et réapparition du personnage joueur
 
 Le client Epic 7.3 **déclare** `TM_SC_DEAD` (504) mais son répartiteur le libère **sans effet**
@@ -1499,6 +1697,32 @@ Le socle est en place : `TM_CS_RESURRECTION` (513) est décodé (trame de 12 oct
 refusée plutôt que lue), le personnage réapparaît à sa position persistée avec ses PV/MP au maximum,
 et un monstre lâche une cible tombée à 0 PV (les PV d'un joueur n'ont plus de plancher à 1). Le
 serveur n'émet toujours aucun paquet de mort.
+
+**La voie « état » (513 type 1, `RT_UseState`) est livrée** (`docs/packet-specs/socle-effets-resurrection.md`) :
+port de NGemity `Unit::ResurrectByState`. Le mort doit porter un état d'effet `SEF_RESURRECTION`
+(**109**, `StateEffectType.Resurrection`) posé de son vivant — l'état 13472 du buff 3472 (métier 112),
+ou `/buff 13472` pour tester. On garde l'état de **plus haut niveau**, PV rendus
+`(value_0 + value_1 × niveau) × PV max` (planchés à 1, emprunt à `Unit::Resurrect`), PM
+`(value_2 + value_3 × niveau) × PM max` ajoutés aux PM gardés, puis l'état est **consommé**
+(`ISkillCastService.RemoveState`) et 513 répond `Success`. **Sur place, sans `Warp`**, contrairement à
+la ville. Sans état : `NotActable`. La mort ne retire aucun état ici, donc l'état posé avant la mort
+est toujours là.
+
+**La voie « objet » (513 type 2, `RT_UsePotion`) est livrée** : le mort consomme un objet de
+résurrection de son sac et revient **sur place**. Le lien objet → compétence n'est ni
+`ItemResources.SkillId` (vide, et réservé aux cartes de compétence) ni `ItemEffectInstant.Resurrection`
+(4, sur aucun objet) : c'est l'emplacement d'effet `ItemEffectInstant.Skill` (5), `var1` = compétence,
+`var2` = niveau (NGemity `Unit::onItemUseEffect`). Le Parchemin de résurrection 603002 porte
+`opt_type_0 = 5`, 6001, niveau 1 — **10 % des PV max** (`SKILL_RESURRECTION` : `PV max × var0 ×
+niveau`, `PM max × var1 × niveau` ; 30501 a sa propre formule). `ResurrectionItemCatalog` ne retient que
+les compétences 504/30501 qui visent un personnage (`UseOnCharacter`, colonne `tf_avatar`) : sur les
+données réelles, 603002 est le seul objet. Réponse : 255 (ou 254 à la dernière unité), `hp`/`mp`, puis
+513 `Success` ; sans objet, `NotActable`. `ConnectionInfo.ResurrectionInProgress` refuse une seconde
+demande pendant que la première attend la base, sinon deux demandes groupées consommeraient deux
+parchemins. Test en jeu : `/item 603002`, `/die`. **Les voies 3 et 4 ne sont pas des arènes** : les
+arènes de bataille (4701+) sont toutes `Since EPIC_8_1` et n'existent pas en 7.3
+(`socle-arenes-bataille.md`) ; `RT_Compete` relève du duel (4500) et `RT_Deathmatch` des instances
+(4250), qui n'existent pas encore — le refus est la réponse exacte.
 
 ### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
 
@@ -1677,6 +1901,37 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
   PostgreSQL ici). Sans elles, tout marchand est refusé et journalisé.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Paquet 9005 — `TM_CS_SECURITY_NO` (client → serveur, 30 octets)
+
+Fiche : `docs/packet-specs/9005-security-no.md`. En 7.3 : `Length` (4) + `ID` = 9005 (2) +
+`checksum` (1) + `mode` (`int32`, offset 7) + `security_no` (19 octets, offset 11, lu jusqu'au
+premier zéro). L'id passe à `8105` à partir d'`EPIC_9_6_3`, et `account(64)`/`result`/`security_no_1/_2`
+n'existent qu'à partir d'`EPIC_9_6_7` : ne jamais recopier un relevé 9.x (94 octets au lieu de 30).
+Le client 7.3 émet réellement ce paquet (constructeur de trame en `0x48cf70`, appelé depuis `0x6658a1`
+et `0x49dd9e`) en réponse à `TM_SC_REQUEST_SECURITY_NO` (9004, `int32 mode`) — que ce serveur n'émet
+jamais : **tout 9005 reçu est donc non sollicité**. `mode` nomme l'opération (`0` aucun, `1` ouverture du
+coffre, `2` suppression de personnage) mais **aucune source ne fixe le domaine effectivement émis** : ne
+pas valider `mode`. Aucune référence n'implémente la réponse, et Navislamia n'a ni stockage du code ni
+transport 40000/40001 vers le serveur d'authentification : la vérification est **hors périmètre** tant
+que Killian n'a pas tranché (la référence stocke `md5(sel + code)` dans le champ `password` de la table
+`account` de la base d'authentification).
+
+**Le code est un secret réutilisable, traité comme tel** :
+- jamais journalisé : le bras ne journalise que `mode` et la **longueur** du code, et ne répond rien ;
+- jamais copié en `string` : `GameSecurityPackets.TryReadSecurityNo(packet, out mode, out securityNo)`
+  (30 octets exacts, 18 caractères au plus) rend le code comme une **vue** (`ReadOnlySpan<byte>`) sur la
+  trame. Une chaîne serait une copie immuable sur le tas que rien ne peut effacer. Le jour où un
+  vérificateur existera, il comparera cette vue en temps constant ;
+- effacé après lecture : `HandleSecurityNo` met la trame à zéro (`CryptographicOperations.ZeroMemory`)
+  dans un `finally`, trame mal formée comprise, et `Connection.Read` efface du tampon de réception
+  chaque octet consommé. Ce tampon vit aussi longtemps que la connexion et `CipherConnection` y déchiffre
+  sur place : sans cet effacement, le code y restait en clair jusqu'à ce qu'un autre trafic l'écrase.
+  L'effacement profite à toute trame secrète, pas seulement à la 9005.
+
+Code : `GamePackets.TM_CS_SECURITY_NO = 9005`, lecteur `GameSecurityPackets.TryReadSecurityNo`, bras de
+dispatch et `HandleSecurityNo` dans `Game/Network/Clients/GameClient.cs`, tests
+`Tests/Game/SecurityNoPacketsTests.cs` et `Tests/Network/ConnectionTests.cs` (tampon de réception).
+
 ### Socle stockage commercial — `TM_SC_COMMERCIAL_STORAGE_INFO` (10003), `TM_SC_COMMERCIAL_STORAGE_LIST` (10004), `TM_CS_TAKEOUT_COMMERCIAL_ITEM` (10005)
 
 - 7.3 = **10003 / 10004 / 10005** : rzu bascule cette famille sur 9003/9004/9005 à partir
@@ -1807,6 +2062,33 @@ des données est le lot K2, et elle appartient à Killian. Découpage K1…K3 : 
 (≤ 10 est une borne de protocole, pas un choix), valeur du rang et du score d'un joueur non
 classé, source des données, cadence, refus d'une trame mal formée, effet perçu d'une liste vide.
 Aucune de ces valeurs n'est devinée.
+
+## Source data (9.4 SQL Server export)
+
+The 9.4 resource database lives in a local SQL Server (`localhost\SQLEXPRESS`, database `Arcadia`) that
+is stopped by default and needs an administrator to start. **Nothing needs it running any more**:
+`tools/Export-SqlServerData.ps1` wrote every table (115 tables, 1 460 707 rows, ~180 MB) to
+`data/sqlserver/Arcadia/<Table>.csv` with `_manifest.json` (columns, SQL types, row counts). The folder
+is **git-ignored**: it is local data, regenerated by re-running the script while SQL Server is up.
+
+The CSV is what PostgreSQL's `\copy … WITH (FORMAT csv, HEADER)` reads as is: header row, NULL as an
+empty unquoted field and every string quoted (an empty string stays distinct), invariant numbers, UTF-8
+without a BOM (the Korean and Chinese string tables survive). An import script loads the whole file into
+a temporary table of `text` columns and copies the mapped ones — `Import-SkillResourceColumns.ps1` is the
+model. `Import-MonsterResourceColumns.ps1` and `Import-MonsterSpawns.ps1` still query SQL Server
+directly. The other databases of that instance (`CHARACTER_01_DBF`, `ACCOUNT_DBF`, `RANKING_DBF`,
+`LOGGING_01_DBF`) belong to another game, not to Rappelz: they are not exported and nothing here reads
+them.
+
+## Logging
+
+Serilog is configured in `DevConsole/appsettings.json`, which is **local and not tracked** (it carries the
+database credentials). Its console and file sinks must sit inside an `Async` sink
+(`Serilog.Sinks.Async`): the Windows console is slow and writes synchronously, and at `Debug` every sent
+and received packet is a line, so a synchronous console stalled the network and tick threads that logged.
+Keep `System` at `Warning`. A log call with more than three properties allocates an `object[]` and boxes
+its arguments **before** Serilog checks the level, so a per-packet one is wrapped in
+`_logger.IsEnabled(LogEventLevel.Debug)` (`GameClient.SendMessage` and the receive loop do).
 
 ## Change guidelines
 

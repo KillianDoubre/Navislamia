@@ -56,6 +56,10 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/target` | oui | Navislamia | id, niveau et PV du monstre ciblé |
 | `/save` | oui | Lua `save` | sauvegarde la progression sans se déconnecter |
 | `/chaos <montant>` | oui | Navislamia | ajoute ou retire du chaos, entre 0 et `int.MaxValue` |
+| `/rate` | oui | Navislamia | rates effectifs (base × événement), temps restant et réglages non multiplicateurs |
+| `/rate <type> <multiplicateur> <durée>` | oui | Navislamia | événement de rates annoncé à tous, `type` = `exp`, `jp`, `gold`, `drop`, `card` ou `all` |
+| `/rate reset [type]` | oui | Navislamia | fin anticipée, d'un type ou de tous |
+| `/rates` | non | Navislamia | rates effectifs, en lecture seule |
 
 Le nom est insensible à la casse (`/Position` marche), contrairement à la comparaison exacte de
 NGemity : rien dans le client ne distingue les deux, et un refus ne ferait que ressembler à une panne.
@@ -117,6 +121,65 @@ peut pas produire un état que le jeu lui-même ne produit pas.
 - **`/save`** : `CharacterService.SaveProgressAsync` avec les mêmes arguments que la déconnexion.
 - **`/chaos`** : `ConnectionInfo.CharacterChaos` puis `TS_SC_GOLD_UPDATE`, qui porte or et chaos.
 
+## Rates
+
+Le rate effectif d'un type est le **rate de base** multiplié par celui de l'**événement** en cours. Un
+serveur x5 en événement x2 tourne donc à x10 et revient seul à x5 à la fin de l'événement.
+
+**Rates de base** : section `Rates` de `DevConsole/appsettings.{env}.json` (`Dev` ou `Prod`, suivis, un
+par serveur). Le fichier est relu à chaud (`reloadOnChange`) : une modification s'applique sans
+redémarrage, au prochain kill ou au prochain apprentissage. Toutes les clés valent 1 (ou la valeur
+d'origine) par défaut.
+
+| Clé | Effet | Origine |
+|---|---|---|
+| `Exp` | exp gagnée par kill | NGemity `Game.EXPRate` |
+| `Jp` | JP gagnés par kill ; **absente, elle vaut `Exp`** | NGemity (son `EXPRate` multiplie les deux, `World.cpp:529`) |
+| `Gold` | or gagné par kill | NGemity `Game.GoldDropRate` |
+| `ItemDrop` | chance de chaque emplacement de drop, plafonnée à 100 % | NGemity `Game.ItemDropRate` |
+| `CreatureCardDrop` | facteur de plus sur un emplacement dont l'objet **direct** est une carte d'invocation (groupe 13) | NGemity `Game.CreatureCardDropRate` |
+| `MonsterRespawnSeconds` | délai de réapparition d'un monstre tué (10) | constante du code |
+| `GroundItemLifetimeSeconds` | durée de vie d'un objet au sol (120) | constante du code |
+| `SkillJpCost` | facteur sur le coût en JP d'un niveau de compétence | Navislamia |
+| `JobLevelJpCost` | facteur sur le coût en JP d'un niveau de métier | Navislamia |
+| `MaxEventMultiplier` | plafond du multiplicateur de `/rate` (100) | Navislamia |
+| `EventReminderMinutes` | rappel annoncé avant la fin d'un événement (5, 0 = aucun) | Navislamia |
+| `EventStatePath` | fichier des événements en cours, relatif à la racine du serveur | Navislamia |
+
+Un rate négatif, infini ou non numérique compte comme 0. Les quantités sont **arrondies au hasard** :
+7 exp × 1,5 donne 10 ou 11 avec une chance sur deux, donc un rate fractionnaire est juste en moyenne.
+C'est l'intention de NGemity (`GameRule::GetIntValueByRandomInt64`), pas son comportement : son test
+`(rand % 100) / 100.0 + v >= v` est toujours vrai, donc il tronque toujours. Les **coûts** en JP sont
+arrondis au supérieur, pour qu'un coût réduit ne devienne jamais gratuit par accident (seul un rate de
+0 le rend gratuit) et que le prix ne change pas d'un essai à l'autre.
+
+Le rate de carte suit `World::checkDrop` : il s'applique à l'emplacement dont le code est positif
+(objet direct), avant toute résolution de groupe. Une carte atteinte par un groupe de drop n'en profite
+pas.
+
+**Événements** (`/rate`) :
+
+- `/rate exp 2 1h`, `/rate drop 3 7200`, `/rate all 2 30m`. La durée est **obligatoire** (secondes, ou
+  suffixe `s`, `m`/`min`, `h`, `d`), jusqu'à 30 jours ; le multiplicateur va de 0 à
+  `MaxEventMultiplier`, en culture invariante (`1.5`), un `x` devant est accepté.
+- Un nouvel événement sur un type **remplace** celui qui y tournait (x2 puis x3 = x3, pas x6). Un
+  événement `all` suivi de `/rate exp 5 1h` laisse les autres types à x2.
+- Annonces sur la ligne d'annonce (`CHAT_NOTICE`, expéditeur `@SYSTEM`) à tous les joueurs : au début
+  (« Event: EXP x2 for 1h! »), un rappel `EventReminderMinutes` avant la fin si l'événement dure plus
+  longtemps que ce délai, et à la fin (« The EXP x2 event is over. »). `/rate reset` annonce ce qu'il
+  arrête ; il ne dit rien aux joueurs s'il n'y avait rien.
+- Les événements sont **enregistrés** dans `EventStatePath` avec leur heure de fin (UTC) : un
+  redémarrage les reprend avec le temps restant, et un événement fini pendant l'arrêt est abandonné
+  sans annonce. Un fichier illisible est journalisé et le serveur démarre sans événement.
+- Chaque début et chaque fin anticipée est journalisé en `Information` avec le nom du GM.
+
+Code : `Game/Services/Rates/` — `RateEventBook` (règles pures), `RateService` (réglages, verrou,
+fichier), `RateEventTicker` (fin et rappel, toutes les secondes). Tests : `Tests/Game/RatesTests.cs`.
+
+**Pas encore de clé** — la fonctionnalité n'existe pas, et une clé sans effet ferait croire que ça
+marche : `QuestExp`/`QuestJp`/`QuestGold` (604/605 ne sont pas traités), `ChaosDrop` (le chaos ne tombe
+pas des monstres), `PvpDamage` (pas de PvP), stamina, artisanat, enchantement, apprivoisement.
+
 ## Ce qui n'est pas porté, et pourquoi
 
 - **`/run <lua>`** : exécute du Lua arbitraire. Le dépôt résout les scripts par catalogue et n'exécute
@@ -152,5 +215,9 @@ peut pas produire un état que le jeu lui-même ne produit pas.
 - Que `/learn` sur une compétence d'un autre métier s'affiche, ou non, dans la fenêtre de compétences.
 - Que `/buff` affiche l'icône et le compte à rebours (le rendu d'une icône d'état n'est pas établi
   pour ce client, voir CLAUDE.md, *Buffs*).
+- Que le client 7.3 laisse passer un apprentissage ou une montée de métier dont le coût serveur
+  (`SkillJpCost`/`JobLevelJpCost` < 1) est **inférieur** à celui de sa propre table : s'il grise le
+  bouton sur sa table, un coût réduit ne sert à rien sous le prix d'origine, et son affichage reste
+  celui d'origine dans tous les cas.
 - Que `/joblevel` au-delà de quelques paliers ne perturbe pas le client, qui reçoit un résultat 410
   par palier.
