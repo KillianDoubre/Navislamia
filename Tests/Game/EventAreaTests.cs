@@ -81,7 +81,7 @@ public class EventAreaPacketTests
             Path.Combine(RepositoryRoot(), "Game", "Network", "Clients", "GameClient.cs"));
 
         var branch = source.IndexOf($"GamePackets.{packet}", StringComparison.Ordinal);
-        var finalSwitch = source.IndexOf("throw new Exception(\"Unknown Packet Type\")", StringComparison.Ordinal);
+        var finalSwitch = source.IndexOf("throw new Exception($\"Unknown Packet Type", StringComparison.Ordinal);
 
         branch.Should().BeGreaterThan(-1, $"{packet} needs a branch of its own in OnDataReceived");
         finalSwitch.Should().BeGreaterThan(-1, "the final switch is the guard this test is about");

@@ -1639,6 +1639,37 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   test l'assure — il pourra l'être sous son nom d'enchère.
 - Détail et réserves : `docs/packet-specs/304-summon.md`.
 
+### Paquet 324 — `TM_CS_GET_SUMMON_SETUP_INFO` / réponse `TM_EQUIP_SUMMON` (303)
+
+- 7.3 = id **324**, **8 octets** : 7 d'en-tête + `show_dialog` (1 octet à l'offset 7). rzu remappe en
+  1324 à partir d'`EPIC_9_6_3` ; le client 7.3 écrit l'id en dur (`0x144` en VA `0x48c662`,
+  `Length = 8` en `0x48c66d`).
+- Le client l'émet à **l'ouverture de la fenêtre de formation des créatures** (Alt + R, bouton
+  `button_formation` ou `button_common_quick_creature_edit`, commande d'interface
+  `req_summon_formation`). Avant ce lot, l'id n'était pas déclaré : chaque ouverture laissait un
+  `Undefined packet ID: 324` et la fenêtre sans réponse.
+- `show_dialog` n'est pas constant (négation du réglage client 44) : le serveur le relit et le rend dans
+  `open_dialog`, jamais le fixer.
+- **Réponse : 303 seul**, 32 octets, `open_dialog` à l'offset 7 puis six handles aux offsets 8, 12, 16,
+  20, 24, 28 (NGemity `WorldSession.cpp:692-695`, `Messages.cpp:122-135`). Aucune écriture en base.
+  `BuildEquipSummon(slots, openDialog)` sert les deux sites : l'entrée en jeu passe `false`.
+- Les six handles viennent de `ConnectionInfo.SummonSlots`, posé **une seule fois** à l'entrée en jeu
+  depuis `CharacterEntity.SummonSlotItemIds` (et remis à vide par `ClearCharacterSession`) : les deux 303
+  ne peuvent pas diverger. La colonne n'est alimentée par personne, donc la réponse vaut **six zéros**
+  aujourd'hui ; une carte qui l'écrira devra aussi rafraîchir `SummonSlots`.
+- **303 va dans les deux sens.** Le client émet aussi 303 (constructeur VA `0x48cd10`, 32 octets,
+  `open_dialog = 0`, six `card_handle`) quand le joueur valide sa formation ; sans bras, il atteignait le
+  `throw` (observé en jeu : deux `Unknown Packet Type` juste après l'ouverture de la fenêtre).
+  `GameClient.HandleEquipSummon` le lit (`TryReadEquipSummon`, 32 octets exacts), le journalise et
+  **renvoie la formation stockée** avec l'`open_dialog` reçu. C'est la réponse de NGemity
+  (`onEquipSummon`) quand aucune carte n'est retenue : il ne garde qu'une carte d'invocation du joueur
+  portant `ITEM_FLAG_SUMMON` (bit 31, carte apprivoisée), dans la limite de Creature Control (1801), puis
+  renvoie **toujours** la formation résultante. Rien ne pose ce bit ici (pas d'apprivoisement, `/item`
+  n'écrit aucun drapeau) : toute carte est refusée, rien n'est écrit. Le jour où une carte peut être
+  apprivoisée, ce bras devient le portage d'`onEquipSummon`.
+- Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
+- Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
+
 ### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
 
 - **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,

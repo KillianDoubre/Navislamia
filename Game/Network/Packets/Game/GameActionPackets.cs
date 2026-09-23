@@ -37,6 +37,18 @@ public static class GameActionPackets
 
     public readonly record struct RegionInfoRequest(float X, float Y);
 
+    /// <summary>
+    /// <c>show_dialog</c> of TM_CS_GET_SUMMON_SETUP_INFO (324): computed by the client, replayed by the
+    /// server in the <c>open_dialog</c> byte of the 303 answer.
+    /// </summary>
+    public readonly record struct SummonSetupInfoRequest(bool ShowDialog);
+
+    /// <summary>
+    /// TM_EQUIP_SUMMON (303) sent by the client: the formation the player validated, six card handles
+    /// (0 for an empty slot) and the <c>open_dialog</c> byte, which the 7.3 client leaves at 0 on this path.
+    /// </summary>
+    public readonly record struct EquipSummonRequest(bool OpenDialog, uint[] CardHandles);
+
     public readonly record struct TakeoutCommercialItemRequest(uint Uid, ushort Count);
 
     public readonly record struct RankingTopRecordRequest(sbyte RankingType);
@@ -664,6 +676,53 @@ public static class GameActionPackets
 
         isSummon = (sbyte)packet[SummonFlagOffset];
         cardHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(SummonCardHandleOffset, 4));
+        return true;
+    }
+
+    /// <summary>
+    /// TM_CS_GET_SUMMON_SETUP_INFO (324) is exactly eight bytes: the seven byte header plus one
+    /// <c>show_dialog</c> byte at offset 7. The 7.3 client computes that byte per player
+    /// (<c>show_dialog = !setting[44]</c>) and expects it back in the <c>open_dialog</c> byte of the 303
+    /// answer, so it is read here and never fixed. The client only writes 0 or 1; reading any other
+    /// non-zero value as true is a documented normalisation, not an observation. Only the 8-byte form is
+    /// accepted: the sheet defines no answer at all for a request of another length.
+    /// </summary>
+    public static bool TryReadGetSummonSetupInfo(ReadOnlySpan<byte> packet, out SummonSetupInfoRequest request)
+    {
+        const int packetLength = HeaderSize + 1;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new SummonSetupInfoRequest(packet[HeaderSize] != 0);
+        return true;
+    }
+
+    /// <summary>
+    /// TM_EQUIP_SUMMON (303) in the client to server direction, exactly 32 bytes: the 7-byte header, the
+    /// <c>open_dialog</c> byte at offset 7, then six <c>card_handle</c> words at offsets 8, 12, 16, 20, 24
+    /// and 28 — the layout of the server's own 303 (client builder VA <c>0x48cd10</c>, <c>Length = 0x20</c>;
+    /// docs/packet-specs/324-get-summon-setup-info.md §5.4). Any other length is refused.
+    /// </summary>
+    public static bool TryReadEquipSummon(ReadOnlySpan<byte> packet, out EquipSummonRequest request)
+    {
+        const int slotCount = 6;
+        const int packetLength = HeaderSize + 1 + slotCount * 4;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        var handles = new uint[slotCount];
+        for (var i = 0; i < slotCount; i++)
+        {
+            handles[i] = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1 + i * 4, 4));
+        }
+
+        request = new EquipSummonRequest(packet[HeaderSize] != 0, handles);
         return true;
     }
 }

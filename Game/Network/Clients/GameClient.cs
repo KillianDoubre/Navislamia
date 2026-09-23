@@ -396,6 +396,74 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_XTRAP_CHECK, buffer.Length, checkBuffer.Length, ClientTag);
     }
 
+    /// <summary>
+    /// TM_CS_GET_SUMMON_SETUP_INFO (324), 8 bytes: the client asks for the creature formation again, most
+    /// often with show_dialog set when the player opens the window. The answer is a TM_EQUIP_SUMMON (303)
+    /// carrying the same six handles as the frame sent at world entry, with the open_dialog byte replaying
+    /// what was received. Nothing is written and no TS_SC_RESULT is sent: 324 has no result packet, the
+    /// 303 is its only acknowledgement.
+    /// </summary>
+    private void HandleGetSummonSetupInfo(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadGetSummonSetupInfo(buffer, out var request))
+        {
+            _logger.Warning("Malformed summon setup info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning(
+                "Summon setup info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        Connection.Send(GameCharacterPackets.BuildEquipSummon(ConnectionInfo.SummonSlots, request.ShowDialog));
+        _logger.Debug(
+            "TM_CS_GET_SUMMON_SETUP_INFO ({id}) Length: {length} received from {clientTag}: show_dialog={showDialog}",
+            (ushort)GamePackets.TM_CS_GET_SUMMON_SETUP_INFO, buffer.Length, ClientTag, request.ShowDialog);
+    }
+
+    /// <summary>
+    /// TM_EQUIP_SUMMON (303) from the client, 32 bytes: the player validated a creature formation. NGemity
+    /// (<c>WorldSession::onEquipSummon</c>) keeps a card only when it is a summon card owned by the player
+    /// and carrying <c>ITEM_FLAG_SUMMON</c> (bit 31, a tamed card), within the slot count the Creature
+    /// Control skill (1801) allows, then <b>always</b> answers with the resulting formation. Nothing sets
+    /// that flag here — there is no taming and <c>/item</c> writes no flag — so every card is refused and the
+    /// resulting formation is the stored one: it is re-sent unchanged, with the request's
+    /// <c>open_dialog</c>, which is the reference's own answer for that case and lets the window resync
+    /// instead of waiting. Nothing is written. Before this arm the declared id reached the
+    /// "Unknown Packet Type" throw. See docs/packet-specs/324-get-summon-setup-info.md §14.
+    /// </summary>
+    private void HandleEquipSummon(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadEquipSummon(buffer, out var request))
+        {
+            _logger.Warning("Malformed creature formation received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Creature formation received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_EQUIP_SUMMON ({id}) received from {clientTag}: open_dialog={openDialog} cards={cards}; no card is tamed, the stored formation is sent back",
+                (ushort)GamePackets.TM_EQUIP_SUMMON, ClientTag, request.OpenDialog,
+                string.Join(",", request.CardHandles));
+        }
+
+        Connection.Send(GameCharacterPackets.BuildEquipSummon(ConnectionInfo.SummonSlots, request.OpenDialog));
+    }
+
     private void SyncVisibleObjects()
     {
         _networkService.NpcSpawnService.Sync(this);
@@ -1456,6 +1524,20 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_SUMMON_SETUP_INFO)
+            {
+                HandleGetSummonSetupInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_EQUIP_SUMMON (303) travels both ways: the server's formation, and the client's validated
+            // one. The incoming direction must be claimed here, or the declared id reaches the throw below.
+            if (header.ID == (ushort)GamePackets.TM_EQUIP_SUMMON)
+            {
+                HandleEquipSummon(msgBuffer);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_STORAGE)
             {
                 _ = HandleStorageAsync(msgBuffer);
@@ -1661,7 +1743,7 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_CS_ACCOUNT_WITH_AUTH => new Packet<TM_CS_ACCOUNT_WITH_AUTH>(msgBuffer),
                 (ushort)GamePackets.TM_CS_REPORT => new Packet<TS_CS_REPORT>(msgBuffer),
 
-                _ => throw new Exception("Unknown Packet Type")
+                _ => throw new Exception($"Unknown Packet Type {header.ID}")
             };
 
             if (_logger.IsEnabled(LogEventLevel.Debug))
