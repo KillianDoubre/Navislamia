@@ -280,6 +280,7 @@ public class ConnectionInfo
         CharacterJp = 0;
         CharacterGold = 0;
         CharacterChaos = 0;
+        SummonSlots = Array.Empty<long>();
         PkMode = false;
         CharacterPermission = 0;
         IsSitting = false;

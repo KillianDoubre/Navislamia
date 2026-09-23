@@ -1639,6 +1639,31 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   test l'assure — il pourra l'être sous son nom d'enchère.
 - Détail et réserves : `docs/packet-specs/304-summon.md`.
 
+### Paquet 324 — `TM_CS_GET_SUMMON_SETUP_INFO` / réponse `TM_EQUIP_SUMMON` (303)
+
+- 7.3 = id **324**, **8 octets** : 7 d'en-tête + `show_dialog` (1 octet à l'offset 7). rzu remappe en
+  1324 à partir d'`EPIC_9_6_3` ; le client 7.3 écrit l'id en dur (`0x144` en VA `0x48c662`,
+  `Length = 8` en `0x48c66d`).
+- Le client l'émet à **l'ouverture de la fenêtre de formation des créatures** (Alt + R, bouton
+  `button_formation` ou `button_common_quick_creature_edit`, commande d'interface
+  `req_summon_formation`). Avant ce lot, l'id n'était pas déclaré : chaque ouverture laissait un
+  `Undefined packet ID: 324` et la fenêtre sans réponse.
+- `show_dialog` n'est pas constant (négation du réglage client 44) : le serveur le relit et le rend dans
+  `open_dialog`, jamais le fixer.
+- **Réponse : 303 seul**, 32 octets, `open_dialog` à l'offset 7 puis six handles aux offsets 8, 12, 16,
+  20, 24, 28 (NGemity `WorldSession.cpp:692-695`, `Messages.cpp:122-135`). Aucune écriture en base.
+  `BuildEquipSummon(slots, openDialog)` sert les deux sites : l'entrée en jeu passe `false`.
+- Les six handles viennent de `ConnectionInfo.SummonSlots`, posé **une seule fois** à l'entrée en jeu
+  depuis `CharacterEntity.SummonSlotItemIds` (et remis à vide par `ClearCharacterSession`) : les deux 303
+  ne peuvent pas diverger. La colonne n'est alimentée par personne, donc la réponse vaut **six zéros**
+  aujourd'hui ; une carte qui l'écrira devra aussi rafraîchir `SummonSlots`.
+- **303 client → serveur n'est pas traité.** Le client émet 303 (constructeur VA `0x48cd10`, 32 octets,
+  `open_dialog = 0`) quand le joueur valide sa formation. L'id est déclaré sans bras de réception : la
+  trame atteint le `throw "Unknown Packet Type"`, que `Connection.OnReceive` rattrape — erreur journalisée,
+  session maintenue, trames coalescées après elle perdues. NGemity la traite dans `onEquipSummon`, qui
+  exige une carte portant une créature : sans apprivoisement, aucune carte n'en porte.
+- Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
+
 ### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
 
 - **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,

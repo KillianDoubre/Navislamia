@@ -594,3 +594,21 @@ toutes les branches y insèrent un bras, cf. §11.7.
 6. **Vérification en jeu** (§11.9-1) : rien n'a pu être essayé sur un vrai client 7.3 depuis ce
    conteneur. Le seul point vraiment client-side encore ouvert est le rendu des six zéros (fenêtre de
    formation ouverte avec une colonne vide) — à regarder au premier essai.
+
+## 13. Revue avant fusion (2026-09-23)
+
+Fusion de `origin/master` : conflits additifs dans `ConnectionInfo.cs`, `GameClient.cs` et
+`GameActionPackets.cs` ; la version de `master` est gardée et le type, le lecteur, le gestionnaire et le
+bras de 324 sont réinsérés entiers. Corrections :
+
+- `SummonSetupInfoPacketsTests` construisait son propre `NetworkService` avec l'ancien constructeur et ne
+  compilait plus ; il passe par `StorageTestHarness.NewGameClient`, qui suit le constructeur courant.
+- `ClearCharacterSession` remet `SummonSlots` à vide, comme tout l'état de personnage (sans effet
+  observable : l'entrée en jeu le réécrit et la 324 est refusée avant elle).
+- §5.4 et §10 disaient qu'une 303 entrante **fait tomber la connexion** : ce n'est plus vrai sur `master`,
+  où `Connection.OnReceive` rattrape l'exception (erreur journalisée, session maintenue, trames coalescées
+  après elle perdues). Le bloc de `CLAUDE.md` le dit ainsi. La 303 entrante reste à traiter.
+
+Déclencheur observé par Killian avant ce lot (2026-09-23) : à chaque ouverture de la fenêtre de
+formation, `Undefined packet ID: 324 Length: 8` — l'émission de la 324 et sa longueur sont donc
+confirmées en jeu. Construction `Release` et `dotnet test` : 1 203 tests, 0 échec.
