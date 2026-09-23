@@ -271,3 +271,156 @@ l. 24785 `window_creature_card_front.nui`, l. 26343 `TM_CS_SUMMON_CARD_SKILL_LIS
 `.?AUSIMSG_UI_SUMMON_CARD_SKILL_LIST@@`). Cette fiche ne contient aucune valeur devinée : les
 six questions ouvertes de §7 sont les seules zones non tranchées, et chacune dit précisément ce
 qui manque.
+
+## 9. Implémentation livrée (dev)
+
+Section ajoutée par `navis-dev` le 23/09/2026 ; l'analyse de l'archéologue (§1 à §8) est laissée
+intacte. Commits de code : `a3afcef` (4 fichiers, +307 lignes) et `f290595` (test de chaîne de
+dispatch), sur la branche `hermes/packet-452-summon-card-skill-list` créée par `navis-ref` depuis
+`master` (`b6f24dd`).
+
+**Règle tenue par le code : lire, borner, journaliser `item_handle`, ne rien répondre, ne rien
+résoudre.** Aucune table carte → invocation n'est introduite et le dword reçu n'est jamais réémis
+comme `target` (§5.5, §7b, §7c).
+
+### 9.1 Checklist des critères transversaux, avec les codes de sortie relevés
+
+| # | Critère | État | Mesure |
+|---|---|---|---|
+| 1 | `dotnet build Navislamia.sln -c Debug` code 0 | **OK** | code de sortie **0**, `0 Error(s)`, `162 Warning(s)` (toutes préexistantes, `MigrateDatabase` et nullabilité) |
+| 2 | `dotnet test Tests/Tests.csproj` code 0, compte jamais en baisse | **OK** | compte **avant** le lot, relevé par exclusion de la nouvelle fixture : code 0, **1099** réussis / 1099. Après : code **0**, **1117** réussis / 1117, 0 échec, 0 ignoré → **+18** |
+| 3 | Au moins un test d'offsets (taille totale + position de chaque champ) | **OK** | `Tests/Game/SummonCardSkillListPacketsTests.cs` : `ClientPacket_UsesTheEpic73Layout` (11 octets, `Length` en 0, `ID` en 4, checksum en 6, `item_handle` en 7), `ClientPacket_HasNoFieldOutsideTheHeaderAndItemHandle`, `TryReadSummonCardSkillList_ReadsItemHandleAtOffsetSeven`, `…_ReadsTheValueLittleEndian` |
+| 4 | Enum et dispatch modifiés ensemble | **OK** | membre `TM_CS_SUMMON_CARD_SKILL_LIST = 452` (`GamePackets.cs:92`) **et** bras en `GameClient.cs:1380`, avant le `switch` final dont le `_` lève `Unknown Packet Type` (`GameClient.cs:1628`) ; mesuré par `Packet_IsDispatchedBeforeTheUnknownPacketThrow` (balayage du source) et par `OnDataReceived_ConsumesThePacketWithoutThrowing` (exécution) |
+| 5 | Savoir durable dans la fiche commitée + bloc `CLAUDE.md` dans la description de la MR | **OK côté fiche** | présente section + §10, remis à `navis-qa` pour la description de la MR (le dev n'écrit pas `CLAUDE.md`) |
+| 6 | Version tranchée | **OK** | 452 déclaré, **1452 non déclaré** ; `Ids_AreTheEpic73Ones` vérifie que 1452 n'est pas un membre de `GamePackets`. Aucun champ gated : `item_handle` n'a aucun gating par champ chez rzu |
+| 7 | Aucun commit sur `master` locale | **OK** | `git log --oneline origin/master..master` → aucune ligne (§9.6) |
+| 8 | Aucun champ `NON ÉTABLI` deviné | **OK** | `item_handle` est lu et journalisé, **jamais interprété** ; aucune réponse n'est émise, donc ni `target` (§7c) ni `modification_type` (§7e) n'ont eu à être choisis ; les six questions de §7 restent dans `## A VERIFIER PAR KILLIAN` |
+
+### 9.2 Fichiers livrés
+
+| Fichier | Modification |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_SUMMON_CARD_SKILL_LIST = 452` inséré après `TM_CS_JOB_LEVEL_UP = 410`, avec le rappel du gating (1452 à ne pas déclarer) et du non-traitement |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TryReadSummonCardSkillList(ReadOnlySpan<byte>, out uint)` |
+| `Game/Network/Clients/GameClient.cs` | `HandleSummonCardSkillList(byte[])` et son bras de dispatch avant le `switch` final |
+| `Tests/Game/SummonCardSkillListPacketsTests.cs` | 18 tests (nouveau) |
+
+Aucun constructeur de trame descendante n'est ajouté : la seule réponse envisageable (403) n'est
+pas établie (§7a) et le constructeur nécessaire existe déjà —
+`GameCharacterPackets.BuildSkillList(handle, IReadOnlyCollection<SkillListEntry>)`
+(`GameCharacterPackets.cs:276-300`), donc une réponse ultérieure n'aura pas de trame à écrire, seulement
+une résolution carte → invocation à trancher.
+
+### 9.3 Offsets livrés, et les tests qui les tiennent
+
+| Offset | Taille | Champ | Valeur livrée | Test |
+|---|---|---|---|---|
+| 0 | 4 | `Length` `uint32` LE | **11** (`0xB`) | `ClientPacket_UsesTheEpic73Layout` |
+| 4 | 2 | `ID` `uint16` LE | **452** (`0x1C4`) | `ClientPacket_UsesTheEpic73Layout`, `Ids_AreTheEpic73Ones` |
+| 6 | 1 | `Checksum` | somme des octets 0-5, **charge exclue** | `ClientPacket_UsesTheEpic73Layout`, `ClientPacket_ChecksumIgnoresThePayload` |
+| 7 | 4 | `item_handle` (`ar_handle_t`) `uint32` LE | lu et journalisé, **jamais résolu** | `TryReadSummonCardSkillList_ReadsItemHandleAtOffsetSeven`, `…ReadsTheValueLittleEndian`, `…AcceptsAZeroHandleWithoutInventingOne` |
+
+`TryReadSummonCardSkillList` **refuse toute longueur autre que 11** (`packet.Length != HeaderSize + 4`),
+sur le modèle de `TryReadCheckIllegalUser` et de `TryReadGetRegionInfo` : le constructeur client écrit
+11 en dur (`SFrame.exe 0x48EE3E`) et l'en-tête est de taille fixe, donc 7, 10 et 12 sont des anomalies.
+Les cas sont testés (`TryReadSummonCardSkillList_RejectsAnyLengthOtherThanEleven`, quatre cas) **et**
+exercés à travers la vraie boucle de réception (`OnDataReceived_ConsumesAMalformedFrameWithoutThrowing`,
+longueurs 7 et 15). Une trame refusée est consommée en totalité et ne désynchronise pas la suivante
+(`OnDataReceived_KeepsTheLoopOnAFrameCoalescedWithAnotherOne`).
+
+### 9.4 Réponses émises : aucune
+
+Trois tests le tiennent par **exécution**, pas par relecture : `OnDataReceived_AnswersNothing` (rien
+dans `Connection.Sent`), `OnDataReceived_ConsumesThePacketWithoutThrowing` et
+`OnDataReceived_KeepsTheLoopOnAFrameCoalescedWithAnotherOne` (`Sent` vide, tout le flux consommé).
+Aucun `Connection.Send` n'est atteint par le paquet 452 : ni la 403 hypothétique, ni un `TS_SC_RESULT`
+de refus. **Effet en jeu à attendre : le clic sur `button_flip` produit une ligne de journal `Debug`
+avec la valeur de `item_handle`, et la liste de compétences de la carte reste vide côté client** —
+c'est le comportement voulu tant que §7a/§7c ne sont pas tranchés, pas une régression à corriger.
+
+Le refus par `TS_SC_RESULT` a été écarté : aucun code de résultat n'est établi pour 452 (ni rzu, ni
+NGemity, ni `op_codes.md`), et `NotEnoughSummonCard = 93` (`ResultCode.cs:112`) décrit une autre
+situation (pas de carte en stock), donc l'émettre afficherait une boîte de message inventée. Si Killian
+préfère une trace visible en jeu, c'est un ajout d'une ligne, à trancher dans
+`## A VERIFIER PAR KILLIAN`.
+
+### 9.5 Réserves du dev
+
+1. **Le journal est la seule raison d'être du bras.** `item_handle` est écrit en `Debug`
+   (`GameClient.cs:419-421`) précisément parce que §7b demande de relever la valeur réelle avant toute
+   résolution. Si ce niveau est trop bavard en production, il peut descendre en `Verbose` sans rien
+   casser — mais la donnée qui manque à §7b devient alors invisible.
+2. **Le nom `item_handle` est celui de rzu**, pas une conclusion : rien n'établit que le premier dword
+   de l'enregistrement de carte soit un handle d'objet (§7b). Le code s'interdit de s'en servir.
+3. **La contrainte de résolution reste entière** (§5.5) : `SummonSlotItemIds` (`CharacterEntity.cs:63`)
+   n'est alimenté nulle part et `MainSummonId` / `SubSummonId` ne sont jamais renseignés. Tant que ce
+   point est ouvert, aucune 403 ne peut être construite sans inventer une table.
+4. **La preuve d'émission côté client est un désassemblage**, pas une capture : les six questions de §7
+   restent les seules zones non tranchées, et la vérification en jeu (clic sur `button_flip` avec une
+   carte présente) est la seule qui les ferme.
+
+### 9.6 Commandes relevées
+
+```
+dotnet build Navislamia.sln -c Debug       → code 0, 0 Error(s), 162 Warning(s) (préexistantes)
+dotnet test Tests/Tests.csproj             → code 0, 1117 réussis / 1117, 0 échec, 0 ignoré
+                                             (base avant le lot : code 0, 1099 / 1099)
+git log --oneline origin/master..master    → aucune ligne
+```
+
+## 10. Bloc prêt à coller dans `CLAUDE.md`
+
+À insérer dans la section `## Paquets`, à la suite des blocs 57 / 59 / 60 (client → serveur, lus sans
+réponse) est un emplacement cohérent ; l'ordre des sous-sections y est chronologique, pas numérique.
+
+```markdown
+### Paquet 452 — `TM_CS_SUMMON_CARD_SKILL_LIST` (client → serveur)
+
+- Trame cliente de **11** octets : en-tête 7 + `item_handle` (`ar_handle_t` = `uint32`) à l'offset 7.
+  Taille fixe, aucun rembourrage, un seul champ : toute autre longueur est refusée avant lecture.
+- Déclencheur : clic sur le bouton `button_flip` de la fenêtre de carte de créature, sous la garde
+  `[fenêtre+0x4C8] ≠ 0` que pose au préalable le message interne `SMSG_SUMMON_CARD_ITEM_INFO`.
+- **Aucune réponse émise.** Aucune référence n'implémente 452 (NGemity le déclare sans gestionnaire,
+  rzu ne fournit que le côté client). La seule réponse déductible, `TM_SC_SKILL_LIST` (403), exigerait
+  la résolution carte → invocation : `SummonSlotItemIds` n'est alimenté nulle part et
+  `MainSummonId` / `SubSummonId` ne sont jamais renseignés. **Ne pas inventer de table carte →
+  invocation, et ne pas réémettre le `item_handle` reçu comme `target`.**
+- Le serveur **lit, borne et journalise** `item_handle` (niveau `Debug`) : la valeur que le client
+  met dans ce champ n'est pas établie, et ce journal est ce qui permettra de la relever un jour.
+- Gating : 452 à l'Epic 7.3, `1452` seulement à partir d'`EPIC_9_6_3` — **ne pas déclarer 1452**.
+  `modification_type` de la 403 est présent en 7.3 (gated `>= EPIC_4_1`), mais cette réponse n'est pas
+  émise.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+```
+
+## A VERIFIER PAR KILLIAN
+
+Points 1 à 6 repris de l'archéologue (§7, §5.5), 7 à 9 ajoutés par le dev au vu du code livré (§9).
+
+1. **La réponse à 452 est-elle `TM_SC_SKILL_LIST` (403) ?** (§7a) **Non établi.** Aucune référence
+   n'implémente 452. Ce qu'il faut pour trancher : une capture d'un client 7.3 réel cliquant sur
+   `button_flip` avec une carte présente. Tant que ce n'est pas fait, le serveur ne répond rien
+   (§9.4) et la fenêtre de carte reste sans liste de compétences.
+2. **Que contient exactement le dword envoyé (`item_handle`) ?** (§7b) **Non établi.** La preuve
+   s'arrête au dword `[fenêtre+0x4C4]`. Le serveur journalise donc la valeur reçue
+   (`item_handle=` en `Debug`, `GameClient.cs:419-421`) — c'est le relevé à comparer avec une capture
+   ou avec le contenu de l'inventaire.
+3. **Le `target` de la 403 doit-il être le handle d'invocation, ou le handle de carte reçu ?** (§7c)
+   **Non établi.** NGemity envoie le handle de l'invocation ; on ne peut pas démontrer par lecture
+   seule que le client 7.3 refuse un handle de carte. Le code ne prend aucun des deux partis : il
+   n'émet rien.
+4. **Quelle fenêtre porte `button_flip`, et que disent ses infobulles ?** (§7d) **Non établi.** Les
+   fichiers `.nui` ne sont pas dans les archives extraites. **Aucun texte d'infobulle n'est cité ni
+   inventé** ; sans effet sur le code livré.
+5. **`modification_type` : 0 ou 1 ?** (§7e) **Non établi pour 452.** Question sans objet tant que la
+   403 n'est pas émise ; à trancher en même temps que le point 1.
+6. **L'entier journalisé par le client pour 452** (§7f) : nature non établie, sans effet sur la trame
+   de 11 octets.
+7. **Liaison carte → invocation** (§5.5) : `SummonSlotItemIds` (`CharacterEntity.cs:63`) n'est
+   alimenté nulle part, `MainSummonId` / `SubSummonId` ne sont jamais renseignés. C'est le point dur
+   qui bloque toute réponse ; il dépasse le paquet 452 et touche le socle des invocations.
+8. **Faut-il refuser en jeu plutôt que ne rien répondre ?** (§9.4) Le dev n'émet volontairement aucun
+   `TS_SC_RESULT` : aucun code de résultat n'est établi pour 452 et `NotEnoughSummonCard = 93` décrit
+   une autre situation. Si Killian préfère une trace visible côté client, c'est un ajout d'une ligne.
+9. **Niveau de journal** (§9.5.1) : `Debug` retenu pour rendre `item_handle` observable comme le
+   demande §7b. À desserrer en `Verbose` si c'est trop bavard en production.
