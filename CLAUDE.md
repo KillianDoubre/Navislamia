@@ -1657,11 +1657,17 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   depuis `CharacterEntity.SummonSlotItemIds` (et remis à vide par `ClearCharacterSession`) : les deux 303
   ne peuvent pas diverger. La colonne n'est alimentée par personne, donc la réponse vaut **six zéros**
   aujourd'hui ; une carte qui l'écrira devra aussi rafraîchir `SummonSlots`.
-- **303 client → serveur n'est pas traité.** Le client émet 303 (constructeur VA `0x48cd10`, 32 octets,
-  `open_dialog = 0`) quand le joueur valide sa formation. L'id est déclaré sans bras de réception : la
-  trame atteint le `throw "Unknown Packet Type"`, que `Connection.OnReceive` rattrape — erreur journalisée,
-  session maintenue, trames coalescées après elle perdues. NGemity la traite dans `onEquipSummon`, qui
-  exige une carte portant une créature : sans apprivoisement, aucune carte n'en porte.
+- **303 va dans les deux sens.** Le client émet aussi 303 (constructeur VA `0x48cd10`, 32 octets,
+  `open_dialog = 0`, six `card_handle`) quand le joueur valide sa formation ; sans bras, il atteignait le
+  `throw` (observé en jeu : deux `Unknown Packet Type` juste après l'ouverture de la fenêtre).
+  `GameClient.HandleEquipSummon` le lit (`TryReadEquipSummon`, 32 octets exacts), le journalise et
+  **renvoie la formation stockée** avec l'`open_dialog` reçu. C'est la réponse de NGemity
+  (`onEquipSummon`) quand aucune carte n'est retenue : il ne garde qu'une carte d'invocation du joueur
+  portant `ITEM_FLAG_SUMMON` (bit 31, carte apprivoisée), dans la limite de Creature Control (1801), puis
+  renvoie **toujours** la formation résultante. Rien ne pose ce bit ici (pas d'apprivoisement, `/item`
+  n'écrit aucun drapeau) : toute carte est refusée, rien n'est écrit. Le jour où une carte peut être
+  apprivoisée, ce bras devient le portage d'`onEquipSummon`.
+- Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
 - Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
 
 ### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)

@@ -612,3 +612,27 @@ bras de 324 sont réinsérés entiers. Corrections :
 Déclencheur observé par Killian avant ce lot (2026-09-23) : à chaque ouverture de la fenêtre de
 formation, `Undefined packet ID: 324 Length: 8` — l'émission de la 324 et sa longueur sont donc
 confirmées en jeu. Construction `Release` et `dotnet test` : 1 203 tests, 0 échec.
+
+## 14. La 303 entrante : option (c) enrichie (2026-09-23)
+
+Premier essai en jeu de ce lot : la 324 répond (`show_dialog=True`), puis deux `Unknown Packet Type`
+2 s et 9 s plus tard, au moment où Killian place sa carte. C'est le piège de §5.4 ; option retenue : (c),
+avec la réponse que la référence donne dans ce cas plutôt qu'un silence.
+
+- `GameActionPackets.TryReadEquipSummon` lit la trame de **32 octets exacts** : `open_dialog` à 7, six
+  `card_handle` à 8, 12, 16, 20, 24 et 28.
+- `GameClient.HandleEquipSummon` la journalise en `Debug` (gardé) et **renvoie la formation stockée**
+  (`BuildEquipSummon(SummonSlots, open_dialog reçu)`). Aucune écriture.
+- Pourquoi c'est la réponse de NGemity et non une invention : `WorldSession::onEquipSummon` ne retient une
+  carte que si elle est du groupe carte d'invocation, possédée par le joueur, et porte `ITEM_FLAG_SUMMON`
+  (bit 31) ; sinon `continue`, la formation reste celle d'avant. Après la boucle, il appelle **toujours**
+  `SendCreatureEquipMessage(player, open_dialog)`. Ici aucune carte ne porte ce bit (pas d'apprivoisement,
+  `CharacterService.AddItemAsync` ne pose aucun drapeau), donc la formation résultante est la formation
+  stockée. Ce qui n'est pas porté : la limite de Creature Control (1801), la création paresseuse du
+  `Summon`, le compactage et le déséquipement du summon retiré — tous sans objet tant qu'aucune carte n'est
+  retenue.
+- Le `throw` final de `GameClient` porte l'id (`Unknown Packet Type {id}`) : l'erreur observée n'aurait pas
+  demandé de déduction. `EventAreaTests`, qui cherche ce texte dans le source, suit.
+
+Tests : `Tests/Game/EquipSummonPacketsTests.cs` (lecture, longueurs refusées, renvoi de la formation par la
+vraie boucle de réception, silence avant l'entrée en jeu). 1 209 tests, 0 échec.
