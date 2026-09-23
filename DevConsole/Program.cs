@@ -233,7 +233,8 @@ public class Program
     {
         services.AddSingleton<IGameModule, GameModule>();
         services.AddSingleton<IWorldRepository, WorldRepository>();
-        services.AddSingleton<ICharacterRepository, CharacterRepository>();
+        services.AddSingleton<ICharacterRepositoryFactory, CharacterRepositoryFactory>();
+        services.AddSingleton<CharacterGate>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStorageRepository, StorageRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();

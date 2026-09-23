@@ -29,7 +29,6 @@ public class MonsterWorldState
 
     private readonly object _loadLock = new();
     private readonly object _stateLock = new();
-    private static readonly IReadOnlySet<long> EmptyDead = new HashSet<long>();
 
     private readonly Dictionary<long, int> _currentHp = new();
     private readonly Dictionary<long, DateTime> _respawnAt = new();
@@ -75,13 +74,6 @@ public class MonsterWorldState
         }
     }
 
-    public IReadOnlySet<long> GetDeadInstances()
-    {
-        lock (_stateLock)
-        {
-            return _respawnAt.Count == 0 ? EmptyDead : new HashSet<long>(_respawnAt.Keys);
-        }
-    }
 
     /// <summary>
     /// Applies a state to a monster, replacing any active instance of the same state and reusing its
@@ -183,6 +175,42 @@ public class MonsterWorldState
             }
 
             return states.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Fills <paramref name="candidates"/> with the monsters of <paramref name="instanceIds"/> that could
+    /// acquire a target on sight — aggressive, alive and not already in combat — with their current
+    /// position, under one acquisition of the state lock.
+    /// </summary>
+    /// <remarks>
+    /// The AI tick used to ask four questions per visible monster per player, each taking this lock on
+    /// its own, every 300 ms, while the movement and combat ticks and the client threads wait on the
+    /// same lock.
+    /// </remarks>
+    public void CollectAcquireCandidates(IReadOnlyList<long> instanceIds,
+        List<(MonsterInstance Instance, float X, float Y)> candidates)
+    {
+        candidates.Clear();
+        var byId = _byId;
+        if (byId is null)
+        {
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            foreach (var instanceId in instanceIds)
+            {
+                if (!byId.TryGetValue(instanceId, out var instance) || !instance.FirstAttack
+                    || _aggro.ContainsKey(instanceId) || _respawnAt.ContainsKey(instanceId))
+                {
+                    continue;
+                }
+
+                var (x, y) = CurrentPosition(instanceId);
+                candidates.Add((instance, x, y));
+            }
         }
     }
 
@@ -582,6 +610,11 @@ public class MonsterWorldState
             : (0f, 0f);
     }
 
+    /// <summary>A failed startup load is retried at most this often, not on every lookup.</summary>
+    private static readonly TimeSpan LoadRetryInterval = TimeSpan.FromSeconds(30);
+
+    private DateTime _nextLoadAttempt;
+
     private SpatialIndex<MonsterInstance> GetIndex()
     {
         if (_index != null)
@@ -589,10 +622,13 @@ public class MonsterWorldState
             return _index;
         }
 
+        // Every sync of every player reaches here: without a floor between attempts, a database that is
+        // down turned each step of each player into a monster query.
         lock (_loadLock)
         {
-            if (_index == null)
+            if (_index == null && DateTime.UtcNow >= _nextLoadAttempt)
             {
+                _nextLoadAttempt = DateTime.UtcNow + LoadRetryInterval;
                 Load();
             }
         }

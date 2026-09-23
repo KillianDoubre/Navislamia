@@ -82,6 +82,10 @@ public class MonsterAiService
         Act();
     }
 
+    /// <summary>Reused across ticks: the tick runs on one timer, never concurrently.</summary>
+    private readonly List<long> _visible = new();
+    private readonly List<(MonsterInstance Instance, float X, float Y)> _candidates = new();
+
     /// <summary>An aggressive monster with no target takes a player it can see and is close to.</summary>
     private void Acquire(List<GameClient> clients)
     {
@@ -94,7 +98,7 @@ public class MonsterAiService
                 continue;
             }
 
-            List<long> visible;
+            _visible.Clear();
             lock (info.MonsterVisibilityLock)
             {
                 if (info.SpawnedMonsters.Count == 0)
@@ -102,20 +106,14 @@ public class MonsterAiService
                     continue;
                 }
 
-                visible = new List<long>(info.SpawnedMonsters.Keys);
+                _visible.AddRange(info.SpawnedMonsters.Keys);
             }
 
-            foreach (var instanceId in visible)
-            {
-                if (_worldState.TryGetAggro(instanceId, out _, out _)
-                    || !_worldState.IsAlive(instanceId)
-                    || !_worldState.TryGetInstance(instanceId, out var instance)
-                    || !instance.FirstAttack)
-                {
-                    continue;
-                }
+            _worldState.CollectAcquireCandidates(_visible, _candidates);
 
-                var (mx, my) = _worldState.GetPosition(instanceId);
+            foreach (var (instance, mx, my) in _candidates)
+            {
+                var instanceId = instance.InstanceId;
                 var action = MonsterAiRules.Decide(false, true, true, false,
                     mx, my, instance.X, instance.Y, info.X, info.Y,
                     instance.VisibleRange, instance.ChaseRange, Reach(instance));

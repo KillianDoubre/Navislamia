@@ -14,6 +14,9 @@ public class Xrc4Cipher : ICipher
 
     public void Clear() => _cipher.Init("Neat & Simple");
 
+    /// <summary>Codes <paramref name="buffer"/> in place, advancing the keystream.</summary>
+    public void Code(System.Span<byte> buffer) => _cipher.Code(buffer);
+
     public void Decode(byte[] source, byte[] destination, int length, bool isPeek = false)
     {
         if (isPeek)

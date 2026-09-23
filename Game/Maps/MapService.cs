@@ -35,6 +35,12 @@ namespace Navislamia.Game.Maps
         private static EventAreaInfo[] _eventAreaSnapshot = Array.Empty<EventAreaInfo>();
         private static readonly object EventAreaSync = new();
 
+        /// <summary>
+        /// Set when an area was added since the snapshot was taken. The snapshot used to be rebuilt after
+        /// every single area during loading, which is quadratic in the number of areas.
+        /// </summary>
+        private static volatile bool _eventAreaSnapshotStale;
+
         private static int _currentLocationId;
         private static float _tileSize = 1;
         public KSize MapCount { get; set; } = new(0, 0);
@@ -69,7 +75,24 @@ namespace Navislamia.Game.Maps
             }
         }
 
-        public EventAreaInfo[] GetEventAreas() => _eventAreaSnapshot;
+        public EventAreaInfo[] GetEventAreas()
+        {
+            if (!_eventAreaSnapshotStale)
+            {
+                return _eventAreaSnapshot;
+            }
+
+            lock (EventAreaSync)
+            {
+                if (_eventAreaSnapshotStale)
+                {
+                    _eventAreaSnapshot = _eventAreaInfo.Values.ToArray();
+                    _eventAreaSnapshotStale = false;
+                }
+
+                return _eventAreaSnapshot;
+            }
+        }
 
         public void Start(string directory)
         {
@@ -301,7 +324,7 @@ namespace Navislamia.Game.Maps
                     lock (EventAreaSync)
                     {
                         _eventAreaInfo[eventAreaId] = new EventAreaInfo(eventAreaId, points);
-                        _eventAreaSnapshot = _eventAreaInfo.Values.ToArray();
+                        _eventAreaSnapshotStale = true;
                     }
                 }
             }

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
@@ -12,6 +13,7 @@ using Navislamia.Game.Network.Packets.Interfaces;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.GmCommands;
 using Serilog;
+using Serilog.Events;
 
 namespace Navislamia.Game.Network.Clients;
 
@@ -38,6 +40,14 @@ public class GameClient : Client
 
     public override void SendMessage(IPacket msg)
     {
+        // Serilog boxes every argument into an object[] before it checks the level once a template has
+        // more than three properties, so these two lines allocated on every packet sent, logged or not.
+        if (!_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            base.SendMessage(msg);
+            return;
+        }
+
         if (msg is Packet<TS_SC_RESULT> resultPacket)
         {
             var result = resultPacket.DataStruct;
@@ -124,8 +134,22 @@ public class GameClient : Client
         Connection.Send(message.Data);
     }
 
+    /// <summary>Header (7) + handle, x, y, cur_time (16) + speed (1) + count (2): the waypoints start at 26.</summary>
+    private const int MoveRequestFixedLength = 26;
+
     private void HandleMoveRequest(byte[] buffer)
     {
+        // The waypoint count is the client's to claim: without this check a short frame threw inside the
+        // receive callback, which terminated the whole server.
+        if (buffer.Length < MoveRequestFixedLength
+            || buffer.Length < MoveRequestFixedLength
+            + BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(24, 2)) * 8)
+        {
+            _logger.Warning("Malformed move request received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
         var input = buffer.AsSpan(7);
         var handle = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(0, 4));
         var curTime = BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(12, 4));
@@ -161,6 +185,14 @@ public class GameClient : Client
 
     private void HandleRegionUpdate(byte[] buffer)
     {
+        // x, y and z are read at 11, 15 and 19.
+        if (buffer.Length < 23)
+        {
+            _logger.Warning("Malformed region update received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
@@ -171,6 +203,14 @@ public class GameClient : Client
 
     private void HandleChangeLocation(byte[] buffer)
     {
+        // x and y are read at 7 and 11.
+        if (buffer.Length < 15)
+        {
+            _logger.Warning("Malformed location change received from {clientTag} (Length: {length})", ClientTag,
+                buffer.Length);
+            return;
+        }
+
         var input = buffer.AsSpan(7);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
@@ -870,7 +910,7 @@ public class GameClient : Client
     /// <c>deathmatch_death_count</c> have no source anywhere in 7.3, so they are written as zero — an explicit
     /// placeholder, not a scoring policy. See NON ÉTABLI (h) of docs/packet-specs/socle-instances-jeu.md.
     /// </summary>
-    private void HandleInstanceGameScoreRequest(byte[] buffer)
+    private async Task HandleInstanceGameScoreRequestAsync(byte[] buffer)
     {
         if (!GameInstanceGamePackets.HasNoPayload(buffer))
         {
@@ -887,7 +927,17 @@ public class GameClient : Client
             return;
         }
 
-        var character = _networkService.CharacterService.GetCharacterByName(ConnectionInfo.CharacterName);
+        CharacterEntity character;
+        try
+        {
+            character = await _networkService.CharacterService.GetCharacterByNameAsync(ConnectionInfo.CharacterName);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not read the score of {clientTag}", ClientTag);
+            return;
+        }
+
         if (character is null)
         {
             _logger.Warning("Instance game score request received from {clientTag} for an unknown character {name}",
@@ -904,14 +954,46 @@ public class GameClient : Client
             ClientTag, holicPoint);
     }
 
+    private static readonly int HeaderLength = Marshal.SizeOf<Header>();
+
+    /// <summary>The receive buffer's size: a frame larger than it can never be assembled.</summary>
+    private const int MaxFrameLength = 32768;
+
+    /// <summary>
+    /// Every declared <see cref="GamePackets"/> id, indexed by id. <c>Enum.IsDefined</c> boxed the id and
+    /// went through reflection on every packet received; this is one array read.
+    /// </summary>
+    private static readonly bool[] DefinedPackets = BuildDefinedPackets();
+
+    private static bool[] BuildDefinedPackets()
+    {
+        var defined = new bool[ushort.MaxValue + 1];
+        foreach (var id in Enum.GetValues<GamePackets>())
+        {
+            defined[(ushort)id] = true;
+        }
+
+        return defined;
+    }
+
     public override void OnDataReceived(int bytesReceived)
     {
         var remainingData = bytesReceived;
 
         while (remainingData >= Marshal.SizeOf<Header>())
         {
-            var header = new Header(Connection.Peek(Marshal.SizeOf<Header>()));
+            var header = new Header(Connection.Peek(HeaderLength));
             var isValidMsg = header.Checksum == header.CalculateChecksum();
+
+            // A length shorter than its own header never advances the loop (Read(0) forever, on the I/O
+            // thread), and one larger than the receive buffer can never complete.
+            if (isValidMsg && (header.Length < HeaderLength || header.Length > MaxFrameLength))
+            {
+                _logger.Error("Invalid frame length {length} (ID: {id}) received from {clientTag}", header.Length,
+                    header.ID, ClientTag);
+                Connection.Disconnect();
+                return;
+            }
 
             if (header.Length > remainingData)
             {
@@ -924,16 +1006,18 @@ public class GameClient : Client
 
             if (!isValidMsg)
             {
+                // The stream is desynchronised: nothing after this point can be framed. Disconnect and stop
+                // here instead of throwing out of the receive callback.
                 _logger.Error("Invalid Message received from {clientTag} !!!", ClientTag);
                 Connection.Disconnect();
-                throw new Exception($"Invalid Message recieved from {ClientTag}");
+                return;
             }
 
             var msgBuffer = Connection.Read((int)header.Length);
 
             remainingData -= msgBuffer.Length;
 
-            if (!Enum.IsDefined(typeof(GamePackets), header.ID))
+            if (!DefinedPackets[header.ID])
             {
                 _logger.Debug("Undefined packet ID: {id} Length: {length}) received from {clientTag}", header.ID, header.Length, ClientTag);
                 continue;
@@ -1058,7 +1142,7 @@ public class GameClient : Client
             // TM_CS_INSTANCE_GAME_SCORE_REQUEST (4252) is the only trigger of the 4253 answer.
             if (header.ID == (ushort)GamePackets.TM_CS_INSTANCE_GAME_SCORE_REQUEST)
             {
-                HandleInstanceGameScoreRequest(msgBuffer);
+                _ = HandleInstanceGameScoreRequestAsync(msgBuffer);
                 continue;
             }
 
@@ -1369,7 +1453,11 @@ public class GameClient : Client
                 _ => throw new Exception("Unknown Packet Type")
             };
 
-            _logger.Debug("{name} ({id}) Length: {length} received from {clientTag}", msg.StructName, msg.Id, msg.Length, ClientTag);
+            if (_logger.IsEnabled(LogEventLevel.Debug))
+            {
+                _logger.Debug("{name} ({id}) Length: {length} received from {clientTag}", msg.StructName, msg.Id,
+                    msg.Length, ClientTag);
+            }
 
             Actions.Execute(this, msg);
         }

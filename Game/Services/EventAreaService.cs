@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using Navislamia.Game.Maps;
 using Navislamia.Game.Maps.Entities;
 using Navislamia.Game.Network.Clients;
@@ -23,6 +25,15 @@ public class EventAreaService : IEventAreaService
 {
     private readonly ILogger _logger = Log.ForContext<EventAreaService>();
     private readonly IMapService _mapService;
+
+    /// <summary>Side of a grid cell, in world units. A map is 16 128 units wide.</summary>
+    private const float CellSize = 2048f;
+
+    /// <summary>An area spanning more cells than this is checked everywhere rather than indexed.</summary>
+    private const int MaxIndexedCells = 256;
+
+    /// <summary>The grid built for the snapshot it was built from; rebuilt when the map service's changes.</summary>
+    private AreaGrid _grid;
 
     public EventAreaService(IMapService mapService)
     {
@@ -133,21 +144,111 @@ public class EventAreaService : IEventAreaService
     /// not described by any reference, so the session keeps the one it already has and only switches
     /// when that one is left.
     /// </summary>
+    /// <remarks>
+    /// This runs on every position change, and it used to test every loaded area in turn. The candidates
+    /// now come from a grid over the areas' bounding boxes, visited in snapshot order so "the first
+    /// containing area" is still the same area.
+    /// </remarks>
     private bool TryFindContainingArea(ConnectionInfo session, out EventAreaInfo found)
     {
-        foreach (var area in _mapService.GetEventAreas())
-        {
-            if (!IsInside(area, session))
-            {
-                continue;
-            }
+        var grid = GridFor(_mapService.GetEventAreas());
+        grid.Cells.TryGetValue(CellOf(session.X, session.Y), out var local);
+        local ??= Array.Empty<int>();
+        var everywhere = grid.Everywhere;
 
-            found = area;
-            return true;
+        // Merge the two ascending index lists, so candidates keep the snapshot order.
+        int i = 0, j = 0;
+        while (i < local.Length || j < everywhere.Length)
+        {
+            var index = j >= everywhere.Length || (i < local.Length && local[i] < everywhere[j])
+                ? local[i++]
+                : everywhere[j++];
+
+            var area = grid.Source[index];
+            if (IsInside(area, session))
+            {
+                found = area;
+                return true;
+            }
         }
 
         found = null;
         return false;
+    }
+
+    private AreaGrid GridFor(EventAreaInfo[] areas)
+    {
+        var grid = Volatile.Read(ref _grid);
+        if (grid is not null && ReferenceEquals(grid.Source, areas))
+        {
+            return grid;
+        }
+
+        grid = AreaGrid.Build(areas);
+        Volatile.Write(ref _grid, grid);
+        return grid;
+    }
+
+    private static (int X, int Y) CellOf(float x, float y) =>
+        ((int)MathF.Floor(x / CellSize), (int)MathF.Floor(y / CellSize));
+
+    private sealed class AreaGrid
+    {
+        public EventAreaInfo[] Source { get; private init; }
+
+        /// <summary>Indices into <see cref="Source"/>, ascending, per cell.</summary>
+        public Dictionary<(int X, int Y), int[]> Cells { get; private init; }
+
+        /// <summary>Indices of areas too large to index, ascending.</summary>
+        public int[] Everywhere { get; private init; }
+
+        public static AreaGrid Build(EventAreaInfo[] areas)
+        {
+            var cells = new Dictionary<(int, int), List<int>>();
+            var everywhere = new List<int>();
+
+            for (var index = 0; index < areas.Length; index++)
+            {
+                var polygon = areas[index]?.Area;
+                if (ReferenceEquals(polygon, null))
+                {
+                    continue;
+                }
+
+                var box = polygon.GetBoundingBox();
+                var (minX, minY) = CellOf(MathF.Min(box.GetLeft(), box.GetRight()),
+                    MathF.Min(box.GetTop(), box.GetBottom()));
+                var (maxX, maxY) = CellOf(MathF.Max(box.GetLeft(), box.GetRight()),
+                    MathF.Max(box.GetTop(), box.GetBottom()));
+
+                if ((long)(maxX - minX + 1) * (maxY - minY + 1) > MaxIndexedCells)
+                {
+                    everywhere.Add(index);
+                    continue;
+                }
+
+                for (var x = minX; x <= maxX; x++)
+                {
+                    for (var y = minY; y <= maxY; y++)
+                    {
+                        if (!cells.TryGetValue((x, y), out var list))
+                        {
+                            cells[(x, y)] = list = new List<int>();
+                        }
+
+                        list.Add(index);
+                    }
+                }
+            }
+
+            var frozen = new Dictionary<(int X, int Y), int[]>(cells.Count);
+            foreach (var (cell, list) in cells)
+            {
+                frozen[cell] = list.ToArray();
+            }
+
+            return new AreaGrid { Source = areas, Cells = frozen, Everywhere = everywhere.ToArray() };
+        }
     }
 
     /// <summary>
@@ -164,6 +265,8 @@ public class EventAreaService : IEventAreaService
             return false;
         }
 
-        return area.Area.IsIncluded(session.X, session.Y);
+        // The bounding box first, on the floats: IsIncluded(x, y) allocates a PointF (a class) per call.
+        return area.Area.GetBoundingBox().IsInclude(session.X, session.Y)
+               && area.Area.IsIncluded(session.X, session.Y);
     }
 }

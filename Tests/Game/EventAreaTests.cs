@@ -276,6 +276,47 @@ public class EventAreaServiceTests
         session.CurrentEventAreaId.Should().Be(OtherAreaId);
     }
 
+    // Areas are found through a grid of 2048-unit cells now; these pin what the grid must not change.
+
+    [Test]
+    public void Refresh_OverlappingAreas_StillPicksTheFirstLoaded()
+    {
+        // One area far too large to index (checked everywhere) and one small, indexed area, both
+        // containing the point: the first in load order wins, whichever list it comes from.
+        var huge = new EventAreaInfo(OtherAreaId, new PointF[]
+        {
+            new(-50000f, -50000f), new(50000f, -50000f), new(50000f, 50000f), new(-50000f, 50000f)
+        });
+
+        var hugeFirst = new EventAreaService(new FakeMapService(huge, new EventAreaInfo(AreaId, Square)));
+        var session = Session(50f, 50f);
+        hugeFirst.Refresh(session, ClientTag).Should().BeTrue();
+        session.CurrentEventAreaId.Should().Be(OtherAreaId);
+
+        var smallFirst = new EventAreaService(new FakeMapService(new EventAreaInfo(AreaId, Square), huge));
+        session = Session(50f, 50f);
+        smallFirst.Refresh(session, ClientTag).Should().BeTrue();
+        session.CurrentEventAreaId.Should().Be(AreaId);
+    }
+
+    [Test]
+    public void Refresh_FindsAnAreaFromEveryCellItsBoxCrosses()
+    {
+        // Spans cells (0, 0) to (1, 1); the point is in (1, 1), away from the area's first vertex.
+        var spanning = new EventAreaInfo(AreaId, new PointF[]
+        {
+            new(1500f, 1500f), new(2600f, 1500f), new(2600f, 2600f), new(1500f, 2600f)
+        });
+        var service = new EventAreaService(new FakeMapService(spanning));
+
+        var session = Session(2500f, 2500f);
+        service.Refresh(session, ClientTag).Should().BeTrue();
+        session.CurrentEventAreaId.Should().Be(AreaId);
+
+        session = Session(-10f, 2500f);
+        service.Refresh(session, ClientTag).Should().BeFalse();
+    }
+
     [Test]
     public void Refresh_FarFromTheLoadedArea_ReportsALeave()
     {

@@ -26,14 +26,15 @@ public class StorageService : IStorageService
     private readonly IStorageRepository _repository;
 
     /// <summary>
-    /// One context serves every session, so the moves of two players are serialised the way
-    /// <c>CharacterService</c> serialises its own item operations.
+    /// The gate <c>CharacterService</c> takes too, keyed by character: a storage move and an inventory
+    /// operation on the same character exclude each other, and two players no longer wait on each other.
     /// </summary>
-    private readonly SemaphoreSlim _databaseGate = new(1, 1);
+    private readonly CharacterGate _gate;
 
-    public StorageService(IStorageRepository repository)
+    public StorageService(IStorageRepository repository, CharacterGate gate)
     {
         _repository = repository;
+        _gate = gate;
     }
 
     public async Task OpenAsync(GameClient client)
@@ -47,7 +48,8 @@ public class StorageService : IStorageService
 
         try
         {
-            var items = await RunExclusiveAsync(() => _repository.GetStorageItemsAsync(info.CharacterName));
+            var items = await _gate.RunAsync(info.CharacterName,
+                () => _repository.GetStorageItemsAsync(info.CharacterName));
 
             // NGemity marks the session as using the storage before it sends anything
             // (Player::openStorage, Player.cpp:2961-2965) and sends the item list ahead of the frame
@@ -123,7 +125,7 @@ public class StorageService : IStorageService
 
         try
         {
-            var move = await RunExclusiveAsync(() => _repository.MoveAsync(info.CharacterName, request.ItemHandle,
+            var move = await _gate.RunAsync(info.CharacterName, () => _repository.MoveAsync(info.CharacterName, request.ItemHandle,
                 StorageRules.MovesToStorage(request.Mode), request.Count));
 
             switch (move.Outcome)
@@ -181,19 +183,6 @@ public class StorageService : IStorageService
         foreach (var packet in GameCharacterPackets.BuildInventory(new[] { item }))
         {
             client.Connection.Send(packet);
-        }
-    }
-
-    private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> operation)
-    {
-        await _databaseGate.WaitAsync();
-        try
-        {
-            return await operation();
-        }
-        finally
-        {
-            _databaseGate.Release();
         }
     }
 }

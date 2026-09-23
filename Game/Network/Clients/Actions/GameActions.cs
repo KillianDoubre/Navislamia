@@ -64,12 +64,30 @@ public class GameActions : IActions
 
     private static readonly int[] DefaultSpawn = { 94454, 126040, 0 };
 
+    /// <summary>
+    /// The action table takes <c>void</c> handlers, so each asynchronous one is an <c>async void</c> shell
+    /// around a <c>Task</c>: an exception escaping an <c>async void</c> is rethrown on the thread pool and
+    /// terminates the whole server, not just this client's request.
+    /// </summary>
     private async void OnLogin(GameClient client, IPacket packet)
+    {
+        try
+        {
+            await OnLoginAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "World entry failed for {clientTag}", client.ClientTag);
+        }
+    }
+
+    private async Task OnLoginAsync(GameClient client, IPacket packet)
     {
         var msg = packet.GetDataStruct<TS_CS_LOGIN>();
 
-        var characters = await _characterService.GetCharactersByAccountNameAsync(client.ConnectionInfo.AccountName, true);
-        var character = characters.FirstOrDefault(c => c.CharacterName == msg.Name);
+        // Only the character entering the world, not every character of the account with all its items.
+        var character = await _characterService.GetCharacterForWorldEntryAsync(client.ConnectionInfo.AccountName,
+            msg.Name);
 
         if (character == null)
         {
@@ -370,8 +388,21 @@ public class GameActions : IActions
 
     private async void OnCreateCharacter(GameClient client, IPacket packet)
     {
+        try
+        {
+            await OnCreateCharacterAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Character creation failed for {clientTag}", client.ClientTag);
+            client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+        }
+    }
+
+    private async Task OnCreateCharacterAsync(GameClient client, IPacket packet)
+    {
         var createMsg = packet.GetDataStruct<TS_CS_CREATE_CHARACTER>();
-        var characterCount = _characterService.CharacterCount(client.ConnectionInfo.AccountId);
+        var characterCount = await _characterService.CharacterCountAsync(client.ConnectionInfo.AccountId);
 
         if (characterCount >= 6)
         {
@@ -449,6 +480,7 @@ public class GameActions : IActions
             _logger.Error("Character create failed! for ({accountName}) {clientTag} !!!", character.AccountName, client.ClientTag);
 
             client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+            return;
         }
 
         _logger.Debug("Character {characterName} successfully created for ({accountName}) {clientTag}", character.CharacterName, client.ConnectionInfo.AccountName, client.ClientTag);
@@ -456,7 +488,20 @@ public class GameActions : IActions
         client.SendResult(packet.Id, (ushort)ResultCode.Success);
     }
 
-    private void OnDeleteCharacter(GameClient client, IPacket packet)
+    private async void OnDeleteCharacter(GameClient client, IPacket packet)
+    {
+        try
+        {
+            await OnDeleteCharacterAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Character deletion failed for {clientTag}", client.ClientTag);
+            client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+        }
+    }
+
+    private async Task OnDeleteCharacterAsync(GameClient client, IPacket packet)
     {
         if (client.ConnectionInfo.CharacterList.Count == 0)
         {
@@ -469,13 +514,25 @@ public class GameActions : IActions
 
         var deleteMsg = packet.GetDataStruct<TS_CS_DELETE_CHARACTER>();
 
-        _characterService.DeleteCharacterByNameAsync(deleteMsg.Name);
+        await _characterService.DeleteCharacterByNameAsync(deleteMsg.Name);
 
-        _characterService.SaveChanges();
         client.SendResult(packet.Id, (ushort)ResultCode.Success);
     }
 
-    private void OnCheckCharacterName(GameClient client, IPacket packet)
+    private async void OnCheckCharacterName(GameClient client, IPacket packet)
+    {
+        try
+        {
+            await OnCheckCharacterNameAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Character name check failed for {clientTag}", client.ClientTag);
+            client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+        }
+    }
+
+    private async Task OnCheckCharacterNameAsync(GameClient client, IPacket packet)
     {
         var nameMsg = packet.GetDataStruct<TS_CS_CHECK_CHARACTER_NAME>();
 
@@ -506,7 +563,7 @@ public class GameActions : IActions
             return;
         }
 
-        if (_characterService.CharacterExists(nameMsg.Name))
+        if (await _characterService.CharacterExistsAsync(nameMsg.Name))
         {
             client.SendResult(packet.Id, (ushort)ResultCode.AlreadyExist);
 
