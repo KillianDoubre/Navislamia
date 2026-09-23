@@ -111,7 +111,7 @@ public static class PetSummonRules
     {
         CageHandle = cageHandle,
         PetCode = (uint)pet.PetId,
-        Code = PetSummonDefaults.Code,
+        Code = pet.PetId,
         Unknown = PetSummonDefaults.Unknown,
         Name = name ?? pet.Name ?? string.Empty,
         Level = PetSummonDefaults.Level,
@@ -196,12 +196,6 @@ public static class PetSummonDefaults
     public const byte Race = 0;
 
     public const float FaceDirection = 0f;
-
-    /// <summary>
-    /// The 4th <c>int32</c> of <c>TM_SC_ADD_PET_INFO</c>, which both references call <c>code</c>: its source
-    /// is not established, and it is deliberately not unified with <c>pet_code</c> (fiche §14.4).
-    /// </summary>
-    public const int Code = 0;
 
     /// <summary>The 5th <c>int32</c> of <c>TM_SC_ADD_PET_INFO</c>, named by no source.</summary>
     public const int Unknown = 0;

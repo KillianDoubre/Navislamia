@@ -113,6 +113,18 @@ public class PetCageTests
         PetSummonRules.Decide(active, RabbitCage).Should().Be(PetCageAction.Swap);
     }
 
+    [Test]
+    public void BuildEntry_CarriesThePetIdInTheCodeOfTheCreatureWindow()
+    {
+        // 351's 4th int32 is the pet id, like 301's code is the summon id: sent as 0, the client's pet window
+        // found no pet and refused the rename item ("Please summon your decorative pet…", 2026-09-23).
+        var entry = PetSummonRules.BuildEntry(new PetDefinition(3, 690403, "Helmet Crab"), 72, 0, 0, 0, 0,
+            isFirstEnter: true);
+
+        entry.Code.Should().Be(3);
+        entry.PetCode.Should().Be(3u);
+    }
+
     [TestCase("Crabby", true)]
     [TestCase("Rex2", true)]
     [TestCase("abc", false)]
