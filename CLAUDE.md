@@ -1398,6 +1398,27 @@ counter, but the socle persists nothing.
 The full spec (offsets, sources, version gating, NGemity deltas, scope, open questions) is in
 `docs/packet-specs/socle-zones-evenement.md`.
 
+### Paquet 59 — `TM_CS_XTRAP_CHECK`
+
+- Trame cliente de **135** octets : en-tête 7 (`Length` 135, `ID` 59, checksum 194) + `pCheckBuffer`
+  `uint8[128]` à l'offset 7, **sans champ de longueur**. Taille constante, aucun rembourrage, aucune
+  variante : ne pas l'aligner sur `TM_CS_ANTI_HACK` (54), qui porte un `nLength`.
+- Gating rzu : **59** à l'Epic 7.3, `1059` seulement à partir d'`EPIC_9_6_3` (`0x090603` > `0x070300`)
+  — **ne pas déclarer 1059**. La paire est 58 (`TM_SC_XTRAP_CHECK`, même anatomie, checksum 193),
+  **non déclarée** : ce serveur ne l'émet jamais.
+- **Aucun producteur de 59 dans le client 7.3** (`SFrame.exe` sha256 `41e0af2e…` : aucun constructeur
+  d'id 59, la chaîne de nom n'est référencée qu'une fois, par la table id→nom) et **aucun handler dans
+  rzu ni NGemity** : il n'y a **aucune logique à porter**, seulement une borne d'entrée à tenir.
+- Traitement : lecture défensive seule (`GameXtrapPackets.TryReadXtrapCheck`, longueur exacte, tampon
+  rendu intact) puis abandon — **pas de réponse, pas de sanction, pas de déconnexion**. Le contenu de
+  `pCheckBuffer` n'est **pas établi** et n'est **jamais** journalisé : une trame valide ne laisse que sa
+  longueur et la taille du tampon, en `Debug` ; une trame d'une autre longueur, sa longueur seule, en
+  `Warning`, et elle est consommée entièrement pour garder la suivante alignée.
+- Le client 7.3 **parse 58 dans une branche `switch` vide** : toute réponse serait sans effet
+  observable. « Le client ne réagit pas » ne veut pas dire « le paquet est inutile » : un client patché,
+  une autre région ou un module tiers peuvent émettre 59.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
 - **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`
