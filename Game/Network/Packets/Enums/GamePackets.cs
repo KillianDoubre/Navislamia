@@ -133,6 +133,12 @@ public enum GamePackets : ushort
 
     TM_CS_ANTI_HACK = 54,
 
+    // TM_CS_CHECK_ILLEGAL_USER (57): the client's own security watch reports a suspected illegal program
+    // here — never a player action. rzu gates the id to 57 below EPIC_9_6_3 (1057 only from 9.6.3 on), so
+    // 1057 must not be declared. There is no server to client answer for it. See
+    // docs/packet-specs/57-check-illegal-user.md.
+    TM_CS_CHECK_ILLEGAL_USER = 57,
+
     // TM_CS_XTRAP_CHECK (59): the XTrap integrity check the client would send — 135 bytes, a 7 byte header
     // plus a fixed uint8[128] payload, with no length field. rzu gates the id to 59 below EPIC_9_6_3
     // (1059 only from 9.6.3 on), so 1059 must not be declared here. Its server to client counterpart is

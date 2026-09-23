@@ -349,6 +349,28 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_CHECK_ILLEGAL_USER (57): the client's own security watch reports a suspected illegal program
+    /// — never a player action, and the client writes the length in hard at 11, so the frame has no other
+    /// form. There is no server to client answer of this family in rzu, NGemity, op_codes.md or the 7.3
+    /// client's own incoming dispatcher, and no reference sanctions the sender: the frame is read, logged
+    /// at Debug (the level the undeclared id already used) and dropped, without inventing a response or a
+    /// sanction. See docs/packet-specs/57-check-illegal-user.md §5.4, §5.5.
+    /// </summary>
+    private void HandleCheckIllegalUser(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadCheckIllegalUser(buffer, out var logCode))
+        {
+            _logger.Warning("Malformed illegal user report received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug(
+            "TM_CS_CHECK_ILLEGAL_USER ({id}) Length: {length} received from {clientTag}: log_code={logCode}",
+            (ushort)GamePackets.TM_CS_CHECK_ILLEGAL_USER, buffer.Length, ClientTag, logCode);
+    }
+
+    /// <summary>
     /// TM_CS_XTRAP_CHECK (59): the XTrap integrity check, 135 bytes of header plus a fixed 128 byte
     /// payload. No reference server implements it and the 7.3 client never emits it — no constructor
     /// writing id 59 exists in SFrame.exe — so there is no logic to port. The frame is read for its
@@ -1546,6 +1568,15 @@ public class GameClient : Client
                 _logger.Debug(
                     "TM_CS_ANTI_HACK ({id}) Length: {length} nLength: {nLength} received from {clientTag}",
                     header.ID, header.Length, declaredAntiHackLength, ClientTag);
+                continue;
+            }
+
+            // TM_CS_CHECK_ILLEGAL_USER (57) is declared so that the frame is read instead of being dropped as
+            // an undefined id. It must stay before the throwing switch below: a member of GamePackets that
+            // reaches it breaks the receive loop.
+            if (header.ID == (ushort)GamePackets.TM_CS_CHECK_ILLEGAL_USER)
+            {
+                HandleCheckIllegalUser(msgBuffer);
                 continue;
             }
 

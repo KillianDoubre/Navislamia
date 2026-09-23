@@ -1398,6 +1398,26 @@ counter, but the socle persists nothing.
 The full spec (offsets, sources, version gating, NGemity deltas, scope, open questions) is in
 `docs/packet-specs/socle-zones-evenement.md`.
 
+### Paquet 57 — `TM_CS_CHECK_ILLEGAL_USER`
+
+- Trame cliente de **11** octets : en-tête 7 + `log_code` `uint32` à l'offset 7. Taille fixe, aucun
+  rembourrage, un seul champ.
+- `log_code` est un nom **rzu** ; le client n'envoie que `0` sur le seul chemin d'émission connu.
+  Sa sémantique et le sort du paquet côté serveur ne sont pas établis : ne rien en déduire.
+- **Aucune réponse** : il n'existe aucune trame serveur → client de cette famille (ni rzu, ni
+  NGemity, ni `op_codes.md`), et le répartiteur entrant du client 7.3 place 57 sur le chemin par
+  défaut. Le proxy rzu, lui, **jette** le paquet.
+- Gating : 57 à l'Epic 7.3, `1057` seulement à partir d'`EPIC_9_6_3` — **ne pas déclarer 1057**.
+- Le client 7.3 **émet** 57 depuis sa surveillance interne (événement `game_security_msg`, jamais une
+  action du joueur) et affiche une boîte de message du vocabulaire `msgboxdetect_*` /
+  `smsq_protect*`. Ce qui déclenche cet événement n'est pas dans le client extrait (module
+  anti-triche absent, `data.000` chiffré) : ne pas conclure à l'absence d'émission.
+- Traitement : `GameActionPackets.TryReadCheckIllegalUser` (11 octets exacts, toute autre longueur
+  refusée et journalisée en `Warning`), puis `log_code` journalisé en `Debug` et abandon — **pas de
+  réponse, pas de sanction, pas de déconnexion**. Toute politique (enregistrer, sanctionner) reste à
+  trancher.
+- Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
+
 ### Paquet 59 — `TM_CS_XTRAP_CHECK`
 
 - Trame cliente de **135** octets : en-tête 7 (`Length` 135, `ID` 59, checksum 194) + `pCheckBuffer`
