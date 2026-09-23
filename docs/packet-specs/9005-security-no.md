@@ -516,9 +516,10 @@ enregistrer, sans réponse, sans sanction**.
 
 | Fichier | Modification |
 |---|---|
-| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_SECURITY_NO = 9005` (juste avant `TM_NONE`), avec le rappel du gating (8105 interdit) et des champs 9.6.7 exclus |
-| `Game/Network/Packets/Game/GameSecurityPackets.cs` | **nouveau** : `PacketLength = 30`, `TryReadSecurityNo`, conteneur `SecurityNoRequest(int Mode, string SecurityNo)` |
-| `Game/Network/Clients/GameClient.cs` | `HandleSecurityNo` + bras de dispatch avant le `switch` qui lève |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_SECURITY_NO = 9005` (entre les 8000 et les 10000 depuis le merge dans `master`), avec le rappel du gating (8105 interdit) et des champs 9.6.7 exclus |
+| `Game/Network/Packets/Game/GameSecurityPackets.cs` | **nouveau** : `PacketLength = 30`, `TryReadSecurityNo(packet, out int mode, out ReadOnlySpan<byte> securityNo)` (le conteneur `string` d'origine a été retiré au merge, voir 12.2) |
+| `Game/Network/Clients/GameClient.cs` | `HandleSecurityNo` + bras de dispatch avant le `switch` qui lève ; la trame est mise à zéro après lecture |
+| `Game/Network/Connection.cs` | `Read` efface du tampon de réception les octets consommés (ajout du merge, voir 12.2) |
 | `Tests/Game/SecurityNoPacketsTests.cs` | **nouveau** : 25 tests |
 
 ### 12.1 Décisions prises (et leur raison)
@@ -540,9 +541,28 @@ enregistrer, sans réponse, sans sanction**.
    (`TM_SC_REGION_ACK` ou juste avant le `switch` final), ce qui garde cette zone libre de conflit.
    Même logique pour la ligne d'énumération, posée à côté de `TM_NONE` alors que toutes les branches
    sœurs s'insèrent après `TM_CS_VERSION = 50`.
-6. **Le conteneur est lu comme une chaîne, pas comme 19 octets.** §3.2 : `%s` dans la trace du client
+6. **Le conteneur est lu comme une chaîne C, pas comme 19 octets.** §3.2 : `%s` dans la trace du client
    (VR `0xa52318`), `maxSize - 1` côté rzu, donc arrêt au premier zéro et 18 caractères au plus. Aucune
    borne sur la longueur utile : le « code vide » du chemin *Cancel* est accepté.
+
+### 12.2 Durcissement ajouté au merge dans `master` (2026-09-23)
+
+La revue de sécurité du merge a gardé la disposition neutre et resserré la durée de vie du secret en
+mémoire :
+
+1. **Plus de `string`.** Le lecteur rendait le code sous forme de `string` : une copie immuable sur le
+   tas, qu'aucun code ne peut effacer et que seul le ramasse-miettes finit par récupérer. Il rend
+   désormais une vue `ReadOnlySpan<byte>` sur la trame, sans copie. Un futur vérificateur comparera cette
+   vue en temps constant (`CryptographicOperations.FixedTimeEquals`).
+2. **La trame est mise à zéro après lecture**, dans un `finally` : une trame mal formée porte aussi ce
+   que le joueur a tapé.
+3. **Le tampon de réception est effacé.** Depuis le lot de performances, `CipherConnection` déchiffre
+   sur place dans le tampon de réception de la connexion, qui vit aussi longtemps qu'elle : le code y
+   restait en clair jusqu'à ce qu'un autre trafic l'écrase. `Connection.Read` efface maintenant chaque
+   octet consommé, pour toutes les trames.
+
+Ce qui ne change pas : aucun 9005 n'est sollicité (le serveur n'émet jamais 9004), rien n'est vérifié ni
+répondu, donc aucun oracle de force brute n'existe ; la trame n'est acceptée qu'à 30 octets exacts.
 
 ### 12.2 Couverture de tests (`Tests/Game/SecurityNoPacketsTests.cs`)
 

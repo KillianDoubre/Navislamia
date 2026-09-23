@@ -9,18 +9,28 @@ public enum PropActionKind
     CommonWarpGate,
     EnterDungeon,
     ExitDungeon,
-    RunTeleport
+    RunTeleport,
+    OpenMarket
 }
 
 /// <summary>
 /// A prop script or dialog trigger resolved to what it does. Like NPC dialog triggers, the source
-/// expression is looked up rather than executed as Lua.
+/// expression is looked up rather than executed as Lua. <see cref="Name"/> carries the argument of
+/// <see cref="PropActionKind.OpenMarket"/> and is null for every other kind.
 /// </summary>
-public readonly record struct PropAction(PropActionKind Kind, int X, int Y, int DungeonId)
+public readonly record struct PropAction(PropActionKind Kind, int X, int Y, int DungeonId, string Name = null)
 {
     public static readonly PropAction None = new(PropActionKind.None, 0, 0, 0);
 
     public static PropAction Warp(int x, int y) => new(PropActionKind.CommonWarpGate, x, y, 0);
+
+    /// <summary>
+    /// An <c>open_market</c> merchant trigger. The name may be empty: most triggers of the Epic 7.3
+    /// dialog catalogue are the truncated form <c>open_market(</c>, whose argument was concatenated in
+    /// the client's Lua and never captured.
+    /// </summary>
+    public static PropAction Market(string name) =>
+        new(PropActionKind.OpenMarket, 0, 0, 0, name ?? string.Empty);
 }
 
 /// <summary>
@@ -36,11 +46,23 @@ public static class PropScript
             return PropAction.None;
 
         var open = script.IndexOf('(');
-        var close = script.LastIndexOf(')');
-        if (open <= 0 || close < open)
+        if (open <= 0)
             return PropAction.None;
 
         var name = script[..open].Trim();
+
+        // The merchant entry of an NPC dialog carries the trigger as the client's Lua built it. The Epic
+        // 7.3 catalogue only kept the truncated prefix "open_market(": the name was concatenated at run
+        // time and the generator does not accept it. The trigger is therefore read with or without its
+        // closing parenthesis, and what sits between the parentheses is the market name — empty in the
+        // truncated form, which the market service then refuses rather than guessing.
+        if (name == "open_market")
+            return PropAction.Market(ReadMarketName(script, open));
+
+        var close = script.LastIndexOf(')');
+        if (close < open)
+            return PropAction.None;
+
         var arguments = Split(script[(open + 1)..close]);
 
         return name switch
@@ -67,6 +89,13 @@ public static class PropScript
 
     private static string[] Split(string arguments) =>
         string.IsNullOrWhiteSpace(arguments) ? Array.Empty<string>() : arguments.Split(',');
+
+    private static string ReadMarketName(string script, int open)
+    {
+        var close = script.IndexOf(')', open + 1);
+        var value = close < 0 ? script[(open + 1)..] : script[(open + 1)..close];
+        return value.Trim();
+    }
 
     private static bool TryInt(string value, out int result) =>
         int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out result);

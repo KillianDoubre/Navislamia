@@ -78,6 +78,41 @@ public class SpawnPacketsTests
         packet[72].Should().Be(0);
     }
 
+    /// <summary>
+    /// rzu declares the encoded ids one field at a time, and the two encodings are not interchangeable:
+    /// <c>npc_id</c> (<c>TS_SC_ENTER.h:105</c>), an item's <c>code</c> (<c>:38</c>) and a summon's
+    /// <c>summon_code</c> (<c>:93</c>) are <c>EncodedInt&lt;EncodingRandomized&gt;</c>, while <c>monster_id</c>
+    /// (<c>:85</c>) alone is <c>EncodedInt&lt;EncodingScrambled&gt;</c>. The 8-byte layout is shared — hence the
+    /// single writer — but only the monster's value may be permuted before it goes in.
+    /// </summary>
+    [Test]
+    public void EncodedIds_AreRandomizedExceptTheMonsterIdWhichIsScrambled()
+    {
+        const uint id = 2101u;
+        var npc = GameSpawnPackets.BuildEnterNpc(1u, 0f, 0f, 0f, 1, 1, 1, 1, (int)id);
+        var monster = GameSpawnPackets.BuildEnterMonster(1u, 0f, 0f, 0f, 1, 1, 1, 1, (int)id, 0f);
+        var summon = GameSpawnPackets.BuildEnterSummon(handle: 1u, x: 0f, y: 0f, z: 0f, layer: 1, hp: 1,
+            maxHp: 1, mp: 1, maxMp: 1, level: 1, faceDir: 0f, isFirstEnter: false, masterHandle: 1u,
+            summonCode: id, name: "summon", enhance: 0);
+
+        Word(npc, 64).Should().Be(0);
+        Word(npc, 66).Should().Be((ushort)(id >> 16));
+        Word(npc, 68).Should().Be(0);
+        Word(npc, 70).Should().Be((ushort)id, "npc_id is randomized: the id goes in untouched");
+
+        var scrambled = ScrambledInt.Encode(id);
+        scrambled.Should().NotBe(id, "the permutation has to be visible for this test to mean anything");
+        Word(monster, 64).Should().Be(0);
+        Word(monster, 66).Should().Be((ushort)(scrambled >> 16));
+        Word(monster, 68).Should().Be(0);
+        Word(monster, 70).Should().Be((ushort)scrambled);
+
+        Word(summon, 68).Should().Be(0);
+        Word(summon, 70).Should().Be((ushort)(id >> 16));
+        Word(summon, 72).Should().Be(0);
+        Word(summon, 74).Should().Be((ushort)id, "summon_code is randomized too, not scrambled");
+    }
+
     [Test]
     public void BuildLeave_LaysOutHandle()
     {
@@ -99,6 +134,9 @@ public class SpawnPacketsTests
         a.Should().BeGreaterThan(0x40000000u);
         b.Should().BeGreaterThan(a);
     }
+
+    private static ushort Word(byte[] packet, int offset) =>
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(offset, 2));
 
     private static byte Checksum(byte[] packet)
     {

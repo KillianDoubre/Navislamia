@@ -14,14 +14,22 @@ namespace Navislamia.Game.Services;
 public class NpcDialogService : INpcDialogService
 {
     private const int MaxTriggerLength = 1024;
+
+    /// <summary>The storage trigger the counter NPCs script (<c>open_storage()</c>), the way a warp is.</summary>
+    private const string StorageFunction = "open_storage";
     private readonly ILogger _logger = Log.ForContext<NpcDialogService>();
     private readonly FrozenDictionary<int, string> _contacts;
     private readonly FrozenDictionary<string, CompiledDialog> _dialogs;
     private readonly IWarpService _warpService;
+    private readonly IStorageService _storageService;
+    private readonly IMarketService _marketService;
 
-    public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService)
+    public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
+        IStorageService storageService, IMarketService marketService)
     {
         _warpService = warpService;
+        _storageService = storageService;
+        _marketService = marketService;
         _contacts = CompileContacts(options.Value.Npcs);
         _dialogs = CompileDialogs(options.Value.Dialogs);
         _logger.Information("Loaded {npcCount} NPC dialog links and {dialogCount} dialog definitions",
@@ -102,6 +110,30 @@ public class NpcDialogService : INpcDialogService
             }
 
             _warpService.Warp(client, action.X, action.Y);
+            return;
+        }
+
+        // open_storage() opens the account storage of the character: the dialog link closes and the
+        // storage frames answer the player, exactly like the teleport action above. The request is
+        // asynchronous, so the frame is not awaited here — the receive loop must not wait on the database.
+        if (ReadFunctionName(trigger) == StorageFunction)
+        {
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+            }
+
+            _ = _storageService.OpenAsync(client);
+            return;
+        }
+
+        // A merchant trigger is answered with TM_SC_MARKET (250), which opens the trade window; the
+        // catalogue lines come from the market the trigger names. The NPC dialog is deliberately left
+        // current — the window is additive, and leaving it lets the guard above validate a second
+        // selection. The packet carries this dialog's NPC handle, not a market name.
+        if (action.Kind == PropActionKind.OpenMarket)
+        {
+            _marketService.Open(client, npcHandle, action.Name);
             return;
         }
 

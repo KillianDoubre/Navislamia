@@ -470,8 +470,13 @@ fabric.properties
 !/docs/world-spawning.md
 !/docs/character-bootstrap.md
 !/docs/npc-dialogs.md
+!/docs/gm-commands.md
 !/docs/packet-specs/
 DevConsole/appsettings.json
 AuthServer/appsettings.json
 launch-client.ps1
-/tools/provision-navislamia/*
+tools/provision-navislamia/
+
+# Local CSV export of the 9.4 SQL Server databases (tools/Export-SqlServerData.ps1): read by the
+# import scripts so SQL Server does not have to run. Regenerate it, never commit it.
+/data/sqlserver/

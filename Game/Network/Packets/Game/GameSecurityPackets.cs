@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Text;
 
 namespace Navislamia.Game.Network.Packets.Game;
 
@@ -25,31 +24,35 @@ public static class GameSecurityPackets
     public const int PacketLength = HeaderSize + ModeSize + SecurityNoSize;
 
     /// <summary>
-    /// <c>mode</c> and the bounded <c>security_no</c> of a 9005. <c>mode</c> is deliberately never
-    /// validated: rzu names <c>0</c>/<c>1</c>/<c>2</c> (none / open storage / delete character) but its own
-    /// authentication test emits <c>42</c>, and no source fixes the domain the 7.3 client really sends
-    /// (docs/packet-specs/9005-security-no.md §4.3, §7b).
+    /// Reads a 9005: <paramref name="mode"/> and the bounded <paramref name="securityNo"/>.
     /// </summary>
-    public readonly record struct SecurityNoRequest(int Mode, string SecurityNo);
-
-    /// <summary>
-    /// Reads a 9005. The code is a reusable authentication secret — the same one guards character deletion
-    /// and the warehouse — so a caller may report its length but must never write it to a log
-    /// (docs/packet-specs/9005-security-no.md §5.5).
-    /// </summary>
-    public static bool TryReadSecurityNo(ReadOnlySpan<byte> packet, out SecurityNoRequest request)
+    /// <remarks>
+    /// <c>mode</c> is deliberately never validated: rzu names <c>0</c>/<c>1</c>/<c>2</c> (none / open
+    /// storage / delete character) but its own authentication test emits <c>42</c>, and no source fixes the
+    /// domain the 7.3 client really sends (docs/packet-specs/9005-security-no.md §4.3, §7b).
+    /// <para>
+    /// The code is a reusable authentication secret — the same one guards character deletion and the
+    /// warehouse — so it is handed back as a <b>view of the caller's own bytes</b>, never copied: a string
+    /// would be an immutable copy on the heap that nothing can wipe, and the caller zeroes its frame once
+    /// done. A caller may report the code's length but must never write the code to a log
+    /// (docs/packet-specs/9005-security-no.md §5.5). A verifier, the day one exists, compares this view in
+    /// constant time.
+    /// </para>
+    /// </remarks>
+    /// <param name="packet">The whole frame, header included.</param>
+    /// <param name="mode">The operation the code answers for, as sent.</param>
+    /// <param name="securityNo">The code's bytes up to the first zero, 18 at most; empty on a refused frame.</param>
+    public static bool TryReadSecurityNo(ReadOnlySpan<byte> packet, out int mode, out ReadOnlySpan<byte> securityNo)
     {
-        request = default;
-
         if (packet.Length != PacketLength)
         {
+            mode = 0;
+            securityNo = ReadOnlySpan<byte>.Empty;
             return false;
         }
 
-        var mode = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, ModeSize));
-        var securityNo = ReadSecurityNoField(packet.Slice(HeaderSize + ModeSize, SecurityNoSize));
-
-        request = new SecurityNoRequest(mode, securityNo);
+        mode = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, ModeSize));
+        securityNo = SecurityNoField(packet.Slice(HeaderSize + ModeSize, SecurityNoSize));
         return true;
     }
 
@@ -61,7 +64,7 @@ public static class GameSecurityPackets
     /// empty code of the Cancel path included — is refused here (docs/packet-specs/9005-security-no.md §3.2,
     /// §6).
     /// </summary>
-    private static string ReadSecurityNoField(ReadOnlySpan<byte> field)
+    private static ReadOnlySpan<byte> SecurityNoField(ReadOnlySpan<byte> field)
     {
         var length = field.IndexOf((byte)0);
         if (length < 0)
@@ -69,6 +72,6 @@ public static class GameSecurityPackets
             length = field.Length - 1;
         }
 
-        return Encoding.ASCII.GetString(field.Slice(0, length));
+        return field.Slice(0, length);
     }
 }

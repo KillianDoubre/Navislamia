@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Text;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -128,7 +129,7 @@ public class SecurityNoPacketsTests
     [Test]
     public void TryReadSecurityNo_ReadsModeAtOffsetSevenAndTheCodeAtOffsetEleven()
     {
-        GameSecurityPackets.TryReadSecurityNo(ClientFrame(1, "654321"), out var request).Should().BeTrue();
+        TryRead(ClientFrame(1, "654321"), out var request).Should().BeTrue();
 
         request.Mode.Should().Be(1);
         request.SecurityNo.Should().Be("654321");
@@ -140,7 +141,7 @@ public class SecurityNoPacketsTests
     {
         // Asymmetric values: rzu lays mode out first and the string second, and the client fills offset 7
         // then offset 11 (VR 0x6658b6, 0x6658bc). Swapping the two would fail here.
-        GameSecurityPackets.TryReadSecurityNo(ClientFrame(2, "111111"), out var request).Should().BeTrue();
+        TryRead(ClientFrame(2, "111111"), out var request).Should().BeTrue();
 
         request.Mode.Should().Be(2);
         request.SecurityNo.Should().Be("111111");
@@ -157,7 +158,7 @@ public class SecurityNoPacketsTests
         frame[9] = 0x02;
         frame[10] = 0x01;
 
-        GameSecurityPackets.TryReadSecurityNo(frame, out var request).Should().BeTrue();
+        TryRead(frame, out var request).Should().BeTrue();
 
         request.Mode.Should().Be(16909060);
         request.Mode.Should().NotBe(67305985, "rzu writes the scalar int32 as it stands on x86, so little-endian");
@@ -171,7 +172,7 @@ public class SecurityNoPacketsTests
         var frame = ClientFrame(0, "123456");
         frame[10] = (byte)'X';
 
-        GameSecurityPackets.TryReadSecurityNo(frame, out var request).Should().BeTrue();
+        TryRead(frame, out var request).Should().BeTrue();
 
         request.SecurityNo.Should().Be("123456");
         request.Mode.Should().Be(0x58000000, "byte 10 is the most significant byte of the little-endian mode");
@@ -187,7 +188,7 @@ public class SecurityNoPacketsTests
         frame[17] = (byte)'9';
         frame[18] = (byte)'9';
 
-        GameSecurityPackets.TryReadSecurityNo(frame, out var request).Should().BeTrue();
+        TryRead(frame, out var request).Should().BeTrue();
 
         request.SecurityNo.Should().Be("1234", "the code is read up to the first zero byte");
         request.SecurityNo.Length.Should().Be(4);
@@ -204,7 +205,7 @@ public class SecurityNoPacketsTests
             frame[11 + i] = (byte)('a' + i % 26);
         }
 
-        GameSecurityPackets.TryReadSecurityNo(frame, out var request).Should().BeTrue();
+        TryRead(frame, out var request).Should().BeTrue();
 
         request.SecurityNo.Length.Should().Be(18);
         request.SecurityNo.Should().Be("abcdefghijklmnopqr");
@@ -217,7 +218,7 @@ public class SecurityNoPacketsTests
     {
         // The six digits of ui_text_6559 are the window's constraint, not the protocol's, and "hit Cancel"
         // is an attested player path: bounding the code here would refuse frames the client really sends.
-        GameSecurityPackets.TryReadSecurityNo(ClientFrame(1, securityNo), out var request).Should().BeTrue();
+        TryRead(ClientFrame(1, securityNo), out var request).Should().BeTrue();
 
         request.SecurityNo.Should().Be(securityNo);
     }
@@ -234,8 +235,8 @@ public class SecurityNoPacketsTests
             ClientFrame(1, "123456").CopyTo(packet, 0);
         }
 
-        GameSecurityPackets.TryReadSecurityNo(packet, out var request).Should().BeFalse();
-        request.Should().Be(default(GameSecurityPackets.SecurityNoRequest));
+        TryRead(packet, out var request).Should().BeFalse();
+        request.Should().Be(default(Decoded));
     }
 
     [Test]
@@ -332,6 +333,33 @@ public class SecurityNoPacketsTests
         }
     }
 
+    [Test]
+    public void OnDataReceived_WipesTheFrameOnceRead()
+    {
+        // The frame is the one plaintext copy the receive loop hands to the arm: it is zeroed as soon as it
+        // has been read, so the code does not linger on the heap until the collector reclaims it.
+        var connection = new FrameConnection(ClientFrame(1, "530917"));
+        var client = NewGameClient(connection);
+
+        client.OnDataReceived(PacketLength);
+
+        connection.Reads.Should().ContainSingle();
+        connection.Reads[0].Should().OnlyContain(b => b == 0);
+    }
+
+    [Test]
+    public void OnDataReceived_WipesAMalformedFrameToo()
+    {
+        // A padded or truncated frame still carries whatever the client typed.
+        var connection = new FrameConnection(MalformedFrame(40));
+        var client = NewGameClient(connection);
+
+        client.OnDataReceived(40);
+
+        connection.Reads.Should().ContainSingle();
+        connection.Reads[0].Should().OnlyContain(b => b == 0);
+    }
+
     /// <summary>
     /// Rebuilds frame 9005 with another announced length, keeping a valid checksum: the receive loop rejects
     /// an invalid one before any dispatch, which would hide what this test measures.
@@ -345,32 +373,25 @@ public class SecurityNoPacketsTests
         return frame;
     }
 
-    private static GameClient NewGameClient(FrameConnection connection)
+    /// <summary>
+    /// The reader hands the code back as a view of the frame, never as a string; the tests decode that view
+    /// themselves to compare it.
+    /// </summary>
+    private readonly record struct Decoded(int Mode, string SecurityNo);
+
+    private static bool TryRead(byte[] frame, out Decoded request)
     {
-        var networkService = new NetworkService(
-            A.Fake<ILogger<NetworkService>>(),
-            Options.Create(new NetworkOptions { CipherKey = "security-no-test-key" }),
-            A.Fake<ICharacterService>(),
-            A.Fake<IBannedWordsRepository>(),
-            A.Fake<IStatService>(),
-            Options.Create(new ServerOptions()),
-            A.Fake<INpcSpawnService>(),
-            A.Fake<INpcDialogService>(),
-            A.Fake<IMonsterSpawnService>(),
-            A.Fake<ICombatService>(),
-            A.Fake<ILevelingService>(),
-            A.Fake<ISkillService>(),
-            A.Fake<IEquipmentService>(),
-            A.Fake<IInventoryService>(),
-            A.Fake<IGroundItemService>(),
-            A.Fake<ISkillCastService>(),
-            A.Fake<IFieldPropService>(),
-            A.Fake<IItemUseService>());
-
-        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-        return new GameClient(socket, networkService) { Connection = connection };
+        var read = GameSecurityPackets.TryReadSecurityNo(frame, out var mode, out var securityNo);
+        request = read ? new Decoded(mode, Encoding.ASCII.GetString(securityNo)) : default;
+        return read;
     }
+
+    /// <summary>
+    /// The shared harness builds the game client against fakes and is kept in step with the
+    /// <c>NetworkService</c> constructor, which this file's own copy had fallen behind.
+    /// </summary>
+    private static GameClient NewGameClient(FrameConnection connection) =>
+        StorageTestHarness.NewGameClient(connection);
 
     /// <summary>
     /// In-memory replacement for the socket-backed connection: it serves a plaintext frame byte by byte
@@ -390,6 +411,9 @@ public class SecurityNoPacketsTests
 
         public List<byte[]> Sent { get; } = new();
 
+        /// <summary>Every frame handed to the receive loop, as the handlers left it.</summary>
+        public List<byte[]> Reads { get; } = new();
+
         public int BytesAvailable => _frame.Length - _offset;
 
         public override ReadOnlySpan<byte> Peek(int length) => new(_frame, _offset, length);
@@ -399,6 +423,7 @@ public class SecurityNoPacketsTests
             var length = Math.Min(BytesAvailable, input);
             var read = _frame.AsSpan(_offset, length).ToArray();
             _offset += length;
+            Reads.Add(read);
             return read;
         }
 

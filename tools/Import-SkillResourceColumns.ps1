@@ -9,20 +9,32 @@ The original partial insert supplied NOT NULL literals for ~80 columns, so they 
 column names by introspection rather than by hand, reports every pair it cannot match, and refuses to
 run if a required column is unmatched.
 
+The source is the CSV export of the 9.4 database (tools/Export-SqlServerData.ps1), not SQL Server
+itself: the export is loaded whole into a temporary table and the mapped columns are copied from there.
+
 Run -WhatIf to see the mapping without touching the database.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$SqlServer = 'localhost\SQLEXPRESS',
-    [string]$SourceDatabase = 'Arcadia',
+    [string]$SourceCsv = (Join-Path (Split-Path -Parent $PSScriptRoot) 'data\sqlserver\Arcadia\SkillResource.csv'),
     [string]$PgHost = 'localhost',
     [string]$PgUser = 'postgres',
-    [string]$PgPassword = 'Stbrice@35',
+    # Read from DevConsole/appsettings.json when not given, so no credential lives in this script.
+    [string]$PgPassword,
     [string]$PgDatabase = 'Arcadia',
     [string]$WorkDirectory = $env:TEMP
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not (Test-Path $SourceCsv)) {
+    throw "Missing $SourceCsv. Run tools/Export-SqlServerData.ps1 once while SQL Server is up."
+}
+
+if (-not $PgPassword) {
+    $settings = Join-Path (Split-Path -Parent $PSScriptRoot) 'DevConsole\appsettings.json'
+    $PgPassword = (Get-Content -Raw $settings | ConvertFrom-Json).Database.Password
+}
 
 # EF property -> source column, for the pairs the snake_case rule cannot derive.
 $Overrides = @{
@@ -66,10 +78,15 @@ $Overrides = @{
     'UseOnNeutral'          = 'uf_neutral'
     'UseOnPurple'           = 'uf_purple'
     'UseOnEnemy'            = 'uf_enemy'
+    # tf_* are the target families. These two were listed as absent from the source and stayed false for
+    # every skill, which is what hid that 6001 (Resurrection Scroll) targets a character and 6013 only a
+    # creature.
+    'UseOnCharacter'        = 'tf_avatar'
+    'UseOnMonster'          = 'tf_monster'
 }
 
 # EF properties with no counterpart in the 9.4 source; they stay at their default and are reported.
-$KnownUnmapped = @('SummonId', 'UpgradeIntoSkillId', 'UseOnCharacter', 'UseOnMonster')
+$KnownUnmapped = @('SummonId', 'UpgradeIntoSkillId')
 
 # Mappable, but their foreign key targets StringResources, which is empty: importing any non-zero value
 # violates the constraint. The client resolves skill names from its own resources, so nothing needs them.
@@ -106,9 +123,8 @@ WHERE table_name='SkillResources'
 ORDER BY column_name;
 "@) | Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() }
 
-$srcColumns = @(sqlcmd -S $SqlServer -E -d $SourceDatabase -h -1 -W -w 4000 -Q `
-    "SET NOCOUNT ON; SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='SkillResource';" |
-    Where-Object { $_ -and $_.Trim() -and $_ -notmatch '^\(' } | ForEach-Object { $_.Trim() })
+# The export's header row is the source column list.
+$srcColumns = @((Get-Content -TotalCount 1 $SourceCsv) -split ',' | ForEach-Object { $_.Trim('"') })
 
 $srcLookup = @{}
 foreach ($c in $srcColumns) { $srcLookup[$c] = $true }
@@ -152,25 +168,9 @@ if ($WhatIfPreference) {
     return
 }
 
-$csv = Join-Path $WorkDirectory 'skillresource_columns.csv'
-$selectList = ($mapped | ForEach-Object {
-    "CAST($($_.Src) AS varchar(32))"
-}) -join " + ',' + "
-
-Write-Host 'Exporting from SQL Server...' -ForegroundColor Cyan
-$lines = sqlcmd -S $SqlServer -E -d $SourceDatabase -h -1 -W -w 8000 -Q `
-    "SET NOCOUNT ON; SELECT CAST(id AS varchar) + ',' + $selectList FROM SkillResource ORDER BY id;" |
-    Where-Object { $_ -match '^\d+,' }
-
-if (-not $lines -or $lines.Count -eq 0) { throw 'Export produced no rows.' }
-# PowerShell 5.1 writes a BOM with -Encoding utf8; psql \copy chokes on it.
-[System.IO.File]::WriteAllLines($csv, $lines, (New-Object System.Text.UTF8Encoding($false)))
-Write-Host ("exported {0} rows" -f $lines.Count) -ForegroundColor Green
-
-$tempCols = (@('id bigint') + ($mapped | ForEach-Object { "c_$($_.Pg) text" })) -join ', '
-$setList = ($mapped | ForEach-Object {
-    "`"$($_.Pg)`" = NULLIF(v.c_$($_.Pg), '')::numeric"
-}) -join ', '
+# Every source column as text, in header order, so \copy takes the export as it is.
+$tempCols = ($srcColumns | ForEach-Object { "`"$_`" text" }) -join ', '
+$csv = (Resolve-Path $SourceCsv).Path -replace '\\', '/'
 
 # booleans arrive as 0/1 and need an explicit cast
 $boolColumns = (Invoke-Psql -Tuples @"
@@ -179,14 +179,15 @@ WHERE table_name='SkillResources' AND data_type='boolean';
 "@) | Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() }
 
 $setParts = foreach ($m in $mapped) {
+    $source = "NULLIF(v.`"$($m.Src)`", '')::numeric"
     if ($boolColumns -contains $m.Pg) {
-        "`"$($m.Pg)`" = (NULLIF(v.c_$($m.Pg), '')::numeric <> 0)"
+        "`"$($m.Pg)`" = ($source <> 0)"
     }
     elseif ($nullableColumns -contains $m.Pg) {
-        "`"$($m.Pg)`" = NULLIF(NULLIF(v.c_$($m.Pg), '')::numeric, 0)"
+        "`"$($m.Pg)`" = NULLIF($source, 0)"
     }
     else {
-        "`"$($m.Pg)`" = NULLIF(v.c_$($m.Pg), '')::numeric"
+        "`"$($m.Pg)`" = $source"
     }
 }
 $setList = $setParts -join ', '
@@ -194,8 +195,8 @@ $setList = $setParts -join ', '
 $sqlFile = Join-Path $WorkDirectory 'skillresource_import.sql'
 @"
 CREATE TEMP TABLE sr_import ($tempCols);
-\copy sr_import FROM '$csv' WITH (FORMAT csv)
-UPDATE "SkillResources" t SET $setList FROM sr_import v WHERE t."Id" = v.id;
+\copy sr_import FROM '$csv' WITH (FORMAT csv, HEADER)
+UPDATE "SkillResources" t SET $setList FROM sr_import v WHERE t."Id" = v.id::bigint;
 "@ | Set-Content -Encoding ASCII $sqlFile
 
 if ($PSCmdlet.ShouldProcess($PgDatabase, "update $($mapped.Count) columns of SkillResources")) {
