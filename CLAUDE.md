@@ -1717,7 +1717,11 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   l'export 9.4, qui réutilise 27 cages pour deux familiers. Après l'acquittement de la 253, un familier à la
   fois : la même cage le range, une autre cage l'échange. Il apparaît aux pieds de son maître, `cage_handle`
   = handle de la cage utilisée, `pet_code` = `id` du client ; il suit une téléportation (`FollowWarp`), pas la
-  marche. Les valeurs sans source (niveau 1, PV 100, PM 0, `code`/`unknown` à 0) sont dans
+  marche.
+- **L'ordre d'entrée est 3 puis 351, jamais l'inverse** : 351 puis 3 **plante le client 7.3**, mesuré en jeu
+  par élimination (chaque trame seule passe, 3 puis 351 passe ; fiche §16). L'ordre d'origine, présenté comme
+  celui de la référence, venait du socle des invocations : `SummonWorldService.Enter` envoie encore 301 puis
+  3 et n'a jamais été essayé en jeu — à vérifier au premier appelant. Les valeurs sans source (niveau 1, PV 100, PM 0, `code`/`unknown` à 0) sont dans
   `PetSummonDefaults`. Rien n'est persisté.
 - `ActorStatus.ForPet()` vaut 0, comme les invocations.
 - `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options

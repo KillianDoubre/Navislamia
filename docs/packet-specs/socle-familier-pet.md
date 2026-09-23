@@ -675,3 +675,28 @@ des choix de ce dépôt.
 
 Tests : `Tests/Game/PetCageTests.cs` (catalogue livré, bascule, trames envoyées par la vraie
 `PetWorldService`, téléportation, retour au lobby).
+
+## 16. Crash du client : l'ordre 351 → 3 (2026-09-23)
+
+Premier essai en jeu du lot 2 : l'utilisation de la cage envoyait 351 puis 3, et **le client 7.3 plantait**
+(aucune trace : `rappelz.log` s'arrête au démarrage, aucun événement Windows). Isolé par un interrupteur
+de diagnostic temporaire, relu à chaud, sans redémarrer le serveur :
+
+| trames envoyées | résultat |
+|---|---|
+| 351 puis 3 (code d'origine) | **plantage** |
+| 3 seule | pas de plantage, familier visible |
+| 351 seule | pas de plantage, pas de familier |
+| 3 puis 351 | pas de plantage, familier visible |
+
+Aucune des deux trames ne plante seule : **c'est l'ordre**. Le client plante quand l'objet arrive après une
+fenêtre de créature ouverte sur un handle qui n'existait pas encore. `PetWorldService.Enter` envoie
+désormais **3 puis 351** ; deux tests figent l'ordre, et les trames du test de champs sont prises par id.
+
+L'ordre d'origine était présenté comme « celui de la référence ». Aucune référence n'ordonne les trames
+d'un familier (NGemity n'a aucune logique de familier) : il avait été recopié du socle des invocations.
+**Le même risque pèse sur `SummonWorldService.Enter` (301 puis 3)**, jamais essayé en jeu faute
+d'appelant ; chez NGemity, la 301 part à l'acquisition de la carte, bien avant l'entrée de l'invocation,
+ce qui n'est pas la même situation qu'un envoi immédiatement suivi de la 3. À mesurer au premier essai.
+
+Validé en jeu sur ce correctif : appel (3 puis 351), familier visible, téléportation (`/home`) suivie.

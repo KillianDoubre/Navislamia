@@ -100,16 +100,17 @@ public class PetCageTests
     }
 
     [Test]
-    public void UsingACage_CallsItsPetWithTheCreatureWindowThenTheObject()
+    public void UsingACage_CallsItsPetWithTheObjectThenTheCreatureWindow()
     {
         var (service, client, connection) = NewSession();
 
         service.TryUseCage(client, Crab, CrabCage).Should().BeTrue();
 
         connection.Sent.Select(Id).Should().Equal(
-            (ushort)GamePackets.TM_SC_ADD_PET_INFO, (ushort)GamePackets.TM_SC_ENTER);
-        var addInfo = connection.Sent[0];
-        var enter = connection.Sent[1];
+            new[] { (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO },
+            "351 before the object crashes the 7.3 client");
+        var enter = connection.Sent[0];
+        var addInfo = connection.Sent[1];
         addInfo.Should().HaveCount(42);
         enter.Should().HaveCount(95);
         BinaryPrimitives.ReadUInt32LittleEndian(addInfo.AsSpan(7, 4)).Should().Be(CrabCage);
@@ -150,7 +151,7 @@ public class PetCageTests
 
         connection.Sent.Select(Id).Should().Equal(
             (ushort)GamePackets.TM_SC_UNSUMMON_PET, (ushort)GamePackets.TM_SC_LEAVE,
-            (ushort)GamePackets.TM_SC_ADD_PET_INFO, (ushort)GamePackets.TM_SC_ENTER);
+            (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO);
         StorageTestHarness.Session(client).ActivePet!.CageHandle.Should().Be(RabbitCage);
     }
 
@@ -179,9 +180,9 @@ public class PetCageTests
 
         connection.Sent.Select(Id).Should().Equal(
             (ushort)GamePackets.TM_SC_UNSUMMON_PET, (ushort)GamePackets.TM_SC_LEAVE,
-            (ushort)GamePackets.TM_SC_ADD_PET_INFO, (ushort)GamePackets.TM_SC_ENTER);
+            (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO);
         BinaryPrimitives.ReadUInt32LittleEndian(connection.Sent[0].AsSpan(7, 4)).Should().Be(before);
-        EnterX(connection.Sent[3]).Should().Be(5000f);
+        EnterX(connection.Sent[2]).Should().Be(5000f);
         info.ActivePet!.CageHandle.Should().Be(CrabCage);
         info.ActivePet.Entry.IsFirstEnter.Should().BeFalse("the pet re-enters, it is not called again");
     }
