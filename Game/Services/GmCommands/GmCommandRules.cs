@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using Navislamia.Game.Services.Rates;
 
 namespace Navislamia.Game.Services.GmCommands;
 
@@ -30,6 +32,12 @@ public static class GmCommandRules
     /// first job tier around 10 (<c>JobLevelCurve</c>); this only refuses an absurd target.
     /// </summary>
     public const int MaxJobLevel = 100;
+
+    /// <summary>
+    /// The longest <c>/rate</c> event: 30 days. A choice of this repository, so a typo cannot start an
+    /// event that outlives everybody's memory of it.
+    /// </summary>
+    public static readonly TimeSpan MaxRateEventDuration = TimeSpan.FromDays(30);
 
     public static bool CanUse(GmCommandDefinition definition, int permission) =>
         definition != null && (!definition.Privileged || permission >= GmPermission);
@@ -188,6 +196,91 @@ public static class GmCommandRules
                 seconds is > 0 and <= MaxBuffSeconds);
     }
 
+    /// <summary>
+    /// <c>/rate</c>: no argument shows the rates; <c>reset [type]</c> ends the events of a type, or of all
+    /// types; <c>&lt;type&gt; &lt;multiplier&gt; &lt;duration&gt;</c> starts one. The duration is required, so an
+    /// event can never stay on by oversight. The multiplier is in <c>0..maxMultiplier</c> (an <c>x</c> prefix
+    /// is accepted), the duration in seconds or with a <c>s</c>/<c>m</c>/<c>min</c>/<c>h</c>/<c>d</c> suffix,
+    /// up to <see cref="MaxRateEventDuration"/>.
+    /// </summary>
+    public static bool TryParseRate(string[] args, double maxMultiplier, out RateCommandLine command)
+    {
+        command = default;
+        if (args == null || args.Length == 0)
+        {
+            command = new RateCommandLine(RateCommandKind.Show, RateTypes.All, 0, TimeSpan.Zero);
+            return true;
+        }
+
+        if (args[0].Equals("reset", StringComparison.OrdinalIgnoreCase))
+        {
+            if (args.Length > 2)
+            {
+                return false;
+            }
+
+            IReadOnlyList<RateType> resetTypes = RateTypes.All;
+            if (args.Length == 2 && !RateTypes.TryParse(args[1], out resetTypes))
+            {
+                return false;
+            }
+
+            command = new RateCommandLine(RateCommandKind.Reset, resetTypes, 0, TimeSpan.Zero);
+            return true;
+        }
+
+        if (args.Length != 3 || !RateTypes.TryParse(args[0], out var types) ||
+            !TryParseMultiplier(args[1], maxMultiplier, out var multiplier) ||
+            !TryParseDuration(args[2], out var duration))
+        {
+            return false;
+        }
+
+        command = new RateCommandLine(RateCommandKind.Start, types, multiplier, duration);
+        return true;
+    }
+
+    public static bool TryParseMultiplier(string text, double maxMultiplier, out double multiplier)
+    {
+        multiplier = 0;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        var number = text[0] is 'x' or 'X' ? text.Substring(1) : text;
+        return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out multiplier) &&
+               double.IsFinite(multiplier) && multiplier >= 0 && multiplier <= maxMultiplier;
+    }
+
+    /// <summary>A positive duration: <c>3600</c>, <c>90s</c>, <c>30m</c>, <c>30min</c>, <c>2h</c>, <c>1d</c>.</summary>
+    public static bool TryParseDuration(string text, out TimeSpan duration)
+    {
+        duration = TimeSpan.Zero;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var lower = text.ToLowerInvariant();
+        var (number, unit) =
+            lower.EndsWith("min") ? (lower[..^3], 60L) :
+            lower.EndsWith('s') ? (lower[..^1], 1L) :
+            lower.EndsWith('m') ? (lower[..^1], 60L) :
+            lower.EndsWith('h') ? (lower[..^1], 3_600L) :
+            lower.EndsWith('d') ? (lower[..^1], 86_400L) :
+            (lower, 1L);
+
+        if (!long.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out var amount) || amount <= 0 ||
+            amount > (long)MaxRateEventDuration.TotalSeconds / unit)
+        {
+            return false;
+        }
+
+        duration = TimeSpan.FromSeconds(amount * unit);
+        return true;
+    }
+
     /// <summary>A sum that saturates at <see cref="long.MaxValue"/> and never goes below zero.</summary>
     public static long AddClamped(long current, long delta) => ApplyGold(current, delta);
 
@@ -223,3 +316,14 @@ public static class GmCommandRules
         float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
         float.IsFinite(value) && value >= 0;
 }
+
+public enum RateCommandKind
+{
+    Show,
+    Start,
+    Reset
+}
+
+/// <summary>A parsed <c>/rate</c>: what to do, on which types, and for a start by how much and how long.</summary>
+public readonly record struct RateCommandLine(RateCommandKind Kind, IReadOnlyList<RateType> Types,
+    double Multiplier, TimeSpan Duration);

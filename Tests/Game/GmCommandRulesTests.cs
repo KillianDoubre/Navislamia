@@ -91,7 +91,8 @@ public class GmCommandCatalogTests
     public void UnprivilegedCommands_AreTheNgemityPlayerOnes()
     {
         GmCommandCatalog.All.Where(definition => !definition.Privileged).Select(definition => definition.Name)
-            .Should().BeEquivalentTo("help", "position", "sitdown", "standup", "battle", "walk");
+            .Should().BeEquivalentTo(new[] { "help", "position", "sitdown", "standup", "battle", "walk", "rates" },
+                "/help and /rates (read-only) are this repository's additions; the rest are NGemity's player commands");
     }
 
     [Test]

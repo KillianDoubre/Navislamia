@@ -32,6 +32,7 @@ public class StateCatalog : IStateCatalog
 
     private readonly ILogger _logger = Log.ForContext<StateCatalog>();
     private readonly FrozenDictionary<int, StateEffectTemplate[]> _states;
+    private readonly FrozenSet<int> _eraseOnRequest;
     private readonly FrozenSet<int> _stateIds;
     private readonly FrozenDictionary<int, ResurrectionStateValues> _resurrections;
 
@@ -52,7 +53,14 @@ public class StateCatalog : IStateCatalog
         _resurrections = (repository.GetStatesWithEffect((int)StateEffectType.Resurrection)
                           ?? Array.Empty<StateEffectFields>())
             .ToFrozenDictionary(state => state.StateId, state => ResurrectionStateValues.From(state.Values));
-        _logger.Debug("Loaded {count} stat states", _states.Count);
+        _eraseOnRequest = (repository.GetEraseOnRequestStateIds() ?? Array.Empty<int>()).ToFrozenSet();
+        _logger.Debug("Loaded {count} stat states and {cancellable} cancellable states", _states.Count,
+            _eraseOnRequest.Count);
+    }
+
+    public bool IsEraseOnRequest(int stateId)
+    {
+        return _eraseOnRequest.Contains(stateId);
     }
 
     public bool Exists(int stateId) => _stateIds.Contains(stateId);

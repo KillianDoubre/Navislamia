@@ -18,8 +18,15 @@ public static class DropRoll
         return Roll(entries, NoGroups, random, chanceMultiplier);
     }
 
+    /// <param name="chanceMultiplier">The item drop rate, applied to every slot.</param>
+    /// <param name="directItemMultiplier">
+    /// An extra factor for a slot whose id is a direct item (the creature card rate). It is judged on the slot,
+    /// before any group is resolved, exactly like NGemity's <c>World::checkDrop</c> tests <c>code &gt; 0</c>:
+    /// a card reached through a drop group does not get it.
+    /// </param>
     public static IReadOnlyList<DroppedItem> Roll(IReadOnlyList<DropEntry> entries,
-        IReadOnlyDictionary<int, DropGroupEntry[]> groups, Random random, double chanceMultiplier = 1)
+        IReadOnlyDictionary<int, DropGroupEntry[]> groups, Random random, double chanceMultiplier = 1,
+        Func<int, double> directItemMultiplier = null)
     {
         if (entries.Count == 0)
         {
@@ -30,7 +37,10 @@ public static class DropRoll
         for (var i = 0; i < entries.Count; i++)
         {
             var entry = entries[i];
-            var chance = Math.Min(1, entry.Chance * chanceMultiplier);
+            var itemFactor = entry.ItemId > 0 && directItemMultiplier != null
+                ? directItemMultiplier(entry.ItemId)
+                : 1;
+            var chance = Math.Min(1, entry.Chance * chanceMultiplier * itemFactor);
             if (random.NextDouble() >= chance)
             {
                 continue;

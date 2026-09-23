@@ -16,13 +16,17 @@ dotnet build Navislamia.sln -c Release
 dotnet test Tests/Tests.csproj -c Release
 
 .\start-server.ps1
+.\start-server.ps1 -Watch      # game server under dotnet watch: Hot Reload, the client stays connected
 .\launch-client.ps1
 
 dotnet run --project AuthServer
 dotnet run --project DevConsole
 ```
 
-AuthServer must be listening before DevConsole. The solution uses the .NET 8 x64 toolchain for all
+AuthServer must be listening before DevConsole. `-Watch` (Debug only) patches method-body edits into the
+running game server; a change Hot Reload cannot apply (signature, new field or enum member, startup code
+such as catalogues and DI) restarts it automatically (`DOTNET_WATCH_RESTART_ON_RUDE_EDIT=1`), and a loop
+already running (combat, AI, rate ticks) keeps its old body until then. The solution uses the .NET 8 x64 toolchain for all
 projects referencing `Game`. PostgreSQL databases are `Arcadia`, `Telecaster` and `auth`.
 
 ## Solution layout
@@ -289,7 +293,8 @@ backfilled.
 On death the killer is rewarded: `CombatRewards.Compute(level)` returns level-based placeholder exp, jp
 and gold (`10 + level * 5`, `5 + level * 2`, `5 + level * 3`), added to `ConnectionInfo`
 (`CharacterExp`/`CharacterJp`/`CharacterGold`, seeded in `OnLogin`) and sent with `TS_SC_EXP_UPDATE`
-(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). Real per-monster exp and gold live in the `MonsterResource`
+(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). The `Exp`/`Jp`/`Gold` rates multiply the three amounts (see
+*Rates*). Real per-monster exp and gold live in the `MonsterResource`
 reward columns (`Exp`, `GoldMin`, `GoldMax`) and replace the placeholder once backfilled. Progress
 persists once per session: `GameClient.OnDisconnect` calls `CharacterService.SaveProgress`, which writes
 exp, jp, gold and chaos; there are no per-kill database writes.
@@ -374,8 +379,9 @@ table-level pick-one); when a slot fires, a **positive** id drops that item with
 **negative** id resolves its group by weight — once per rolled count, so a slot with `count = 6-20` drops
 that many separate group picks. This is why a typical spawn monster now drops on **~78% of kills** at the
 authentic rate, several items each (piles of low-value materials), rather than the ~2% the direct-only
-catalog produced. `GroundItemService.DropChanceMultiplier` still scales every chance (clamped at 1.0) and
-stays **1, the authentic rate** — no longer a testing knob, since drops are plentiful without it.
+catalog produced. The `ItemDrop` rate scales every chance (clamped at 1.0) and defaults to **1, the
+authentic rate**; the `CreatureCardDrop` rate adds a factor to a slot whose direct item is a summon card
+(see *Rates*). It replaced the `GroundItemService.DropChanceMultiplier` constant.
 
 A ground item is `TS_SC_ENTER` with `type = ET_StaticObject (2)` and `objType = EOT_Item (2)`, 70 bytes:
 the shared header through `objType`, then `code` as the 8-byte randomized `EncodedInt` (the `npc_id`
@@ -389,7 +395,7 @@ duplicate it, then writes a new `ItemEntity` at `max(Idx) + 1`. The reply order 
 `TS_SC_INVENTORY` and the result. **`210` is what plays the pick-up animation** — its `item_taker` tells
 the client which actor to animate, which the generic `TS_SC_RESULT` cannot express, exactly like `287`
 against `202` for equipment. It is sent before the `LEAVE` so the animation starts before the object
-disappears. Items expire after 120 seconds through a 1 s tick.
+disappears. Items expire after `Rates:GroundItemLifetimeSeconds` (120 by default) through a 1 s tick.
 
 `GroundItemService` deliberately does **not** depend on `NetworkService`: `NetworkService` already
 injects the service, so taking the client list from it creates a DI cycle that only fails at runtime.
@@ -833,8 +839,11 @@ hang off the skill that applied it — but nothing has been read to prove it.
 
 So the practical consequence — **a 9.4-only state id may render nothing** — stays a presumption
 rather than a proven mechanism, and "the same unresolved 7.3 gap as ground items" was an
-inference from a file that does not exist. Whether this client renders a state icon at all is
-still unverified.
+inference from a file that does not exist. **The client does render state icons** (observed
+2026-09-23 with `/buff 164401`: icon, countdown and double-click cancel), and **one 9.4-only id is
+now observed rendering nothing**: `/buff 41102536` (Guardian of Gaia) moves the stats — the server
+side works — but shows no icon, so the player cannot see or cancel it. The mechanism (which client
+file lists the known states) is still not established.
 
 **Percentage values are ratios, not percent numbers.** A `ParameterAmp` state or an `AmpParameterA` item
 carries `0.05` for "+5%", and `StatBlock.Amplify` does `stat * (1 + ratio)` exactly like the reference's
@@ -1316,6 +1325,44 @@ must pass all four**, the mask being a snapshot.
 The `&`-prefixed command lists found online do not exist in this client: none of their strings is in
 `SFrame.exe`.
 
+`/rate` and `/rates` read and drive the server rates; see *Rates* below.
+
+## Rates
+
+The server rates are the `Rates` section of `DevConsole/appsettings.{env}.json` — tracked, one per
+server, and **read live through `IOptionsMonitor`**, so an edit applies without a restart — multiplied by
+the `/rate` event running on that type. A x5 server in a x2 event runs at x10. `IRateService`
+(`Game/Services/Rates/`) is the only reader; the keys, their NGemity origin and the GM commands are in
+`docs/gm-commands.md`, *Rates*.
+
+- **What they touch**: exp, JP and gold per kill (`CombatService.AwardKill`), the drop chance and the
+  summon-card factor (`GroundItemService.DropForMonster` → `DropRoll.Roll`), the monster respawn delay,
+  the ground-item lifetime, and the JP cost of a skill level (`SkillCatalog.Evaluate`) and of a job level
+  (`LevelingService`). A key exists only once something reads it: no quest, chaos-drop or PvP rate until
+  those systems do.
+- **`Jp` follows `Exp` when unset**, which is NGemity's single `EXPRate` (`World.cpp:529`).
+- **Amounts are rounded at random** (`RateMath.ScaleRandom`: 7 × 1.5 gives 10 or 11), which is what
+  NGemity's `GetIntValueByRandomInt64` means to do — **its test is always true, so it always truncates**;
+  the intent is ported, not the defect. **Costs are rounded up** (`ScaleCost`), so only a rate of 0 is free.
+- **A job-level cost of 0 was the "tier capped" signal.** A `JobLevelJpCost` of 0 would have read as capped,
+  so `ILevelingService.NextJobLevelCost` became `TryGetNextJobLevelCost(level, out cost)`: `false` is the
+  capped tier, `cost` is what is really charged, and `/joblevel` credits exactly that.
+- **The card factor is judged on the slot, before group resolution**, like NGemity's `World::checkDrop`
+  (`code > 0`): a card reached through a drop group does not get it.
+- **Events** replace, never stack (x2 then x3 is x3); a duration is required; they are saved with their UTC
+  end to `EventStatePath` (`DevConsole/rate-events.json`, ignored by git), so a restart resumes them with
+  their remaining time. An event stops counting at its end even before the tick removes it.
+- **`RateEventTicker` announces the end and the reminder** and holds `NetworkService` for the client list,
+  like `MonsterAiService`. `RateService` must not: `CombatService` and `GroundItemService` depend on it and
+  are injected into `NetworkService` — the DI cycle that only fails at runtime.
+- Whether the 7.3 client accepts a learn or a job-level request priced **below its own table** is not
+  established: it may grey the button on its own figure, and it always displays its own price.
+
+**One Telecaster per server.** `Database:TelecasterCatalog` (default `Telecaster`) and
+`Database:ArcadiaCatalog` (default `Arcadia`) replace the two names `Program.ConfigureDataAccess` used to
+hard-code; `InitialCatalog` is still overridden by them. A second game server sets its own
+`TelecasterCatalog`, otherwise it shares the characters of the first.
+
 ## Current limitations
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
@@ -1579,6 +1626,101 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - **Restent à trancher avant tout moteur** (détail en fin de fiche) : taux de réussite, sort des
   châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
   `mix_type` 801/802/803 ↔ 263/264.
+
+### Paquet 304 — `TM_CS_SUMMON` (demande d'invocation par carte)
+
+- **Le client 7.3 ne l'émet pas** : l'invocation passe par le sort d'invocation de créature
+  (`db_string.rdb:34762`, compétence 4001, `EF_SUMMON = 601` ; renvoi 4002, `602`), donc par
+  `TM_CS_SKILL` (400). Le client *nomme* 304 dans sa table id → nom mais n'a aucune classe de message
+  pour le construire, alors qu'il en a une pour 303, 323 et 452. NGemity ne le traite pas non plus
+  (« Got unknown packet »).
+- Disposition 7.3 : en-tête 7 + `int8_t is_summon` (7) + `ar_handle_t card_handle` (8-11), **12 octets**.
+  Le sens des deux champs n'est pas établi : ils sont lus bruts (`GameActionPackets.TryReadSummon`,
+  trame de moins de 12 octets refusée, trame plus longue lue sur ses 12 premiers) et seulement
+  journalisés en `Debug`. **Aucune réponse**, aucune invocation, aucune consommation de carte.
+- `1304` est l'id 9.6.3 de ce paquet (`version >= EPIC_9_6_3`). En 7.3, `1304` est
+  `TM_CS_AUCTION_BIDDED_LIST` : il ne doit **jamais** être déclaré comme demande d'invocation, et un
+  test l'assure — il pourra l'être sous son nom d'enchère.
+- Détail et réserves : `docs/packet-specs/304-summon.md`.
+
+### Paquet 324 — `TM_CS_GET_SUMMON_SETUP_INFO` / réponse `TM_EQUIP_SUMMON` (303)
+
+- 7.3 = id **324**, **8 octets** : 7 d'en-tête + `show_dialog` (1 octet à l'offset 7). rzu remappe en
+  1324 à partir d'`EPIC_9_6_3` ; le client 7.3 écrit l'id en dur (`0x144` en VA `0x48c662`,
+  `Length = 8` en `0x48c66d`).
+- Le client l'émet à **l'ouverture de la fenêtre de formation des créatures** (Alt + R, bouton
+  `button_formation` ou `button_common_quick_creature_edit`, commande d'interface
+  `req_summon_formation`). Avant ce lot, l'id n'était pas déclaré : chaque ouverture laissait un
+  `Undefined packet ID: 324` et la fenêtre sans réponse.
+- `show_dialog` n'est pas constant (négation du réglage client 44) : le serveur le relit et le rend dans
+  `open_dialog`, jamais le fixer.
+- **Réponse : 303 seul**, 32 octets, `open_dialog` à l'offset 7 puis six handles aux offsets 8, 12, 16,
+  20, 24, 28 (NGemity `WorldSession.cpp:692-695`, `Messages.cpp:122-135`). Aucune écriture en base.
+  `BuildEquipSummon(slots, openDialog)` sert les deux sites : l'entrée en jeu passe `false`.
+- Les six handles viennent de `ConnectionInfo.SummonSlots`, posé **une seule fois** à l'entrée en jeu
+  depuis `CharacterEntity.SummonSlotItemIds` (et remis à vide par `ClearCharacterSession`) : les deux 303
+  ne peuvent pas diverger. La colonne n'est alimentée par personne, donc la réponse vaut **six zéros**
+  aujourd'hui ; une carte qui l'écrira devra aussi rafraîchir `SummonSlots`.
+- **303 va dans les deux sens.** Le client émet aussi 303 (constructeur VA `0x48cd10`, 32 octets,
+  `open_dialog = 0`, six `card_handle`) quand le joueur valide sa formation ; sans bras, il atteignait le
+  `throw` (observé en jeu : deux `Unknown Packet Type` juste après l'ouverture de la fenêtre).
+  `GameClient.HandleEquipSummon` le lit (`TryReadEquipSummon`, 32 octets exacts), le journalise et
+  **renvoie la formation stockée** avec l'`open_dialog` reçu. C'est la réponse de NGemity
+  (`onEquipSummon`) quand aucune carte n'est retenue : il ne garde qu'une carte d'invocation du joueur
+  portant `ITEM_FLAG_SUMMON` (bit 31, carte apprivoisée), dans la limite de Creature Control (1801), puis
+  renvoie **toujours** la formation résultante. Rien ne pose ce bit ici (pas d'apprivoisement, `/item`
+  n'écrit aucun drapeau) : toute carte est refusée, rien n'est écrit. Le jour où une carte peut être
+  apprivoisée, ce bras devient le portage d'`onEquipSummon`.
+- Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
+- Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
+
+### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
+
+- **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,
+  `target` `uint32` à l'offset 7 (handle de la créature dont la fenêtre d'états est affichée),
+  `state_code` `int32` à l'offset 11 (le `StateId`). Aucun gating de champ : rzu ne versionne que
+  l'id (408 pour `< EPIC_9_6_3`, 1408 au-delà), donc **408 en 7.3**. C'est le clic d'une icône d'état
+  dans `window_main_state_h_effect.nui` qui l'émet (les infobulles 9.4 disent « double-cliquer pour
+  annuler »), et le client ne le construit que pour un état dont le mot de drapeaux porte `1 << 5` —
+  `StateTimeType.EraseOnRequest = 32`, le même bit que `AF_ERASE_ON_REQUEST` de NGemity. **Ce drapeau
+  n'était lu par aucune projection du dépôt** : `StateEffectFields` ne transporte que
+  `Id`/`EffectType`/`Values`, et `StateCatalog` ne charge que les états à effet de stat (`EffectType`
+  1 ou 2) alors qu'`ActiveBuffs` en contient d'autres — d'où la seconde projection
+  `GetEraseOnRequestStateIds` → `IStateCatalog.IsEraseOnRequest`. Le savoir du paquet vit dans
+  `docs/packet-specs/408-request-remove-state.md`.
+- **`state_time_type` n'avait jamais été importé** : `StateResources` portait `0` pour les 1 949
+  lignes, comme toutes ses colonnes scalaires hors `EffectType`/`Values` (le piège des littéraux NOT
+  NULL, une fois de plus), donc la garde refusait **tout**. `tools/Import-StateResourceColumns.ps1`
+  (modèle de `Import-SkillResourceColumns.ps1`, depuis le CSV) importe les 20 colonnes scalaires : 63
+  états portent le bit 32, 350 sont `IsHarmful`. Piège : `StateTimeType` est un enum `short`
+  (`smallint`) et l'état 201085 vaut `33150` (bit 15, au-delà de tout drapeau déclaré) — le script
+  stocke le motif 16 bits tel quel (complément à deux), ce qui garde chaque bit pour le test `&`.
+  **Aucune aura et presque aucun buff castable ne porte le bit** : en jeu, on le teste par `/buff`.
+  **Validé en jeu le 2026-09-23** avec 164401 (Strength Boost) : icône, double-clic sur l'icône →
+  retrait et stats rétablies ; 13472 (sans le bit) ne s'annule pas. 41102536 (Guardian of Gaia)
+  applique ses stats mais **n'affiche aucune icône** dans ce client (id 9.4 inconnu du 7.3, voir
+  *Buffs*) : il est donc inannulable par la fenêtre, et le retrait de `max_hp`/`max_mp` par la 408
+  n'a pas été observé — seul cet état du lot annulable touche les PV/PM max.
+- **Réponse** : `TM_SC_STATE` (505), **63 octets**, `state_level`/`end_time`/`start_time` à zéro —
+  c'est exactement `BuildStateRemoval`, déjà validé en jeu à l'expiration ; NGemity encode le retrait
+  de la même façon (`Messages.cpp:1105-1123`). Suivi de `SendStatRefresh` (`RefreshBuffs` +
+  `TM_SC_STAT_INFO`/`TM_SC_PROPERTY`), puis `TS_SC_RESULT` taggé 408 `Success` (choix du dépôt, isolé
+  dans `SkillCastService.RemoveState(client, request)`). En cas d'échec, `TS_SC_RESULT` taggé 408
+  (`NotExist`/`NotActable`, `InvalidArgument` pour une trame d'une autre longueur) sans aucun effet de
+  bord : le paquet n'a aucune réponse dédiée dans tout le protocole.
+- **Une aura annulée par cette voie doit être défaite comme une aura** : couper `ActiveAuras` et
+  envoyer `TM_SC_AURA` (407) à `false`, comme `RemoveAura` le fait à la bascule. Sans cela, le client
+  garde l'icône d'aura allumée alors que le serveur l'a retirée. **Le groupe d'aura du plan est un
+  `int?`** : le groupe `0` est un vrai groupe (voir *Toggle auras*), et la première version, qui s'en
+  servait comme « pas d'aura », laissait une aura du groupe 0 allumée dans `ActiveAuras`.
+- Aucune diffusion : les états ne partent que vers la connexion du joueur concerné, ici comme pour
+  l'expiration et la bascule (NGemity, lui, diffuse à la région — écart assumé).
+- **Réserves vérifiables** (fiche §7) : l'émission effective de la trame par le client n'est pas
+  prouvée par la seule lecture (le dernier saut message interne → socket n'est pas résolu, l'opcode
+  n'apparaît dans aucun immédiat du `.text`) ; le geste exact de déclenchement ; le fait qu'une cible
+  tierce soit légitime (`window_target_state_h_effect.nui` existe) — décision : n'accepter que son
+  propre handle ; aucune valeur sentinelle « tous les états » — décision : code inconnu =
+  `NotExist` ; le client juge le bit 32 sur **ses propres** données d'état, que rien n'a lues.
 
 ### Mort et réapparition du personnage joueur
 

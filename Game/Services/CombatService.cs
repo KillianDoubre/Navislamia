@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Rates;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -15,7 +16,6 @@ public class CombatService : ICombatService
 
     /// <summary>How soon an out-of-reach swing re-checks range while the client walks the player in.</summary>
     private const int RangeRetryMs = 200;
-    private const int RespawnDelaySeconds = 10;
     private const int DamageHpDivisor = 3;
     private const int DeathAnimationSeconds = 6;
 
@@ -24,14 +24,16 @@ public class CombatService : ICombatService
     private readonly IMonsterSpawnService _spawnService;
     private readonly ILevelingService _levelingService;
     private readonly IGroundItemService _groundItemService;
+    private readonly IRateService _rates;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
-        ILevelingService levelingService, IGroundItemService groundItemService)
+        ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates)
     {
+        _rates = rates;
         _worldState = worldState;
         _spawnService = spawnService;
         _levelingService = levelingService;
@@ -209,7 +211,7 @@ public class CombatService : ICombatService
         }
 
         var now = DateTime.UtcNow;
-        _worldState.Kill(instanceId, now.AddSeconds(RespawnDelaySeconds));
+        _worldState.Kill(instanceId, now + _rates.MonsterRespawnDelay);
 
         // A corpse keeps no debuff, and a respawn must not inherit one either.
         foreach (var state in _worldState.ClearStates(instanceId))
@@ -243,7 +245,11 @@ public class CombatService : ICombatService
 
     private void AwardKill(GameClient client, ConnectionInfo info, int monsterLevel)
     {
-        var (exp, jp, gold) = CombatRewards.Compute(monsterLevel);
+        // The rates apply to the reward, rounded at random so a fractional rate is exact on average.
+        var (baseExp, baseJp, baseGold) = CombatRewards.Compute(monsterLevel);
+        var exp = _rates.Scale(baseExp, RateType.Exp);
+        var jp = _rates.Scale(baseJp, RateType.Jp);
+        var gold = _rates.Scale(baseGold, RateType.Gold);
         info.CharacterExp += exp;
         info.CharacterJp += jp;
         info.CharacterGold += gold;

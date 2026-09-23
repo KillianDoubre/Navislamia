@@ -397,6 +397,74 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_GET_SUMMON_SETUP_INFO (324), 8 bytes: the client asks for the creature formation again, most
+    /// often with show_dialog set when the player opens the window. The answer is a TM_EQUIP_SUMMON (303)
+    /// carrying the same six handles as the frame sent at world entry, with the open_dialog byte replaying
+    /// what was received. Nothing is written and no TS_SC_RESULT is sent: 324 has no result packet, the
+    /// 303 is its only acknowledgement.
+    /// </summary>
+    private void HandleGetSummonSetupInfo(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadGetSummonSetupInfo(buffer, out var request))
+        {
+            _logger.Warning("Malformed summon setup info request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning(
+                "Summon setup info request received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        Connection.Send(GameCharacterPackets.BuildEquipSummon(ConnectionInfo.SummonSlots, request.ShowDialog));
+        _logger.Debug(
+            "TM_CS_GET_SUMMON_SETUP_INFO ({id}) Length: {length} received from {clientTag}: show_dialog={showDialog}",
+            (ushort)GamePackets.TM_CS_GET_SUMMON_SETUP_INFO, buffer.Length, ClientTag, request.ShowDialog);
+    }
+
+    /// <summary>
+    /// TM_EQUIP_SUMMON (303) from the client, 32 bytes: the player validated a creature formation. NGemity
+    /// (<c>WorldSession::onEquipSummon</c>) keeps a card only when it is a summon card owned by the player
+    /// and carrying <c>ITEM_FLAG_SUMMON</c> (bit 31, a tamed card), within the slot count the Creature
+    /// Control skill (1801) allows, then <b>always</b> answers with the resulting formation. Nothing sets
+    /// that flag here — there is no taming and <c>/item</c> writes no flag — so every card is refused and the
+    /// resulting formation is the stored one: it is re-sent unchanged, with the request's
+    /// <c>open_dialog</c>, which is the reference's own answer for that case and lets the window resync
+    /// instead of waiting. Nothing is written. Before this arm the declared id reached the
+    /// "Unknown Packet Type" throw. See docs/packet-specs/324-get-summon-setup-info.md §14.
+    /// </summary>
+    private void HandleEquipSummon(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadEquipSummon(buffer, out var request))
+        {
+            _logger.Warning("Malformed creature formation received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (ConnectionInfo.CharacterHandle == 0)
+        {
+            _logger.Warning("Creature formation received from {clientTag} before the character entered the world",
+                ClientTag);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_EQUIP_SUMMON ({id}) received from {clientTag}: open_dialog={openDialog} cards={cards}; no card is tamed, the stored formation is sent back",
+                (ushort)GamePackets.TM_EQUIP_SUMMON, ClientTag, request.OpenDialog,
+                string.Join(",", request.CardHandles));
+        }
+
+        Connection.Send(GameCharacterPackets.BuildEquipSummon(ConnectionInfo.SummonSlots, request.OpenDialog));
+    }
+
+    /// <summary>
     /// TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to a
     /// creature card (click on the card window's <c>button_flip</c>). The frame is 11 bytes — a 7 byte
     /// header plus a single uint32 <c>item_handle</c> at offset 7. It is read and bounded, and the
@@ -929,6 +997,28 @@ public class GameClient : Client
         }
     }
 
+    private void HandleRemoveState(byte[] packet)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE;
+        if (!GameActionPackets.TryReadRemoveState(packet, out var request))
+        {
+            // The frame is fixed-size: a 408 of any other length is not a removal request.
+            SendResult(requestId, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            _networkService.SkillCastService.RemoveState(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process state removal {stateCode} for {clientTag}",
+                request.StateCode, ClientTag);
+            SendResult(requestId, (ushort)ResultCode.Misc, request.StateCode);
+        }
+    }
+
     private async Task HandleLearnSkillAsync(byte[] packet)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
@@ -1222,6 +1312,39 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_CS_SUMMON (304): rzu declares the frame, but the 7.3 client never builds it (summoning
+            // goes through the summon creature skill, TM_CS_SKILL = 400) and NGemity has no handler for it
+            // either ("Got unknown packet"). The id is declared and routed here so that a frame cannot reach
+            // the "Unknown Packet Type" throw below; the frame is read and logged, and nothing is answered:
+            // no reference sanctions a response and the client has no incoming handler for 304. The arm sits
+            // next to the isolated TM_SC_REGION_ACK arm rather than at the end of the chain, whose insertion
+            // zone the rest of the summon family and the sibling branches already share.
+            // See docs/packet-specs/304-summon.md §5.3, §5.4.
+            if (header.ID == (ushort)GamePackets.TM_CS_SUMMON)
+            {
+                // is_summon and card_handle are exposed raw: neither rzu nor NGemity says what they mean and
+                // nothing here decides summoning, unsummoning or card consumption (the summon path already
+                // exists through TM_CS_SKILL). A frame shorter than the declared 12 bytes cannot be read and
+                // is only logged; no refusal is emitted, as no refusal rule is established (§5.3.4).
+                if (GameActionPackets.TryReadSummon(msgBuffer, out var isSummon, out var cardHandle))
+                {
+                    // Five properties: guarded, or the argument array is built before the level check.
+                    if (_logger.IsEnabled(LogEventLevel.Debug))
+                    {
+                        _logger.Debug(
+                            "TM_CS_SUMMON ({id}) Length: {length} received from {clientTag}: is_summon={isSummon} card_handle={cardHandle}",
+                            header.ID, header.Length, ClientTag, isSummon, cardHandle);
+                    }
+                }
+                else
+                {
+                    _logger.Warning("Malformed TM_CS_SUMMON ({id}) Length: {length} received from {clientTag}",
+                        header.ID, header.Length, ClientTag);
+                }
+
+                continue;
+            }
+
             // TM_CS_REQUEST (60) is declared so that the frame is read and bounded instead of being dropped
             // as an undefined id. Any arm for a declared id must run before the throwing switch below: a
             // member of GamePackets that reaches it breaks the receive loop. Nothing is answered and
@@ -1383,6 +1506,12 @@ public class GameClient : Client
                 continue;
             }
 
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE)
+            {
+                HandleRemoveState(msgBuffer);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_PUTON_ITEM)
             {
                 _ = HandlePutonItemAsync(msgBuffer);
@@ -1428,6 +1557,20 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION)
             {
                 _ = HandleChangeItemPositionAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_SUMMON_SETUP_INFO)
+            {
+                HandleGetSummonSetupInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_EQUIP_SUMMON (303) travels both ways: the server's formation, and the client's validated
+            // one. The incoming direction must be claimed here, or the declared id reaches the throw below.
+            if (header.ID == (ushort)GamePackets.TM_EQUIP_SUMMON)
+            {
+                HandleEquipSummon(msgBuffer);
                 continue;
             }
 
@@ -1636,7 +1779,7 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_CS_ACCOUNT_WITH_AUTH => new Packet<TM_CS_ACCOUNT_WITH_AUTH>(msgBuffer),
                 (ushort)GamePackets.TM_CS_REPORT => new Packet<TS_CS_REPORT>(msgBuffer),
 
-                _ => throw new Exception("Unknown Packet Type")
+                _ => throw new Exception($"Unknown Packet Type {header.ID}")
             };
 
             if (_logger.IsEnabled(LogEventLevel.Debug))

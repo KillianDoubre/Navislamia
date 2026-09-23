@@ -7,6 +7,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Rates;
 using Navislamia.Game.Services.Stats;
 using Serilog;
 
@@ -39,12 +40,14 @@ public class GmCommandService : IGmCommandService
     private readonly SkillCatalog _skillCatalog;
     private readonly ISkillCastService _skillCastService;
     private readonly IStateCatalog _stateCatalog;
+    private readonly IRateService _rateService;
 
     public GmCommandService(IWarpService warpService, ICombatService combatService,
         ILevelingService levelingService, IStatService statService, ICharacterService characterService,
         IItemSortCatalog itemCatalog, MonsterWorldState monsterState, SkillCatalog skillCatalog,
-        ISkillCastService skillCastService, IStateCatalog stateCatalog)
+        ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService)
     {
+        _rateService = rateService;
         _warpService = warpService;
         _combatService = combatService;
         _levelingService = levelingService;
@@ -335,6 +338,14 @@ public class GmCommandService : IGmCommandService
                 Reply(client, $"Chaos: {info.CharacterChaos}.");
                 break;
 
+            case GmCommand.Rate:
+                RunRate(client, definition, line, everyone);
+                break;
+
+            case GmCommand.Rates:
+                ShowRates(client, detailed: false);
+                break;
+
             default:
                 _logger.Error("GM command {command} has no handler", definition.Command);
                 break;
@@ -381,7 +392,14 @@ public class GmCommandService : IGmCommandService
         return killed;
     }
 
-    private void SendNotice(string sender, string text, IEnumerable<GameClient> everyone)
+    private void SendNotice(string sender, string text, IEnumerable<GameClient> everyone) =>
+        Broadcast(sender, text, everyone);
+
+    /// <summary>
+    /// A notice line (<c>CHAT_NOTICE</c>) to every player in the world — <c>/notice</c>, and the rate event
+    /// announcements, which are sent from a timer as well as from a command.
+    /// </summary>
+    public static void Broadcast(string sender, string text, IEnumerable<GameClient> everyone)
     {
         var packet = GameChatPackets.BuildChat(sender, (byte)ChatType.Notice, text);
         foreach (var recipient in everyone ?? Enumerable.Empty<GameClient>())
@@ -475,8 +493,7 @@ public class GmCommandService : IGmCommandService
 
         while (info.CharacterJobLevel < target)
         {
-            var cost = _levelingService.NextJobLevelCost(Math.Max(1, info.CharacterJobLevel));
-            if (cost <= 0)
+            if (!_levelingService.TryGetNextJobLevelCost(Math.Max(1, info.CharacterJobLevel), out var cost))
             {
                 break;
             }
@@ -620,6 +637,78 @@ public class GmCommandService : IGmCommandService
     }
 
     private static bool IsAlive(ConnectionInfo info) => MonsterAiRules.IsAlive(info.CharacterHp);
+
+    /// <summary>
+    /// <c>/rate</c>: shows the rates, starts an event (announced to every player) or ends one early. A new
+    /// event on a type replaces the one running on it; the running events survive a restart
+    /// (<see cref="RateService"/>), and their end is announced by <see cref="RateEventTicker"/>.
+    /// </summary>
+    private void RunRate(GameClient client, GmCommandDefinition definition, GmCommandLine line,
+        IEnumerable<GameClient> everyone)
+    {
+        if (!GmCommandRules.TryParseRate(line.Args, _rateService.MaxEventMultiplier, out var command))
+        {
+            Usage(client, definition);
+            Reply(client, string.Create(CultureInfo.InvariantCulture,
+                $"Multiplier 0..{RateEventBook.FormatMultiplier(_rateService.MaxEventMultiplier)}, duration such as 3600, 30m, 2h, 1d."));
+            return;
+        }
+
+        var gm = client.ConnectionInfo.CharacterName;
+        switch (command.Kind)
+        {
+            case RateCommandKind.Show:
+                ShowRates(client, detailed: true);
+                break;
+
+            case RateCommandKind.Start:
+                var announcement = _rateService.StartEvent(command.Types, command.Multiplier, command.Duration, gm);
+                Broadcast(SystemSender, announcement, everyone);
+                break;
+
+            case RateCommandKind.Reset:
+                var notices = _rateService.ResetEvents(command.Types, gm);
+                if (notices.Count == 0)
+                {
+                    Reply(client, $"No {RateTypes.Label(command.Types)} event is running.");
+                }
+
+                foreach (var notice in notices)
+                {
+                    Broadcast(SystemSender, notice, everyone);
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The effective rates, one line each. <c>/rates</c> shows what a player earns; <c>/rate</c> adds the base,
+    /// the event share and the settings that are not multipliers.
+    /// </summary>
+    private void ShowRates(GameClient client, bool detailed)
+    {
+        foreach (var status in _rateService.Status())
+        {
+            var text = $"{RateTypes.Label(status.Type)} x{RateEventBook.FormatMultiplier(status.Effective)}";
+            if (status.Remaining is { } remaining)
+            {
+                text += detailed
+                    ? $" (base x{RateEventBook.FormatMultiplier(status.Base)}, event x{RateEventBook.FormatMultiplier(status.Event)}, {RateEventBook.FormatDuration(remaining)} left)"
+                    : $" (event, {RateEventBook.FormatDuration(remaining)} left)";
+            }
+
+            Reply(client, text);
+        }
+
+        if (detailed)
+        {
+            Reply(client, $"Respawn {RateEventBook.FormatDuration(_rateService.MonsterRespawnDelay)}, " +
+                          $"ground items {RateEventBook.FormatDuration(_rateService.GroundItemLifetime)}, " +
+                          $"skill JP cost x{RateEventBook.FormatMultiplier(_rateService.SkillJpCost)}, " +
+                          $"job level JP cost x{RateEventBook.FormatMultiplier(_rateService.JobLevelJpCost)}.");
+        }
+    }
 
     private static void Usage(GameClient client, GmCommandDefinition definition) =>
         Reply(client, $"Usage: {definition.Usage}");

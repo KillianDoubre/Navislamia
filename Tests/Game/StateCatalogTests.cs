@@ -9,6 +9,7 @@ namespace Tests.Game;
 public class StateCatalogTests
 {
     private const int QuickPace = 2622;
+    private const int Shield = 1101;
     private const uint MoveSpeedMask = 8192;
     private const uint DefenceMask = 512;
     private const uint BothDefencesMask = 1536;
@@ -27,9 +28,36 @@ public class StateCatalogTests
 
     private static StateCatalog Create(params StateEffectFields[] states)
     {
+        return Create(states, Array.Empty<int>());
+    }
+
+    private static StateCatalog Create(StateEffectFields[] states, int[] eraseOnRequest)
+    {
         var repository = A.Fake<IStateResourceRepository>();
         A.CallTo(() => repository.GetStatStates()).Returns(states);
+        A.CallTo(() => repository.GetEraseOnRequestStateIds()).Returns(eraseOnRequest);
         return new StateCatalog(repository);
+    }
+
+    [Test]
+    public void IsEraseOnRequest_OnlyAdmitsTheStatesTheProjectionCarries()
+    {
+        var catalog = Create(new[] { State(QuickPace, StateCatalog.ParameterInc, Values(MoveSpeedMask, 0, 1)) },
+            new[] { QuickPace });
+
+        catalog.IsEraseOnRequest(QuickPace).Should().BeTrue();
+        catalog.IsEraseOnRequest(Shield).Should().BeFalse();
+    }
+
+    [Test]
+    public void IsEraseOnRequest_DoesNotDependOnTheStatEffectMap()
+    {
+        // A cancellable state whose effect is not decoded has no entry in the stat map, and must still be
+        // cancellable: ActiveBuffs holds every applied state, not only the stat-affecting ones.
+        var catalog = Create(Array.Empty<StateEffectFields>(), new[] { QuickPace });
+
+        catalog.IsEraseOnRequest(QuickPace).Should().BeTrue();
+        catalog.Resolve(QuickPace, 1).Should().BeEmpty();
     }
 
     [Test]
