@@ -699,4 +699,8 @@ d'un familier (NGemity n'a aucune logique de familier) : il avait été recopié
 d'appelant ; chez NGemity, la 301 part à l'acquisition de la carte, bien avant l'entrée de l'invocation,
 ce qui n'est pas la même situation qu'un envoi immédiatement suivi de la 3. À mesurer au premier essai.
 
-Validé en jeu sur ce correctif : appel (3 puis 351), familier visible, téléportation (`/home`) suivie.
+Validé en jeu sur ce correctif (Killian, 2026-09-23) : appel (3 puis 351), rangement par la même cage,
+échange avec une seconde cage, téléportation (`/home`) suivie, aucun familier après un retour au lobby.
+**La 351 n'ouvre aucune fenêtre** au moment de l'appel : son cas `SGameInterface` (§4.6, `push 0x8a`,
+action `0x35`) rafraîchit donc une fenêtre sans l'ouvrir, ou prépare des données que l'interface montre
+ailleurs — ce que la fenêtre de familier affiche une fois ouverte reste à regarder.
