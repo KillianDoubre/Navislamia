@@ -2,7 +2,9 @@
 
 Fiche du couple **353 / 354** de la famille des familiers (*pet*) d'Epic 7.3 : `354` = la trame
 client → serveur qui porte le nouveau nom, `353` = la trame serveur → client du même couple.
-Écrite avant le lot `navis-dev` (tâche `t_bbc5f295`), sur la base `a1c4950`.
+Écrite avant le lot `navis-dev` (tâche `t_bbc5f295`), sur la base `a1c4950` ; **complétée par ce
+lot**, qui livre 354 (§11) et corrige le §5.2-2 et le §5.3 là où la fiche se contredisait ou
+dépassait le cadrage.
 
 ---
 
@@ -192,7 +194,9 @@ tranche.
 4. **Succès** : écrire `SummonEntity.Name` (`Game/DataAccess/Entities/Telecaster/SummonEntity.cs:21`,
    colonne `string` de la table `Summon`) — politique de nom (§7) : nettoyage du tampon seul,
    pas de filtre de gros mots (`BannedWordsRepository`, fiche 1202 §5.5, pose la question pour
-   1202 mais aucun précédent ne l'impose ici), pas d'unicité.
+   1202 mais aucun précédent ne l'impose ici), pas d'unicité. **Le lot livré n'atteint pas ce
+   point** : la résolution `handle → familier` (§7.2) n'étant pas établie, il s'arrête à la
+   lecture et au journal (§11.1).
 5. **Émission 353** : voir 5.3.
 6. **Échec** (handle inconnu, invocation non possédée par le personnage, trame malformée,
    nom vide) : **journal seulement, aucune trame de refus**. Aucune référence, aucun
@@ -210,15 +214,18 @@ saisie, §2.1). Le geste serveur correct est donc :
 - **ne pas la rejouer après un 354 réussi** : le cas 125 rouvre la boîte dès que le `handle` est
   résolu (`0x63c4a4`-`0x63c529`), donc un écho 353 après un renommage réafficherait la boîte.
 
-Conséquence sur le dépôt : `TM_SC_SHOW_SET_PET_NAME = 353` doit être **déclaré** dans
-`GamePackets` (c'est le seul moyen d'appeler l'encodeur) et **aucun bras de réception** n'est
-requis pour la règle `CLAUDE.md:1823-1826` (id que le serveur n'émet que dans un sens). Mais le
-critère transversal n° 4 exige qu'aucun membre déclaré ne puisse atteindre le `switch` final :
-comme sept ids S→C de la famille (`301`, `302`, `305`, `306`, `307`, `320`, `321`) laissent
-aujourd'hui ce trou ouvert (réserve de la fiche 323 §5.4), **ce lot ajoute au 353 le bras de
-rejet** que le dépôt utilise déjà pour trois ids S→C (`GameClient.cs:987-992`,
-`TM_SC_REGION_ACK` : journal + `continue`, sans `switch`). Le lot 354 reste ainsi conforme au
-critère n° 4 sans rouvrir une réserve connue.
+Conséquence sur le dépôt : ce raisonnement concluait à **déclarer** `TM_SC_SHOW_SET_PET_NAME = 353`
+ici, avec l'encodeur de la trame et un bras de rejet dans `GameClient.cs`. **Le lot dev ne l'a pas
+fait** : son cadrage réserve explicitement 353 à sa propre carte et à sa propre branche (« Le lot
+est 354, et rien d'autre »), rien n'émet 353 aujourd'hui (§7.1) — un encodeur resterait sans
+appelant —, et le critère « aucun membre de `GamePackets` ne peut atteindre le `switch` final » est
+respecté *a fortiori* si 353 n'est pas déclaré, le dépôt portant déjà sept ids S→C déclarés sans
+bras (`301`, `302`, `305`, `306`, `307`, `320`, `321`). Même discipline que le lot 323, qui a laissé
+son propre jumeau S→C `322` non déclaré. La décision est détaillée au §11.4 et sa réserve au
+§`A VERIFIER PAR KILLIAN` 7 : si Killian veut le couple entier dans un seul lot, il faut le membre
+353, le bras de rejet (patron `TM_SC_REGION_ACK`, `GameClient.cs:987-992` : journal + `continue`,
+sans `switch`) et `BuildShowSetPetName` (11 octets, `handle` en `+7`) — trois ajouts mesurés propres
+contre 323 et 304 (§5.4).
 
 ### 5.4 Où écrire le code (et pourquoi pas ailleurs)
 
@@ -354,15 +361,120 @@ ajouter **au moins un test d'offsets** pour 354 (taille 30, `handle` à 7, `name
 - A newly handled client packet gets a sheet in `docs/packet-specs/` (see Solution layout), and
   its id must be added to the `GamePackets` enum and to the `GameClient.Receive` dispatch chain
   **in the same change**: a declared id with no dispatch arm reaches
-  `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop. A server-to-client
-  id that shares a sheet with a client-to-server one follows the same rule: `TM_SC_SHOW_SET_PET_NAME`
-  (353) is declared with a reject-and-log arm, exactly like `TM_SC_REGION_ACK`, so that no member of
-  `GamePackets` can reach the final `switch` (`docs/packet-specs/354-set-pet-name.md` §5.3).
+  `_ => throw new Exception("Unknown Packet Type")` and kills the receive loop. A frame whose sheet
+  is written but which has its own card stays undeclared, as `TM_SC_SHOW_SET_PET_NAME` (353) did in
+  the 354 lot — nothing emits it yet, so its encoder would have no caller
+  (`docs/packet-specs/354-set-pet-name.md` §5.3, §11.4).
 - The pet rename pair is an echo: the `handle` of `TM_CS_SET_PET_NAME` (354) is the one the server
   itself sent in `TM_SC_SHOW_SET_PET_NAME` (353), so 353 *precedes* 354 and must not be replayed
   after a successful rename — the 7.3 client opens the name box again for every 353 whose handle
   resolves (`docs/packet-specs/354-set-pet-name.md` §2, §5.3).
+- The 354 `name` field is a raw 19-byte `memcpy` on the client side, not a zeroed buffer, so it can
+  arrive without a terminator: read it bounded to its field (up to the first NUL, else the whole 19
+  bytes) rather than refusing it the way 323 does
+  (`docs/packet-specs/354-set-pet-name.md` §5.2-2, §11.2).
 ```
+
+---
+
+## 11. Implémentation livrée par le lot dev
+
+Branche `hermes/packet-354-set-pet-name`, commit de code `f85f5d6` (base `a1c4950`, fiche `640024b`).
+Le lot ne modifie ni `CLAUDE.md` (protégé, le bloc du §10 part dans la description de la MR) ni
+`GamePackets` au-delà d'un membre.
+
+| fichier | ce que le lot y pose |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_SET_PET_NAME = 354` **seul**, dans un bloc `pet` juste après `TM_CS_JOB_LEVEL_UP = 410` (§5.4-1) |
+| `Game/Network/Packets/Game/GameSummonPackets.cs` | le lecteur `TryReadSetPetName` et les constantes de la trame ; l'en-tête de classe annonce désormais qu'il porte aussi un lecteur C→S |
+| `Game/Network/Clients/GameClient.cs` | bras `TM_CS_SET_PET_NAME` juste avant le bloc anti-triche, journal seul, `continue` |
+| `Tests/Game/SetPetNamePacketsTests.cs` | 21 tests d'offsets, de lecture et de dispatch réel |
+
+Constantes exposées (offsets **absolus**, en-tête de 7 octets compris) :
+
+| constante | valeur | sens |
+|---|---|---|
+| `SetPetNamePacketSize` | `HeaderSize + 4 + NameSize` = **30** | seule longueur acceptée |
+| `SetPetNameHandleOffset` | **7** (`0` vu de la charge utile) | `handle`, 4 octets |
+| `SetPetNameNameOffset` | **11** (`4` vu de la charge utile) | `name`, 19 octets |
+| `SetPetNameMaxLength` | **18** | largeur réservée, **pas** une règle appliquée |
+
+### 11.1 Lecture seule
+
+Le lecteur rend `handle` et `name` tels quels ; le bras les journalise et s'arrête là. Aucune ligne
+de `Summon` n'est écrite, aucune trame n'est envoyée. Motifs : la résolution `handle → familier`
+n'est pas établie (§7.2) — le lot 323, dans la même situation, s'est arrêté au même point —, la
+politique de nom non plus (§7.3-4), et aucune réponse n'existe dans les références (§5.2-6). Écrire
+`SummonEntity.Name` « au plus près » (§5.2-4) aurait demandé de trancher la cible, donc de deviner.
+Un nom vide est journalisé en avertissement, pas refusé par une trame.
+
+### 11.2 Nom lu borné au champ (correction du §5.2-2)
+
+Octets précédant le premier nul ; **les 19 octets du champ** si le client n'a mis aucun nul. C'est
+la différence avec 323, dont le constructeur client remplit de zéros et force un nul dans le dernier
+octet du champ, et dont le lecteur refuse un champ sans nul : ici l'émetteur client est un `memcpy`
+brut de 19 octets pris dans un `std::string` (`0x48e19c`), donc un nom plus long que le champ arrive
+**sans nul**, et le plafond de saisie de la boîte n'est pas établi (§2.3). Refuser ce cas refuserait
+un nom que le client a réellement envoyé ; lire au-delà du champ déborderait sur les octets suivants.
+Le champ de 19 octets reste la borne **stricte**.
+
+*Correction :* le §5.2-2 affirmait que « le tampon client est toujours zéro-rempli par `memcpy` de
+19 octets » — c'est contradictoire avec la phrase suivante du même point (contenu non initialisé
+au-delà de la longueur de la chaîne) et avec le `memcpy` brut constaté en `0x48e19c`. Le lot retient
+la lecture bornée décrite ci-dessus. Réserve au §`A VERIFIER PAR KILLIAN` 8.
+
+### 11.3 Aucune réponse, aucun écho
+
+Ni trame de refus, ni `TM_SC_RESULT`, ni écho 353 (§5.2-6, §5.3) — un écho 353 rouvrirait la boîte
+de saisie du client, puisque le cas 125 du client 7.3 la rouvre pour tout 353 dont le `handle` est
+résolu.
+
+### 11.4 353 n'est pas déclaré par ce lot (correction du §5.3)
+
+Le §5.3 concluait à déclarer `TM_SC_SHOW_SET_PET_NAME = 353` **ici** avec un bras de rejet. Le lot
+ne l'a pas fait, et le §5.3 a été corrigé en conséquence :
+
+- le cadrage du PO réserve explicitement 353 à sa propre carte et à sa propre branche (« Le lot est
+  354, et rien d'autre ») ;
+- rien n'émet 353 aujourd'hui (§7.1) : un `BuildShowSetPetName` serait un encodeur sans appelant ;
+- le critère « aucun membre de `GamePackets` ne peut atteindre le `switch` final » est respecté
+  *a fortiori* sans membre supplémentaire, et le dépôt porte déjà sept ids S→C déclarés sans bras
+  (`301`, `302`, `305`, `306`, `307`, `320`, `321`) ;
+- c'est la discipline du lot 323, qui a laissé son propre jumeau S→C `322` non déclaré.
+
+Ce qui manquerait si Killian veut le couple entier ici — trois ajouts, mesurés propres contre 323 et
+304 (§5.4) : le membre `TM_SC_SHOW_SET_PET_NAME = 353`, le bras de rejet (patron `TM_SC_REGION_ACK`,
+`GameClient.cs:987-992` : journal + `continue`, sans `switch`) et `BuildShowSetPetName` (11 octets,
+`handle` en `+7`, charge utile d'un seul champ). Réserve au §`A VERIFIER PAR KILLIAN` 7.
+
+### 11.5 Le `_(def)` de 20 octets reste non déclaré
+
+rzu réserve 20 octets (`_(def)(string)(name, 20)`) avant de replier sur 19 pour 7.3 ; le lot applique
+**19** (`NameSize`), confirmé par le client (`memcpy` de `0x13`, longueur de trame `0x1e` en hard), et
+ne déclare aucune variante 20 octets.
+
+### 11.6 Tests livrés (21, tous nouveaux)
+
+| groupe | ce qu'il verrouille |
+|---|---|
+| `Ids_AreTheEpic73Ones` | 354 déclaré, 1354 non déclaré |
+| `TheServerToClientTwin353_IsNotDeclared` | 353 hors de ce lot |
+| `LayoutConstants_NameTheHeaderAndThePayloadSeparately` | en-tête 7, total 30, `handle` à 7 (charge utile 0), `name` à 11 (charge utile 4), champ 19, utile 18, fin de champ à 30 |
+| `ClientFrame_CarriesTheHandleAtSevenAndTheNameAtEleven` | la trame telle que le client l'émet, en-tête et somme de contrôle compris |
+| `TryReadSetPetName_ReadsTheHandleAndTheName`, `…_IgnoresWhatFollowsTheFirstNul`, `…_ReadsTheWholeFieldWhenTheClientSentNoNul`, `…_ReadsAnEmptyFieldAsAnEmptyName` | la lecture bornée (§11.2) |
+| `TryReadSetPetName_RejectsALengthOtherThanThirty` (0, 7, 10, 29, 31) | seule la forme de 30 octets est acceptée, sans valeur à demi lue |
+| `OnDataReceived_ConsumesThePacketWithoutThrowing`, `…_AnswersNothing`, `…_AnswersNothingForAnEmptyNameEither` | dispatch réel : consommation, **aucune** réponse |
+| `OnDataReceived_ConsumesANonConformingLengthWithoutThrowing` (7, 29, 31), `…_KeepsTheLoopOnAFrameCoalescedWithAnotherOne`, `…_DropsTheTwin353Frame` | le flux reste en pas, la boucle de réception survit |
+
+### 11.7 Mesures relevées sur la branche
+
+| commande | code de sortie | résultat |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` | **0** | 0 erreur, 163 avertissements, **aucun** sur un fichier du lot |
+| `dotnet test Tests/Tests.csproj` | **0** | **997 réussis**, 0 échec, 0 ignoré (976 avant le lot) |
+| `git log --oneline origin/master..master` | 0 | vide (aucun commit local sur `master`) |
+
+Tout le §7 reste ouvert : le lot ne rend ni le renommage fonctionnel, ni 353 émissible.
 
 ---
 
@@ -385,3 +497,13 @@ ajouter **au moins un test d'offsets** pour 354 (taille 30, `handle` à 7, `name
    conflit contre 323 et 304, mais guidé par la collision plutôt que par la numérotation.
 6. **355 est prêt à être carté** : le client 7.3 en a un émetteur complet (15 octets) alors que
    rzu et NGemity l'ignorent (§7.6).
+7. **353 est laissé de côté par ce lot** (§5.3, §11.4). La fiche concluait à le déclarer ici avec un
+   bras de rejet ; le cadrage du PO le réserve à sa propre carte et à sa propre branche. Conséquence
+   assumée : le renommage n'est pas déclenchable de bout en bout — le serveur lit 354 mais n'émet
+   rien qui ouvre la boîte de saisie du client. Si tu préfères que ce lot porte les deux moitiés, les
+   trois ajouts nécessaires sont décrits au §11.4 et n'ont pas été faits pour ne pas empiéter sur la
+   carte 353.
+8. **Champ `name` sans nul côté client** (§11.2). Le §5.2-2 de cette fiche se contredisait : le
+   `memcpy` brut de 19 octets constaté en `0x48e19c` n'est pas un zéro-remplissage. Le lot lit donc
+   le champ **borné à 19 octets** au lieu de refuser une trame sans terminateur, contrairement à 323.
+   Dis-moi si tu veux la lecture stricte (refus) à la place.
