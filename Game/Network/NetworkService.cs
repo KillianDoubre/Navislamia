@@ -39,6 +39,7 @@ public class NetworkService : INetworkService
     public readonly IEventAreaService EventAreaService;
     public readonly IResurrectionService ResurrectionService;
     public readonly IWorldLocationService WorldLocationService;
+    public readonly Navislamia.Game.Services.Pets.IPetSummonService PetSummonService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -65,8 +66,10 @@ public class NetworkService : INetworkService
         ICraftingSocleService craftingSocleService,
         IStorageService storageService,
         IQuestService questService,
-        IGmCommandService gmCommandService)
+        IGmCommandService gmCommandService,
+        Navislamia.Game.Services.Pets.IPetSummonService petSummonService)
     {
+        PetSummonService = petSummonService;
         _logger = logger;
         CharacterService = characterService;
         BannedWordsRepository = bannedWordsRepository;

@@ -130,6 +130,9 @@ public class GameActions : IActions
         info.X = position[0];
         info.Y = position[1];
         info.Z = position[2];
+        info.DestinationX = info.X;
+        info.DestinationY = info.Y;
+        info.MoveStartTick = ServerClock.Now;
 
         // The position the character entered the world at is its return point: where it reappears
         // after a death (docs/packet-specs/socle-mort-respawn.md §8 option (a)). It cannot drift

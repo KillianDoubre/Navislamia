@@ -114,6 +114,16 @@ public sealed class CharacterRepository : ICharacterRepository
         _context.CharacterQuests.Remove(quest);
     }
 
+    public Task<PetEntity> GetPetByItemAsync(long itemId)
+    {
+        return _context.Pets.FirstOrDefaultAsync(pet => pet.ItemId == itemId);
+    }
+
+    public void AddPet(PetEntity pet)
+    {
+        _context.Pets.Add(pet);
+    }
+
     private IQueryable<CharacterQuestEntity> QuestsOf(string characterName)
     {
         return from quest in _context.CharacterQuests

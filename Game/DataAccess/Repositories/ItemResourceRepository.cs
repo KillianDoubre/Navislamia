@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
@@ -57,8 +58,10 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
-            .Select(item => new ItemUseFields((int)item.Id, item.UseMinLevel, item.UseMaxLevel,
-                item.ItemBaseType))
+            .Select(item => new { item.Id, item.UseMinLevel, item.UseMaxLevel, item.ItemBaseType, item.OptTypes })
+            .AsEnumerable()
+            .Select(item => new ItemUseFields((int)item.Id, item.UseMinLevel, item.UseMaxLevel, item.ItemBaseType,
+                item.OptTypes != null && Array.IndexOf(item.OptTypes, (short)ItemEffectInstant.RenamePet) >= 0))
             .ToList();
     }
 }

@@ -704,3 +704,107 @@ Validé en jeu sur ce correctif (Killian, 2026-09-23) : appel (3 puis 351), rang
 **La 351 n'ouvre aucune fenêtre** au moment de l'appel : son cas `SGameInterface` (§4.6, `push 0x8a`,
 action `0x35`) rafraîchit donc une fenêtre sans l'ouvrir, ou prépare des données que l'interface montre
 ailleurs — ce que la fenêtre de familier affiche une fois ouverte reste à regarder.
+
+## 17. Lot 3 — le familier suit, ramasse, et se nomme (2026-09-23)
+
+Trois volets sur `feature/pet-companion`, sans référence serveur (NGemity n'a aucune logique de familier) :
+chaque règle ci-dessous est un choix de ce dépôt, appuyé sur les données quand elles existent.
+
+### 17.1 Suivre son maître
+
+`PetBehaviorService` (boucle de 250 ms, qui ne tient `NetworkService` que pour la liste des clients, comme
+`MonsterAiService`) appelle `PetBehavior.Step` pour chaque familier dehors. Le familier vise **la
+destination** de son maître — le dernier point de passage de son dernier `TM_CS_MOVE_REQUEST`, gardé dans
+`ConnectionInfo.DestinationX/Y` (et la position après une entrée en jeu ou une téléportation) — jamais sa
+position de départ. Il reste en place à moins de 3 m ; sinon il marche jusqu'à 2 m de cette destination, de
+son côté (`PetSummonRules.FollowTarget`).
+
+**Corrigé après le premier essai en jeu : le familier passait devant son maître.** Viser la destination,
+c'est viser un point où le maître n'est pas encore : à la vitesse 120 contre 100, le familier y arrivait
+le premier, et un clic à plus de 540 unités le « rappelait »… à la destination, donc devant. Le familier
+suit désormais **la position estimée** du maître (`ConnectionInfo.PositionAt` : dernière position connue,
+destination, tick de départ `MoveStartTick`, vitesse renvoyée 100, maths des monstres ; chaque
+`TM_CS_REGION_UPDATE` recale l'estimation) et, s'il marche, un point **2 m derrière lui le long de son
+cap** — une cible toujours derrière lui. Le rappel se fait aussi à cette position estimée. Réserve : si le
+client déplace le joueur plus vite que la vitesse 100 supposée, l'estimation retarde (le familier traîne
+un peu plus, sans dépasser) ; plus lentement, elle avance, et le familier pourrait encore dépasser entre
+deux mises à jour de région. Un test (`AWalkingMaster_IsTrailedFromBehindAndNeverOvertaken`) fige qu'il ne
+vise jamais au-delà de la position estimée. Un nouveau `TS_SC_MOVE` ne part que s'il s'est arrêté ou si la
+cible a dérivé de plus de 3 m, sinon il bégaierait (même règle que la poursuite des monstres). Le
+mouvement reprend les maths des monstres (`MonsterMovement`, `ActivePet.MoveTo`/`PositionAt`) avec la
+vitesse et le tick diffusés. Au-delà de 540 unités (la vue du client), il est rappelé à côté de son
+maître (`Recall`) plutôt que de courir. Vitesse 120 (le serveur renvoie ses joueurs à 100 : le familier
+rattrape son maître quand il s'arrête).
+
+### 17.2 Ramasser le butin
+
+**Le rayon vient des données.** Chaque familier porte une compétence « Collect Items » (effet **10047**)
+dont `var1` est le rayon en mètres : arbre 43 → 46016 → **5 m**, 44 → 46017 → **10 m**, 45 → 46018 →
+**15 m**, exactement ce que disent les infobulles des cages (« collect loot for you in a 5 meter radius »).
+La table du client ne porte pas l'arbre : l'exporteur le lit dans `PetResource.skill_tree_id` 9.4 (même
+id pour 105 des 106 familiers ; le 106ᵉ, id 99, ne ramasse pas) et écrit `CollectRadius`. Le mètre vaut
+**12 unités** : NGemity multiplie ainsi toute portée de compétence (`SkillProp.cpp`, `GetVar(n) * 12.0f`).
+
+Quand aucune cible n'est en cours, le familier cherche l'objet au sol **de son maître**, sur sa couche, le
+plus proche de lui dans son rayon (`GroundItemService.TryFindNearest`), y marche, puis le prend à l'arrivée
+(`TakeForPetAsync`) : c'est le ramassage manuel — objet réservé par `Interlocked`, ajout au sac,
+`TS_SC_TAKE_ITEM_RESULT` (210), `TS_SC_LEAVE`, `TM_SC_INVENTORY` — avec **le familier comme `item_taker`**,
+pour que le client l'anime, et **sans `TS_SC_RESULT`**, puisqu'aucun `TM_CS_TAKE_ITEM` n'a été envoyé. Le
+ramassage passe avant le suivi.
+
+**Le filtre 355 est lu, gardé, jamais appliqué.** `TM_CS_SET_PET_FILTER` est déclaré et lu (15 octets,
+`handle` @7, valeur @11) ; sa valeur va dans `ConnectionInfo.PetPickupFilter`. Aucune source n'en donne le
+sens (les chaînes 9.4 n'ont aucun libellé de filtre) : le familier ramasse tout.
+
+### 17.3 Nommer le familier
+
+**Stockage.** Le nom vit dans `Pets` (une ligne par cage, `ItemId` en cascade depuis l'objet), créée au
+premier appel avec le nom de l'espèce et `WasNameChanged = false`
+(`CharacterService.GetOrCreatePetAsync`). Le familier entre sous ce nom.
+
+**Déclencheurs de 353.** Un familier **jamais nommé** ouvre la boîte de saisie du client
+(`TM_SC_SHOW_SET_PET_NAME`, 353, sur **son handle**) à chaque appel, après son entrée, tant que son maître
+ne l'a pas nommé. L'objet **920010** « Decorative Pet Name Change », effet `RenamePet` (120), rouvre la boîte
+sur le familier dehors ; sans familier dehors, son utilisation est refusée (`NotActable`) **avant** d'être
+consommée (`IItemUseCatalog.RenamesPet`).
+
+**354.** Accepté seulement pour le handle qu'une 353 a proposé (`ActivePet.RenameOffered`). Règle de nom :
+**celle des personnages**, la seule que le serveur applique déjà — 4 à 18 lettres ou chiffres, sans mot
+interdit (`IBannedWordsRepository.ContainsBannedWord`). Un nom refusé **rouvre la boîte** (aucune trame de
+refus n'existe pour un familier). Un nom accepté est écrit (`WasNameChanged = true`) et le familier est
+remis en place sous son nouveau nom (350/9 puis 3/351), le nom voyageant dans la trame d'entrée.
+
+### 17.4 Le client ne reconnaît pas le familier comme « invoqué » (mesuré en jeu, 2026-09-23)
+
+Suivi, ramassage et nom au premier appel (353/354) fonctionnent en jeu. **Deux fonctions du client, non** :
+
+- **L'objet 920010** répond côté client « Please summon your decorative pet before trying to rename it. »
+  (clé `smsq_item_petnickname`, id **797** dans `db_string.rdb`) **alors que le familier est dehors**, et
+  n'envoie jamais la 253 : le refus est local. Dans ce client, « decorative pet » désigne bien ces
+  familiers-ci (les infobulles des cages : « Click the "Decorative Pet" button… turn your decorative pet's
+  item collecting ability on or off »), et l'objet ne renomme qu'un familier **permanent** (son infobulle) —
+  refusé aussi avec la cage permanente 690403.
+- **Le bouton « Decorative Pet »** s'allume et s'éteint sans ouvrir de fenêtre ; aucune 355 ne part.
+
+Écarté par mesure : (1) le contrôle de niveau du serveur (920010 : 0/0, sans borne ; la 253 n'arrive de
+toute façon pas) ; (2) **`code` = id du familier dans la 351** — essayé (commit `4b6152c`), aucun effet,
+annulé (`04d45dd`) : le champ reste à 0. La valeur 797 n'apparaît qu'une fois comme immédiat dans
+`SFrame.exe` (`push 0x31d` @`0x67ef8c`), dans le gestionnaire de la trame **28**
+(`TM_SC_DISCONNECT_DESC`), sans rapport : le client atteint donc ce message par une table de données
+(vraisemblablement celle de l'objet), pas par un code cherchable statiquement.
+
+Piste la plus probable, **non établie** : la 351 est transmise à la fenêtre d'interface **0x8a**
+(`SGameInterface` @`0x63c430`, `call 0x62f470`) ; si cette fenêtre n'est créée qu'au premier clic sur le
+bouton, la 351 arrive avant elle et se perd, ce qui laisserait une fenêtre vide — exactement ce qui est
+observé. Trancher demande de désassembler la fenêtre de familier (`SUIPetCommandWnd`, gestionnaire
+@`0x57fec8`) et sa création (@`0x635e27`) : chantier à part. En attendant, le serveur garde le traitement
+de 920010 (refus sans familier dehors, 353 sinon), inatteignable tant que le client refuse localement.
+
+### 17.5 Ce qui reste ouvert
+
+Les autres joueurs ne voient pas le familier (aucune visibilité entre joueurs) ; aucun poids ni plafond de
+sac n'est vérifié au ramassage (comme pour le ramassage manuel) ; les compétences du familier dans la
+« fenêtre de familier » ne sont pas servies, et on ne sait pas si le client envoie une commande pour
+activer le ramassage ; la sémantique du filtre 355.
+
+Tests : `Tests/Game/PetCageTests.cs`, `PetBehaviorTests.cs`, `PetPickupTests.cs`.

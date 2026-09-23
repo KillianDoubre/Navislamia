@@ -50,6 +50,11 @@ public interface ICharacterRepository : IDisposable
 
     void DeleteQuest(CharacterQuestEntity quest);
 
+    /// <summary>The pet row of a cage item, tracked so a rename can be saved; null when none exists yet.</summary>
+    Task<PetEntity> GetPetByItemAsync(long itemId);
+
+    void AddPet(PetEntity pet);
+
     /// <summary>
     /// Avoid using SaveChanges directly from context as it applies modifications directly to the database.
     /// Finish all required operations for a step then call this method

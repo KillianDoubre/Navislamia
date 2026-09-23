@@ -60,6 +60,16 @@ public interface ICharacterService
     Task<long?> ConsumeItemAsync(string characterName, uint itemHandle, long count);
 
     /// <summary>
+    /// The pet stored in a cage item: its row, created on the first call with <paramref name="defaultName"/>
+    /// and <c>WasNameChanged = false</c>. One row per cage (<c>Pets.ItemId</c>, cascading from the item).
+    /// </summary>
+    Task<PetRecord> GetOrCreatePetAsync(string characterName, long characterId, int accountId, long cageItemId,
+        int petResourceId, string defaultName);
+
+    /// <summary>Renames the pet of a cage item and marks it named. False when the cage has no pet row.</summary>
+    Task<bool> RenamePetAsync(string characterName, long cageItemId, string name);
+
+    /// <summary>
     /// Takes one unit off the first carried item, in bag order, that <paramref name="match"/> accepts, and
     /// reports it with the amount left (<c>0</c> when the stack ran out and was deleted). <c>null</c> when
     /// no carried item matches. Worn items are never considered. The search and the removal share one
@@ -91,3 +101,6 @@ public interface ICharacterService
         int chaos, float x, float y, bool pkMode);
 
 }
+
+/// <summary>What a cage's pet is called, and whether its master has named it yet.</summary>
+public readonly record struct PetRecord(string Name, bool WasNameChanged);

@@ -6,8 +6,11 @@ using Serilog;
 
 namespace Navislamia.Game.Services.Pets;
 
-/// <summary>A pet the client knows: the <c>pet_code</c> of its entry frame and the name it enters with.</summary>
-public sealed record PetDefinition(int PetId, int CageItemId, string Name);
+/// <summary>
+/// A pet the client knows: the <c>pet_code</c> of its entry frame, the name it enters with and the radius,
+/// in world units, within which it collects its master's loot (0: it collects nothing).
+/// </summary>
+public sealed record PetDefinition(int PetId, int CageItemId, string Name, float CollectRange = 0);
 
 /// <summary>The cage item → pet link of the 7.3 client table, frozen at startup.</summary>
 public interface IPetCatalog
@@ -29,7 +32,8 @@ public class PetCatalog : IPetCatalog
             // The exporter already refuses a shared cage; the first row wins if a hand edit adds one.
             if (row.CageId > 0 && row.Id > 0)
             {
-                byCage.TryAdd(row.CageId, new PetDefinition(row.Id, row.CageId, row.Name ?? string.Empty));
+                byCage.TryAdd(row.CageId, new PetDefinition(row.Id, row.CageId, row.Name ?? string.Empty,
+                    PetSummonRules.MetersToUnits(row.CollectRadius)));
             }
         }
 

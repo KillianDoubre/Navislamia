@@ -58,6 +58,45 @@ public class ConnectionInfo
     public object PetLock { get; } = new();
 
     /// <summary>
+    /// The raw value of the last <c>TM_CS_SET_PET_FILTER</c> (355). Its meaning is not established: it is
+    /// kept, never applied (the pet collects everything its master owns).
+    /// </summary>
+    public uint PetPickupFilter { get; set; }
+
+    /// <summary>
+    /// Where the character is heading: the last waypoint of its last move request, or its position after
+    /// a world entry or a warp. <see cref="X"/>/<see cref="Y"/> is where it started, the destination is
+    /// where a follower should go (the pet).
+    /// </summary>
+    public float DestinationX { get; set; }
+    public float DestinationY { get; set; }
+
+    /// <summary>
+    /// The speed the server echoes a player's moves at (<c>GameClient.HandleMoveRequest</c>), which is also
+    /// what it assumes to estimate where a walking character is.
+    /// </summary>
+    public const byte EchoedMoveSpeed = 100;
+
+    /// <summary>
+    /// The server tick at which the character was last known at (<see cref="X"/>, <see cref="Y"/>) while
+    /// heading for its destination: a move request, a region update, a world entry or a warp.
+    /// </summary>
+    public uint MoveStartTick { get; set; }
+
+    /// <summary>
+    /// Where the character is at <paramref name="nowTick"/>, estimated from its last known position and its
+    /// destination at <see cref="EchoedMoveSpeed"/> with the monsters' interpolation. The client does not
+    /// report its position continuously; each region update corrects the estimate.
+    /// </summary>
+    public (float X, float Y) PositionAt(uint nowTick)
+    {
+        var length = MathF.Sqrt((DestinationX - X) * (DestinationX - X) + (DestinationY - Y) * (DestinationY - Y));
+        var endTick = Navislamia.Game.Services.MonsterMovement.EndTick(MoveStartTick, length, EchoedMoveSpeed);
+        return Navislamia.Game.Services.MonsterMovement.PositionAt(X, Y, DestinationX, DestinationY, MoveStartTick,
+            endTick, nowTick);
+    }
+
+    /// <summary>
     /// The PK mode, loaded from <c>Characters.PkMode</c> on world entry and persisted again by the
     /// session save. It reaches the client only through the actor status mask
     /// (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>): the protocol has
@@ -290,6 +329,10 @@ public class ConnectionInfo
         CharacterChaos = 0;
         SummonSlots = Array.Empty<long>();
         ActivePet = null;
+        PetPickupFilter = 0;
+        DestinationX = 0;
+        DestinationY = 0;
+        MoveStartTick = 0;
         PkMode = false;
         CharacterPermission = 0;
         IsSitting = false;

@@ -10,12 +10,14 @@ public class ItemUseCatalog : IItemUseCatalog
     private readonly ILogger _logger = Log.ForContext<ItemUseCatalog>();
     private readonly FrozenDictionary<int, ItemUseLevels> _levels;
     private readonly FrozenSet<int> _reusable;
+    private readonly FrozenSet<int> _renamesPet;
 
     public ItemUseCatalog(IItemResourceRepository repository)
     {
         var fields = repository.GetUseFields();
         var levels = new Dictionary<int, ItemUseLevels>(fields.Count);
         var reusable = new HashSet<int>();
+        var renamesPet = new HashSet<int>();
 
         foreach (var field in fields)
         {
@@ -24,10 +26,16 @@ public class ItemUseCatalog : IItemUseCatalog
             {
                 reusable.Add(field.Id);
             }
+
+            if (field.RenamesPet)
+            {
+                renamesPet.Add(field.Id);
+            }
         }
 
         _levels = levels.ToFrozenDictionary();
         _reusable = reusable.ToFrozenSet();
+        _renamesPet = renamesPet.ToFrozenSet();
         _logger.Debug("Loaded use levels for {count} item resources, {reusable} reusable", _levels.Count,
             _reusable.Count);
     }
@@ -36,6 +44,8 @@ public class ItemUseCatalog : IItemUseCatalog
     {
         return _levels.TryGetValue(itemResourceId, out levels);
     }
+
+    public bool RenamesPet(int itemResourceId) => _renamesPet.Contains(itemResourceId);
 
     public bool IsConsumedOnUse(int itemResourceId)
     {

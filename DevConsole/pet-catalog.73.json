@@ -7,7 +7,8 @@
         "NameId": 300001,
         "CageId": 690401,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 5
       },
       {
         "Id": 2,
@@ -15,7 +16,8 @@
         "NameId": 300002,
         "CageId": 690402,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 5
       },
       {
         "Id": 3,
@@ -23,7 +25,8 @@
         "NameId": 300003,
         "CageId": 690403,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 5
       },
       {
         "Id": 4,
@@ -31,7 +34,8 @@
         "NameId": 300004,
         "CageId": 690404,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 10
       },
       {
         "Id": 5,
@@ -39,7 +43,8 @@
         "NameId": 300005,
         "CageId": 690405,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 10
       },
       {
         "Id": 6,
@@ -47,7 +52,8 @@
         "NameId": 300006,
         "CageId": 690406,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 10
       },
       {
         "Id": 7,
@@ -55,7 +61,8 @@
         "NameId": 300007,
         "CageId": 690407,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 15
       },
       {
         "Id": 8,
@@ -63,7 +70,8 @@
         "NameId": 300008,
         "CageId": 690408,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 15
       },
       {
         "Id": 9,
@@ -71,7 +79,8 @@
         "NameId": 300009,
         "CageId": 690409,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 15
       },
       {
         "Id": 10,
@@ -79,7 +88,8 @@
         "NameId": 300010,
         "CageId": 690410,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 5
       },
       {
         "Id": 11,
@@ -87,7 +97,8 @@
         "NameId": 300011,
         "CageId": 690411,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 5
       },
       {
         "Id": 12,
@@ -95,7 +106,8 @@
         "NameId": 300012,
         "CageId": 690412,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 5
       },
       {
         "Id": 13,
@@ -103,7 +115,8 @@
         "NameId": 300013,
         "CageId": 690413,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 10
       },
       {
         "Id": 14,
@@ -111,7 +124,8 @@
         "NameId": 300014,
         "CageId": 690414,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 10
       },
       {
         "Id": 15,
@@ -119,7 +133,8 @@
         "NameId": 300015,
         "CageId": 690415,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 10
       },
       {
         "Id": 16,
@@ -127,7 +142,8 @@
         "NameId": 300016,
         "CageId": 690416,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 17,
@@ -135,7 +151,8 @@
         "NameId": 300017,
         "CageId": 690417,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 18,
@@ -143,7 +160,8 @@
         "NameId": 300018,
         "CageId": 690418,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 19,
@@ -151,7 +169,8 @@
         "NameId": 300019,
         "CageId": 690419,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 5
       },
       {
         "Id": 20,
@@ -159,7 +178,8 @@
         "NameId": 300020,
         "CageId": 690420,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 5
       },
       {
         "Id": 21,
@@ -167,7 +187,8 @@
         "NameId": 300021,
         "CageId": 690421,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 5
       },
       {
         "Id": 22,
@@ -175,7 +196,8 @@
         "NameId": 300022,
         "CageId": 690422,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 10
       },
       {
         "Id": 23,
@@ -183,7 +205,8 @@
         "NameId": 300023,
         "CageId": 690423,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 10
       },
       {
         "Id": 24,
@@ -191,7 +214,8 @@
         "NameId": 300024,
         "CageId": 690424,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 10
       },
       {
         "Id": 25,
@@ -199,7 +223,8 @@
         "NameId": 300025,
         "CageId": 690425,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 15
       },
       {
         "Id": 26,
@@ -207,7 +232,8 @@
         "NameId": 300026,
         "CageId": 690426,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 15
       },
       {
         "Id": 27,
@@ -215,7 +241,8 @@
         "NameId": 300027,
         "CageId": 690427,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 15
       },
       {
         "Id": 28,
@@ -223,7 +250,8 @@
         "NameId": 300028,
         "CageId": 690428,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 5
       },
       {
         "Id": 29,
@@ -231,7 +259,8 @@
         "NameId": 300029,
         "CageId": 690429,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 5
       },
       {
         "Id": 30,
@@ -239,7 +268,8 @@
         "NameId": 300030,
         "CageId": 690430,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 5
       },
       {
         "Id": 31,
@@ -247,7 +277,8 @@
         "NameId": 300031,
         "CageId": 690431,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 10
       },
       {
         "Id": 32,
@@ -255,7 +286,8 @@
         "NameId": 300032,
         "CageId": 690432,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 10
       },
       {
         "Id": 33,
@@ -263,7 +295,8 @@
         "NameId": 300033,
         "CageId": 690433,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 10
       },
       {
         "Id": 34,
@@ -271,7 +304,8 @@
         "NameId": 300034,
         "CageId": 690434,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 15
       },
       {
         "Id": 35,
@@ -279,7 +313,8 @@
         "NameId": 300035,
         "CageId": 690435,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 15
       },
       {
         "Id": 36,
@@ -287,7 +322,8 @@
         "NameId": 300036,
         "CageId": 690436,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 15
       },
       {
         "Id": 37,
@@ -295,7 +331,8 @@
         "NameId": 300037,
         "CageId": 690437,
         "Model": "pet_helmetcrab",
-        "Name": "Helmet Crab"
+        "Name": "Helmet Crab",
+        "CollectRadius": 15
       },
       {
         "Id": 38,
@@ -303,7 +340,8 @@
         "NameId": 300038,
         "CageId": 690438,
         "Model": "pet_rabbitchew",
-        "Name": "Sun Rabbit"
+        "Name": "Sun Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 39,
@@ -311,7 +349,8 @@
         "NameId": 300039,
         "CageId": 690439,
         "Model": "pet_loveheart",
-        "Name": "Love Heart"
+        "Name": "Love Heart",
+        "CollectRadius": 15
       },
       {
         "Id": 40,
@@ -319,7 +358,8 @@
         "NameId": 300040,
         "CageId": 690440,
         "Model": "pet_arcadia",
-        "Name": "Pirate Ship"
+        "Name": "Pirate Ship",
+        "CollectRadius": 15
       },
       {
         "Id": 42,
@@ -327,7 +367,8 @@
         "NameId": 300042,
         "CageId": 690442,
         "Model": "beast_moonrabbit_02",
-        "Name": "White Moon Rabbit"
+        "Name": "White Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 43,
@@ -335,7 +376,8 @@
         "NameId": 300043,
         "CageId": 690443,
         "Model": "beast_moonrabbit_02",
-        "Name": "White Moon Rabbit"
+        "Name": "White Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 44,
@@ -343,7 +385,8 @@
         "NameId": 300044,
         "CageId": 690444,
         "Model": "beast_moonrabbit_02",
-        "Name": "White Moon Rabbit"
+        "Name": "White Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 45,
@@ -351,7 +394,8 @@
         "NameId": 300045,
         "CageId": 690445,
         "Model": "beast_moonrabbit_04",
-        "Name": "Cookie Moon Rabbit"
+        "Name": "Cookie Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 46,
@@ -359,7 +403,8 @@
         "NameId": 300046,
         "CageId": 690446,
         "Model": "beast_moonrabbit_04",
-        "Name": "Cookie Moon Rabbit"
+        "Name": "Cookie Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 47,
@@ -367,7 +412,8 @@
         "NameId": 300047,
         "CageId": 690447,
         "Model": "beast_moonrabbit_04",
-        "Name": "Cookie Moon Rabbit"
+        "Name": "Cookie Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 48,
@@ -375,7 +421,8 @@
         "NameId": 300048,
         "CageId": 690448,
         "Model": "beast_moonrabbit_03",
-        "Name": "Golden Moon Rabbit"
+        "Name": "Golden Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 49,
@@ -383,7 +430,8 @@
         "NameId": 300049,
         "CageId": 690449,
         "Model": "beast_moonrabbit_03",
-        "Name": "Golden Moon Rabbit"
+        "Name": "Golden Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 50,
@@ -391,7 +439,8 @@
         "NameId": 300050,
         "CageId": 690450,
         "Model": "beast_moonrabbit_03",
-        "Name": "Golden Moon Rabbit"
+        "Name": "Golden Moon Rabbit",
+        "CollectRadius": 15
       },
       {
         "Id": 51,
@@ -399,7 +448,8 @@
         "NameId": 300051,
         "CageId": 690451,
         "Model": "beast_kukuri_01",
-        "Name": "Hughog"
+        "Name": "Hughog",
+        "CollectRadius": 15
       },
       {
         "Id": 52,
@@ -407,7 +457,8 @@
         "NameId": 300052,
         "CageId": 690452,
         "Model": "beast_kukuri_01",
-        "Name": "Hughog"
+        "Name": "Hughog",
+        "CollectRadius": 15
       },
       {
         "Id": 53,
@@ -415,7 +466,8 @@
         "NameId": 300053,
         "CageId": 690453,
         "Model": "beast_kukuri_01",
-        "Name": "Hughog"
+        "Name": "Hughog",
+        "CollectRadius": 15
       },
       {
         "Id": 54,
@@ -423,7 +475,8 @@
         "NameId": 300054,
         "CageId": 690454,
         "Model": "beast_kukuri_02",
-        "Name": "Bruce"
+        "Name": "Bruce",
+        "CollectRadius": 15
       },
       {
         "Id": 55,
@@ -431,7 +484,8 @@
         "NameId": 300055,
         "CageId": 690455,
         "Model": "beast_kukuri_02",
-        "Name": "Bruce"
+        "Name": "Bruce",
+        "CollectRadius": 15
       },
       {
         "Id": 56,
@@ -439,7 +493,8 @@
         "NameId": 300056,
         "CageId": 690456,
         "Model": "beast_kukuri_02",
-        "Name": "Bruce"
+        "Name": "Bruce",
+        "CollectRadius": 15
       },
       {
         "Id": 57,
@@ -447,7 +502,8 @@
         "NameId": 300057,
         "CageId": 690457,
         "Model": "beast_kukuri_03",
-        "Name": "Funnypeg"
+        "Name": "Funnypeg",
+        "CollectRadius": 15
       },
       {
         "Id": 58,
@@ -455,7 +511,8 @@
         "NameId": 300058,
         "CageId": 690458,
         "Model": "beast_kukuri_03",
-        "Name": "Funnypeg"
+        "Name": "Funnypeg",
+        "CollectRadius": 15
       },
       {
         "Id": 59,
@@ -463,7 +520,8 @@
         "NameId": 300059,
         "CageId": 690459,
         "Model": "beast_kukuri_03",
-        "Name": "Funnypeg"
+        "Name": "Funnypeg",
+        "CollectRadius": 15
       },
       {
         "Id": 60,
@@ -471,7 +529,8 @@
         "NameId": 300060,
         "CageId": 690460,
         "Model": "beast_kukuri_04",
-        "Name": "cucuri"
+        "Name": "cucuri",
+        "CollectRadius": 15
       },
       {
         "Id": 61,
@@ -479,7 +538,8 @@
         "NameId": 300061,
         "CageId": 690461,
         "Model": "beast_kukuri_04",
-        "Name": "cucuri"
+        "Name": "cucuri",
+        "CollectRadius": 15
       },
       {
         "Id": 62,
@@ -487,7 +547,8 @@
         "NameId": 300062,
         "CageId": 690462,
         "Model": "beast_kukuri_04",
-        "Name": "cucuri"
+        "Name": "cucuri",
+        "CollectRadius": 15
       },
       {
         "Id": 63,
@@ -495,7 +556,8 @@
         "NameId": 300063,
         "CageId": 690463,
         "Model": "beast_kukuri_05",
-        "Name": "bince"
+        "Name": "bince",
+        "CollectRadius": 15
       },
       {
         "Id": 64,
@@ -503,7 +565,8 @@
         "NameId": 300064,
         "CageId": 690464,
         "Model": "beast_kukuri_05",
-        "Name": "bince"
+        "Name": "bince",
+        "CollectRadius": 15
       },
       {
         "Id": 65,
@@ -511,7 +574,8 @@
         "NameId": 300065,
         "CageId": 690465,
         "Model": "beast_kukuri_05",
-        "Name": "bince"
+        "Name": "bince",
+        "CollectRadius": 15
       },
       {
         "Id": 66,
@@ -519,7 +583,8 @@
         "NameId": 300066,
         "CageId": 690466,
         "Model": "beast_tamias_01",
-        "Name": "sandy"
+        "Name": "sandy",
+        "CollectRadius": 15
       },
       {
         "Id": 67,
@@ -527,7 +592,8 @@
         "NameId": 300067,
         "CageId": 690467,
         "Model": "beast_tamias_01",
-        "Name": "sandy"
+        "Name": "sandy",
+        "CollectRadius": 15
       },
       {
         "Id": 68,
@@ -535,7 +601,8 @@
         "NameId": 300068,
         "CageId": 690468,
         "Model": "beast_tamias_01",
-        "Name": "sandy"
+        "Name": "sandy",
+        "CollectRadius": 15
       },
       {
         "Id": 69,
@@ -543,7 +610,8 @@
         "NameId": 300069,
         "CageId": 690469,
         "Model": "beast_tamias_02",
-        "Name": "tamias"
+        "Name": "tamias",
+        "CollectRadius": 15
       },
       {
         "Id": 70,
@@ -551,7 +619,8 @@
         "NameId": 300070,
         "CageId": 690470,
         "Model": "beast_tamias_02",
-        "Name": "tamias"
+        "Name": "tamias",
+        "CollectRadius": 15
       },
       {
         "Id": 71,
@@ -559,7 +628,8 @@
         "NameId": 300071,
         "CageId": 690471,
         "Model": "beast_tamias_02",
-        "Name": "tamias"
+        "Name": "tamias",
+        "CollectRadius": 15
       },
       {
         "Id": 72,
@@ -567,7 +637,8 @@
         "NameId": 300072,
         "CageId": 690472,
         "Model": "beast_tamias_03",
-        "Name": "rezle dezle"
+        "Name": "rezle dezle",
+        "CollectRadius": 15
       },
       {
         "Id": 73,
@@ -575,7 +646,8 @@
         "NameId": 300073,
         "CageId": 690473,
         "Model": "beast_tamias_03",
-        "Name": "rezle dezle"
+        "Name": "rezle dezle",
+        "CollectRadius": 15
       },
       {
         "Id": 74,
@@ -583,7 +655,8 @@
         "NameId": 300074,
         "CageId": 690474,
         "Model": "beast_tamias_03",
-        "Name": "rezle dezle"
+        "Name": "rezle dezle",
+        "CollectRadius": 15
       },
       {
         "Id": 75,
@@ -591,7 +664,8 @@
         "NameId": 300075,
         "CageId": 690475,
         "Model": "beast_tamias_04",
-        "Name": "purple tammy"
+        "Name": "purple tammy",
+        "CollectRadius": 15
       },
       {
         "Id": 76,
@@ -599,7 +673,8 @@
         "NameId": 300076,
         "CageId": 690476,
         "Model": "beast_tamias_04",
-        "Name": "purple tammy"
+        "Name": "purple tammy",
+        "CollectRadius": 15
       },
       {
         "Id": 77,
@@ -607,7 +682,8 @@
         "NameId": 300077,
         "CageId": 690477,
         "Model": "beast_tamias_04",
-        "Name": "purple tammy"
+        "Name": "purple tammy",
+        "CollectRadius": 15
       },
       {
         "Id": 78,
@@ -615,7 +691,8 @@
         "NameId": 300078,
         "CageId": 690493,
         "Model": "pet_irin",
-        "Name": "Holly"
+        "Name": "Holly",
+        "CollectRadius": 15
       },
       {
         "Id": 79,
@@ -623,7 +700,8 @@
         "NameId": 300079,
         "CageId": 690494,
         "Model": "pet_irin",
-        "Name": "Holly"
+        "Name": "Holly",
+        "CollectRadius": 15
       },
       {
         "Id": 80,
@@ -631,7 +709,8 @@
         "NameId": 300080,
         "CageId": 690495,
         "Model": "pet_irin",
-        "Name": "Holly"
+        "Name": "Holly",
+        "CollectRadius": 15
       },
       {
         "Id": 81,
@@ -639,7 +718,8 @@
         "NameId": 300081,
         "CageId": 690496,
         "Model": "pet_irin",
-        "Name": "Holly"
+        "Name": "Holly",
+        "CollectRadius": 15
       },
       {
         "Id": 82,
@@ -647,7 +727,8 @@
         "NameId": 300082,
         "CageId": 690498,
         "Model": "pet_panda",
-        "Name": "Panda"
+        "Name": "Panda",
+        "CollectRadius": 15
       },
       {
         "Id": 83,
@@ -655,7 +736,8 @@
         "NameId": 300083,
         "CageId": 690499,
         "Model": "spirit_luminouspumpkin",
-        "Name": "Rainbow Pumpkin"
+        "Name": "Rainbow Pumpkin",
+        "CollectRadius": 15
       },
       {
         "Id": 84,
@@ -663,7 +745,8 @@
         "NameId": 300084,
         "CageId": 690500,
         "Model": "spirit_bloodypumpkin",
-        "Name": "Red Pumpkin"
+        "Name": "Red Pumpkin",
+        "CollectRadius": 15
       },
       {
         "Id": 99,
@@ -671,7 +754,8 @@
         "NameId": 3001600,
         "CageId": 700000,
         "Model": "devil_astaroth_lv1",
-        "Name": ""
+        "Name": "",
+        "CollectRadius": 0
       },
       {
         "Id": 504,
@@ -679,7 +763,8 @@
         "NameId": 300504,
         "CageId": 690504,
         "Model": "beast_oforia",
-        "Name": "Oforia"
+        "Name": "Oforia",
+        "CollectRadius": 15
       },
       {
         "Id": 505,
@@ -687,7 +772,8 @@
         "NameId": 300505,
         "CageId": 690505,
         "Model": "mechanic_abhuva",
-        "Name": "Abhuva"
+        "Name": "Abhuva",
+        "CollectRadius": 15
       },
       {
         "Id": 506,
@@ -695,7 +781,8 @@
         "NameId": 300506,
         "CageId": 690506,
         "Model": "undead_PrimalScream_01",
-        "Name": "Primal Scream"
+        "Name": "Primal Scream",
+        "CollectRadius": 15
       },
       {
         "Id": 507,
@@ -703,7 +790,8 @@
         "NameId": 300507,
         "CageId": 690507,
         "Model": "beast_taranida_01",
-        "Name": "Taranida"
+        "Name": "Taranida",
+        "CollectRadius": 15
       },
       {
         "Id": 508,
@@ -711,7 +799,8 @@
         "NameId": 300508,
         "CageId": 690508,
         "Model": "mechanic_Krustallinos",
-        "Name": "Crustalino"
+        "Name": "Crustalino",
+        "CollectRadius": 15
       },
       {
         "Id": 509,
@@ -719,7 +808,8 @@
         "NameId": 300509,
         "CageId": 690509,
         "Model": "ain_liquilus",
-        "Name": "Likirus"
+        "Name": "Likirus",
+        "CollectRadius": 15
       },
       {
         "Id": 510,
@@ -727,7 +817,8 @@
         "NameId": 300510,
         "CageId": 690510,
         "Model": "demon_soulseeker",
-        "Name": "Soulseeker"
+        "Name": "Soulseeker",
+        "CollectRadius": 15
       },
       {
         "Id": 511,
@@ -735,7 +826,8 @@
         "NameId": 300511,
         "CageId": 690511,
         "Model": "demon_takin",
-        "Name": "Takin"
+        "Name": "Takin",
+        "CollectRadius": 15
       },
       {
         "Id": 512,
@@ -743,7 +835,8 @@
         "NameId": 300512,
         "CageId": 690512,
         "Model": "spirit_betrayal",
-        "Name": "Betrayal"
+        "Name": "Betrayal",
+        "CollectRadius": 15
       },
       {
         "Id": 513,
@@ -751,7 +844,8 @@
         "NameId": 300513,
         "CageId": 690513,
         "Model": "beast_crazybug",
-        "Name": "Ashmaw"
+        "Name": "Ashmaw",
+        "CollectRadius": 15
       },
       {
         "Id": 514,
@@ -759,7 +853,8 @@
         "NameId": 300514,
         "CageId": 690514,
         "Model": "beast_tamahakan",
-        "Name": "Sand Lord Kynish"
+        "Name": "Sand Lord Kynish",
+        "CollectRadius": 15
       },
       {
         "Id": 515,
@@ -767,7 +862,8 @@
         "NameId": 300515,
         "CageId": 690515,
         "Model": "beast_ultimatebear",
-        "Name": "Bear Mother"
+        "Name": "Bear Mother",
+        "CollectRadius": 15
       },
       {
         "Id": 516,
@@ -775,7 +871,8 @@
         "NameId": 300516,
         "CageId": 690516,
         "Model": "rock_house",
-        "Name": "Silex"
+        "Name": "Silex",
+        "CollectRadius": 15
       },
       {
         "Id": 517,
@@ -783,7 +880,8 @@
         "NameId": 300517,
         "CageId": 690517,
         "Model": "undead_osiris_lv3",
-        "Name": "Aurumis"
+        "Name": "Aurumis",
+        "CollectRadius": 15
       },
       {
         "Id": 518,
@@ -791,7 +889,8 @@
         "NameId": 300518,
         "CageId": 690518,
         "Model": "ain_mardukaboss",
-        "Name": "Draka"
+        "Name": "Draka",
+        "CollectRadius": 15
       },
       {
         "Id": 519,
@@ -799,7 +898,8 @@
         "NameId": 300519,
         "CageId": 690519,
         "Model": "dragon_whitedragon_lv2_01",
-        "Name": "Obsidikar"
+        "Name": "Obsidikar",
+        "CollectRadius": 15
       },
       {
         "Id": 994,
@@ -807,7 +907,8 @@
         "NameId": 300994,
         "CageId": 699994,
         "Model": "pioh_frog_lv1",
-        "Name": "Boba"
+        "Name": "Boba",
+        "CollectRadius": 15
       },
       {
         "Id": 995,
@@ -815,7 +916,8 @@
         "NameId": 300995,
         "CageId": 699995,
         "Model": "Pioh_mafla_lv1",
-        "Name": "Biko"
+        "Name": "Biko",
+        "CollectRadius": 15
       },
       {
         "Id": 996,
@@ -823,7 +925,8 @@
         "NameId": 300996,
         "CageId": 699996,
         "Model": "Pioh_mehehe_lv1",
-        "Name": "Tupa"
+        "Name": "Tupa",
+        "CollectRadius": 15
       },
       {
         "Id": 997,
@@ -831,7 +934,8 @@
         "NameId": 300997,
         "CageId": 699997,
         "Model": "Pioh_Rai_Lv1",
-        "Name": "Leeflin"
+        "Name": "Leeflin",
+        "CollectRadius": 15
       },
       {
         "Id": 998,
@@ -839,7 +943,8 @@
         "NameId": 300998,
         "CageId": 699998,
         "Model": "Pioh_sbear_lv1",
-        "Name": "Snooby"
+        "Name": "Snooby",
+        "CollectRadius": 15
       },
       {
         "Id": 999,
@@ -847,7 +952,8 @@
         "NameId": 300999,
         "CageId": 699999,
         "Model": "pioh_cocupine_lv1",
-        "Name": "Mohi"
+        "Name": "Mohi",
+        "CollectRadius": 15
       }
     ]
   }

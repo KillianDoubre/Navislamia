@@ -177,10 +177,54 @@ public class GroundItemService : IGroundItemService
             return;
         }
 
+        var result = await TakeAsync(client, item, client.ConnectionInfo.CharacterHandle);
+        client.SendResult(TakeRequestId, (ushort)result, 0);
+    }
+
+    public bool TryFindNearest(GameClient owner, float x, float y, byte layer, float range, out GroundItemSpot spot)
+    {
+        spot = default;
+        var best = float.MaxValue;
+        foreach (var item in _items.Values)
+        {
+            if (!ReferenceEquals(item.Owner, owner) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0)
+            {
+                continue;
+            }
+
+            var dx = item.X - x;
+            var dy = item.Y - y;
+            var distance = MathF.Sqrt(dx * dx + dy * dy);
+            if (distance <= range && distance < best)
+            {
+                best = distance;
+                spot = new GroundItemSpot(item.Handle, item.X, item.Y);
+            }
+        }
+
+        return best < float.MaxValue;
+    }
+
+    public async Task<bool> TakeForPetAsync(GameClient owner, uint itemHandle, uint petHandle)
+    {
+        if (!_items.TryGetValue(itemHandle, out var item) || !ReferenceEquals(item.Owner, owner))
+        {
+            return false;
+        }
+
+        return await TakeAsync(owner, item, petHandle) == ResultCode.Success;
+    }
+
+    /// <summary>
+    /// The take itself, shared by the player and its pet: claim the item so a second request cannot
+    /// duplicate it, add it to the bag, then <c>TS_SC_TAKE_ITEM_RESULT</c> (210) naming the actor the client
+    /// animates, the <c>TS_SC_LEAVE</c> and the one-record inventory.
+    /// </summary>
+    private async Task<ResultCode> TakeAsync(GameClient client, GroundItem item, uint takerHandle)
+    {
         if (Interlocked.CompareExchange(ref item.TakenBy, 1, 0) != 0)
         {
-            client.SendResult(TakeRequestId, (ushort)ResultCode.NotExist, 0);
-            return;
+            return ResultCode.NotExist;
         }
 
         try
@@ -190,12 +234,10 @@ public class GroundItemService : IGroundItemService
             if (added is null)
             {
                 item.TakenBy = 0;
-                client.SendResult(TakeRequestId, (ushort)ResultCode.NotExist, 0);
-                return;
+                return ResultCode.NotExist;
             }
 
-            client.Connection.Send(GameSpawnPackets.BuildTakeItemResult(item.Handle,
-                client.ConnectionInfo.CharacterHandle));
+            client.Connection.Send(GameSpawnPackets.BuildTakeItemResult(item.Handle, takerHandle));
             Remove(item);
 
             foreach (var packet in GameCharacterPackets.BuildInventory(new[] { added }))
@@ -203,14 +245,14 @@ public class GroundItemService : IGroundItemService
                 client.Connection.Send(packet);
             }
 
-            client.SendResult(TakeRequestId, (ushort)ResultCode.Success, 0);
+            return ResultCode.Success;
         }
         catch (Exception exception)
         {
             item.TakenBy = 0;
-            _logger.Error(exception, "Could not take item {itemHandle} for {clientTag}", itemHandle,
+            _logger.Error(exception, "Could not take item {itemHandle} for {clientTag}", item.Handle,
                 client.ClientTag);
-            client.SendResult(TakeRequestId, (ushort)ResultCode.DBError, 0);
+            return ResultCode.DBError;
         }
     }
 

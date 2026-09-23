@@ -157,7 +157,7 @@ public class GameClient : Client
         var count = BinaryPrimitives.ReadUInt16LittleEndian(input.Slice(17, 2));
         var waypoints = input.Slice(19, count * 8);
 
-        const byte speed = 100;
+        const byte speed = ConnectionInfo.EchoedMoveSpeed;
         var total = 7 + 12 + count * 8;
         var packet = new byte[total];
         var s = packet.AsSpan();
@@ -180,6 +180,22 @@ public class GameClient : Client
         ConnectionInfo.ClientClockOffset = unchecked(curTime - ServerClock.Now);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
+
+        // The last waypoint is where the character is going; with the start tick, the server estimates where
+        // it is between two reports (what its pet trails).
+        ConnectionInfo.MoveStartTick = ServerClock.Now;
+        if (count > 0)
+        {
+            var last = waypoints.Slice((count - 1) * 8, 8);
+            ConnectionInfo.DestinationX = BinaryPrimitives.ReadSingleLittleEndian(last.Slice(0, 4));
+            ConnectionInfo.DestinationY = BinaryPrimitives.ReadSingleLittleEndian(last.Slice(4, 4));
+        }
+        else
+        {
+            ConnectionInfo.DestinationX = ConnectionInfo.X;
+            ConnectionInfo.DestinationY = ConnectionInfo.Y;
+        }
+
         SyncVisibleObjects();
         RefreshEventArea();
     }
@@ -198,6 +214,9 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
+
+        // A real position: the estimate of a walking character restarts from it.
+        ConnectionInfo.MoveStartTick = ServerClock.Now;
         SyncVisibleObjects();
         RefreshEventArea();
     }
@@ -1657,7 +1676,8 @@ public class GameClient : Client
             // above, so that no member of GamePackets reaches the throwing switch below.
             if (header.ID is (ushort)GamePackets.TM_SC_UNSUMMON_PET
                 or (ushort)GamePackets.TM_SC_ADD_PET_INFO
-                or (ushort)GamePackets.TM_SC_REMOVE_PET_INFO)
+                or (ushort)GamePackets.TM_SC_REMOVE_PET_INFO
+                or (ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME)
             {
                 _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
                 continue;
@@ -1747,6 +1767,53 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_LOGOUT)
             {
                 _logger.Debug("{clientTag} logging out", ClientTag);
+                continue;
+            }
+
+            // TM_CS_SET_PET_NAME (354), the pet (familier) rename request: the 7.3 client sends it from its name
+            // box (SFrame.exe 0x48e170) with the handle the server itself put in TM_SC_SHOW_SET_PET_NAME (353)
+            // and the typed name. PetSummonService renames the pet out when that handle is the one a 353
+            // offered; nothing is answered — no reference holds a result frame for a pet rename, and a
+            // refused name simply reopens the box. See docs/packet-specs/354-set-pet-name.md and
+            // socle-familier-pet.md §17.
+            if (header.ID == (ushort)GamePackets.TM_CS_SET_PET_NAME)
+            {
+                if (GameSummonPackets.TryReadSetPetName(msgBuffer, out var petHandle, out var petName))
+                {
+                    if (_logger.IsEnabled(LogEventLevel.Debug))
+                    {
+                        _logger.Debug(
+                            "TM_CS_SET_PET_NAME ({id}) received from {clientTag}: handle={handle} name=\"{name}\"",
+                            header.ID, ClientTag, petHandle, petName);
+                    }
+
+                    _ = _networkService.PetSummonService.RenameAsync(this, petHandle, petName);
+                }
+                else
+                {
+                    _logger.Warning(
+                        "Malformed TM_CS_SET_PET_NAME ({id}) Length: {length} received from {clientTag}",
+                        header.ID, header.Length, ClientTag);
+                }
+
+                continue;
+            }
+
+            // TM_CS_SET_PET_FILTER (355), the pet pickup filter of the client's options (PET_PICKUP_FILTER).
+            // The value is kept and logged, never applied: its meaning is not established (socle-familier-pet.md
+            // §11.4, §17).
+            if (header.ID == (ushort)GamePackets.TM_CS_SET_PET_FILTER)
+            {
+                if (GamePetPackets.TryReadSetPetFilter(msgBuffer, out var filterHandle, out var filter))
+                {
+                    _networkService.PetSummonService.SetPickupFilter(this, filterHandle, filter);
+                }
+                else
+                {
+                    _logger.Warning("Malformed TM_CS_SET_PET_FILTER ({id}) Length: {length} received from {clientTag}",
+                        header.ID, header.Length, ClientTag);
+                }
+
                 continue;
             }
 
