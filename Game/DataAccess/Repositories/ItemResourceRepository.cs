@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Navislamia.Game.DataAccess.Contexts;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 
 namespace Navislamia.Game.DataAccess.Repositories;
@@ -27,6 +28,18 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
+            .Select(item => new ItemEffectFields((int)item.Id, item.ItemType, item.BaseTypes, item.BaseVar1,
+                item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
+            .ToList();
+    }
+
+    public IReadOnlyList<ItemEffectFields> GetInstantSkillItems()
+    {
+        const short skill = (short)ItemEffectInstant.Skill;
+
+        return _context.ItemResources
+            .AsNoTracking()
+            .Where(item => item.BaseTypes.Contains(skill) || item.OptTypes.Contains(skill))
             .Select(item => new ItemEffectFields((int)item.Id, item.ItemType, item.BaseTypes, item.BaseVar1,
                 item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
             .ToList();

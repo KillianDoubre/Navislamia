@@ -82,6 +82,10 @@ public class MonsterAiService
         Act();
     }
 
+    /// <summary>Reused across ticks: the tick runs on one timer, never concurrently.</summary>
+    private readonly List<long> _visible = new();
+    private readonly List<(MonsterInstance Instance, float X, float Y)> _candidates = new();
+
     /// <summary>An aggressive monster with no target takes a player it can see and is close to.</summary>
     private void Acquire(List<GameClient> clients)
     {
@@ -89,7 +93,12 @@ public class MonsterAiService
         {
             var info = client.ConnectionInfo;
 
-            List<long> visible;
+            if (!MonsterAiRules.IsAlive(info.CharacterHp))
+            {
+                continue;
+            }
+
+            _visible.Clear();
             lock (info.MonsterVisibilityLock)
             {
                 if (info.SpawnedMonsters.Count == 0)
@@ -97,20 +106,14 @@ public class MonsterAiService
                     continue;
                 }
 
-                visible = new List<long>(info.SpawnedMonsters.Keys);
+                _visible.AddRange(info.SpawnedMonsters.Keys);
             }
 
-            foreach (var instanceId in visible)
-            {
-                if (_worldState.TryGetAggro(instanceId, out _, out _)
-                    || !_worldState.IsAlive(instanceId)
-                    || !_worldState.TryGetInstance(instanceId, out var instance)
-                    || !instance.FirstAttack)
-                {
-                    continue;
-                }
+            _worldState.CollectAcquireCandidates(_visible, _candidates);
 
-                var (mx, my) = _worldState.GetPosition(instanceId);
+            foreach (var (instance, mx, my) in _candidates)
+            {
+                var instanceId = instance.InstanceId;
                 var action = MonsterAiRules.Decide(false, true, true, false,
                     mx, my, instance.X, instance.Y, info.X, info.Y,
                     instance.VisibleRange, instance.ChaseRange, Reach(instance));
@@ -142,6 +145,15 @@ public class MonsterAiService
             lock (info.MonsterVisibilityLock)
             {
                 streamed = info.SpawnedMonsters.TryGetValue(instanceId, out handle);
+            }
+
+            // A character at 0 HP is not a target any more: the monster stops swinging and walks home
+            // instead of hitting a corpse. Death carries no packet of its own (§3.2), so the value of
+            // CharacterHp is the whole of the dead state.
+            if (!MonsterAiRules.IsAlive(info.CharacterHp))
+            {
+                GoHome(enemy, instanceId, handle, info, streamed);
+                continue;
             }
 
             var (mx, my) = _worldState.GetPosition(instanceId);
@@ -198,8 +210,8 @@ public class MonsterAiService
             client.Connection.Send(GameMovePackets.BuildStopMove(handle, startTime, info.Layer));
         }
 
-        var damage = MonsterAiRules.PlayerDamage(info.CharacterMaxHp);
-        info.CharacterHp = Math.Max(1, info.CharacterHp - damage);
+        var damage = MonsterAiRules.PlayerDamage(info.CharacterMaxHp, info.IsImmortal);
+        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
             AttackSpeedMs, AttackSpeedMs, GameAttackPackets.ActionAttack, damage, info.CharacterHp,

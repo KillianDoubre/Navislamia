@@ -15,7 +15,14 @@ public static class ServerClock
     public const uint TicksPerSecond = 100;
     private const int MillisecondsPerTick = 10;
 
-    public static uint Now => unchecked((uint)(Environment.TickCount / MillisecondsPerTick));
+    /// <remarks>
+    /// Derived from the 64-bit tick count. <c>Environment.TickCount</c> is an <c>int</c> that turns
+    /// negative after 24.9 days of <b>machine</b> uptime, and dividing it before the cast made the clock
+    /// jump by ~49.7 days at that instant: every <c>(int)(now - end)</c> comparison then read the past as
+    /// the future, so buffs stopped expiring and cooldowns locked. A 64-bit count divided then truncated
+    /// to 32 bits wraps cleanly every 497 days, which the unchecked comparisons already handle.
+    /// </remarks>
+    public static uint Now => unchecked((uint)(Environment.TickCount64 / MillisecondsPerTick));
 
     public static uint FromSeconds(decimal seconds)
     {
