@@ -1768,6 +1768,37 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
   PostgreSQL ici). Sans elles, tout marchand est refusé et journalisé.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Paquet 9005 — `TM_CS_SECURITY_NO` (client → serveur, 30 octets)
+
+Fiche : `docs/packet-specs/9005-security-no.md`. En 7.3 : `Length` (4) + `ID` = 9005 (2) +
+`checksum` (1) + `mode` (`int32`, offset 7) + `security_no` (19 octets, offset 11, lu jusqu'au
+premier zéro). L'id passe à `8105` à partir d'`EPIC_9_6_3`, et `account(64)`/`result`/`security_no_1/_2`
+n'existent qu'à partir d'`EPIC_9_6_7` : ne jamais recopier un relevé 9.x (94 octets au lieu de 30).
+Le client 7.3 émet réellement ce paquet (constructeur de trame en `0x48cf70`, appelé depuis `0x6658a1`
+et `0x49dd9e`) en réponse à `TM_SC_REQUEST_SECURITY_NO` (9004, `int32 mode`) — que ce serveur n'émet
+jamais : **tout 9005 reçu est donc non sollicité**. `mode` nomme l'opération (`0` aucun, `1` ouverture du
+coffre, `2` suppression de personnage) mais **aucune source ne fixe le domaine effectivement émis** : ne
+pas valider `mode`. Aucune référence n'implémente la réponse, et Navislamia n'a ni stockage du code ni
+transport 40000/40001 vers le serveur d'authentification : la vérification est **hors périmètre** tant
+que Killian n'a pas tranché (la référence stocke `md5(sel + code)` dans le champ `password` de la table
+`account` de la base d'authentification).
+
+**Le code est un secret réutilisable, traité comme tel** :
+- jamais journalisé : le bras ne journalise que `mode` et la **longueur** du code, et ne répond rien ;
+- jamais copié en `string` : `GameSecurityPackets.TryReadSecurityNo(packet, out mode, out securityNo)`
+  (30 octets exacts, 18 caractères au plus) rend le code comme une **vue** (`ReadOnlySpan<byte>`) sur la
+  trame. Une chaîne serait une copie immuable sur le tas que rien ne peut effacer. Le jour où un
+  vérificateur existera, il comparera cette vue en temps constant ;
+- effacé après lecture : `HandleSecurityNo` met la trame à zéro (`CryptographicOperations.ZeroMemory`)
+  dans un `finally`, trame mal formée comprise, et `Connection.Read` efface du tampon de réception
+  chaque octet consommé. Ce tampon vit aussi longtemps que la connexion et `CipherConnection` y déchiffre
+  sur place : sans cet effacement, le code y restait en clair jusqu'à ce qu'un autre trafic l'écrase.
+  L'effacement profite à toute trame secrète, pas seulement à la 9005.
+
+Code : `GamePackets.TM_CS_SECURITY_NO = 9005`, lecteur `GameSecurityPackets.TryReadSecurityNo`, bras de
+dispatch et `HandleSecurityNo` dans `Game/Network/Clients/GameClient.cs`, tests
+`Tests/Game/SecurityNoPacketsTests.cs` et `Tests/Network/ConnectionTests.cs` (tampon de réception).
+
 ### Socle stockage commercial — `TM_SC_COMMERCIAL_STORAGE_INFO` (10003), `TM_SC_COMMERCIAL_STORAGE_LIST` (10004), `TM_CS_TAKEOUT_COMMERCIAL_ITEM` (10005)
 
 - 7.3 = **10003 / 10004 / 10005** : rzu bascule cette famille sur 9003/9004/9005 à partir

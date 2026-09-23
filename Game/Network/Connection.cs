@@ -233,6 +233,12 @@ public class Connection : IConnection
 
         Buffer.BlockCopy(ReceiveBuffer, ReadOffset, readBuffer, 0, length);
 
+        // Wipe what was consumed. The receive buffer lives as long as the connection, and a cipher
+        // connection decodes in place, so without this a secret frame (a security password, a one-time
+        // key) would stay readable in clear until later traffic happened to overwrite it. The frame is
+        // now in the caller's hands alone, and a handler can zero that copy too.
+        Array.Clear(ReceiveBuffer, ReadOffset, length);
+
         _dataLength -= length;
         ReadOffset = _dataLength == 0 ? 0 : ReadOffset + length;
 

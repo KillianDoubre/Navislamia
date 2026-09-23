@@ -163,6 +163,38 @@ public class ConnectionTests
         connection.Connected.Should().BeTrue();
     }
 
+    [Test]
+    public async Task CipherConnection_LeavesNoPlaintextInTheReceiveBufferOnceRead()
+    {
+        // The receive buffer lives as long as the connection and is decoded in place, so a consumed frame
+        // (a security password) must not stay there in clear.
+        var secret = Frame(30, 0x5A);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var received = new ConcurrentQueue<byte[]>();
+
+        var connection = new CipherConnection(_serverSide, Key);
+        connection.OnDisconnected = () => { };
+        connection.OnDataSent = _ => { };
+        connection.OnDataReceived = available =>
+        {
+            ReadFrames(connection, available, received);
+            done.TrySetResult();
+        };
+        connection.Start();
+
+        await _peer.SendAsync(Encode(secret), SocketFlags.None);
+        await done.Task.WaitAsync(Timeout);
+
+        received.Should().ContainSingle().Which.Should().Equal(secret);
+        ReceiveBuffer(connection).Should().OnlyContain(b => b == 0);
+    }
+
+    /// <summary><c>Connection.ReceiveBuffer</c> is internal to the game assembly.</summary>
+    private static byte[] ReceiveBuffer(Connection connection) =>
+        (byte[])typeof(Connection).GetField("ReceiveBuffer",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(connection)!;
+
     /// <summary>A frame whose first four bytes are its length, filled with a recognisable byte.</summary>
     private static byte[] Frame(int length, byte fill)
     {

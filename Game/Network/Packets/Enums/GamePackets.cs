@@ -168,6 +168,12 @@ public enum GamePackets : ushort
 
     TM_CS_REPORT = 8000,
 
+    // TM_CS_SECURITY_NO (9005): the security password the client sends back once the server has asked for
+    // it with TM_SC_REQUEST_SECURITY_NO (9004) — 30 bytes, read and bounded but never verified (see
+    // docs/packet-specs/9005-security-no.md §5.4). rzu remaps the id to 8105 from EPIC_9_6_3 on, so 8105
+    // must not be declared here, and account(64)/result/security_no_1/_2 only exist from EPIC_9_6_7.
+    TM_CS_SECURITY_NO = 9005,
+
     TM_SC_COMMERCIAL_STORAGE_INFO = 10003,
     TM_SC_COMMERCIAL_STORAGE_LIST = 10004,
     TM_CS_TAKEOUT_COMMERCIAL_ITEM = 10005,
