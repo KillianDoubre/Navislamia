@@ -614,3 +614,21 @@ Fiche de référence : `docs/packet-specs/socle-familier-pet.md`.
 - `GameSpawnPackets.cs` et un nouveau `GamePetPackets.cs` sont hors des 16 branches ouvertes qui se
   disputent `GamePackets.cs`/`GameClient.cs`.
 ```
+
+---
+
+## Revue avant fusion (2026-09-23)
+
+Fusion de `origin/master` : un conflit dans `GamePackets.cs` (la 324 de `master` et les ids 350-352
+insérés au même endroit), résolu dans l'ordre des ids. Aucune correction de code nécessaire ; vérifié :
+
+- `pet_code` est `EncodedInt<EncodingRandomized>` dans `rzu` (`TS_SC_ENTER.h`, `TS_SC_ENTER__PET_INFO`) :
+  `WriteEncodedInt` est le bon écrivain, pas `ScrambledInt.Encode` (le piège des `monster_id`).
+- 95 octets = 64 + 4 (`master_handle`) + 8 (`pet_code`) + 19 (`name`).
+- `PetWorldService` n'est ni enregistré ni appelé, exactement comme `SummonWorldService` : cohérent avec
+  le socle des invocations.
+
+Le bloc destiné à `CLAUDE.md` a été corrigé avant d'y être recopié : un id déclaré sans bras ne « casse
+plus la boucle de réception » depuis que `Connection.OnReceive` rattrape l'exception (erreur journalisée,
+session maintenue), et le décompte de tests était celui de la branche. Construction `Release` et
+`dotnet test` sur la fusion : 1 247 tests, 0 échec.
