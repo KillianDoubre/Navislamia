@@ -6,8 +6,11 @@ namespace Navislamia.Game.Services.Buffs;
 /// <summary>The state a removal request resolves to, plus the aura group to switch off with it.</summary>
 /// <param name="Index">Position of the entry in <c>ActiveBuffs</c>, so the caller removes that exact one.</param>
 /// <param name="Buff">The resolved state.</param>
-/// <param name="ToggleGroup">The aura group this state belongs to, or 0 when it is not a toggled aura.</param>
-public readonly record struct StateRemovalPlan(int Index, ActiveBuff Buff, int ToggleGroup);
+/// <param name="ToggleGroup">
+/// The aura group this state belongs to, or null when it is not a toggled aura. Nullable because group 0 is a
+/// real group, not "no group": auras sharing it exclude each other.
+/// </param>
+public readonly record struct StateRemovalPlan(int Index, ActiveBuff Buff, int? ToggleGroup);
 
 /// <summary>
 /// The rule behind <c>TM_CS_REQUEST_REMOVE_STATE</c> (408): the player cancels one state from the client's
@@ -80,15 +83,21 @@ public static class StateRemoval
     }
 
     /// <summary>
-    /// The toggle group whose active aura produced <paramref name="skillId"/>, or 0 when the state did not
+    /// The toggle group whose active aura produced <paramref name="skillId"/>, or null when the state did not
     /// come from an aura. The smallest matching group wins, so the answer never depends on dictionary order.
     /// </summary>
-    private static int AuraGroup(IReadOnlyDictionary<int, int> auras, int skillId)
+    private static int? AuraGroup(IReadOnlyDictionary<int, int> auras, int skillId)
     {
-        var group = 0;
+        // A state put by /buff carries no skill, and no aura is ever recorded under skill 0.
+        if (skillId == 0)
+        {
+            return null;
+        }
+
+        int? group = null;
         foreach (var pair in auras)
         {
-            if (pair.Value == skillId && (group == 0 || pair.Key < group))
+            if (pair.Value == skillId && (group is null || pair.Key < group))
             {
                 group = pair.Key;
             }

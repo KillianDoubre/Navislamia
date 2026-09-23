@@ -39,7 +39,7 @@ public class StateRemovalTests
         result.Plan.Index.Should().Be(1);
         result.Plan.Buff.StateId.Should().Be(QuickPace);
         result.Plan.Buff.StateHandle.Should().Be(9);
-        result.Plan.ToggleGroup.Should().Be(0, "a plain buff is not a toggled aura");
+        result.Plan.ToggleGroup.Should().BeNull("a plain buff is not a toggled aura");
     }
 
     [Test]
@@ -130,6 +130,31 @@ public class StateRemovalTests
         var result = Resolve(QuickPace, buffs, auras);
 
         result.Ok.Should().BeTrue();
-        result.Plan.ToggleGroup.Should().Be(0, "another group's active aura is not this state");
+        result.Plan.ToggleGroup.Should().BeNull("another group's active aura is not this state");
+    }
+
+    [Test]
+    public void TryResolve_ReportsToggleGroupZeroAsARealGroup()
+    {
+        var buffs = new List<ActiveBuff> { Buff(QuickPace, 1201, 5) };
+        var auras = new Dictionary<int, int> { [0] = 1201 };
+
+        var result = Resolve(QuickPace, buffs, auras);
+
+        result.Ok.Should().BeTrue();
+        result.Plan.ToggleGroup.Should().Be(0,
+            "group 0 is a real toggle group: its aura must be switched off, not left lit in ActiveAuras");
+    }
+
+    [Test]
+    public void TryResolve_NeverTiesAStateWithoutSkillToAnAura()
+    {
+        var buffs = new List<ActiveBuff> { Buff(QuickPace) };
+        var auras = new Dictionary<int, int> { [0] = 0 };
+
+        var result = Resolve(QuickPace, buffs, auras);
+
+        result.Ok.Should().BeTrue();
+        result.Plan.ToggleGroup.Should().BeNull("a state put by /buff carries skill 0 and is no aura");
     }
 }

@@ -177,7 +177,7 @@ public class SkillCastService : ISkillCastService
         var handle = info.CharacterHandle;
 
         ActiveBuff removed;
-        int toggleGroup;
+        int? toggleGroup;
         ResultCode error;
 
         // Resolve and mutate under one lock: the expiry tick walks the same list, and the index is only
@@ -189,7 +189,7 @@ public class SkillCastService : ISkillCastService
                     out error))
             {
                 removed = default;
-                toggleGroup = 0;
+                toggleGroup = null;
             }
             else
             {
@@ -198,9 +198,9 @@ public class SkillCastService : ISkillCastService
                 info.ActiveBuffs.RemoveAt(plan.Index);
 
                 // One aura per group: cancelling an aura-based state must undo the toggle, not only the icon.
-                if (toggleGroup != 0)
+                if (toggleGroup is { } group)
                 {
-                    info.ActiveAuras.Remove(toggleGroup);
+                    info.ActiveAuras.Remove(group);
                 }
             }
         }
@@ -213,7 +213,7 @@ public class SkillCastService : ISkillCastService
             return;
         }
 
-        if (toggleGroup != 0)
+        if (toggleGroup is not null)
         {
             client.Connection.Send(GameSkillPackets.BuildAura(handle, (ushort)removed.SkillId, false));
         }

@@ -1580,6 +1580,50 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
   `mix_type` 801/802/803 ↔ 263/264.
 
+### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
+
+- **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,
+  `target` `uint32` à l'offset 7 (handle de la créature dont la fenêtre d'états est affichée),
+  `state_code` `int32` à l'offset 11 (le `StateId`). Aucun gating de champ : rzu ne versionne que
+  l'id (408 pour `< EPIC_9_6_3`, 1408 au-delà), donc **408 en 7.3**. C'est le clic d'une icône d'état
+  dans `window_main_state_h_effect.nui` qui l'émet (les infobulles 9.4 disent « double-cliquer pour
+  annuler »), et le client ne le construit que pour un état dont le mot de drapeaux porte `1 << 5` —
+  `StateTimeType.EraseOnRequest = 32`, le même bit que `AF_ERASE_ON_REQUEST` de NGemity. **Ce drapeau
+  n'était lu par aucune projection du dépôt** : `StateEffectFields` ne transporte que
+  `Id`/`EffectType`/`Values`, et `StateCatalog` ne charge que les états à effet de stat (`EffectType`
+  1 ou 2) alors qu'`ActiveBuffs` en contient d'autres — d'où la seconde projection
+  `GetEraseOnRequestStateIds` → `IStateCatalog.IsEraseOnRequest`. Le savoir du paquet vit dans
+  `docs/packet-specs/408-request-remove-state.md`.
+- **`state_time_type` n'avait jamais été importé** : `StateResources` portait `0` pour les 1 949
+  lignes, comme toutes ses colonnes scalaires hors `EffectType`/`Values` (le piège des littéraux NOT
+  NULL, une fois de plus), donc la garde refusait **tout**. `tools/Import-StateResourceColumns.ps1`
+  (modèle de `Import-SkillResourceColumns.ps1`, depuis le CSV) importe les 20 colonnes scalaires : 63
+  états portent le bit 32, 350 sont `IsHarmful`. Piège : `StateTimeType` est un enum `short`
+  (`smallint`) et l'état 201085 vaut `33150` (bit 15, au-delà de tout drapeau déclaré) — le script
+  stocke le motif 16 bits tel quel (complément à deux), ce qui garde chaque bit pour le test `&`.
+  **Aucune aura et presque aucun buff castable ne porte le bit** : en jeu, on le teste par `/buff`
+  (164401 Strength Boost, 41102536 Guardian of Gaia…).
+- **Réponse** : `TM_SC_STATE` (505), **63 octets**, `state_level`/`end_time`/`start_time` à zéro —
+  c'est exactement `BuildStateRemoval`, déjà validé en jeu à l'expiration ; NGemity encode le retrait
+  de la même façon (`Messages.cpp:1105-1123`). Suivi de `SendStatRefresh` (`RefreshBuffs` +
+  `TM_SC_STAT_INFO`/`TM_SC_PROPERTY`), puis `TS_SC_RESULT` taggé 408 `Success` (choix du dépôt, isolé
+  dans `SkillCastService.RemoveState(client, request)`). En cas d'échec, `TS_SC_RESULT` taggé 408
+  (`NotExist`/`NotActable`, `InvalidArgument` pour une trame d'une autre longueur) sans aucun effet de
+  bord : le paquet n'a aucune réponse dédiée dans tout le protocole.
+- **Une aura annulée par cette voie doit être défaite comme une aura** : couper `ActiveAuras` et
+  envoyer `TM_SC_AURA` (407) à `false`, comme `RemoveAura` le fait à la bascule. Sans cela, le client
+  garde l'icône d'aura allumée alors que le serveur l'a retirée. **Le groupe d'aura du plan est un
+  `int?`** : le groupe `0` est un vrai groupe (voir *Toggle auras*), et la première version, qui s'en
+  servait comme « pas d'aura », laissait une aura du groupe 0 allumée dans `ActiveAuras`.
+- Aucune diffusion : les états ne partent que vers la connexion du joueur concerné, ici comme pour
+  l'expiration et la bascule (NGemity, lui, diffuse à la région — écart assumé).
+- **Réserves vérifiables** (fiche §7) : l'émission effective de la trame par le client n'est pas
+  prouvée par la seule lecture (le dernier saut message interne → socket n'est pas résolu, l'opcode
+  n'apparaît dans aucun immédiat du `.text`) ; le geste exact de déclenchement ; le fait qu'une cible
+  tierce soit légitime (`window_target_state_h_effect.nui` existe) — décision : n'accepter que son
+  propre handle ; aucune valeur sentinelle « tous les états » — décision : code inconnu =
+  `NotExist` ; le client juge le bit 32 sur **ses propres** données d'état, que rien n'a lues.
+
 ### Mort et réapparition du personnage joueur
 
 Le client Epic 7.3 **déclare** `TM_SC_DEAD` (504) mais son répartiteur le libère **sans effet**

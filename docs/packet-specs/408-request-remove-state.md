@@ -489,3 +489,26 @@ créature tierce), aucune valeur sentinelle « tous les états » n'est reconnue
 et la présence du bit 32 dans l'Arcadia de Killian reste à vérifier en jeu —
 `A VERIFIER PAR KILLIAN`.
 
+## 12. Revue avant fusion (2026-09-23)
+
+Fusion de `origin/master` (205 commits) : cinq conflits, tous additifs des deux côtés — `master` a
+ajouté `GetStateIds`/`GetStatesWithEffect` et `IStateCatalog.Exists`/`TryGetResurrection` (voie
+« état » de la résurrection) aux mêmes fichiers que `GetEraseOnRequestStateIds`/`IsEraseOnRequest`.
+Les deux côtés sont gardés. `ISkillCastService` porte désormais deux `RemoveState` : celui de `master`
+(`bool RemoveState(client, stateId)`, consommation d'un état par la résurrection, sans règle) et celui
+de ce paquet (`RemoveState(client, request)`, qui juge la requête et défait une aura).
+
+Deux corrections :
+
+- **Le groupe `0` servait de sentinelle « pas d'aura »** dans `StateRemovalPlan.ToggleGroup` alors que
+  le groupe `0` est un vrai groupe d'aura (CLAUDE.md, *Toggle auras*). Une aura du groupe 0 annulée par
+  la 408 restait inscrite dans `ActiveAuras` et aucun `TM_SC_AURA` à `false` ne partait. `ToggleGroup`
+  est maintenant `int?`, un état sans compétence (posé par `/buff`) n'est jamais rattaché à une aura,
+  et deux tests le figent.
+- **La réserve §7.6 était fondée, et bloquante** : `StateResources."StateTimeType"` valait `0` pour
+  les 1 949 lignes — jamais importé, comme 19 autres colonnes scalaires. La garde aurait refusé toute
+  annulation par `NotActable`. `tools/Import-StateResourceColumns.ps1` importe les 20 colonnes depuis
+  le CSV 9.4 ; après import, 63 états portent le bit 32. Aucune aura (701/702) ni presque aucun buff
+  castable par un joueur n'en porte : le test en jeu passe par `/buff`.
+
+Construction `Release` et `dotnet test` : 1 116 tests, 0 échec.
