@@ -25,6 +25,7 @@ public static class GameSpawnPackets
     private const byte ObjectTypeMonster = 3;
     private const byte ObjectTypeSummon = 4;
     private const byte ObjectTypeFieldProp = 6;
+    private const byte ObjectTypePet = 7;
 
     public static byte[] BuildEnterNpc(uint handle, float x, float y, float z, byte layer,
         int hp, int level, byte race, int npcId)
@@ -93,6 +94,53 @@ public static class GameSpawnPackets
         WriteEncodedInt(packet.AsSpan(68, 8), summonCode);
         WriteName(packet.AsSpan(76, NameSize), name);
         packet[95] = enhance;
+        WriteChecksum(packet);
+
+        return packet;
+    }
+
+    /// <summary>
+    /// <c>TM_SC_ENTER</c> (3) for a familier (pet) — <b>95 bytes</b>: the 26-byte creature prefix, the
+    /// 38-byte shared creature block, then <c>master_handle</c> @64, the 8-byte randomized <c>pet_code</c>
+    /// @68 and the 19-byte <c>name</c> @76 (18 usable characters, zero filled). <c>type</c> is
+    /// <c>ET_NPC</c> (1) and <c>objType</c> is <c>EOT_Pet</c> (7), the only entry tram the 7.3 client
+    /// executes for a pet (<c>docs/packet-specs/socle-familier-pet.md</c> §5, §5.1). It is the summon
+    /// tram <b>minus</b> the <c>enhance</c> byte @95: <c>TS_SC_ENTER__PET_INFO</c> does not declare it
+    /// (<c>TS_SC_ENTER.h:132-143</c>), so nothing is written at offset 95.
+    /// </summary>
+    /// <param name="race">
+    /// The <c>race</c> of the creature block. The pet tram declares the field in 7.3
+    /// (<c>&lt; EPIC_9_6_7</c>) and no server table carries a value for a pet: caller-supplied
+    /// (fiche §11.7).
+    /// </param>
+    /// <param name="maxHp">
+    /// Caller-supplied: neither <c>PetEntity</c> nor <c>PetResource</c> has a health column, so no
+    /// reference settles a pet's maximum (fiche §9.2, §11.3). Do not substitute <paramref name="hp"/>.
+    /// </param>
+    /// <param name="maxMp">Caller-supplied for the same reason as <paramref name="maxHp"/>.</param>
+    /// <param name="z">
+    /// Caller-supplied: no reference places a pet in the world at all, so this one carries the whole
+    /// placement (fiche §11.7). Do not assume the master's <c>z</c>.
+    /// </param>
+    /// <param name="isFirstEnter">
+    /// 1 on the first entry into the world, 0 on a re-entry (fiche §11.7).
+    /// </param>
+    /// <param name="petCode">
+    /// <c>pet_code</c> — the reference's <c>SummonEntity.SummonResourceId</c> read is the only symmetry
+    /// this field has: <c>PetEntity.PetResourceId</c> is a rapprochement, not a proven key (fiche §11.1).
+    /// The caller supplies it.
+    /// </param>
+    public static byte[] BuildEnterPet(uint handle, float x, float y, float z, byte layer,
+        int hp, int maxHp, int mp, int maxMp, int level, byte race, float faceDir, bool isFirstEnter,
+        uint masterHandle, uint petCode, string name)
+    {
+        const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 4 + 8 + NameSize;
+        var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race, ObjectTypePet,
+            faceDir, ActorStatus.ForPet(), maxHp: maxHp, mp: mp, maxMp: maxMp, isFirstEnter: isFirstEnter);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(64, 4), masterHandle);
+        WriteEncodedInt(packet.AsSpan(68, 8), petCode);
+        WriteName(packet.AsSpan(76, NameSize), name);
         WriteChecksum(packet);
 
         return packet;

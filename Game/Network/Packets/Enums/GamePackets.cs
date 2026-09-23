@@ -84,6 +84,18 @@ public enum GamePackets : ushort
     TM_SC_MOUNT_SUMMON = 320,
     TM_SC_UNMOUNT_SUMMON = 321,
     TM_CS_GET_SUMMON_SETUP_INFO = 324,
+
+    // The familier (pet) socle, server-to-client half (docs/packet-specs/socle-familier-pet.md §9.1).
+    // The 7.3 ids are 350-352: the 9.6.3 remap to 1350-1354 is dated and does not concern this
+    // repository (fiche §6.1). All three are emitted by the server only — the 7.3 client routes them as
+    // incoming frames and builds none of them — but each one still gets a log-and-drop arm in
+    // GameClient.cs so that no member of this enum reaches the throwing switch (§14 of the sheet).
+    // TM_SC_SHOW_SET_PET_NAME (353) and TM_CS_SET_PET_NAME (354) are deliberately absent: they have
+    // their own sheet and their own branch (fiche §9.3).
+    TM_SC_UNSUMMON_PET = 350,
+    TM_SC_ADD_PET_INFO = 351,
+    TM_SC_REMOVE_PET_INFO = 352,
+
     TM_CS_SKILL = 400,
     TM_SC_SKILL = 401,
     TM_CS_LEARN_SKILL = 402,

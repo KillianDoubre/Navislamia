@@ -64,4 +64,11 @@ public static class ActorStatus
     /// like <see cref="ForNpc"/>. See <c>docs/packet-specs/socle-invocation-monde.md</c> §3.1, offset 26.
     /// </summary>
     public static uint ForSummon() => 0u;
+
+    /// <summary>
+    /// A familier's (pet's) mask: like <see cref="ForSummon"/>, no pet flag is established for Epic 7.3 —
+    /// the <c>creatureInfo.status</c> of <c>TM_SC_ENTER</c> (3, offset 26) is written from this mask and no
+    /// reference sets a bit for a pet (<c>docs/packet-specs/socle-familier-pet.md</c> §5.1).
+    /// </summary>
+    public static uint ForPet() => 0u;
 }

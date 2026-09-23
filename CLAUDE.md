@@ -1691,6 +1691,34 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   `op_codes.md`) : ne pas le déclarer.
 - Détail et réserves : `docs/packet-specs/452-summon-card-skill-list.md`.
 
+### Familier (pet) — 350-352, entrée dans le monde, filtre 355
+
+- `TS_SC_ADD_PET_INFO` (351) fait **42 octets en 7.3**, alors que rzu et NGemity en déclarent 38 : le
+  client lit un 5ᵉ `int32` après `code` (`SFrame.exe` @`0x66f600`, fenêtre `paquet+7`…`+0x29`), méthode
+  calibrée sur la 301, dont la fenêtre lue vaut exactement les 39 octets de rzu. Ce 5ᵉ champ n'est nommé
+  par aucune source (`unknown`), et `code` n'est **pas** unifié avec `pet_code` : aucune référence ne le dit.
+- Le familier entre dans le monde par `TS_SC_ENTER` (3), `type = ET_NPC (1)`, `objType = EOT_Pet (7)` :
+  **95 octets**, `master_handle` @64, `pet_code` @68 (8 octets `EncodedInt<EncodingRandomized>`, le même
+  écrivain que `npc_id`/`summon_code` — vérifié dans `TS_SC_ENTER.h`), `name` @76 sur 19 octets. Le
+  `enhance` de l'invocation (@95) **n'existe pas** pour un familier.
+- Il en sort par `TM_SC_UNSUMMON_PET` (350), 11 octets, `handle` @7 : le client retrouve l'acteur, vérifie
+  `objType = 7` et le retire lui-même. `TM_SC_REMOVE_PET_INFO` (352) a la même forme mais **ferme la
+  fenêtre de créature** : les deux ne sont pas interchangeables. Le `TS_SC_LEAVE` (9) envoyé après la 350
+  l'est par symétrie avec les invocations, sans preuve qu'il soit nécessaire.
+- 350, 351 et 352 sont serveur → client (le client n'en construit aucune), mais chacune a un bras
+  « journal + abandon » dans `GameClient.cs`, sans quoi un id déclaré atteindrait le `throw` final.
+- `PetWorldService.Enter`/`Leave` séquencent 351 → 3 et 350 → 9 et **ne décident rien** : placement
+  (`x`/`y`/`z`/`layer`, **sans jitter** — aucune référence ne place un familier), statistiques (`max_hp`
+  n'est pas `hp`), `race`, `pet_code`, `cage_handle` et les deux `int32` ouverts de la 351 viennent de
+  `PetWorldEntry`, fournis par l'appelant. Comme `SummonWorldService`, le service n'est **ni enregistré ni
+  appelé** : le déclencheur (cage, invocation du familier) est une règle de jeu encore ouverte.
+- `ActorStatus.ForPet()` vaut 0, comme les invocations.
+- `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options
+  (`PET_PICKUP_FILTER`), mais n'est **pas déclaré** : sa valeur n'est pas établie et le ramassage par
+  familier n'existe pas. Il tombe dans `Undefined packet ID`, sans erreur.
+- 353/354 (nom du familier) ont leur propre fiche et leur propre branche.
+- Détail et réserves : `docs/packet-specs/socle-familier-pet.md` ; tests : `Tests/Game/PetWorldTests.cs`.
+
 ### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
 
 - **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,

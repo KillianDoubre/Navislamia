@@ -1650,6 +1650,19 @@ public class GameClient : Client
                 continue;
             }
 
+            // The three server to client frames of the familier (pet) socle: TM_SC_UNSUMMON_PET (350),
+            // TM_SC_ADD_PET_INFO (351) and TM_SC_REMOVE_PET_INFO (352). The 7.3 client only routes them as
+            // incoming frames — it builds none of them (docs/packet-specs/socle-familier-pet.md §6.2) — so an
+            // incoming one is a protocol anomaly, not a request. Logged and dropped like TM_SC_REGION_ACK
+            // above, so that no member of GamePackets reaches the throwing switch below.
+            if (header.ID is (ushort)GamePackets.TM_SC_UNSUMMON_PET
+                or (ushort)GamePackets.TM_SC_ADD_PET_INFO
+                or (ushort)GamePackets.TM_SC_REMOVE_PET_INFO)
+            {
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
             // TM_CS_COMPETE_REQUEST (4500) and TM_CS_COMPETE_ANSWER (4502) are the two client to server frames of
             // the competition socle (lot C1): read, validated, then refused by a TS_SC_RESULT carrying a code the
             // 7.3 client displays. The five remaining ids of the family travel server to client and are not
