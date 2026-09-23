@@ -44,24 +44,21 @@ public static class WorldObjectStreamer
             foreach (var item in inRange)
             {
                 var id = getId(item);
-                var alreadyVisible = handlesById.ContainsKey(id);
+
+                // An object already visible stays visible whether or not it may enter, so the predicate is
+                // only asked about an object that would actually be streamed.
+                if (handlesById.ContainsKey(id))
+                {
+                    visible.Add(id);
+                    continue;
+                }
 
                 if (canEnter is not null && !canEnter(item))
                 {
-                    if (alreadyVisible)
-                    {
-                        visible.Add(id);
-                    }
-
                     continue;
                 }
 
                 visible.Add(id);
-
-                if (alreadyVisible)
-                {
-                    continue;
-                }
 
                 var handle = WorldObjectHandle.Next();
                 client.Connection.Send(buildEnter(item, handle));

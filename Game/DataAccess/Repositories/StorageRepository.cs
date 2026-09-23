@@ -13,36 +13,45 @@ namespace Navislamia.Game.DataAccess.Repositories;
 /// Reads and moves the storage rows of an account. Both the storage list and the inventory list are the
 /// item table, so one context owns the whole move: the destination slot has to be counted on the very
 /// rows the moved stack is about to leave or join.
+/// <para>
+/// That context lives for one call only. It used to live as long as the server, next to the character
+/// service's own long-lived context: each kept whatever it had loaded, so an item the other one had moved
+/// or deleted could be read stale here, and its change tracker grew with every storage ever opened.
+/// </para>
 /// </summary>
 public class StorageRepository : IStorageRepository
 {
-    private readonly TelecasterContext _context;
+    private readonly DbContextOptions<TelecasterContext> _options;
 
     public StorageRepository(DbContextOptions<TelecasterContext> options)
     {
-        _context = new TelecasterContext(options);
+        _options = options;
     }
 
     public async Task<ItemEntity[]> GetStorageItemsAsync(string characterName)
     {
-        var character = await _context.Characters.FirstOrDefaultAsync(c => c.CharacterName == characterName);
+        await using var context = new TelecasterContext(_options);
+        var character = await context.Characters.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CharacterName == characterName);
         if (character is null)
         {
             return Array.Empty<ItemEntity>();
         }
 
-        return await StorageRows(AccountIdOf(character)).OrderBy(item => item.Idx).ToArrayAsync();
+        return await StorageRows(context, AccountIdOf(character)).AsNoTracking().OrderBy(item => item.Idx)
+            .ToArrayAsync();
     }
 
     public async Task<StorageMoveResult> MoveAsync(string characterName, uint itemHandle, bool toStorage, long count)
     {
-        var character = await _context.Characters.FirstOrDefaultAsync(c => c.CharacterName == characterName);
+        await using var context = new TelecasterContext(_options);
+        var character = await context.Characters.FirstOrDefaultAsync(c => c.CharacterName == characterName);
         if (character is null)
         {
             return StorageMoveResult.Refused(StorageMoveOutcome.UnknownCharacter);
         }
 
-        var item = await _context.Items.FirstOrDefaultAsync(row => row.Id == itemHandle);
+        var item = await context.Items.FirstOrDefaultAsync(row => row.Id == itemHandle);
         if (item is null)
         {
             return StorageMoveResult.Refused(StorageMoveOutcome.UnknownHandle);
@@ -76,21 +85,21 @@ public class StorageRepository : IStorageRepository
             return StorageMoveResult.Refused(StorageMoveOutcome.Ignored);
         }
 
-        var slot = StorageRules.NextFreeIndex(await DestinationIndicesAsync(character, accountId, toStorage));
+        var slot = StorageRules.NextFreeIndex(await DestinationIndicesAsync(context, character, accountId, toStorage));
 
         if (moved == item.Amount)
         {
             StorageRules.Own(item, toStorage, character.Id, accountId);
             item.Idx = slot;
-            await _context.SaveChangesAsync();
+            await context.SaveChangesAsync();
             return new StorageMoveResult(StorageMoveOutcome.Moved, item, null, 0);
         }
 
         var destination = StorageRules.Divide(item, moved, slot);
         StorageRules.Own(destination, toStorage, character.Id, accountId);
         item.Amount -= moved;
-        _context.Items.Add(destination);
-        await _context.SaveChangesAsync();
+        context.Items.Add(destination);
+        await context.SaveChangesAsync();
         return new StorageMoveResult(StorageMoveOutcome.Split, destination, item, item.Amount);
     }
 
@@ -108,17 +117,18 @@ public class StorageRepository : IStorageRepository
     /// storage, hence the <c>AuctionId</c>/<c>StorageId</c> conditions: an auction row must not show up
     /// in the counter storage.
     /// </summary>
-    private IQueryable<ItemEntity> StorageRows(int accountId)
-        => _context.Items.Where(row => row.AccountId == accountId
+    private static IQueryable<ItemEntity> StorageRows(TelecasterContext context, int accountId)
+        => context.Items.Where(row => row.AccountId == accountId
                                        && row.CharacterId == null
                                        && row.AuctionId == null
                                        && row.StorageId == null);
 
-    private async Task<int[]> DestinationIndicesAsync(CharacterEntity character, int accountId, bool toStorage)
+    private static async Task<int[]> DestinationIndicesAsync(TelecasterContext context, CharacterEntity character,
+        int accountId, bool toStorage)
     {
         var indices = toStorage
-            ? StorageRows(accountId).Select(row => row.Idx)
-            : _context.Items.Where(row => row.CharacterId == character.Id).Select(row => row.Idx);
+            ? StorageRows(context, accountId).Select(row => row.Idx)
+            : context.Items.Where(row => row.CharacterId == character.Id).Select(row => row.Idx);
 
         return await indices.ToArrayAsync();
     }

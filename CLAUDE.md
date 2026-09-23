@@ -93,10 +93,28 @@ length, which is exactly why a lone header-only packet only ever arrived coalesc
 
 **A derived connection must route through `base.Send`**, never touch the channel: `CipherConnection`
 used to enqueue directly, so a signal added to the base would have left its messages queued forever.
-Its `Send` now holds a lock across encode-and-queue, because **XRC4 is a stream cipher**: the combat,
-movement and cast ticks and the client's own thread all send on one connection, and two of them
-interleaving would consume the keystream out of order *and* queue in an order that no longer matches
-it — undecodable, and rare enough to look like a random disconnect.
+**XRC4 is a stream cipher**: the combat, movement and cast ticks and the client's own thread all send on
+one connection, and encoding in any order other than the wire order is undecodable — rare enough to look
+like a random disconnect. The encoding therefore happens **on the send loop**, in `EncodeOutgoing`, on the
+loop's own pooled copy: the loop is the single reader of the queue, so it encodes in wire order by
+construction and needs no lock. It used to happen in `Send`, **in place on the caller's array**, under a
+lock held across encode-and-queue — which also meant one packet array could never be sent to two
+connections (the second copy went out encrypted twice). A packet array is now never modified by sending.
+
+On the receive side, `CipherConnection` decodes each byte **once, in place**, the first time `Peek` or
+`Read` reaches it (`_decodedLength`). `Peek` used to decode a copy of the header and roll the keystream
+back — a copy plus a 256-byte cipher state per packet — for `Read` to decode the same bytes again.
+`Connection` keeps a read offset instead of moving the unread remainder to the front on every `Read`
+(quadratic in a coalesced burst); the remainder moves once per receive, in `Listen`.
+
+**A disconnect is signalled by the receive, not polled.** A loop per connection used to wake every
+100 ms and call `Socket.Poll(1000 µs)`, which blocks a pool thread for that millisecond whenever nothing
+is pending. An orderly close completes the pending receive with 0 bytes and a reset makes it throw; both
+call `SignalDisconnect`, once. **`OnReceive` catches whatever the packet handlers throw**: it runs on an
+I/O completion thread, where an escaping exception terminates the process — one short
+`TM_CS_MOVE_REQUEST` used to be enough. The game receive loop also refuses a frame length shorter than
+the header (it would read zero bytes forever) or larger than the 32 KiB buffer (it could never complete).
+Covered end to end over loopback sockets by `Tests/Network/ConnectionTests.cs`.
 
 `WorldObjectStreamer.Stream` is the single visibility loop behind `NpcSpawnService`,
 `MonsterSpawnService` and `FieldPropService`: enter what came into view, `TS_SC_LEAVE` what left, keep
@@ -994,7 +1012,11 @@ all of them `ar_time_t`: `TS_TIMESYNC` (`2`, bidirectional, `time`), `TS_SC_SET_
 and `TS_SC_GAME_TIME` (`1101`, `t` + `game_time`).
 
 **`ar_time_t` is a 10 ms tick, never a wall clock.** `ServerClock` is the single place that defines it
-(`Environment.TickCount / 10`, `TicksPerSecond = 100`) and everything on the wire goes through it. Three
+(`Environment.TickCount64 / 10` truncated to 32 bits, `TicksPerSecond = 100`) and everything on the wire goes
+through it. **Not `Environment.TickCount`**: that `int` turns negative after 24.9 days of *machine*
+uptime, and dividing it before the cast made the clock jump by ~49.7 days at that instant, so every
+`(int)(now - end)` comparison read the past as the future — buffs stopped expiring and cooldowns locked.
+The 64-bit count wraps cleanly every 497 days, which the unchecked comparisons handle. Three
 independent confirmations: rzgame's `typedef ar_time_t rztime_t; // unit [10ms] since first call`; the
 reference emulator's `GetArTime() = ms / 10`; and the client itself, since `ITEM_ARRANGE_COOL_TIME = 3000`
 greys the sort button for a measured 30 s.
@@ -1090,20 +1112,37 @@ finds nothing left and answers `NotExist`; the client ignores it.
 
 ## Database access
 
-`CharacterRepository` is a singleton holding **one long-lived `TelecasterContext`**, and `GameClient`
-dispatches every packet handler fire-and-forget (`_ = HandleXxxAsync(...)`), so two packets can reach
-the context at the same time — EF then throws *"A second operation was started on this context
-instance"*. This is not hypothetical: the duplicate `208` above triggered it reliably.
-`CharacterService` is the only consumer of the repository and serializes every operation behind a
-`SemaphoreSlim`, so each read/mutate/`SaveChangesAsync` sequence is atomic against the shared context.
-Any new repository consumer must go through `CharacterService`, or the guarantee is gone.
+**Every operation gets its own `TelecasterContext`.** `CharacterService` asks
+`ICharacterRepositoryFactory` for a new `CharacterRepository` (a disposable unit of work) per operation,
+and `StorageRepository` opens one per call. Both used to be singletons each holding **one long-lived
+context**: every character, item and skill loaded since startup stayed tracked, so each
+`SaveChangesAsync` scanned all of them and slowed down with uptime, the memory never came back, the two
+contexts could read each other's rows stale (the storage risk), and one context forced **every player's
+database work through a single global semaphore**. Entities returned by an operation are detached
+afterwards: read them, never mutate one to save it later (the old delete path staged a removal and
+relied on a separate unawaited `SaveChanges`; `DeleteCharacterByNameAsync` now saves itself).
 
-**That shared context also masks missing `Include`s, which is a trap.** `GetCharacterByNameWithItems` used
-to `Include` only `Items`, yet `character.Skills` was still populated in the equip path — because login
-had already loaded it into the same context and EF's identity map returns that instance. Anything reading
-a navigation this way works by luck and breaks the day the load order changes. There is no lazy loading
-here: nothing registers `UseLazyLoadingProxies`, so a `virtual` navigation is only a promise. The method
-now includes `Skills` explicitly.
+**What still has to be atomic is a read-modify-write on the *same* character**: `GameClient` dispatches
+handlers fire-and-forget (`_ = HandleXxxAsync(...)`) and the client sends `208` twice per destroy. The
+`CharacterGate` singleton serialises by character name (64 stripes, bounded), and **`CharacterService`
+and `StorageService` take the same gate**, so a storage move and an inventory operation on one character
+still exclude each other while two players no longer wait on each other. Pure reads (`CharacterExistsAsync`,
+`CharacterCountAsync`, `GetCharacterByNameAsync`, quests) take no gate. All of them are asynchronous now:
+the synchronous ones blocked a thread on `SemaphoreSlim.Wait()`. World entry loads **only** the character
+entering (`GetCharacterForWorldEntryAsync`, which also checks it belongs to the account), not every
+character of the account with all of their items.
+
+**A context per operation has no identity map to hide a missing `Include`, which is the point.**
+`GetCharacterByNameWithItems` once included only `Items` and `character.Skills` was populated anyway,
+because login had loaded it into the shared context. `SaveLearnedSkillAsync` relied on exactly that and
+now loads `GetCharacterByNameWithSkillsAsync`: without the skills, an already learned skill would be
+inserted a second time. There is no lazy loading here: nothing registers `UseLazyLoadingProxies`, so a
+`virtual` navigation is only a promise. Load what the operation reads.
+
+`Characters.CharacterName`, `AccountName`, `AccountId` and `Items.AccountId` are indexed
+(`Version0009_LookupIndexes`): every character operation resolved its row by name, the lobby by account
+and the storage by account, each with a full scan. The indexes are not unique — existing data is not
+guaranteed to be.
 
 The original server's ordering could not be recovered exactly. The shipped `Game_bin` PDB proves the
 shape — `StructInventory::_ItemArrangeGreater(const StructItem*, const StructItem*)` is a comparator
@@ -1215,7 +1254,8 @@ répond `55` (`ResultCode.NotActableWhileUsingBooth`) aux actions que le client 
 refusées : 200, 201, 203, 204, 208, 218, 219, 253, 400. `700` et `701` sont hors de cette liste. Le
 garde n'est pas une protection générique : toute action ajoutée plus tard doit être pesée contre elle.
 
-Le garde `Enum.IsDefined(typeof(GamePackets), header.ID)` (`GameClient.OnDataReceived`) précède la
+Le garde `DefinedPackets[header.ID]` (`GameClient.OnDataReceived`, une table construite une fois depuis
+`GamePackets` ; c'était `Enum.IsDefined`, réflexion et boxing à chaque paquet) précède la
 chaîne : un id **non déclaré** est journalisé en `Debug` puis ignoré, **sans exception**. Le
 `_ => throw new Exception("Unknown Packet Type")` du `switch` final n'est donc atteint que par un
 membre **déclaré** sans bras de dispatch — c'est la raison exacte du critère « enum et dispatch se
@@ -1826,6 +1866,16 @@ des données est le lot K2, et elle appartient à Killian. Découpage K1…K3 : 
 (≤ 10 est une borne de protocole, pas un choix), valeur du rang et du score d'un joueur non
 classé, source des données, cadence, refus d'une trame mal formée, effet perçu d'une liste vide.
 Aucune de ces valeurs n'est devinée.
+
+## Logging
+
+Serilog is configured in `DevConsole/appsettings.json`, which is **local and not tracked** (it carries the
+database credentials). Its console and file sinks must sit inside an `Async` sink
+(`Serilog.Sinks.Async`): the Windows console is slow and writes synchronously, and at `Debug` every sent
+and received packet is a line, so a synchronous console stalled the network and tick threads that logged.
+Keep `System` at `Warning`. A log call with more than three properties allocates an `object[]` and boxes
+its arguments **before** Serilog checks the level, so a per-packet one is wrapped in
+`_logger.IsEnabled(LogEventLevel.Debug)` (`GameClient.SendMessage` and the receive loop do).
 
 ## Change guidelines
 

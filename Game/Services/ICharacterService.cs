@@ -11,13 +11,19 @@ public interface ICharacterService
 {
     Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false);
 
+    /// <summary>
+    /// The character entering the world, with its items and skills, or <c>null</c> when it does not
+    /// belong to the account.
+    /// </summary>
+    Task<CharacterEntity> GetCharacterForWorldEntryAsync(string accountName, string characterName);
+
     Task<CharacterEntity> CreateCharacterAsync(CharacterEntity character, bool withStarterItems = false);
 
-    bool CharacterExists(string characterName);
+    Task<bool> CharacterExistsAsync(string characterName);
 
-    int CharacterCount(int accountId);
-    
-    CharacterEntity GetCharacterByName(string characterName);
+    Task<int> CharacterCountAsync(int accountId);
+
+    Task<CharacterEntity> GetCharacterByNameAsync(string characterName);
 
     Task DeleteCharacterByNameAsync(string characterName);
 
@@ -75,7 +81,5 @@ public interface ICharacterService
     /// </summary>
     Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold,
         int chaos, float x, float y, bool pkMode);
-
-    void SaveChanges();
 
 }

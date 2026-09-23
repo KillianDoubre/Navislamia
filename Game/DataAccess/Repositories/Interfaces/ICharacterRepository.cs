@@ -1,23 +1,40 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 
 namespace Navislamia.Game.DataAccess.Repositories.Interfaces;
 
-public interface ICharacterRepository
+/// <summary>
+/// One unit of work on the character tables. Obtained from <see cref="ICharacterRepositoryFactory"/> for
+/// a single operation and disposed with it: entities it returns are detached afterwards, so they are
+/// read, never mutated to be saved later.
+/// </summary>
+public interface ICharacterRepository : IDisposable
 {
     Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false);
 
+    /// <summary>
+    /// The one character world entry needs, with its items and skills, provided it belongs to the
+    /// account. World entry used to load every character of the account with all of their items to keep
+    /// one of them.
+    /// </summary>
+    Task<CharacterEntity> GetAccountCharacterWithItemsAsync(string accountName, string characterName);
+
     Task<CharacterEntity> CreateCharacterAsync(CharacterEntity character);
- 
-    CharacterEntity GetCharacterByName(string characterName);
 
-    CharacterEntity GetCharacterByNameWithItems(string characterName);
+    /// <summary>The character row alone, without any collection.</summary>
+    Task<CharacterEntity> GetCharacterByNameAsync(string characterName);
 
-    bool CharacterExists(string characterName);
+    /// <summary>The character with its learned skills, the collection a skill write must see.</summary>
+    Task<CharacterEntity> GetCharacterByNameWithSkillsAsync(string characterName);
 
-    int CharacterCount(int accountId);
-    
+    Task<CharacterEntity> GetCharacterByNameWithItemsAsync(string characterName);
+
+    Task<bool> CharacterExistsAsync(string characterName);
+
+    Task<int> CharacterCountAsync(int accountId);
+
     void Delete(CharacterEntity entity);
 
     void DeleteItem(ItemEntity item);
@@ -38,4 +55,10 @@ public interface ICharacterRepository
     /// Finish all required operations for a step then call this method
     /// </summary>
     Task SaveChangesAsync();
+}
+
+public interface ICharacterRepositoryFactory
+{
+    /// <summary>A new unit of work with its own context. The caller disposes it.</summary>
+    ICharacterRepository Create();
 }
