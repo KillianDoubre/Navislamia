@@ -61,7 +61,8 @@ public class SkillCatalog
     }
 
     public SkillLearnEvaluation Evaluate(int jobId, int characterLevel, int jobLevel, int skillId,
-        byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp)
+        byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp,
+        double costRate = 1)
     {
         if (targetLevel == 0 || targetLevel != currentLevel + 1)
         {
@@ -136,6 +137,9 @@ public class SkillCatalog
         {
             return new SkillLearnEvaluation(ResultCode.NotActable, 0);
         }
+
+        // The server's SkillJpCost rate, after the job's own ratio.
+        cost = Rates.RateMath.ScaleCost(cost, costRate);
 
         return availableJp < cost
             ? new SkillLearnEvaluation(ResultCode.NotEnoughJP, cost)

@@ -30,7 +30,9 @@ public enum GmCommand
     Home,
     Target,
     Save,
-    Chaos
+    Chaos,
+    Rate,
+    Rates
 }
 
 /// <summary>
@@ -79,7 +81,10 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Home, "home", true, "/home", FromRepository),
         new GmCommandDefinition(GmCommand.Target, "target", true, "/target", FromRepository),
         new GmCommandDefinition(GmCommand.Save, "save", true, "/save", FromLua),
-        new GmCommandDefinition(GmCommand.Chaos, "chaos", true, "/chaos <amount>", FromRepository)
+        new GmCommandDefinition(GmCommand.Chaos, "chaos", true, "/chaos <amount>", FromRepository),
+        new GmCommandDefinition(GmCommand.Rate, "rate", true,
+            "/rate [<exp|jp|gold|drop|card|all> <multiplier> <duration> | reset [type]]", FromRepository),
+        new GmCommandDefinition(GmCommand.Rates, "rates", false, "/rates", FromRepository)
     };
 
     private static readonly FrozenDictionary<string, GmCommandDefinition> ByName =

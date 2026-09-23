@@ -10,6 +10,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Rates;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -17,22 +18,22 @@ namespace Navislamia.Game.Services;
 public class GroundItemService : IGroundItemService
 {
     private const int TickIntervalMs = 1000;
-    private const int LifetimeSeconds = 120;
     private const float ScatterRadius = 30f;
     private const float PickupRange = 300f;
-    private const double DropChanceMultiplier = 1;
     private const ushort TakeRequestId = (ushort)GamePackets.TM_CS_TAKE_ITEM;
 
     private readonly ILogger _logger = Log.ForContext<GroundItemService>();
     private readonly IMonsterDropCatalog _catalog;
     private readonly ICharacterService _characterService;
     private readonly IItemGroupCatalog _itemGroups;
+    private readonly IRateService _rates;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
-        IItemGroupCatalog itemGroups)
+        IItemGroupCatalog itemGroups, IRateService rates)
     {
+        _rates = rates;
         _catalog = catalog;
         _characterService = characterService;
         _itemGroups = itemGroups;
@@ -48,10 +49,15 @@ public class GroundItemService : IGroundItemService
             return;
         }
 
+        // Read once per kill: an event starting mid-roll must not apply to half a table.
+        var dropRate = _rates.Get(RateType.ItemDrop);
+        var cardRate = _rates.Get(RateType.CreatureCardDrop);
+
         IReadOnlyList<DroppedItem> rolled;
         lock (_random)
         {
-            rolled = DropRoll.Roll(entries, _catalog.Groups, _random, DropChanceMultiplier);
+            rolled = DropRoll.Roll(entries, _catalog.Groups, _random, dropRate,
+                itemId => IsSummonCard(itemId) ? cardRate : 1);
         }
 
         _logger.Debug("Monster {monsterId} dropped {dropped} of {entries} entries", monsterId, rolled.Count,
@@ -63,7 +69,7 @@ public class GroundItemService : IGroundItemService
         }
 
         var info = killer.ConnectionInfo;
-        var expiresAt = DateTime.UtcNow.AddSeconds(LifetimeSeconds);
+        var expiresAt = DateTime.UtcNow + _rates.GroundItemLifetime;
 
         foreach (var drop in rolled)
         {
@@ -89,6 +95,9 @@ public class GroundItemService : IGroundItemService
                 item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle));
         }
     }
+
+    private bool IsSummonCard(int itemId) =>
+        _itemGroups.TryGetGroup(itemId, out var group) && group == ItemGroup.Summoncard;
 
     /// <summary>
     /// <c>TM_CS_DROP_ITEM</c> (203). The item is created at the character's exact position (no
@@ -132,7 +141,7 @@ public class GroundItemService : IGroundItemService
                 Layer = info.Layer,
                 Owner = client,
                 OwnerHandle = info.CharacterHandle,
-                ExpiresAt = DateTime.UtcNow.AddSeconds(LifetimeSeconds)
+                ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
             };
 
             _items[dropped.Handle] = dropped;
