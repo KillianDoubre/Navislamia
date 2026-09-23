@@ -93,6 +93,14 @@ public enum GamePackets : ushort
     TM_CS_REQUEST_REMOVE_STATE = 408,
     TM_CS_JOB_LEVEL_UP = 410,
 
+    // TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to a
+    // creature card, 11 bytes — a 7 byte header plus a single uint32 item_handle at offset 7. rzu gates
+    // the id to 452 below EPIC_9_6_3 (1452 only from 9.6.3 on), so 1452 must not be declared here. The
+    // server reads and logs the frame and answers nothing: no reference implements 452, and the
+    // card -> summon resolution its hypothetical answer (TM_SC_SKILL_LIST, 403) would need is not
+    // established. See docs/packet-specs/452-summon-card-skill-list.md.
+    TM_CS_SUMMON_CARD_SKILL_LIST = 452,
+
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
     // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) is deliberately absent —
     // the 7.3 client neither knows it nor can send it (fiche §1.3).
