@@ -1419,6 +1419,28 @@ The full spec (offsets, sources, version gating, NGemity deltas, scope, open que
   une autre région ou un module tiers peuvent émettre 59.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
+### Paquet 60 — `TM_CS_REQUEST` (client → serveur)
+
+Seule trame **variable** de la famille : `t` (`uint8`, offset 7) + `command` (`endstring`, offset 8,
+`L` octets + **1 NUL terminal**), **`Length = 9 + L`**, checksum = somme des 6 premiers octets. Gating :
+**60** pour `version < EPIC_9_6_3`, 1060 au-delà — Epic 7.3 garde **60** ; aucun champ n'a de gating
+propre. Borne réelle : tampon de réception de 32768 octets → `L ≤ 32759`.
+
+`endstring` n'a **aucun préfixe de longueur** : la fin du champ est la fin du **datagramme**, donc
+`L = packet.Length - 9`, jamais « jusqu'au premier NUL » et jamais « jusqu'à la fin du tampon ». Une
+trame dont le dernier octet n'est pas le NUL, ou de moins de 9 octets, est refusée.
+
+Le client 7.3 ne nomme ni n'émet 60, et n'a aucun bras en réception (une trame d'id 60 y tombe sur
+« message non traité ») : **le serveur ne répond jamais par une trame d'id 60**. Ni rzu ni Chihiro n'ont
+de consommateur ; le seul producteur connu est l'outil de supervision NGemity, qui envoie `t = 'u'` et
+une requête SQL chiffrée zlib + chiffrement simple encodée en hexadécimal — c'est un canal
+d'**opérateur/SQL**, pas un canal de jeu.
+
+Règle tenue par `GameRequestPackets` / `GameClient.HandleRequest` : **lire et borner, journaliser
+`Length`, `t` et la longueur de `command`, n'exécuter aucune commande, ne pas répondre, ne pas
+sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce n'est **pas** un
+`ResultCode`. Liste blanche et réponse restent des politiques ouvertes.
+
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
 - **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`

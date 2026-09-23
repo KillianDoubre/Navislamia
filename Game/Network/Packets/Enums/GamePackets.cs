@@ -140,6 +140,11 @@ public enum GamePackets : ushort
     // client parses it into an empty branch. See docs/packet-specs/59-xtrap-check.md.
     TM_CS_XTRAP_CHECK = 59,
 
+    // TM_CS_REQUEST (60): the client's raw command channel, read and logged only (see
+    // docs/packet-specs/60-request.md). rzu gates the id to 60 below EPIC_9_6_3 (1060 only from 9.6.3
+    // on), so 1060 must not be declared.
+    TM_CS_REQUEST = 60,
+
     TM_CS_CHARACTER_LIST = 2001,
 
     TM_CS_CREATE_CHARACTER = 2002,
