@@ -306,32 +306,12 @@ public class SummonSetupInfoPacketsTests
         return (ConnectionInfo)property!.GetValue(client)!;
     }
 
-    private static GameClient NewGameClient(FrameConnection connection)
-    {
-        var networkService = new NetworkService(
-            A.Fake<ILogger<NetworkService>>(),
-            Options.Create(new NetworkOptions { CipherKey = "summon-setup-info-test-key" }),
-            A.Fake<ICharacterService>(),
-            A.Fake<IBannedWordsRepository>(),
-            A.Fake<IStatService>(),
-            Options.Create(new ServerOptions()),
-            A.Fake<INpcSpawnService>(),
-            A.Fake<INpcDialogService>(),
-            A.Fake<IMonsterSpawnService>(),
-            A.Fake<ICombatService>(),
-            A.Fake<ILevelingService>(),
-            A.Fake<ISkillService>(),
-            A.Fake<IEquipmentService>(),
-            A.Fake<IInventoryService>(),
-            A.Fake<IGroundItemService>(),
-            A.Fake<ISkillCastService>(),
-            A.Fake<IFieldPropService>(),
-            A.Fake<IItemUseService>());
-
-        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-        return new GameClient(socket, networkService) { Connection = connection };
-    }
+    /// <summary>
+    /// The shared harness builds the NetworkService with its current constructor, so this test does not
+    /// break each time a service is added to it.
+    /// </summary>
+    private static GameClient NewGameClient(FrameConnection connection) =>
+        StorageTestHarness.NewGameClient(connection);
 
     /// <summary>
     /// In-memory replacement for the socket-backed connection: it serves a plaintext frame byte by byte and

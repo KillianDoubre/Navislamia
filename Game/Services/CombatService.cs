@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Rates;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -15,24 +16,24 @@ public class CombatService : ICombatService
 
     /// <summary>How soon an out-of-reach swing re-checks range while the client walks the player in.</summary>
     private const int RangeRetryMs = 200;
-    private const int RespawnDelaySeconds = 10;
     private const int DamageHpDivisor = 3;
     private const int DeathAnimationSeconds = 6;
-    private const uint MonsterDeadStatus = 1 << 8;
 
     private readonly ILogger _logger = Log.ForContext<CombatService>();
     private readonly MonsterWorldState _worldState;
     private readonly IMonsterSpawnService _spawnService;
     private readonly ILevelingService _levelingService;
     private readonly IGroundItemService _groundItemService;
+    private readonly IRateService _rates;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
-        ILevelingService levelingService, IGroundItemService groundItemService)
+        ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates)
     {
+        _rates = rates;
         _worldState = worldState;
         _spawnService = spawnService;
         _levelingService = levelingService;
@@ -43,7 +44,11 @@ public class CombatService : ICombatService
     public void StartAttack(GameClient client, uint targetHandle)
     {
         var info = client.ConnectionInfo;
-        if (!info.TryResolveMonster(targetHandle, out var targetInstanceId)
+
+        // A character at 0 HP is dead (this version has no death packet, the hp value is the whole state):
+        // it must not start swinging, exactly as SkillCastService refuses a cast at 0 HP.
+        if (!MonsterAiRules.IsAlive(info.CharacterHp)
+            || !info.TryResolveMonster(targetHandle, out var targetInstanceId)
             || !_worldState.IsAlive(targetInstanceId))
         {
             return;
@@ -140,7 +145,10 @@ public class CombatService : ICombatService
                 && handle == session.TargetHandle;
         }
 
-        if (!visible || !_worldState.IsAlive(session.TargetInstanceId)
+        // The attack session outlives the player's death, so a swing already scheduled when the killing
+        // blow landed would keep hitting from a corpse: dead attackers stop here.
+        if (!visible || !MonsterAiRules.IsAlive(info.CharacterHp)
+            || !_worldState.IsAlive(session.TargetInstanceId)
             || !_worldState.TryGetInstance(session.TargetInstanceId, out var instance))
         {
             StopAttack(client);
@@ -203,7 +211,7 @@ public class CombatService : ICombatService
         }
 
         var now = DateTime.UtcNow;
-        _worldState.Kill(instanceId, now.AddSeconds(RespawnDelaySeconds));
+        _worldState.Kill(instanceId, now + _rates.MonsterRespawnDelay);
 
         // A corpse keeps no debuff, and a respawn must not inherit one either.
         foreach (var state in _worldState.ClearStates(instanceId))
@@ -214,7 +222,7 @@ public class CombatService : ICombatService
 
         client.Connection.Send(GameMovePackets.BuildStopMove(targetHandle,
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
-        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, MonsterDeadStatus));
+        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, ActorStatus.ForMonster(true)));
 
         lock (_lock)
         {
@@ -237,7 +245,11 @@ public class CombatService : ICombatService
 
     private void AwardKill(GameClient client, ConnectionInfo info, int monsterLevel)
     {
-        var (exp, jp, gold) = CombatRewards.Compute(monsterLevel);
+        // The rates apply to the reward, rounded at random so a fractional rate is exact on average.
+        var (baseExp, baseJp, baseGold) = CombatRewards.Compute(monsterLevel);
+        var exp = _rates.Scale(baseExp, RateType.Exp);
+        var jp = _rates.Scale(baseJp, RateType.Jp);
+        var gold = _rates.Scale(baseGold, RateType.Gold);
         info.CharacterExp += exp;
         info.CharacterJp += jp;
         info.CharacterGold += gold;

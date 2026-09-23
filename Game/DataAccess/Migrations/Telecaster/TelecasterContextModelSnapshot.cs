@@ -332,6 +332,12 @@ namespace Navislamia.Game.Migrations.Telecaster
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("AccountName");
+
+                    b.HasIndex("CharacterName");
+
                     b.HasIndex("GuildId");
 
                     b.HasIndex("MainSummonId")
@@ -348,6 +354,54 @@ namespace Navislamia.Game.Migrations.Telecaster
                         .IsUnique();
 
                     b.ToTable("Characters");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Code")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte>("Progress")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("StartId")
+                        .HasColumnType("integer");
+
+                    b.Property<int[]>("Status")
+                        .HasMaxLength(6)
+                        .HasColumnType("integer[]");
+
+                    b.Property<int>("TimeLimit")
+                        .HasColumnType("integer");
+
+                    b.Property<int[]>("Value")
+                        .HasMaxLength(6)
+                        .HasColumnType("integer[]");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("CharacterQuests");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterSkillEntity", b =>
@@ -638,6 +692,8 @@ namespace Navislamia.Game.Migrations.Telecaster
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
 
                     b.HasIndex("CharacterId");
 
@@ -979,6 +1035,17 @@ namespace Navislamia.Game.Migrations.Telecaster
                     b.Navigation("SubSummon");
                 });
 
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", "Character")
+                        .WithMany("Quests")
+                        .HasForeignKey("CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Character");
+                });
+
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterSkillEntity", b =>
                 {
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", "Character")
@@ -1129,6 +1196,8 @@ namespace Navislamia.Game.Migrations.Telecaster
                     b.Navigation("Items");
 
                     b.Navigation("LeadersParty");
+
+                    b.Navigation("Quests");
 
                     b.Navigation("Sellers");
 

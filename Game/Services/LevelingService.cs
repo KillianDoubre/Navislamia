@@ -5,6 +5,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Rates;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -14,13 +15,15 @@ public class LevelingService : ILevelingService
     private readonly ILogger _logger = Log.ForContext<LevelingService>();
     private readonly ILevelResourceRepository _repository;
     private readonly IStatService _statService;
+    private readonly IRateService _rates;
 
     private long[] _cumulativeExp;
     private int[] _jobJpCost;
     private int _maxLevel;
 
-    public LevelingService(ILevelResourceRepository repository, IStatService statService)
+    public LevelingService(ILevelResourceRepository repository, IStatService statService, IRateService rates)
     {
+        _rates = rates;
         _repository = repository;
         _statService = statService;
         Load();
@@ -59,6 +62,24 @@ public class LevelingService : ILevelingService
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", maxMp));
     }
 
+    public int MaxLevel => _cumulativeExp == null ? 0 : _maxLevel;
+
+    public bool TryGetExperienceFor(int level, out long exp) =>
+        LevelCurve.TryGetExperienceFor(_cumulativeExp, _maxLevel, level, out exp);
+
+    public bool TryGetNextJobLevelCost(int currentJobLevel, out long cost)
+    {
+        cost = 0;
+        var baseCost = _jobJpCost == null ? 0 : JobLevelCurve.NextCost(_jobJpCost, currentJobLevel);
+        if (baseCost <= 0)
+        {
+            return false;
+        }
+
+        cost = RateMath.ScaleCost(baseCost, _rates.JobLevelJpCost);
+        return true;
+    }
+
     public void ApplyJobLevelUp(GameClient client, uint targetHandle)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_JOB_LEVEL_UP;
@@ -72,9 +93,8 @@ public class LevelingService : ILevelingService
 
         var info = client.ConnectionInfo;
         var current = info.CharacterJobLevel < 1 ? 1 : info.CharacterJobLevel;
-        var cost = JobLevelCurve.NextCost(_jobJpCost, current);
-
-        if (cost <= 0)
+        // A base cost of 0 is the capped tier; the rate is applied after, so a rate of 0 is free, not capped.
+        if (!TryGetNextJobLevelCost(current, out var cost))
         {
             client.SendResult(requestId, (ushort)ResultCode.LimitMax, target);
             return;

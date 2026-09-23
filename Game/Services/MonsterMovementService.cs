@@ -61,12 +61,12 @@ public class MonsterMovementService
             return;
         }
 
-        List<(long Id, MoveOrder Order)> moves = null;
+        Dictionary<long, MoveOrder> moves = null;
         foreach (var id in activeIds)
         {
             if (_worldState.TryBeginWander(id, now, WalkSpeed, out var order))
             {
-                (moves ??= new List<(long, MoveOrder)>()).Add((id, order));
+                (moves ??= new Dictionary<long, MoveOrder>())[id] = order;
             }
         }
 
@@ -95,7 +95,12 @@ public class MonsterMovementService
         return activeIds;
     }
 
-    private static void Broadcast(List<GameClient> clients, List<(long Id, MoveOrder Order)> moves)
+    /// <summary>
+    /// Sends each client the moves of the monsters it sees. Each client walks whichever of its visible set
+    /// and the world's moves is smaller: every client used to scan every move of the world, so the cost
+    /// grew with players times moving monsters even for players far apart.
+    /// </summary>
+    private static void Broadcast(List<GameClient> clients, Dictionary<long, MoveOrder> moves)
     {
         foreach (var client in clients)
         {
@@ -103,16 +108,35 @@ public class MonsterMovementService
 
             lock (info.MonsterVisibilityLock)
             {
-                foreach (var (id, order) in moves)
+                var spawned = info.SpawnedMonsters;
+                if (spawned.Count <= moves.Count)
                 {
-                    if (info.SpawnedMonsters.TryGetValue(id, out var handle))
+                    foreach (var (id, handle) in spawned)
                     {
-                        var startTime = unchecked(order.StartTick + info.ClientClockOffset);
-                        client.Connection.Send(GameMovePackets.BuildMove(handle, startTime, info.Layer,
-                            order.Speed, order.DestX, order.DestY));
+                        if (moves.TryGetValue(id, out var order))
+                        {
+                            SendMove(client, info, handle, order);
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (var (id, order) in moves)
+                    {
+                        if (spawned.TryGetValue(id, out var handle))
+                        {
+                            SendMove(client, info, handle, order);
+                        }
                     }
                 }
             }
         }
+    }
+
+    private static void SendMove(GameClient client, ConnectionInfo info, uint handle, MoveOrder order)
+    {
+        var startTime = unchecked(order.StartTick + info.ClientClockOffset);
+        client.Connection.Send(GameMovePackets.BuildMove(handle, startTime, info.Layer, order.Speed,
+            order.DestX, order.DestY));
     }
 }

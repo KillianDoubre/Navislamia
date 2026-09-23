@@ -18,7 +18,7 @@ public static class GameCharacterPackets
 {
     private const int HeaderSize = 7;
     public const int WearSlots = 24;
-    private const int InventoryItemSize = 85;
+    private const int InventoryItemSize = ItemFixedInfoWriter.Size + 10;
     private const int MaxInventoryItemsPerPacket = 45;
 
     public static uint GetHairId(CharacterEntity character)
@@ -348,31 +348,22 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    /// <summary>
+    /// The Epic 7.3 inventory record: the shared 75-byte <see cref="ItemFixedInfo"/> motif followed by
+    /// the three position bytes the auction family does not carry — <c>wear_position</c> at 75,
+    /// <c>own_summon_handle</c> at 77 and <c>index</c> at 81. The 85-byte stride was confirmed in the
+    /// client; the 75-byte motif must come from <see cref="ItemFixedInfoWriter"/> so both families stay
+    /// aligned on <c>appearance_code</c>.
+    /// </summary>
     private static void WriteInventoryItem(Span<byte> span, ItemEntity item)
     {
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(0, 4), (uint)item.Id);
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(4, 4), (int)item.ItemResourceId);
-        BinaryPrimitives.WriteInt64LittleEndian(span.Slice(8, 8), item.Id);
-        BinaryPrimitives.WriteInt64LittleEndian(span.Slice(16, 8), item.Amount);
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(24, 4), item.EtherealDurability);
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(28, 4), (uint)Math.Max(0, item.Endurance));
-        span[32] = (byte)item.Enhance;
-        span[33] = (byte)item.Level;
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(34, 4), unchecked((uint)item.Flag));
+        ItemFixedInfoWriter.Write(span.Slice(0, ItemFixedInfoWriter.Size), ItemFixedInfo.FromItem(item));
 
-        for (var i = 0; i < 4 && item.SocketItemIds != null && i < item.SocketItemIds.Length; i++)
-        {
-            BinaryPrimitives.WriteInt32LittleEndian(span.Slice(38 + i * 4, 4), (int)item.SocketItemIds[i]);
-        }
-
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(54, 4), item.RemainingTime);
-        span[58] = (byte)item.ElementalEffectType;
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(63, 4), item.ElementalEffectAttackPoint);
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(67, 4), item.ElementalEffectMagicPoint);
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(71, 4), 0);
-        BinaryPrimitives.WriteInt16LittleEndian(span.Slice(75, 2), (short)item.WearInfo);
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(77, 4), (uint)(item.EquippedBySummonId ?? 0));
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(81, 4), item.Idx);
+        var positionOffset = ItemFixedInfoWriter.Size;
+        BinaryPrimitives.WriteInt16LittleEndian(span.Slice(positionOffset, 2), (short)item.WearInfo);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(positionOffset + 2, 4),
+            (uint)(item.EquippedBySummonId ?? 0));
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(positionOffset + 6, 4), item.Idx);
     }
 
     private static void InjectBaseModelIfEmpty(byte[] packet, int codeBase, ItemWearType slot, int[] models, int modelIndex)

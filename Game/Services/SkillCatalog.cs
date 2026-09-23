@@ -34,8 +34,35 @@ public class SkillCatalog
 
     public int JobCount => _jobs.Count;
 
+    /// <summary>
+    /// The highest level any job's tree allows for <paramref name="skillId"/>, used by the GM command
+    /// <c>/learn</c>, which ignores the job restriction. False when no job knows the skill.
+    /// </summary>
+    public bool TryGetMaxLevel(int skillId, out byte maxLevel)
+    {
+        maxLevel = 0;
+        foreach (var jobSkills in _jobs.Values)
+        {
+            if (!jobSkills.TryGetValue(skillId, out var skill))
+            {
+                continue;
+            }
+
+            foreach (var rule in skill.Rules)
+            {
+                if (rule.MaxSkillLevel > maxLevel)
+                {
+                    maxLevel = (byte)Math.Min(rule.MaxSkillLevel, byte.MaxValue);
+                }
+            }
+        }
+
+        return maxLevel > 0;
+    }
+
     public SkillLearnEvaluation Evaluate(int jobId, int characterLevel, int jobLevel, int skillId,
-        byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp)
+        byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp,
+        double costRate = 1)
     {
         if (targetLevel == 0 || targetLevel != currentLevel + 1)
         {
@@ -110,6 +137,9 @@ public class SkillCatalog
         {
             return new SkillLearnEvaluation(ResultCode.NotActable, 0);
         }
+
+        // The server's SkillJpCost rate, after the job's own ratio.
+        cost = Rates.RateMath.ScaleCost(cost, costRate);
 
         return availableJp < cost
             ? new SkillLearnEvaluation(ResultCode.NotEnoughJP, cost)

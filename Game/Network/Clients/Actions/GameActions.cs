@@ -64,12 +64,30 @@ public class GameActions : IActions
 
     private static readonly int[] DefaultSpawn = { 94454, 126040, 0 };
 
+    /// <summary>
+    /// The action table takes <c>void</c> handlers, so each asynchronous one is an <c>async void</c> shell
+    /// around a <c>Task</c>: an exception escaping an <c>async void</c> is rethrown on the thread pool and
+    /// terminates the whole server, not just this client's request.
+    /// </summary>
     private async void OnLogin(GameClient client, IPacket packet)
+    {
+        try
+        {
+            await OnLoginAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "World entry failed for {clientTag}", client.ClientTag);
+        }
+    }
+
+    private async Task OnLoginAsync(GameClient client, IPacket packet)
     {
         var msg = packet.GetDataStruct<TS_CS_LOGIN>();
 
-        var characters = await _characterService.GetCharactersByAccountNameAsync(client.ConnectionInfo.AccountName, true);
-        var character = characters.FirstOrDefault(c => c.CharacterName == msg.Name);
+        // Only the character entering the world, not every character of the account with all its items.
+        var character = await _characterService.GetCharacterForWorldEntryAsync(client.ConnectionInfo.AccountName,
+            msg.Name);
 
         if (character == null)
         {
@@ -106,10 +124,19 @@ public class GameActions : IActions
         info.CharacterJp = character.Jp;
         info.CharacterGold = character.Gold;
         info.CharacterChaos = character.Chaos;
+        info.PkMode = character.PkMode;
+        info.CharacterPermission = character.Permission;
         info.Layer = (byte)character.Layer;
         info.X = position[0];
         info.Y = position[1];
         info.Z = position[2];
+
+        // The position the character entered the world at is its return point: where it reappears
+        // after a death (docs/packet-specs/socle-mort-respawn.md §8 option (a)). It cannot drift
+        // during the session, since progress — and with it the position — is only written at logout.
+        info.RespawnX = position[0];
+        info.RespawnY = position[1];
+        info.RespawnLayer = (byte)character.Layer;
         info.LearnedSkills.Clear();
         foreach (var skill in character.Skills ?? Array.Empty<CharacterSkillEntity>())
         {
@@ -154,7 +181,7 @@ public class GameActions : IActions
             Z = result.Z,
             Layer = (byte)character.Layer,
             ObjType = 0,
-            Status = 0,
+            Status = ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking),
             FaceDirection = 0,
             Hp = hp,
             MaxHp = hp,
@@ -219,6 +246,18 @@ public class GameActions : IActions
         _networkService.SkillCastService.Register(client);
         client.SendGameTime();
         client.SendTimeSync();
+
+        // TM_SC_WEATHER_INFO (902) at world entry, exactly like rzu (Character.cpp:303-306): the region id and
+        // the weather id are both 0, because resolving a position into a WorldLocation.id needs the client's
+        // map data, which Navislamia does not have yet. The 7.3 client does consume a 902 and this is the only
+        // path that sends one, so sending nothing here would leave the weather family silent in game.
+        client.SendWeatherInfo(0, 0);
+
+        // The client clears its quest container on receive, so the list is emitted whole once per world
+        // entry, exactly where the reference does it (NGemity Player::SendLoginProperties,
+        // Chihiro/src/Entities/Player/Player.cpp:771). Acceptance does not exist in this socle, so the
+        // frame is empty until a quest is granted (fiche §5.6, §8.4).
+        await _networkService.QuestService.SendQuestListAsync(client);
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", hp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", mp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.MaxHp));
@@ -232,7 +271,21 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholic_ent", character.HuntaholicEnterCount));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", decimal.ToInt64(character.ImmoralPoint)));
-        client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle));
+        client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle,
+            ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking)));
+
+        // TM_SC_COMMERCIAL_STORAGE_INFO (10003) at 0/0, at the very end of the world entry sequence, right
+        // before client_info: this is where rzu sends it (Character.cpp:308-311, after TS_SC_WEATHER_INFO)
+        // and 0/0 is the only value the reference ever states. No shop feeds this container in this
+        // repository, so the exact content is empty and no counter may be invented.
+        client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageInfo(0, 0));
+
+        // Companion empty list: 9 bytes, count = 0, a state the 7.3 client handles explicitly. rzu does not
+        // send it, so this is a choice and not a precedent — deleting this single line reverts to the
+        // reference behaviour without touching anything else (spec file, reserve 7d, veto point 9.1).
+        client.Connection.Send(
+            GameCommercialStoragePackets.BuildCommercialStorageList(Array.Empty<(uint Uid, int Code, ushort Count)>()));
+
         client.Connection.Send(GameStatPackets.BuildStringProperty(handle, "client_info", character.ClientInfo));
 
         _logger.Debug("{clientTag} entered game as {name} (lv {lv}) at ({x},{y},{z})", client.ClientTag,
@@ -336,8 +389,21 @@ public class GameActions : IActions
 
     private async void OnCreateCharacter(GameClient client, IPacket packet)
     {
+        try
+        {
+            await OnCreateCharacterAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Character creation failed for {clientTag}", client.ClientTag);
+            client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+        }
+    }
+
+    private async Task OnCreateCharacterAsync(GameClient client, IPacket packet)
+    {
         var createMsg = packet.GetDataStruct<TS_CS_CREATE_CHARACTER>();
-        var characterCount = _characterService.CharacterCount(client.ConnectionInfo.AccountId);
+        var characterCount = await _characterService.CharacterCountAsync(client.ConnectionInfo.AccountId);
 
         if (characterCount >= 6)
         {
@@ -415,6 +481,7 @@ public class GameActions : IActions
             _logger.Error("Character create failed! for ({accountName}) {clientTag} !!!", character.AccountName, client.ClientTag);
 
             client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+            return;
         }
 
         _logger.Debug("Character {characterName} successfully created for ({accountName}) {clientTag}", character.CharacterName, client.ConnectionInfo.AccountName, client.ClientTag);
@@ -422,7 +489,20 @@ public class GameActions : IActions
         client.SendResult(packet.Id, (ushort)ResultCode.Success);
     }
 
-    private void OnDeleteCharacter(GameClient client, IPacket packet)
+    private async void OnDeleteCharacter(GameClient client, IPacket packet)
+    {
+        try
+        {
+            await OnDeleteCharacterAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Character deletion failed for {clientTag}", client.ClientTag);
+            client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+        }
+    }
+
+    private async Task OnDeleteCharacterAsync(GameClient client, IPacket packet)
     {
         if (client.ConnectionInfo.CharacterList.Count == 0)
         {
@@ -435,13 +515,25 @@ public class GameActions : IActions
 
         var deleteMsg = packet.GetDataStruct<TS_CS_DELETE_CHARACTER>();
 
-        _characterService.DeleteCharacterByNameAsync(deleteMsg.Name);
+        await _characterService.DeleteCharacterByNameAsync(deleteMsg.Name);
 
-        _characterService.SaveChanges();
         client.SendResult(packet.Id, (ushort)ResultCode.Success);
     }
 
-    private void OnCheckCharacterName(GameClient client, IPacket packet)
+    private async void OnCheckCharacterName(GameClient client, IPacket packet)
+    {
+        try
+        {
+            await OnCheckCharacterNameAsync(client, packet);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Character name check failed for {clientTag}", client.ClientTag);
+            client.SendResult(packet.Id, (ushort)ResultCode.DBError);
+        }
+    }
+
+    private async Task OnCheckCharacterNameAsync(GameClient client, IPacket packet)
     {
         var nameMsg = packet.GetDataStruct<TS_CS_CHECK_CHARACTER_NAME>();
 
@@ -472,7 +564,7 @@ public class GameActions : IActions
             return;
         }
 
-        if (_characterService.CharacterExists(nameMsg.Name))
+        if (await _characterService.CharacterExistsAsync(nameMsg.Name))
         {
             client.SendResult(packet.Id, (ushort)ResultCode.AlreadyExist);
 
