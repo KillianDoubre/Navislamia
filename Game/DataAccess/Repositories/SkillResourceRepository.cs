@@ -18,6 +18,17 @@ public class SkillResourceRepository : ISkillResourceRepository
         _context = new ArcadiaContext(options);
     }
 
+    public IReadOnlyList<ResurrectionSkillRow> GetResurrectionSkills()
+    {
+        return _context.SkillResources
+            .AsNoTracking()
+            .Where(skill => skill.UseOnCharacter
+                            && (skill.EffectType == SkillEffectType.Resurrection
+                                || skill.EffectType == SkillEffectType.ResurrectionWithRecover))
+            .Select(skill => new ResurrectionSkillRow((int)skill.Id, (int)skill.EffectType, skill.Values))
+            .ToList();
+    }
+
     public IReadOnlyList<SkillPassiveFields> GetStatPassives()
     {
         var supported = SkillPassiveCatalog.SupportedEffectTypes;

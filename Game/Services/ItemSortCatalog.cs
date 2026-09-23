@@ -29,4 +29,9 @@ public class ItemSortCatalog : IItemSortCatalog
             ? key
             : InventoryArrange.BuildUnknownResourceKey(resourceId);
     }
+
+    public bool Contains(long resourceId)
+    {
+        return resourceId is > 0 and <= int.MaxValue && _resourceKeys.ContainsKey((int)resourceId);
+    }
 }

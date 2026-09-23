@@ -328,6 +328,9 @@ public class ActionPacketsTests
         info.X.Should().Be(0);
         info.Y.Should().Be(0);
         info.Z.Should().Be(0);
+        info.RespawnX.Should().Be(0);
+        info.RespawnY.Should().Be(0);
+        info.RespawnLayer.Should().Be(0);
         info.SpawnedNpcs.Should().BeEmpty();
         info.SpawnedNpcIdsByHandle.Should().BeEmpty();
         info.SpawnedMonsters.Should().BeEmpty();

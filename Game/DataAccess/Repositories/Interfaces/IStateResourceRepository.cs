@@ -20,4 +20,10 @@ public interface IStateResourceRepository
     /// effect types, while the cancellable states are not a subset of them.
     /// </remarks>
     IReadOnlyList<int> GetEraseOnRequestStateIds();
+
+    /// <summary>Every <c>StateResource</c> id, whatever its effect type.</summary>
+    IReadOnlyList<int> GetStateIds();
+
+    /// <summary>Every <c>StateResource</c> of <paramref name="effectType"/>, with its values.</summary>
+    IReadOnlyList<StateEffectFields> GetStatesWithEffect(int effectType);
 }

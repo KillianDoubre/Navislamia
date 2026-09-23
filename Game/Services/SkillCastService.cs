@@ -404,6 +404,35 @@ public class SkillCastService : ISkillCastService
         return kind is SkillCastKind.Debuff or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack;
     }
 
+    public void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks)
+    {
+        var now = ServerClock.Now;
+        ApplyState(client, stateId, 0, stateLevel, now, unchecked(now + durationTicks));
+        SendStatRefresh(client, client.ConnectionInfo);
+    }
+
+    public bool RemoveState(GameClient client, int stateId)
+    {
+        var info = client.ConnectionInfo;
+        ActiveBuff removed;
+        lock (info.BuffLock)
+        {
+            var index = info.ActiveBuffs.FindIndex(buff => buff.StateId == stateId);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            removed = info.ActiveBuffs[index];
+            info.ActiveBuffs.RemoveAt(index);
+        }
+
+        client.Connection.Send(GameSkillPackets.BuildStateRemoval(info.CharacterHandle, removed.StateHandle,
+            (uint)removed.StateId));
+        SendStatRefresh(client, info);
+        return true;
+    }
+
     private static void ApplyBuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
     {
         var duration = BuffCurve.DurationTicks(fields, skillLevel);

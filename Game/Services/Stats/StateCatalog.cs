@@ -2,6 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Linq;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Serilog;
 
@@ -32,6 +33,8 @@ public class StateCatalog : IStateCatalog
     private readonly ILogger _logger = Log.ForContext<StateCatalog>();
     private readonly FrozenDictionary<int, StateEffectTemplate[]> _states;
     private readonly FrozenSet<int> _eraseOnRequest;
+    private readonly FrozenSet<int> _stateIds;
+    private readonly FrozenDictionary<int, ResurrectionStateValues> _resurrections;
 
     public StateCatalog(IStateResourceRepository repository)
     {
@@ -46,7 +49,11 @@ public class StateCatalog : IStateCatalog
         }
 
         _states = states.ToFrozenDictionary();
-        _eraseOnRequest = repository.GetEraseOnRequestStateIds().ToFrozenSet();
+        _stateIds = (repository.GetStateIds() ?? Array.Empty<int>()).ToFrozenSet();
+        _resurrections = (repository.GetStatesWithEffect((int)StateEffectType.Resurrection)
+                          ?? Array.Empty<StateEffectFields>())
+            .ToFrozenDictionary(state => state.StateId, state => ResurrectionStateValues.From(state.Values));
+        _eraseOnRequest = (repository.GetEraseOnRequestStateIds() ?? Array.Empty<int>()).ToFrozenSet();
         _logger.Debug("Loaded {count} stat states and {cancellable} cancellable states", _states.Count,
             _eraseOnRequest.Count);
     }
@@ -55,6 +62,11 @@ public class StateCatalog : IStateCatalog
     {
         return _eraseOnRequest.Contains(stateId);
     }
+
+    public bool Exists(int stateId) => _stateIds.Contains(stateId);
+
+    public bool TryGetResurrection(int stateId, out ResurrectionStateValues values) =>
+        _resurrections.TryGetValue(stateId, out values);
 
     public IReadOnlyList<StatEffect> Resolve(int stateId, int stateLevel)
     {

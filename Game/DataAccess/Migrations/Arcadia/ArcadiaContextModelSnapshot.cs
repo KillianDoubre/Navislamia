@@ -22,6 +22,31 @@ namespace Navislamia.Game.Migrations.Arcadia
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.AuctionCateryResourceEntity", b =>
+                {
+                    b.Property<int>("CateryId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SubCateryId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ItemClass")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ItemGroup")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LocalFlag")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("NameId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("CateryId", "SubCateryId");
+
+                    b.ToTable("AuctionCateryResources");
+                });
+
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.BannedWordsResourceEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -1862,6 +1887,37 @@ namespace Navislamia.Game.Migrations.Arcadia
                         {
                             t.HasCheckConstraint("CK_SummonResourceEntity_CameraPosition_MaxSize3", "cardinality(\"CameraPosition\") <= 3");
                         });
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.WorldLocationEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WeatherId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TimeId")
+                        .HasColumnType("integer");
+
+                    b.Property<short>("LocationType")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("WeatherChangeTime")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("WeatherRatio")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("X")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Y")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id", "WeatherId", "TimeId");
+
+                    b.ToTable("WorldLocations");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.EffectResourceEntity", b =>

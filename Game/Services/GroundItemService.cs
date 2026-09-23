@@ -3,6 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
@@ -24,13 +26,16 @@ public class GroundItemService : IGroundItemService
     private readonly ILogger _logger = Log.ForContext<GroundItemService>();
     private readonly IMonsterDropCatalog _catalog;
     private readonly ICharacterService _characterService;
+    private readonly IItemGroupCatalog _itemGroups;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
-    public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService)
+    public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
+        IItemGroupCatalog itemGroups)
     {
         _catalog = catalog;
         _characterService = characterService;
+        _itemGroups = itemGroups;
         _ = RunAsync();
     }
 
@@ -85,6 +90,70 @@ public class GroundItemService : IGroundItemService
         }
     }
 
+    /// <summary>
+    /// <c>TM_CS_DROP_ITEM</c> (203). The item is created at the character's exact position (no
+    /// dispersion, unlike monster drops) and lives as long as a monster drop. The refusals and the clamp
+    /// are judged inside <see cref="ICharacterService.RemoveItemAsync"/>, atomically with the removal,
+    /// which reports what it really removed: the ground spawn and the erase notification carry that
+    /// count and the acknowledgement is <c>true</c> only when something was removed. NGemity answers
+    /// <c>true</c> even when its own removal failed — a defect this implementation does not reproduce.
+    /// </summary>
+    public async Task DropFromInventoryAsync(GameClient client, uint itemHandle, int count)
+    {
+        if (count <= 0)
+        {
+            SendDropResult(client, itemHandle, false);
+            return;
+        }
+
+        var info = client.ConnectionInfo;
+
+        try
+        {
+            // The rules are judged inside the removal, under the database gate, so an equip handled
+            // between a separate read and the erase cannot slip a worn item through.
+            var removal = await _characterService.RemoveItemAsync(info.CharacterName, itemHandle,
+                item => ResolveDropCount(item, count));
+            if (removal.Removed <= 0)
+            {
+                SendDropResult(client, itemHandle, false);
+                return;
+            }
+
+            var item = removal.Item;
+            var dropped = new GroundItem
+            {
+                Handle = WorldObjectHandle.Next(),
+                ItemCode = (int)item.ItemResourceId,
+                Count = removal.Removed,
+                X = info.X,
+                Y = info.Y,
+                Z = info.Z,
+                Layer = info.Layer,
+                Owner = client,
+                OwnerHandle = info.CharacterHandle,
+                ExpiresAt = DateTime.UtcNow.AddSeconds(LifetimeSeconds)
+            };
+
+            _items[dropped.Handle] = dropped;
+
+            var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
+            client.Connection.Send(GameSpawnPackets.BuildEnterItem(dropped.Handle, dropped.X, dropped.Y,
+                dropped.Z, dropped.Layer, dropped.ItemCode, dropped.Count, dropTime, dropped.OwnerHandle));
+            client.Connection.Send(GameCharacterPackets.BuildEraseItem(new[] { (itemHandle, removal.Removed) }));
+            SendDropResult(client, itemHandle, true);
+
+            _logger.Debug("{clientTag} dropped {count} of item {itemHandle} as ground item {handle}",
+                client.ClientTag, dropped.Count, itemHandle, dropped.Handle);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not drop item {itemHandle} for {clientTag}", itemHandle,
+                client.ClientTag);
+            SendDropResult(client, itemHandle, false);
+        }
+    }
+
     public async Task TakeAsync(GameClient client, uint itemHandle)
     {
         if (!_items.TryGetValue(itemHandle, out var item) || !ReferenceEquals(item.Owner, client))
@@ -134,6 +203,31 @@ public class GroundItemService : IGroundItemService
                 client.ClientTag);
             client.SendResult(TakeRequestId, (ushort)ResultCode.DBError, 0);
         }
+    }
+
+    /// <summary>
+    /// Units a drop may take off <paramref name="item"/>, or <c>0</c> to refuse: a worn item and a bound
+    /// summon card are refused, a request larger than the stack is clamped.
+    /// </summary>
+    private long ResolveDropCount(ItemEntity item, int requested)
+    {
+        if (GroundItemDropRules.IsEquipped(item.WearInfo))
+        {
+            return 0;
+        }
+
+        ItemGroup? group = _itemGroups.TryGetGroup(item.ItemResourceId, out var knownGroup) ? knownGroup : null;
+        if (GroundItemDropRules.IsBoundSummonCard(item.Flag, group))
+        {
+            return 0;
+        }
+
+        return GroundItemDropRules.ResolveDropCount(requested, item.Amount);
+    }
+
+    private static void SendDropResult(GameClient client, uint itemHandle, bool isAccepted)
+    {
+        client.Connection.Send(GameCharacterPackets.BuildDropResult(itemHandle, isAccepted));
     }
 
     private (float X, float Y) NextScatter()

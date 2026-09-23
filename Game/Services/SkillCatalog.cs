@@ -34,6 +34,32 @@ public class SkillCatalog
 
     public int JobCount => _jobs.Count;
 
+    /// <summary>
+    /// The highest level any job's tree allows for <paramref name="skillId"/>, used by the GM command
+    /// <c>/learn</c>, which ignores the job restriction. False when no job knows the skill.
+    /// </summary>
+    public bool TryGetMaxLevel(int skillId, out byte maxLevel)
+    {
+        maxLevel = 0;
+        foreach (var jobSkills in _jobs.Values)
+        {
+            if (!jobSkills.TryGetValue(skillId, out var skill))
+            {
+                continue;
+            }
+
+            foreach (var rule in skill.Rules)
+            {
+                if (rule.MaxSkillLevel > maxLevel)
+                {
+                    maxLevel = (byte)Math.Min(rule.MaxSkillLevel, byte.MaxValue);
+                }
+            }
+        }
+
+        return maxLevel > 0;
+    }
+
     public SkillLearnEvaluation Evaluate(int jobId, int characterLevel, int jobLevel, int skillId,
         byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp)
     {

@@ -64,6 +64,13 @@ public class AuthClient : Client
                 throw new Exception($"Invalid Message received from {ClientTag} !!!");
             }
 
+            // A frame split across two TCP reads waits for its tail: reading it now would hand a truncated
+            // packet to its handler and lose the rest of the stream's framing.
+            if (header.Length > remainingData)
+            {
+                return;
+            }
+
             var msgBuffer = Connection.Read((int)header.Length);
 
             remainingData -= msgBuffer.Length;

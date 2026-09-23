@@ -77,7 +77,7 @@ public class CharacterDefaultsTests
 
         var service = new CharacterService(
             A.Fake<IStarterItemsRepository>(),
-            repository,
+            Repositories(repository), new CharacterGate(),
             A.Fake<ILogger<CharacterService>>());
 
         await service.GetCharactersByAccountNameAsync("account", true);
@@ -91,14 +91,14 @@ public class CharacterDefaultsTests
     {
         var character = new CharacterEntity { CharacterName = "Character" };
         var repository = A.Fake<ICharacterRepository>();
-        A.CallTo(() => repository.GetCharacterByName("Character")).Returns(character);
+        A.CallTo(() => repository.GetCharacterByNameAsync("Character")).Returns(character);
 
         var service = new CharacterService(
             A.Fake<IStarterItemsRepository>(),
-            repository,
+            Repositories(repository), new CharacterGate(),
             A.Fake<ILogger<CharacterService>>());
 
-        await service.SaveProgressAsync("Character", 1, 5, 100, 200, 300, 400, 0f, 0f);
+        await service.SaveProgressAsync("Character", 1, 5, 100, 200, 300, 400, 0f, 0f, true);
 
         character.Lv.Should().Be(1);
         character.MaxReachedLv.Should().Be(1);
@@ -107,6 +107,7 @@ public class CharacterDefaultsTests
         character.Jp.Should().Be(200);
         character.Gold.Should().Be(300);
         character.Chaos.Should().Be(400);
+        character.PkMode.Should().BeTrue();
         A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
     }
 
@@ -120,8 +121,8 @@ public class CharacterDefaultsTests
             Skills = new List<CharacterSkillEntity>()
         };
         var repository = A.Fake<ICharacterRepository>();
-        A.CallTo(() => repository.GetCharacterByName("Character")).Returns(character);
-        var service = new CharacterService(A.Fake<IStarterItemsRepository>(), repository,
+        A.CallTo(() => repository.GetCharacterByNameWithSkillsAsync("Character")).Returns(character);
+        var service = new CharacterService(A.Fake<IStarterItemsRepository>(), Repositories(repository), new CharacterGate(),
             A.Fake<ILogger<CharacterService>>());
 
         (await service.SaveLearnedSkillAsync("Character", 1004, 1, 96)).Should().BeTrue();
@@ -129,5 +130,100 @@ public class CharacterDefaultsTests
         character.Jp.Should().Be(96);
         character.Skills.Should().ContainSingle(skill => skill.SkillId == 1004 && skill.Level == 1);
         A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_ConsumeItem_DecrementsAStack()
+    {
+        var item = new ItemEntity { Id = 7, Amount = 5, Idx = 1 };
+        var (service, repository) = ServiceWithItems(item);
+
+        (await service.ConsumeItemAsync("Character", 7, 1)).Should().Be(4);
+
+        item.Amount.Should().Be(4);
+        A.CallTo(() => repository.DeleteItem(A<ItemEntity>._)).MustNotHaveHappened();
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_ConsumeItem_DeletesTheLastUnit()
+    {
+        var item = new ItemEntity { Id = 7, Amount = 1, Idx = 1 };
+        var other = new ItemEntity { Id = 8, Amount = 1, Idx = 2 };
+        var (service, repository) = ServiceWithItems(item, other);
+
+        (await service.ConsumeItemAsync("Character", 7, 1)).Should().Be(0);
+
+        A.CallTo(() => repository.DeleteItem(item)).MustHaveHappenedOnceExactly();
+        other.Idx.Should().Be(1);
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_ConsumeItem_ReportsAnUnknownHandle()
+    {
+        var (service, repository) = ServiceWithItems(new ItemEntity { Id = 7, Amount = 1, Idx = 1 });
+
+        (await service.ConsumeItemAsync("Character", 99, 1)).Should().BeNull();
+
+        A.CallTo(() => repository.SaveChangesAsync()).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task CharacterService_RemoveItem_RefusesWhatTheRuleRejectsWithoutTouchingTheStack()
+    {
+        var item = new ItemEntity { Id = 7, Amount = 5, Idx = 1, WearInfo = ItemWearType.Weapon };
+        var (service, repository) = ServiceWithItems(item);
+
+        var removal = await service.RemoveItemAsync("Character", 7,
+            entry => entry.WearInfo == ItemWearType.None ? 1 : 0);
+
+        removal.Item.Should().BeSameAs(item);
+        removal.Removed.Should().Be(0);
+        item.Amount.Should().Be(5);
+        A.CallTo(() => repository.DeleteItem(A<ItemEntity>._)).MustNotHaveHappened();
+        A.CallTo(() => repository.SaveChangesAsync()).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task CharacterService_RemoveItem_TakesTheResolvedUnitsAndDeletesAnEmptiedStack()
+    {
+        var partial = new ItemEntity { Id = 7, Amount = 5, Idx = 1 };
+        var whole = new ItemEntity { Id = 8, Amount = 2, Idx = 2 };
+        var (service, repository) = ServiceWithItems(partial, whole);
+
+        (await service.RemoveItemAsync("Character", 7, _ => 3)).Removed.Should().Be(3);
+        partial.Amount.Should().Be(2);
+
+        (await service.RemoveItemAsync("Character", 8, _ => 9)).Removed.Should().Be(2);
+        A.CallTo(() => repository.DeleteItem(whole)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task CharacterService_RemoveItem_ReportsAnUnknownHandle()
+    {
+        var (service, _) = ServiceWithItems(new ItemEntity { Id = 7, Amount = 1, Idx = 1 });
+
+        var removal = await service.RemoveItemAsync("Character", 99, _ => 1);
+
+        removal.Item.Should().BeNull();
+        removal.Removed.Should().Be(0);
+    }
+
+    /// <summary>The service now asks a factory for one repository per operation: hand it the fake.</summary>
+    private static ICharacterRepositoryFactory Repositories(ICharacterRepository repository)
+    {
+        var factory = A.Fake<ICharacterRepositoryFactory>();
+        A.CallTo(() => factory.Create()).Returns(repository);
+        return factory;
+    }
+
+    private static (CharacterService, ICharacterRepository) ServiceWithItems(params ItemEntity[] items)
+    {
+        var character = new CharacterEntity { CharacterName = "Character", Items = items.ToList() };
+        var repository = A.Fake<ICharacterRepository>();
+        A.CallTo(() => repository.GetCharacterByNameWithItemsAsync("Character")).Returns(character);
+        return (new CharacterService(A.Fake<IStarterItemsRepository>(), Repositories(repository), new CharacterGate(),
+            A.Fake<ILogger<CharacterService>>()), repository);
     }
 }

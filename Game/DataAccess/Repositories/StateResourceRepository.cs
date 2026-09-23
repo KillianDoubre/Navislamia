@@ -42,4 +42,21 @@ public class StateResourceRepository : IStateResourceRepository
             .Select(row => row.StateId)
             .ToList();
     }
+
+    public IReadOnlyList<StateEffectFields> GetStatesWithEffect(int effectType)
+    {
+        return _context.StateResources
+            .AsNoTracking()
+            .Where(state => (int)state.EffectType == effectType)
+            .Select(state => new StateEffectFields((int)state.Id, (int)state.EffectType, state.Values))
+            .ToList();
+    }
+
+    public IReadOnlyList<int> GetStateIds()
+    {
+        return _context.StateResources
+            .AsNoTracking()
+            .Select(state => (int)state.Id)
+            .ToList();
+    }
 }
