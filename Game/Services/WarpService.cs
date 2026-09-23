@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Pets;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -18,10 +19,12 @@ public class WarpService : IWarpService
     private readonly IMonsterSpawnService _monsterSpawnService;
     private readonly IFieldPropService _fieldPropService;
     private readonly ICombatService _combatService;
+    private readonly IPetSummonService _petSummon;
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
-        IFieldPropService fieldPropService, ICombatService combatService)
+        IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon)
     {
+        _petSummon = petSummon;
         _npcSpawnService = npcSpawnService;
         _monsterSpawnService = monsterSpawnService;
         _fieldPropService = fieldPropService;
@@ -49,6 +52,9 @@ public class WarpService : IWarpService
             _npcSpawnService.Sync(client);
             _monsterSpawnService.Sync(client);
             _fieldPropService.Sync(client);
+
+            // The pet is not in a visible set: it follows its master to the new place explicitly.
+            _petSummon.FollowWarp(client);
 
             _logger.Debug("{clientTag} warped to ({x}, {y})", client.ClientTag, x, y);
         }

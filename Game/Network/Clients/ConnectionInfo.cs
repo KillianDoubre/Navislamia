@@ -50,6 +50,14 @@ public class ConnectionInfo
     public long[] SummonSlots { get; set; } = Array.Empty<long>();
 
     /// <summary>
+    /// The pet the character has out, called by its cage (<c>PetSummonService</c>), or null. Guarded by
+    /// <see cref="PetLock"/>: an item use and a warp can both move it.
+    /// </summary>
+    public Navislamia.Game.Services.Pets.ActivePet ActivePet { get; set; }
+
+    public object PetLock { get; } = new();
+
+    /// <summary>
     /// The PK mode, loaded from <c>Characters.PkMode</c> on world entry and persisted again by the
     /// session save. It reaches the client only through the actor status mask
     /// (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>): the protocol has
@@ -281,6 +289,7 @@ public class ConnectionInfo
         CharacterGold = 0;
         CharacterChaos = 0;
         SummonSlots = Array.Empty<long>();
+        ActivePet = null;
         PkMode = false;
         CharacterPermission = 0;
         IsSitting = false;

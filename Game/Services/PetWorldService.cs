@@ -8,8 +8,8 @@ namespace Navislamia.Game.Services;
 /// <summary>
 /// The caller the pet socle was missing: it turns one <see cref="PetWorldEntry"/> into the frames that make
 /// a familier <b>exist in the world and leave it again</b> —
-/// <c>TS_SC_ADD_PET_INFO</c> (351) then <c>TS_SC_ENTER</c> (3) to bring it in (the client's only entry case,
-/// <c>objType = EOT_Pet</c> (7), see <c>docs/packet-specs/socle-familier-pet.md</c> §5, §5.1, §7.2), and
+/// <c>TS_SC_ENTER</c> (3) then <c>TS_SC_ADD_PET_INFO</c> (351) to bring it in (the client's only entry case,
+/// <c>objType = EOT_Pet</c> (7), see <c>docs/packet-specs/socle-familier-pet.md</c> §5, §5.1, §7.2, §16), and
 /// <c>TS_SC_UNSUMMON_PET</c> (350) then <c>TS_SC_LEAVE</c> (9) to take it out (§4.1, §4.3).
 /// <para>
 /// It decides nothing about the game: every value no reference settles — the whole placement
@@ -31,9 +31,11 @@ public sealed class PetWorldService
 
     /// <summary>
     /// Brings one pet into the world and returns the handle it was given, or 0 when the session or the
-    /// connection is missing and nothing was sent. The frame order is the reference's: the creature window
-    /// first (<c>TS_SC_ADD_PET_INFO</c>, which carries the same handle as the object), then the object
-    /// (<c>TS_SC_ENTER</c>) at the caller's placement. Returns 0 on a null session, connection or entry.
+    /// connection is missing and nothing was sent. The object (<c>TS_SC_ENTER</c>) goes <b>first</b>, then
+    /// the creature window (<c>TS_SC_ADD_PET_INFO</c>, which carries the same handle): measured in game on
+    /// 2026-09-23, 351 then 3 crashes the 7.3 client while 3 then 351 does not, and neither frame alone does
+    /// (fiche §16). No reference orders pet frames — the first order was copied from the summon socle.
+    /// Returns 0 on a null session, connection or entry.
     /// </summary>
     public uint Enter(ConnectionInfo session, string clientTag, Connection connection, PetWorldEntry entry)
     {
@@ -44,12 +46,12 @@ public sealed class PetWorldService
 
         var handle = WorldObjectHandle.Next();
 
-        connection.Send(GamePetPackets.BuildAddPetInfo(entry.CageHandle, handle, entry.Name, entry.Code,
-            entry.Unknown));
-
         connection.Send(GameSpawnPackets.BuildEnterPet(handle, entry.X, entry.Y, entry.Z, entry.Layer,
             entry.Hp, entry.MaxHp, entry.Mp, entry.MaxMp, entry.Level, entry.Race, entry.FaceDirection,
             entry.IsFirstEnter, session.CharacterHandle, entry.PetCode, entry.Name));
+
+        connection.Send(GamePetPackets.BuildAddPetInfo(entry.CageHandle, handle, entry.Name, entry.Code,
+            entry.Unknown));
 
         _logger.Debug(
             "{ClientTag} pet {Handle} (code {PetCode}) enters the world at {X}/{Y}/{Z} layer {Layer} of master {MasterHandle}",

@@ -5,6 +5,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Pets;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -12,7 +13,8 @@ namespace Navislamia.Game.Services;
 /// <summary>
 /// Handles <c>TM_CS_USE_ITEM</c> (253). The scope is the one the fiche fixes: read the frame,
 /// judge the item, consume one unit, answer. The effects of the item (base_type / opt_type) are not
-/// applied yet: they belong to the later milestones of the item system.
+/// applied yet: they belong to the later milestones of the item system — except a pet cage
+/// (<c>SummonPet</c>), which calls its pet through <see cref="IPetSummonService"/>.
 /// </summary>
 public class ItemUseService : IItemUseService
 {
@@ -21,11 +23,14 @@ public class ItemUseService : IItemUseService
     private readonly ILogger _logger = Log.ForContext<ItemUseService>();
     private readonly ICharacterService _characterService;
     private readonly IItemUseCatalog _catalog;
+    private readonly IPetSummonService _petSummon;
 
-    public ItemUseService(ICharacterService characterService, IItemUseCatalog catalog)
+    public ItemUseService(ICharacterService characterService, IItemUseCatalog catalog,
+        IPetSummonService petSummon)
     {
         _characterService = characterService;
         _catalog = catalog;
+        _petSummon = petSummon;
     }
 
     public async Task UseAsync(GameClient client, GameActionPackets.UseItemRequest request)
@@ -100,5 +105,9 @@ public class ItemUseService : IItemUseService
         // acknowledgement, then the use result echoing the item and target handles of the request.
         client.SendResult(UseItemRequestId, (ushort)ResultCode.Success, value);
         client.Connection.Send(GameCharacterPackets.BuildUseItemResult(request.ItemHandle, request.TargetHandle));
+
+        // A cage is a reusable item (type Use): the use is acknowledged like any other, then the pet comes
+        // out, goes away or is swapped. The pet frames follow the acknowledgement.
+        _petSummon.TryUseCage(client, item.ItemResourceId, request.ItemHandle);
     }
 }
