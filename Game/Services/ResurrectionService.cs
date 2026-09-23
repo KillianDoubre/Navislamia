@@ -4,6 +4,8 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Buffs;
+using Navislamia.Game.Services.Stats;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -24,11 +26,16 @@ public class ResurrectionService : IResurrectionService
     private readonly ILogger _logger = Log.ForContext<ResurrectionService>();
     private readonly IWarpService _warpService;
     private readonly IStatService _statService;
+    private readonly IStateCatalog _stateCatalog;
+    private readonly ISkillCastService _skillCastService;
 
-    public ResurrectionService(IWarpService warpService, IStatService statService)
+    public ResurrectionService(IWarpService warpService, IStatService statService, IStateCatalog stateCatalog,
+        ISkillCastService skillCastService)
     {
         _warpService = warpService;
         _statService = statService;
+        _stateCatalog = stateCatalog;
+        _skillCastService = skillCastService;
     }
 
     public void Resurrect(GameClient client, GameActionPackets.ResurrectionRequest request)
@@ -41,6 +48,12 @@ public class ResurrectionService : IResurrectionService
         if (result != ResultCode.Success)
         {
             client.SendResult(requestId, (ushort)result);
+            return;
+        }
+
+        if (request.Type == ResurrectionType.UseState)
+        {
+            ResurrectByState(client, requestId);
             return;
         }
 
@@ -73,6 +86,56 @@ public class ResurrectionService : IResurrectionService
         catch (Exception exception)
         {
             _logger.Error(exception, "Could not resurrect {clientTag}", client.ClientTag);
+        }
+    }
+
+    /// <summary>
+    /// <c>RT_UseState</c>: the character comes back <b>where it fell</b>, on the strength of a resurrection
+    /// state it carried when it died (a buff such as skill 3472's state 13472). The port of NGemity's
+    /// <c>WorldSession::onRevive</c> + <c>Unit::ResurrectByState</c>: pick the highest-level resurrection
+    /// state, give back its share of HP and MP, take the state off, answer 513. Without such a state the
+    /// answer is <c>NotActable</c>, as in the reference. See docs/packet-specs/socle-effets-resurrection.md.
+    /// </summary>
+    private void ResurrectByState(GameClient client, ushort requestId)
+    {
+        var info = client.ConnectionInfo;
+        try
+        {
+            ActiveBuff[] active;
+            lock (info.BuffLock)
+            {
+                active = info.ActiveBuffs.ToArray();
+            }
+
+            if (!ResurrectionRules.TrySelectState(active, _stateCatalog.TryGetResurrection, out var state,
+                    out var values))
+            {
+                client.SendResult(requestId, (ushort)ResultCode.NotActable);
+                return;
+            }
+
+            var stats = _statService.Compute(info).Total;
+            var (hp, mp) = ResurrectionRules.VitalsByState(values, state.StateLevel, stats.MaxHp, stats.MaxMp,
+                info.CharacterMp);
+
+            // Alive first, as on the town path: hp > 0 is the whole of the alive state.
+            info.CharacterHp = hp;
+            info.CharacterMp = mp;
+
+            // The state is consumed by the resurrection (RemoveState in the reference): its removal and the
+            // stat refresh reach the client before the vitals.
+            _skillCastService.RemoveState(client, state.StateId);
+
+            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+            client.SendResult(requestId, (ushort)ResultCode.Success);
+
+            _logger.Debug("{clientTag} resurrected in place by state {stateId} level {level} with {hp} hp",
+                client.ClientTag, state.StateId, state.StateLevel, hp);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not resurrect {clientTag} by state", client.ClientTag);
         }
     }
 }
