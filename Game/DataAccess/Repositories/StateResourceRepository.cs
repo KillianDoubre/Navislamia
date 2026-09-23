@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Navislamia.Game.DataAccess.Contexts;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Services.Stats;
 
@@ -24,6 +25,21 @@ public class StateResourceRepository : IStateResourceRepository
             .AsNoTracking()
             .Where(state => supported.Contains((int)state.EffectType))
             .Select(state => new StateEffectFields((int)state.Id, (int)state.EffectType, state.Values))
+            .ToList();
+    }
+
+    public IReadOnlyList<int> GetEraseOnRequestStateIds()
+    {
+        const StateTimeType flag = StateTimeType.EraseOnRequest;
+
+        // The flag test runs in memory: the table is small, and a bitwise predicate on a mapped enum is
+        // not worth a translation risk. The projection still keeps the payload to two columns.
+        return _context.StateResources
+            .AsNoTracking()
+            .Select(state => new StateFlagFields((int)state.Id, state.StateTimeType))
+            .AsEnumerable()
+            .Where(row => (row.StateTimeType & flag) == flag)
+            .Select(row => row.StateId)
             .ToList();
     }
 

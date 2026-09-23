@@ -84,6 +84,66 @@ public class ActionPacketsTests
     }
 
     [Test]
+    public void TryReadRemoveState_ReadsTheFifteenByteEpic73Frame()
+    {
+        var packet = new byte[15];
+        var s = packet.AsSpan();
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(0, 4), 15);
+        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), 408);
+        packet[6] = 0xAB;
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), 0x40000123u);
+        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(11, 4), 2622);
+
+        GameActionPackets.TryReadRemoveState(packet, out var request).Should().BeTrue();
+
+        request.Target.Should().Be(0x40000123u, "target is the uint32 at offset 7");
+        request.StateCode.Should().Be(2622, "state_code is the int32 at offset 11");
+        packet[6].Should().Be(0xAB, "the parser must not touch the checksum byte at offset 6");
+
+        var header = new Header(s);
+        header.Length.Should().Be(15, "the whole frame is 7 header bytes plus 2 uint32 fields");
+        header.ID.Should().Be(408);
+    }
+
+    [Test]
+    public void TryReadRemoveState_KeepsTheStateCodeSigned()
+    {
+        var packet = new byte[15];
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(11, 4), -7);
+
+        GameActionPackets.TryReadRemoveState(packet, out var request).Should().BeTrue();
+
+        request.StateCode.Should().Be(-7, "rzu declares state_code as int32_t");
+    }
+
+    [Test]
+    public void TryReadRemoveState_RejectsAnyOtherFrameLength()
+    {
+        GameActionPackets.TryReadRemoveState(new byte[14], out _).Should().BeFalse();
+        GameActionPackets.TryReadRemoveState(new byte[15], out _).Should().BeTrue();
+        GameActionPackets.TryReadRemoveState(new byte[16], out _).Should()
+            .BeFalse("the removal frame is fixed-size, so a longer one is not a removal request");
+    }
+
+    [Test]
+    public void TryReadRemoveState_EveryFieldSitsAtItsDocumentedOffset()
+    {
+        var packet = new byte[15];
+        var s = packet.AsSpan();
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(0, 4), 15);
+        BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(4, 2), (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE);
+        BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(7, 4), 0x11223344u);
+        BinaryPrimitives.WriteInt32LittleEndian(s.Slice(11, 4), 0x55667788);
+
+        GameActionPackets.TryReadRemoveState(packet, out var request).Should().BeTrue();
+
+        BinaryPrimitives.ReadUInt32LittleEndian(s.Slice(0, 4)).Should().Be(15u);
+        BinaryPrimitives.ReadUInt16LittleEndian(s.Slice(4, 2)).Should().Be(408);
+        request.Target.Should().Be(BinaryPrimitives.ReadUInt32LittleEndian(s.Slice(7, 4)));
+        request.StateCode.Should().Be(BinaryPrimitives.ReadInt32LittleEndian(s.Slice(11, 4)));
+    }
+
+    [Test]
     public void TryReadPutonItem_ReadsPositionItemHandleAndTargetHandle()
     {
         var packet = new byte[16];

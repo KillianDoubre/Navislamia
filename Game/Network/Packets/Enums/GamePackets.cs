@@ -81,6 +81,7 @@ public enum GamePackets : ushort
     TM_SC_SKILL_LIST = 403,
     TM_SC_ADDED_SKILL_LIST = 404,
     TM_SC_AURA = 407,
+    TM_CS_REQUEST_REMOVE_STATE = 408,
     TM_CS_JOB_LEVEL_UP = 410,
 
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)

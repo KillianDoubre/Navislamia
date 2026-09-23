@@ -904,6 +904,28 @@ public class GameClient : Client
         }
     }
 
+    private void HandleRemoveState(byte[] packet)
+    {
+        const ushort requestId = (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE;
+        if (!GameActionPackets.TryReadRemoveState(packet, out var request))
+        {
+            // The frame is fixed-size: a 408 of any other length is not a removal request.
+            SendResult(requestId, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            _networkService.SkillCastService.RemoveState(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process state removal {stateCode} for {clientTag}",
+                request.StateCode, ClientTag);
+            SendResult(requestId, (ushort)ResultCode.Misc, request.StateCode);
+        }
+    }
+
     private async Task HandleLearnSkillAsync(byte[] packet)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
@@ -1344,6 +1366,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_SKILL)
             {
                 HandleSkill(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_REMOVE_STATE)
+            {
+                HandleRemoveState(msgBuffer);
                 continue;
             }
 
