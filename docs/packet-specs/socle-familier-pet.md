@@ -193,17 +193,24 @@ partiellement levée : elle ne vaut plus que pour la sémantique.
 
 | trame | message interne | répartiteur | effet lu |
 |---|---|---|---|
-| 350 | 122 `AUSMSG_UNSUMMON_PET` | dispatcher **monde** @`0x47fb27` (`sub eax,4`, table d'octets `0x4801dc`, table de sauts `0x480120`), cas @`0x47fcc3` | retrouve l'acteur par `[msg+0x13]` (`call 0x475d50`), vérifie qu'il rend bien `7` (`call 0x6b2a40` puis `cmp al,0x7`), marque `[acteur+0x5e8] = 1`, puis le retire via `[edi+0x118]` → `vtable+0x1b4(handle)` ; journalise `case MSG_UNSUMMON_PET` (`push 0xa1d4c0`) |
-| 351 | 123 `AUSMSG_ADD_PET_INFO` | `SGameInterface` @`0x639500` (`sub eax,2`, tables `0x640f00`/`0x640dec`), cas @`0x63c430` | ouvre/rafraîchit une fenêtre d'interface (`push 0x8a` @`0x63c431`, puis action `0x35` @`0x63c464`) |
+| 350 | 122 `AUSMSG_UNSUMMON_PET` | `SCommandSystem::ProcMsgAtStatic` @`0x47fb27` (`sub eax,4`, table d'octets `0x4801dc`, table de sauts `0x480120` ; classe et tables déjà identifiées dans `references/client73-lecture-statique.md` §8), cas @`0x47fcc3` | retrouve l'acteur par `[msg+0x13]` (`call 0x475d50`), vérifie qu'il rend bien `7` (`call 0x6b2a40` puis `cmp al,0x7`), marque `[acteur+0x5e8] = 1`, puis le retire via `[edi+0x118]` → `vtable+0x1b4(handle)` ; journalise `case MSG_UNSUMMON_PET` (`push 0xa1d4c0` @`0x47fd71`) |
+| 351 | 123 `AUSMSG_ADD_PET_INFO` | `SGameInterface::ProcMsgAtStatic` @`0x639500` (`sub eax,2`, tables `0x640f00`/`0x640dec`), cas @`0x63c430` | ouvre/rafraîchit une fenêtre d'interface (`push 0x8a` @`0x63c431`, puis action `0x35` @`0x63c464`) |
 | 352 | 124 `AUSMSG_REMOVE_PET_INFO` | **même cas** @`0x63c430` que 123 | idem ; les deux trames partagent un seul gestionnaire |
 | 353 | 125 `AUSMSG_SHOW_SET_PET_NAME` | `SGameInterface`, cas @`0x63c472` | ouvre la boîte de saisie du nom (`call 0x631340`, `call 0x6490e0`) |
 | 354 | 1170 `AUSIMSG_REQ_SET_PET_NAME` | **non traité** (indice 99 → défaut `0x67ef21`) | — |
 | 355 | 11701 `AUSIMSG_REQ_SET_PET_FILTER` | **non traité** (indice 100 → défaut `0x67ef21`) | — |
 
-Le fait que `350` soit traité par le répartiteur des messages **du monde** (celui des `MSG_ENTER`,
-`MSG_LEAVE`, `MSG_MOVE`, `MSG_ATTACK`, `MSG_LOGIN`, `MSG_REGION_ACK` — chaînes voisines en
-`0xa1d4bc`-`0xa1d670`) et qu'il contrôle l'`objType 7` de la cible avant d'agir est la meilleure
-preuve disponible que **`350` retire un familier présent dans le monde**.
+Ces correspondances sont lues dans les tables **avec leur base** (`type - 2` pour `SGameInterface`,
+`type - 4` pour `SCommandSystem`) **et** recoupées par le libellé du corps atteint : `350` →
+`push 0xa1d4c0` = `case MSG_UNSUMMON_PET`, `353` → `MSG_SHOW_SET_PET_NAME`. C'est la règle du dépôt
+(`references/client73-lecture-statique.md` §8) : identifier un gestionnaire par son libellé, et lire
+la base du `sub eax,N` qui précède le `cmp` — sans elle la correspondance est décalée de deux ou
+quatre rangs et reste plausible.
+
+Le fait que `350` soit traité par `SCommandSystem`, répartiteur des messages **du monde** (chaînes
+voisines en `0xa1d4bc`-`0xa1d670` : `MSG_ENTER`, `MSG_LEAVE`, `MSG_MOVE`, `MSG_ATTACK`, `MSG_LOGIN`,
+`MSG_REGION_ACK`) et qu'il contrôle l'`objType 7` de la cible avant d'agir est la meilleure preuve
+disponible que **`350` retire un familier présent dans le monde**.
 
 ---
 
