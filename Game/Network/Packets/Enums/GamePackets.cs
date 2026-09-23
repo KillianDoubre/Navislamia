@@ -83,6 +83,14 @@ public enum GamePackets : ushort
     TM_SC_AURA = 407,
     TM_CS_JOB_LEVEL_UP = 410,
 
+    // Pet (familier) rename, the client to server half of the Epic 7.3 pair 353/354
+    // (docs/packet-specs/354-set-pet-name.md). The id is the 7.3 one: the 9.6.3 remap to 1354 is dated
+    // 20200713 and does not concern this repository, and 1304 is already TM_SC_AUCTION_SELLING_LIST's
+    // neighbour here. TM_SC_SHOW_SET_PET_NAME (353), the only server to client frame of the pair, is
+    // deliberately not declared by this lot: nothing emits it yet (fiche §7.1) and the frame has its own
+    // sheet and its own lot, which is where the encoder belongs.
+    TM_CS_SET_PET_NAME = 354,
+
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
     // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) is deliberately absent —
     // the 7.3 client neither knows it nor can send it (fiche §1.3).
