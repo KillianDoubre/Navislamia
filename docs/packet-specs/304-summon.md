@@ -328,3 +328,50 @@ et sur l'armement du dispatch, pas sur une trame observée.
 - Les ressources client au-delà des `db_*.rdb` ne sont pas extraites (voir `NON ÉTABLI` 1) : la
   conclusion « le client n'émet pas 304 » est une absence d'émetteur **dans le binaire**, pas une
   impossibilité démontrée pour l'ensemble du client assemblé.
+
+## 12. Implémentation livrée (dev)
+
+Commit `6eb2982` sur `hermes/packet-304-summon`, après la fiche `aa9999a`.
+
+| Fichier | Livré |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs:78` | `TM_CS_SUMMON = 304`, entre `TM_EQUIP_SUMMON` (303) et `TM_SC_UNSUMMON` (305), avec le commentaire qui interdit de déclarer `1304` (id 9.6.3, `TM_CS_AUCTION_BIDDED_LIST` en 7.3). |
+| `Game/Network/Packets/Game/GameActionPackets.cs:576-621` | `SummonPacketSize = 12`, `SummonPayloadSize = 5`, `SummonFlagOffset = 7`, `SummonCardHandleOffset = 8`, et `TryReadSummon(ReadOnlySpan<byte>, out sbyte isSummon, out uint cardHandle)`. |
+| `Game/Network/Clients/GameClient.cs:994-1022` | Bras de réception : lecture, journal **Debug** des deux valeurs brutes, `continue`. Aucune écriture vers le client. |
+| `Tests/Game/SummonPacketsTests.cs` | 16 cas : ids (§7.5 compris), voisinage de l'id, constantes de disposition, offsets et endianness, drapeau signé, trames courtes refusées, trame longue lue, et **5 cas de dispatch** contre la vraie boucle de réception. |
+
+Décisions de mise en œuvre — et ce qu'elles ne disent pas :
+
+- Le lecteur lit une trame dès qu'elle fait 12 octets et **accepte une trame plus longue** : §5.3.4
+  laisse la disposition d'une longueur non conforme ouverte, le lecteur ne l'invente donc pas
+  (même choix que le lecteur anti-triche pour 54). Une trame **plus courte que 12 octets** n'est pas
+  lisible (`false`) : le bras journalise un avertissement et **ne refuse rien** — aucun `TS_SC_RESULT`
+  n'est émis (§5.4).
+- `is_summon` est lu en **signé** (`int8_t`) et `card_handle` en **little-endian** ; aucune des deux
+  valeurs n'est comparée, validée ni interprétée (§7.2, §7.3). Un test fixe la lecture de `0xFF` à
+  `-1` : c'est une assertion de **type de fil**, pas une sémantique de jeu.
+- Le bras est placé **après le bras isolé `TM_SC_REGION_ACK`**, et non à la fin de la chaîne : la zone
+  qui précède le `switch` final est déjà partagée par les branches sœurs (`hermes/packet-57-…`,
+  `-59-…`, `-60-…`, `-9005-…`, `-4003-…` y insèrent leur bras) et la famille invocation y insère
+  aussi. Le commentaire de placement est dans le code.
+- Aucune politique de jeu (§5.3.5) : ni invocation, ni renvoi, ni consommation de carte.
+
+Preuves d'exécution (conteneur .NET 8, aucun serveur de jeu démarré) :
+
+| Commande / essai | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | code 0, 0 erreur |
+| `dotnet test Tests/Tests.csproj` | code 0 : **992 réussis, 0 échec, 0 ignoré** |
+| Détail du delta | la fiche ajoute 16 cas ; aucun fichier de test existant n'est modifié, la suite passe donc de 976 à 992 sans perte |
+| Banc d'essai par mutation | bras re-pointé sur un autre id : **les 5 cas de dispatch échouent** (`Unknown Packet Type` levée dans la boucle réelle) et le lecteur continue de passer ses 11 cas. Le filtre NUnit `~SummonPacketsTests` retient 31 cas : les 15 autres appartiennent à `GameSummonPacketsTests` (homonyme partiel) et passent aussi. |
+| `git merge-tree --write-tree --name-only hermes/packet-324-get-summon-setup-info HEAD` | mêmes fichiers en conflit (`ConnectionInfo.cs`, `GameClient.cs`, `GameActionPackets.cs`) que `hermes/packet-324-…` **contre `origin/master` seul** : ce commit n'ajoute aucun conflit. `GamePackets.cs` fusionne automatiquement — l'id 304 et l'id 324 sont insérés à deux endroits distincts. |
+
+## A VERIFIER PAR KILLIAN
+
+| Question ouverte de §7 | État du code livré | Renvoi |
+| --- | --- | --- |
+| Un émetteur scripté existe-t-il dans les ressources client non extraites (`data.000`) ? | Non tranché et **non deviné**. Le paquet est routé et sans réponse : un émetteur hypothétique ne produirait aujourd'hui qu'une ligne de journal Debug. À rouvrir seulement sur une trame réellement observée. | §7.1 |
+| Que signifie `is_summon` (0/1, énumération, compteur) ? | Valeur brute signée, journalisée seulement. Aucun branchement sur sa valeur. | §7.2 |
+| Que désigne `card_handle` (instance d'objet, `code` de carte, handle d'invocation) ? | Valeur brute little-endian, journalisée seulement. Aucun usage. | §7.3 |
+| Faut-il répondre à 304, et le code `93 = NotEnoughSummonCard` doit-il servir ? | Aucune réponse n'est émise : le client n'a pas de gestionnaire entrant pour 304, la réponse serait au mieux ignorée. | §7.4 |
+| Le gating 9.6.3 (`1304`) est-il un déplacement ou un changement de sémantique ? | Hors périmètre 7.3 : `1304` reste **non déclaré**, et un test l'assure. | §7.5 |
