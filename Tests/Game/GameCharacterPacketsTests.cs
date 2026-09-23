@@ -155,6 +155,11 @@ public class GameCharacterPacketsTests
         belt.Length.Should().Be(31);
         status.Length.Should().Be(15);
 
+        // The world entry site sends the frame without the open_dialog parameter: the dialog byte at offset 7
+        // stays at zero and the six handles start at offset 8. TM_CS_GET_SUMMON_SETUP_INFO (324) replays what
+        // it received there instead.
+        summon[7].Should().Be(0);
+
         AssertFrame(emptyInventory, GamePackets.TM_SC_INVENTORY);
         AssertFrame(summon, GamePackets.TM_EQUIP_SUMMON);
         AssertFrame(skills, GamePackets.TM_SC_ADDED_SKILL_LIST);

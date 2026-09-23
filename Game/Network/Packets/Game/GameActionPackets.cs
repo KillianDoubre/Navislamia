@@ -37,6 +37,18 @@ public static class GameActionPackets
 
     public readonly record struct RegionInfoRequest(float X, float Y);
 
+    /// <summary>
+    /// <c>show_dialog</c> of TM_CS_GET_SUMMON_SETUP_INFO (324): computed by the client, replayed by the
+    /// server in the <c>open_dialog</c> byte of the 303 answer.
+    /// </summary>
+    public readonly record struct SummonSetupInfoRequest(bool ShowDialog);
+
+    /// <summary>
+    /// TM_EQUIP_SUMMON (303) sent by the client: the formation the player validated, six card handles
+    /// (0 for an empty slot) and the <c>open_dialog</c> byte, which the 7.3 client leaves at 0 on this path.
+    /// </summary>
+    public readonly record struct EquipSummonRequest(bool OpenDialog, uint[] CardHandles);
+
     public readonly record struct TakeoutCommercialItemRequest(uint Uid, ushort Count);
 
     public readonly record struct RankingTopRecordRequest(sbyte RankingType);
@@ -60,6 +72,28 @@ public static class GameActionPackets
         }
 
         logCode = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
+
+    /// <summary>
+    /// <c>TM_CS_SUMMON_CARD_SKILL_LIST</c> (452): the client asks for the skill list of the summon tied to
+    /// a creature card. The frame is of fixed size — 7-byte header plus a single <c>uint32</c>
+    /// <c>item_handle</c> at offset 7 — so the exact 11-byte form is the only one accepted: a short or
+    /// padded frame is refused rather than partially read, exactly like
+    /// <see cref="TryReadCheckIllegalUser"/>. The field is named by rzu; what the client actually puts in
+    /// it is not established (docs/packet-specs/452-summon-card-skill-list.md §7b), so the value is only
+    /// ever logged, never resolved into a card or a summon.
+    /// </summary>
+    public static bool TryReadSummonCardSkillList(ReadOnlySpan<byte> packet, out uint itemHandle)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length != packetLength)
+        {
+            itemHandle = 0;
+            return false;
+        }
+
+        itemHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
         return true;
     }
 
@@ -617,6 +651,100 @@ public static class GameActionPackets
         }
 
         request = new RankingTopRecordRequest((sbyte)packet[HeaderSize]);
+        return true;
+    }
+
+    /// <summary>Total size of <c>TM_CS_SUMMON</c> (304) on the wire, 7-byte header included: 12 bytes.</summary>
+    public const int SummonPacketSize = 12;
+
+    /// <summary>Offset of the <c>int8_t is_summon</c> flag: 7, the first payload byte.</summary>
+    public const int SummonFlagOffset = HeaderSize;
+
+    /// <summary>Offset of the <c>ar_handle_t card_handle</c> field: 8.</summary>
+    public const int SummonCardHandleOffset = SummonFlagOffset + 1;
+
+    /// <summary>Payload size of the frame, 12 - 7 = 5 bytes (1 byte of flag and 4 bytes of handle).</summary>
+    public const int SummonPayloadSize = SummonPacketSize - HeaderSize;
+
+    /// <summary>
+    /// <c>TM_CS_SUMMON</c> (304): a summon/unsummon request carried by a card. The 7.3 layout is the
+    /// 7-byte header, then an <c>int8_t is_summon</c> at offset 7 and an <c>ar_handle_t card_handle</c> at
+    /// offsets 8-11 (<see cref="SummonPacketSize"/> = 12, rzu <c>TS_CS_SUMMON.h</c> below EPIC_9_6_3;
+    /// NGemity declares the same order and sizes).
+    /// <para>
+    /// Both fields cross the server <strong>unread</strong> in the sense that nothing here interprets
+    /// them: rzu and NGemity name them without defining them, wait for a value of <c>is_summon</c>, and say
+    /// nothing of what <c>card_handle</c> designates. The reader therefore returns the raw signed byte and
+    /// the raw little-endian word, and nothing compares or validates them.
+    /// </para>
+    /// <para>
+    /// No refusal rule is established for this packet: a frame shorter than the declared 12 bytes cannot be
+    /// read at all and is refused, while a longer frame is read from its first 12 bytes rather than
+    /// rejected, because the fiche leaves the disposition of a non conforming length open (§5.3.4, §7).
+    /// The 7.3 client never builds this frame at all — summoning goes through the summon creature skill,
+    /// that is <c>TM_CS_SKILL</c> (400) — so no real capture exists to confirm either case.
+    /// See docs/packet-specs/304-summon.md.
+    /// </para>
+    /// </summary>
+    public static bool TryReadSummon(ReadOnlySpan<byte> packet, out sbyte isSummon, out uint cardHandle)
+    {
+        isSummon = 0;
+        cardHandle = 0;
+
+        if (packet.Length < SummonPacketSize)
+        {
+            return false;
+        }
+
+        isSummon = (sbyte)packet[SummonFlagOffset];
+        cardHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(SummonCardHandleOffset, 4));
+        return true;
+    }
+
+    /// <summary>
+    /// TM_CS_GET_SUMMON_SETUP_INFO (324) is exactly eight bytes: the seven byte header plus one
+    /// <c>show_dialog</c> byte at offset 7. The 7.3 client computes that byte per player
+    /// (<c>show_dialog = !setting[44]</c>) and expects it back in the <c>open_dialog</c> byte of the 303
+    /// answer, so it is read here and never fixed. The client only writes 0 or 1; reading any other
+    /// non-zero value as true is a documented normalisation, not an observation. Only the 8-byte form is
+    /// accepted: the sheet defines no answer at all for a request of another length.
+    /// </summary>
+    public static bool TryReadGetSummonSetupInfo(ReadOnlySpan<byte> packet, out SummonSetupInfoRequest request)
+    {
+        const int packetLength = HeaderSize + 1;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new SummonSetupInfoRequest(packet[HeaderSize] != 0);
+        return true;
+    }
+
+    /// <summary>
+    /// TM_EQUIP_SUMMON (303) in the client to server direction, exactly 32 bytes: the 7-byte header, the
+    /// <c>open_dialog</c> byte at offset 7, then six <c>card_handle</c> words at offsets 8, 12, 16, 20, 24
+    /// and 28 — the layout of the server's own 303 (client builder VA <c>0x48cd10</c>, <c>Length = 0x20</c>;
+    /// docs/packet-specs/324-get-summon-setup-info.md §5.4). Any other length is refused.
+    /// </summary>
+    public static bool TryReadEquipSummon(ReadOnlySpan<byte> packet, out EquipSummonRequest request)
+    {
+        const int slotCount = 6;
+        const int packetLength = HeaderSize + 1 + slotCount * 4;
+        if (packet.Length != packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        var handles = new uint[slotCount];
+        for (var i = 0; i < slotCount; i++)
+        {
+            handles[i] = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1 + i * 4, 4));
+        }
+
+        request = new EquipSummonRequest(packet[HeaderSize] != 0, handles);
         return true;
     }
 }

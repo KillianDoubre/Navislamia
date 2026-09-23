@@ -70,11 +70,20 @@ public enum GamePackets : ushort
     TM_SC_ADD_SUMMON_INFO = 301,
     TM_SC_REMOVE_SUMMON_INFO = 302,
     TM_EQUIP_SUMMON = 303,
+
+    // TM_CS_SUMMON (304): rzu declares the frame but the 7.3 client never builds it — summoning goes
+    // through the summon creature skill, i.e. TM_CS_SKILL (400) — and NGemity has no handler for it
+    // either ("Got unknown packet"). rzu also names 1304 from EPIC_9_6_3 on; 1304 must never be declared
+    // as the summon request, since in 7.3 it is TM_CS_AUCTION_BIDDED_LIST (still to implement, and to be
+    // declared under that name). See docs/packet-specs/304-summon.md.
+    TM_CS_SUMMON = 304,
+
     TM_SC_UNSUMMON = 305,
     TM_SC_UNSUMMON_NOTICE = 306,
     TM_SC_SUMMON_EVOLUTION = 307,
     TM_SC_MOUNT_SUMMON = 320,
     TM_SC_UNMOUNT_SUMMON = 321,
+    TM_CS_GET_SUMMON_SETUP_INFO = 324,
 
     // The familier (pet) socle, server-to-client half (docs/packet-specs/socle-familier-pet.md §9.1).
     // The 7.3 ids are 350-352: the 9.6.3 remap to 1350-1354 is dated and does not concern this
@@ -95,6 +104,14 @@ public enum GamePackets : ushort
     TM_SC_AURA = 407,
     TM_CS_REQUEST_REMOVE_STATE = 408,
     TM_CS_JOB_LEVEL_UP = 410,
+
+    // TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to a
+    // creature card, 11 bytes — a 7 byte header plus a single uint32 item_handle at offset 7. rzu gates
+    // the id to 452 below EPIC_9_6_3 (1452 only from 9.6.3 on), so 1452 must not be declared here. The
+    // server reads and logs the frame and answers nothing: no reference implements 452, and the
+    // card -> summon resolution its hypothetical answer (TM_SC_SKILL_LIST, 403) would need is not
+    // established. See docs/packet-specs/452-summon-card-skill-list.md.
+    TM_CS_SUMMON_CARD_SKILL_LIST = 452,
 
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
     // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) is deliberately absent —

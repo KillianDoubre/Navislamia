@@ -214,7 +214,8 @@ public class GameActions : IActions
             client.Connection.Send(inventoryPacket);
         }
 
-        client.Connection.Send(GameCharacterPackets.BuildEquipSummon(character.SummonSlotItemIds));
+        client.ConnectionInfo.SummonSlots = character.SummonSlotItemIds ?? Array.Empty<long>();
+        client.Connection.Send(GameCharacterPackets.BuildEquipSummon(client.ConnectionInfo.SummonSlots));
         client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, character));
         client.Connection.Send(GameCharacterPackets.BuildHideEquipInfo(handle, character.HideEquipFlag));
         client.Connection.Send(GameCharacterPackets.BuildSkinInfo(handle, character.SkinColor));

@@ -16,13 +16,17 @@ dotnet build Navislamia.sln -c Release
 dotnet test Tests/Tests.csproj -c Release
 
 .\start-server.ps1
+.\start-server.ps1 -Watch      # game server under dotnet watch: Hot Reload, the client stays connected
 .\launch-client.ps1
 
 dotnet run --project AuthServer
 dotnet run --project DevConsole
 ```
 
-AuthServer must be listening before DevConsole. The solution uses the .NET 8 x64 toolchain for all
+AuthServer must be listening before DevConsole. `-Watch` (Debug only) patches method-body edits into the
+running game server; a change Hot Reload cannot apply (signature, new field or enum member, startup code
+such as catalogues and DI) restarts it automatically (`DOTNET_WATCH_RESTART_ON_RUDE_EDIT=1`), and a loop
+already running (combat, AI, rate ticks) keeps its old body until then. The solution uses the .NET 8 x64 toolchain for all
 projects referencing `Game`. PostgreSQL databases are `Arcadia`, `Telecaster` and `auth`.
 
 ## Solution layout
@@ -1622,6 +1626,70 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - **Restent à trancher avant tout moteur** (détail en fin de fiche) : taux de réussite, sort des
   châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
   `mix_type` 801/802/803 ↔ 263/264.
+
+### Paquet 304 — `TM_CS_SUMMON` (demande d'invocation par carte)
+
+- **Le client 7.3 ne l'émet pas** : l'invocation passe par le sort d'invocation de créature
+  (`db_string.rdb:34762`, compétence 4001, `EF_SUMMON = 601` ; renvoi 4002, `602`), donc par
+  `TM_CS_SKILL` (400). Le client *nomme* 304 dans sa table id → nom mais n'a aucune classe de message
+  pour le construire, alors qu'il en a une pour 303, 323 et 452. NGemity ne le traite pas non plus
+  (« Got unknown packet »).
+- Disposition 7.3 : en-tête 7 + `int8_t is_summon` (7) + `ar_handle_t card_handle` (8-11), **12 octets**.
+  Le sens des deux champs n'est pas établi : ils sont lus bruts (`GameActionPackets.TryReadSummon`,
+  trame de moins de 12 octets refusée, trame plus longue lue sur ses 12 premiers) et seulement
+  journalisés en `Debug`. **Aucune réponse**, aucune invocation, aucune consommation de carte.
+- `1304` est l'id 9.6.3 de ce paquet (`version >= EPIC_9_6_3`). En 7.3, `1304` est
+  `TM_CS_AUCTION_BIDDED_LIST` : il ne doit **jamais** être déclaré comme demande d'invocation, et un
+  test l'assure — il pourra l'être sous son nom d'enchère.
+- Détail et réserves : `docs/packet-specs/304-summon.md`.
+
+### Paquet 324 — `TM_CS_GET_SUMMON_SETUP_INFO` / réponse `TM_EQUIP_SUMMON` (303)
+
+- 7.3 = id **324**, **8 octets** : 7 d'en-tête + `show_dialog` (1 octet à l'offset 7). rzu remappe en
+  1324 à partir d'`EPIC_9_6_3` ; le client 7.3 écrit l'id en dur (`0x144` en VA `0x48c662`,
+  `Length = 8` en `0x48c66d`).
+- Le client l'émet à **l'ouverture de la fenêtre de formation des créatures** (Alt + R, bouton
+  `button_formation` ou `button_common_quick_creature_edit`, commande d'interface
+  `req_summon_formation`). Avant ce lot, l'id n'était pas déclaré : chaque ouverture laissait un
+  `Undefined packet ID: 324` et la fenêtre sans réponse.
+- `show_dialog` n'est pas constant (négation du réglage client 44) : le serveur le relit et le rend dans
+  `open_dialog`, jamais le fixer.
+- **Réponse : 303 seul**, 32 octets, `open_dialog` à l'offset 7 puis six handles aux offsets 8, 12, 16,
+  20, 24, 28 (NGemity `WorldSession.cpp:692-695`, `Messages.cpp:122-135`). Aucune écriture en base.
+  `BuildEquipSummon(slots, openDialog)` sert les deux sites : l'entrée en jeu passe `false`.
+- Les six handles viennent de `ConnectionInfo.SummonSlots`, posé **une seule fois** à l'entrée en jeu
+  depuis `CharacterEntity.SummonSlotItemIds` (et remis à vide par `ClearCharacterSession`) : les deux 303
+  ne peuvent pas diverger. La colonne n'est alimentée par personne, donc la réponse vaut **six zéros**
+  aujourd'hui ; une carte qui l'écrira devra aussi rafraîchir `SummonSlots`.
+- **303 va dans les deux sens.** Le client émet aussi 303 (constructeur VA `0x48cd10`, 32 octets,
+  `open_dialog = 0`, six `card_handle`) quand le joueur valide sa formation ; sans bras, il atteignait le
+  `throw` (observé en jeu : deux `Unknown Packet Type` juste après l'ouverture de la fenêtre).
+  `GameClient.HandleEquipSummon` le lit (`TryReadEquipSummon`, 32 octets exacts), le journalise et
+  **renvoie la formation stockée** avec l'`open_dialog` reçu. C'est la réponse de NGemity
+  (`onEquipSummon`) quand aucune carte n'est retenue : il ne garde qu'une carte d'invocation du joueur
+  portant `ITEM_FLAG_SUMMON` (bit 31, carte apprivoisée), dans la limite de Creature Control (1801), puis
+  renvoie **toujours** la formation résultante. Rien ne pose ce bit ici (pas d'apprivoisement, `/item`
+  n'écrit aucun drapeau) : toute carte est refusée, rien n'est écrit. Le jour où une carte peut être
+  apprivoisée, ce bras devient le portage d'`onEquipSummon`.
+- Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
+- Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
+
+### Paquet 452 — `TM_CS_SUMMON_CARD_SKILL_LIST` (client → serveur)
+
+- Trame cliente de **11** octets : en-tête 7 + `item_handle` (`uint32`) à l'offset 7, toute autre longueur
+  refusée avant lecture (`GameActionPackets.TryReadSummonCardSkillList`).
+- Déclencheur : le bouton `button_flip` de la fenêtre de carte de créature (seul appelant du
+  constructeur de trame, `SFrame.exe 0x48EE20`), sous la garde `[fenêtre+0x4C8] ≠ 0` que pose au préalable
+  le message interne `SMSG_SUMMON_CARD_ITEM_INFO`.
+- **Aucune réponse.** NGemity le déclare sans gestionnaire, rzu ne fournit que le côté client. La seule
+  réponse déductible, `TM_SC_SKILL_LIST` (403) avec `target` = handle de l'invocation (NGemity
+  `Messages::SendSkillList`), exige la résolution carte → invocation, qui n'existe pas
+  (`SummonSlotItemIds`, `MainSummonId`, `SubSummonId` ne sont alimentés nulle part). **Ne pas inventer de
+  table carte → invocation, ni réémettre `item_handle` comme `target`.**
+- `item_handle` est journalisé en `Debug` : c'est le relevé qui dira ce que le client y met.
+- Gating : 452 à l'Epic 7.3, `1452` seulement à partir d'`EPIC_9_6_3` (et `1452` n'a pas de sens en 7.3,
+  `op_codes.md`) : ne pas le déclarer.
+- Détail et réserves : `docs/packet-specs/452-summon-card-skill-list.md`.
 
 ### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
 

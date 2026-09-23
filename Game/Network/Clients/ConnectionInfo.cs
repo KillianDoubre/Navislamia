@@ -42,6 +42,14 @@ public class ConnectionInfo
     public int CharacterChaos { get; set; }
 
     /// <summary>
+    /// The creature formation as stored on the character (six item handles at most), read once at world
+    /// entry. Both the login TM_EQUIP_SUMMON (303) and the answer to TM_CS_GET_SUMMON_SETUP_INFO (324)
+    /// are built from it, so the two cannot disagree. One source only: sending the two frames from two
+    /// different reads would make the window depend on which one the player opened.
+    /// </summary>
+    public long[] SummonSlots { get; set; } = Array.Empty<long>();
+
+    /// <summary>
     /// The PK mode, loaded from <c>Characters.PkMode</c> on world entry and persisted again by the
     /// session save. It reaches the client only through the actor status mask
     /// (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>): the protocol has
@@ -272,6 +280,7 @@ public class ConnectionInfo
         CharacterJp = 0;
         CharacterGold = 0;
         CharacterChaos = 0;
+        SummonSlots = Array.Empty<long>();
         PkMode = false;
         CharacterPermission = 0;
         IsSitting = false;
