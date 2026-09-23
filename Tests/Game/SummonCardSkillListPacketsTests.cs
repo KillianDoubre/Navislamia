@@ -238,4 +238,36 @@ public class SummonCardSkillListPacketsTests
         frame[6] = Checksum(frame);
         return frame;
     }
+
+    [Test]
+    public void Packet_IsDispatchedBeforeTheUnknownPacketThrow()
+    {
+        // GameClient's dispatch is a chain of ifs, so a member added to the enum without a branch reaches
+        // the final switch and its `throw` kills the receive loop. Nothing smaller than a source scan can
+        // check that without a live socket.
+        var source = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "Game", "Network", "Clients", "GameClient.cs"));
+
+        var branch = source.IndexOf(
+            "header.ID == (ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST", StringComparison.Ordinal);
+        var finalSwitch = source.IndexOf("throw new Exception(\"Unknown Packet Type\")", StringComparison.Ordinal);
+
+        branch.Should().BeGreaterThan(-1, "452 needs a branch of its own in OnDataReceived");
+        finalSwitch.Should().BeGreaterThan(-1, "the final switch is the guard this test is about");
+        branch.Should().BeLessThan(finalSwitch, "452 must be handled before the final switch throws");
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Navislamia.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull("the repository root is needed to check the dispatch chain");
+
+        return directory!.FullName;
+    }
 }
