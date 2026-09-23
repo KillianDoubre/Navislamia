@@ -5,6 +5,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Rates;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -16,9 +17,12 @@ public class SkillService : ISkillService
     private readonly SkillCatalog _catalog;
     private readonly ICharacterService _characterService;
     private readonly IStatService _statService;
+    private readonly IRateService _rates;
 
-    public SkillService(SkillCatalog catalog, ICharacterService characterService, IStatService statService)
+    public SkillService(SkillCatalog catalog, ICharacterService characterService, IStatService statService,
+        IRateService rates)
     {
+        _rates = rates;
         _catalog = catalog;
         _characterService = characterService;
         _statService = statService;
@@ -40,7 +44,8 @@ public class SkillService : ISkillService
 
         var currentLevel = info.LearnedSkills.GetValueOrDefault(request.SkillId);
         var evaluation = _catalog.Evaluate(info.CharacterJob, info.CharacterLevel, info.CharacterJobLevel,
-            request.SkillId, currentLevel, request.TargetLevel, info.LearnedSkills, info.CharacterJp);
+            request.SkillId, currentLevel, request.TargetLevel, info.LearnedSkills, info.CharacterJp,
+            _rates.SkillJpCost);
         if (!evaluation.IsSuccess)
         {
             client.SendResult(RequestId, (ushort)evaluation.Result, request.SkillId);

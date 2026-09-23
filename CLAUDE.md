@@ -289,7 +289,8 @@ backfilled.
 On death the killer is rewarded: `CombatRewards.Compute(level)` returns level-based placeholder exp, jp
 and gold (`10 + level * 5`, `5 + level * 2`, `5 + level * 3`), added to `ConnectionInfo`
 (`CharacterExp`/`CharacterJp`/`CharacterGold`, seeded in `OnLogin`) and sent with `TS_SC_EXP_UPDATE`
-(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). Real per-monster exp and gold live in the `MonsterResource`
+(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). The `Exp`/`Jp`/`Gold` rates multiply the three amounts (see
+*Rates*). Real per-monster exp and gold live in the `MonsterResource`
 reward columns (`Exp`, `GoldMin`, `GoldMax`) and replace the placeholder once backfilled. Progress
 persists once per session: `GameClient.OnDisconnect` calls `CharacterService.SaveProgress`, which writes
 exp, jp, gold and chaos; there are no per-kill database writes.
@@ -374,8 +375,9 @@ table-level pick-one); when a slot fires, a **positive** id drops that item with
 **negative** id resolves its group by weight — once per rolled count, so a slot with `count = 6-20` drops
 that many separate group picks. This is why a typical spawn monster now drops on **~78% of kills** at the
 authentic rate, several items each (piles of low-value materials), rather than the ~2% the direct-only
-catalog produced. `GroundItemService.DropChanceMultiplier` still scales every chance (clamped at 1.0) and
-stays **1, the authentic rate** — no longer a testing knob, since drops are plentiful without it.
+catalog produced. The `ItemDrop` rate scales every chance (clamped at 1.0) and defaults to **1, the
+authentic rate**; the `CreatureCardDrop` rate adds a factor to a slot whose direct item is a summon card
+(see *Rates*). It replaced the `GroundItemService.DropChanceMultiplier` constant.
 
 A ground item is `TS_SC_ENTER` with `type = ET_StaticObject (2)` and `objType = EOT_Item (2)`, 70 bytes:
 the shared header through `objType`, then `code` as the 8-byte randomized `EncodedInt` (the `npc_id`
@@ -389,7 +391,7 @@ duplicate it, then writes a new `ItemEntity` at `max(Idx) + 1`. The reply order 
 `TS_SC_INVENTORY` and the result. **`210` is what plays the pick-up animation** — its `item_taker` tells
 the client which actor to animate, which the generic `TS_SC_RESULT` cannot express, exactly like `287`
 against `202` for equipment. It is sent before the `LEAVE` so the animation starts before the object
-disappears. Items expire after 120 seconds through a 1 s tick.
+disappears. Items expire after `Rates:GroundItemLifetimeSeconds` (120 by default) through a 1 s tick.
 
 `GroundItemService` deliberately does **not** depend on `NetworkService`: `NetworkService` already
 injects the service, so taking the client list from it creates a DI cycle that only fails at runtime.
@@ -1318,6 +1320,44 @@ must pass all four**, the mask being a snapshot.
 `SpatialIndex`, which the monster infrastructure does not have) and the party commands (no party).
 The `&`-prefixed command lists found online do not exist in this client: none of their strings is in
 `SFrame.exe`.
+
+`/rate` and `/rates` read and drive the server rates; see *Rates* below.
+
+## Rates
+
+The server rates are the `Rates` section of `DevConsole/appsettings.{env}.json` — tracked, one per
+server, and **read live through `IOptionsMonitor`**, so an edit applies without a restart — multiplied by
+the `/rate` event running on that type. A x5 server in a x2 event runs at x10. `IRateService`
+(`Game/Services/Rates/`) is the only reader; the keys, their NGemity origin and the GM commands are in
+`docs/gm-commands.md`, *Rates*.
+
+- **What they touch**: exp, JP and gold per kill (`CombatService.AwardKill`), the drop chance and the
+  summon-card factor (`GroundItemService.DropForMonster` → `DropRoll.Roll`), the monster respawn delay,
+  the ground-item lifetime, and the JP cost of a skill level (`SkillCatalog.Evaluate`) and of a job level
+  (`LevelingService`). A key exists only once something reads it: no quest, chaos-drop or PvP rate until
+  those systems do.
+- **`Jp` follows `Exp` when unset**, which is NGemity's single `EXPRate` (`World.cpp:529`).
+- **Amounts are rounded at random** (`RateMath.ScaleRandom`: 7 × 1.5 gives 10 or 11), which is what
+  NGemity's `GetIntValueByRandomInt64` means to do — **its test is always true, so it always truncates**;
+  the intent is ported, not the defect. **Costs are rounded up** (`ScaleCost`), so only a rate of 0 is free.
+- **A job-level cost of 0 was the "tier capped" signal.** A `JobLevelJpCost` of 0 would have read as capped,
+  so `ILevelingService.NextJobLevelCost` became `TryGetNextJobLevelCost(level, out cost)`: `false` is the
+  capped tier, `cost` is what is really charged, and `/joblevel` credits exactly that.
+- **The card factor is judged on the slot, before group resolution**, like NGemity's `World::checkDrop`
+  (`code > 0`): a card reached through a drop group does not get it.
+- **Events** replace, never stack (x2 then x3 is x3); a duration is required; they are saved with their UTC
+  end to `EventStatePath` (`DevConsole/rate-events.json`, ignored by git), so a restart resumes them with
+  their remaining time. An event stops counting at its end even before the tick removes it.
+- **`RateEventTicker` announces the end and the reminder** and holds `NetworkService` for the client list,
+  like `MonsterAiService`. `RateService` must not: `CombatService` and `GroundItemService` depend on it and
+  are injected into `NetworkService` — the DI cycle that only fails at runtime.
+- Whether the 7.3 client accepts a learn or a job-level request priced **below its own table** is not
+  established: it may grey the button on its own figure, and it always displays its own price.
+
+**One Telecaster per server.** `Database:TelecasterCatalog` (default `Telecaster`) and
+`Database:ArcadiaCatalog` (default `Arcadia`) replace the two names `Program.ConfigureDataAccess` used to
+hard-code; `InitialCatalog` is still overridden by them. A second game server sets its own
+`TelecasterCatalog`, otherwise it shares the characters of the first.
 
 ## Current limitations
 

@@ -15,8 +15,9 @@ public interface ILevelingService
     bool TryGetExperienceFor(int level, out long exp);
 
     /// <summary>
-    /// The JP the next job level costs from <paramref name="currentJobLevel"/>, or 0 when the tier is
-    /// capped or leveling is disabled (<see cref="JobLevelCurve.NextCost"/>).
+    /// The JP the next job level from <paramref name="currentJobLevel"/> really charges, the
+    /// <c>JobLevelJpCost</c> rate included. False when the tier is capped or leveling is disabled
+    /// (<see cref="JobLevelCurve.NextCost"/>) — never inferred from the cost, which a rate of 0 makes 0.
     /// </summary>
-    int NextJobLevelCost(int currentJobLevel);
+    bool TryGetNextJobLevelCost(int currentJobLevel, out long cost);
 }
