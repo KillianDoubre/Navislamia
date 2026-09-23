@@ -72,6 +72,31 @@ public class ConnectionInfo
     public float DestinationY { get; set; }
 
     /// <summary>
+    /// The speed the server echoes a player's moves at (<c>GameClient.HandleMoveRequest</c>), which is also
+    /// what it assumes to estimate where a walking character is.
+    /// </summary>
+    public const byte EchoedMoveSpeed = 100;
+
+    /// <summary>
+    /// The server tick at which the character was last known at (<see cref="X"/>, <see cref="Y"/>) while
+    /// heading for its destination: a move request, a region update, a world entry or a warp.
+    /// </summary>
+    public uint MoveStartTick { get; set; }
+
+    /// <summary>
+    /// Where the character is at <paramref name="nowTick"/>, estimated from its last known position and its
+    /// destination at <see cref="EchoedMoveSpeed"/> with the monsters' interpolation. The client does not
+    /// report its position continuously; each region update corrects the estimate.
+    /// </summary>
+    public (float X, float Y) PositionAt(uint nowTick)
+    {
+        var length = MathF.Sqrt((DestinationX - X) * (DestinationX - X) + (DestinationY - Y) * (DestinationY - Y));
+        var endTick = Navislamia.Game.Services.MonsterMovement.EndTick(MoveStartTick, length, EchoedMoveSpeed);
+        return Navislamia.Game.Services.MonsterMovement.PositionAt(X, Y, DestinationX, DestinationY, MoveStartTick,
+            endTick, nowTick);
+    }
+
+    /// <summary>
     /// The PK mode, loaded from <c>Characters.PkMode</c> on world entry and persisted again by the
     /// session save. It reaches the client only through the actor status mask
     /// (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>): the protocol has
@@ -307,6 +332,7 @@ public class ConnectionInfo
         PetPickupFilter = 0;
         DestinationX = 0;
         DestinationY = 0;
+        MoveStartTick = 0;
         PkMode = false;
         CharacterPermission = 0;
         IsSitting = false;

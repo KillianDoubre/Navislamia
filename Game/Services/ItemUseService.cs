@@ -74,6 +74,8 @@ public class ItemUseService : IItemUseService
         // A pet rename item (effect RenamePet) needs a pet out; refused before anything is consumed.
         if (_catalog.RenamesPet((int)item.ItemResourceId) && !_petSummon.HasPetOut(client))
         {
+            _logger.Debug("{clientTag} used pet rename item {resourceId} with no pet out: refused",
+                client.ClientTag, item.ItemResourceId);
             client.SendResult(UseItemRequestId, (ushort)ResultCode.NotActable, value);
             return;
         }
@@ -112,6 +114,8 @@ public class ItemUseService : IItemUseService
         // acknowledgement, then the use result echoing the item and target handles of the request.
         client.SendResult(UseItemRequestId, (ushort)ResultCode.Success, value);
         client.Connection.Send(GameCharacterPackets.BuildUseItemResult(request.ItemHandle, request.TargetHandle));
+        _logger.Debug("{clientTag} used item {resourceId} (handle {itemHandle}, target {targetHandle})",
+            client.ClientTag, item.ItemResourceId, request.ItemHandle, request.TargetHandle);
 
         // A cage is a reusable item (type Use): the use is acknowledged like any other, then the pet comes
         // out, goes away or is swapped. The pet frames follow the acknowledgement.

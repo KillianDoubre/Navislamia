@@ -717,7 +717,19 @@ chaque règle ci-dessous est un choix de ce dépôt, appuyé sur les données qu
 destination** de son maître — le dernier point de passage de son dernier `TM_CS_MOVE_REQUEST`, gardé dans
 `ConnectionInfo.DestinationX/Y` (et la position après une entrée en jeu ou une téléportation) — jamais sa
 position de départ. Il reste en place à moins de 3 m ; sinon il marche jusqu'à 2 m de cette destination, de
-son côté (`PetSummonRules.FollowTarget`). Un nouveau `TS_SC_MOVE` ne part que s'il s'est arrêté ou si la
+son côté (`PetSummonRules.FollowTarget`).
+
+**Corrigé après le premier essai en jeu : le familier passait devant son maître.** Viser la destination,
+c'est viser un point où le maître n'est pas encore : à la vitesse 120 contre 100, le familier y arrivait
+le premier, et un clic à plus de 540 unités le « rappelait »… à la destination, donc devant. Le familier
+suit désormais **la position estimée** du maître (`ConnectionInfo.PositionAt` : dernière position connue,
+destination, tick de départ `MoveStartTick`, vitesse renvoyée 100, maths des monstres ; chaque
+`TM_CS_REGION_UPDATE` recale l'estimation) et, s'il marche, un point **2 m derrière lui le long de son
+cap** — une cible toujours derrière lui. Le rappel se fait aussi à cette position estimée. Réserve : si le
+client déplace le joueur plus vite que la vitesse 100 supposée, l'estimation retarde (le familier traîne
+un peu plus, sans dépasser) ; plus lentement, elle avance, et le familier pourrait encore dépasser entre
+deux mises à jour de région. Un test (`AWalkingMaster_IsTrailedFromBehindAndNeverOvertaken`) fige qu'il ne
+vise jamais au-delà de la position estimée. Un nouveau `TS_SC_MOVE` ne part que s'il s'est arrêté ou si la
 cible a dérivé de plus de 3 m, sinon il bégaierait (même règle que la poursuite des monstres). Le
 mouvement reprend les maths des monstres (`MonsterMovement`, `ActivePet.MoveTo`/`PositionAt`) avec la
 vitesse et le tick diffusés. Au-delà de 540 unités (la vue du client), il est rappelé à côté de son

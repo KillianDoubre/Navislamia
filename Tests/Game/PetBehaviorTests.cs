@@ -76,6 +76,29 @@ public class PetBehaviorTests
     }
 
     [Test]
+    public void AWalkingMaster_IsTrailedFromBehindAndNeverOvertaken()
+    {
+        // The master starts at 1000 and walks to 1400 (east) at the echoed speed; the pet stands at its side.
+        var (client, connection) = NewMaster();
+        var info = StorageTestHarness.Session(client);
+        info.DestinationX = 1400;
+        info.MoveStartTick = 1000;
+
+        for (var now = 1000u; now <= 1300u; now += 25)
+        {
+            _behavior.Step(client, now);
+
+            var (masterX, _) = info.PositionAt(now);
+            var (petX, _) = info.ActivePet!.PositionAt(now);
+            petX.Should().BeLessOrEqualTo(masterX + 0.5f, $"at tick {now} the pet must not be ahead of its master");
+            info.ActivePet.DestX.Should().BeLessOrEqualTo(masterX + 0.5f,
+                $"at tick {now} the pet must not head past its master");
+        }
+
+        connection.Sent.Should().NotBeEmpty("the pet does follow");
+    }
+
+    [Test]
     public void AFollowInFlight_IsNotReissuedUntilTheDestinationDrifts()
     {
         var (client, connection) = NewMaster();

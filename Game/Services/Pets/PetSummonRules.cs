@@ -129,11 +129,17 @@ public static class PetSummonRules
     };
 
     /// <summary>
-    /// Where a pet should walk to stay with its master, or null when it is close enough. It heads for the
-    /// master's destination and stops <see cref="PetSummonDefaults.FollowGap"/> short of it, on its own side,
-    /// so it trails instead of standing inside its master.
+    /// Where a pet should walk to stay with its master, or null when it is close enough.
+    /// <para>
+    /// The master is where it <b>is</b>, never where it is going: heading for the destination made a pet
+    /// faster than its master reach it first, i.e. overtake it (measured in game on 2026-09-23). A walking
+    /// master (a non-zero <paramref name="headingX"/>/<paramref name="headingY"/>, unit vector) is trailed
+    /// <see cref="PetSummonDefaults.FollowGap"/> behind, along its heading, so the target is always behind it;
+    /// a standing master is joined to the same gap on the pet's own side.
+    /// </para>
     /// </summary>
-    public static (float X, float Y)? FollowTarget(float petX, float petY, float masterX, float masterY)
+    public static (float X, float Y)? FollowTarget(float petX, float petY, float masterX, float masterY,
+        float headingX = 0, float headingY = 0)
     {
         var distance = Distance(petX, petY, masterX, masterY);
         if (distance <= PetSummonDefaults.FollowDistance)
@@ -141,8 +147,20 @@ public static class PetSummonRules
             return null;
         }
 
+        if (headingX != 0 || headingY != 0)
+        {
+            return (masterX - headingX * PetSummonDefaults.FollowGap, masterY - headingY * PetSummonDefaults.FollowGap);
+        }
+
         var ratio = PetSummonDefaults.FollowGap / distance;
         return (masterX + (petX - masterX) * ratio, masterY + (petY - masterY) * ratio);
+    }
+
+    /// <summary>The unit vector from (x, y) to its destination, or (0, 0) once there.</summary>
+    public static (float X, float Y) Heading(float x, float y, float destX, float destY)
+    {
+        var length = Distance(x, y, destX, destY);
+        return length < 0.5f ? (0, 0) : ((destX - x) / length, (destY - y) / length);
     }
 
     /// <summary>A pet this far from its master is brought back beside it rather than walked there.</summary>

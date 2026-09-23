@@ -157,7 +157,7 @@ public class GameClient : Client
         var count = BinaryPrimitives.ReadUInt16LittleEndian(input.Slice(17, 2));
         var waypoints = input.Slice(19, count * 8);
 
-        const byte speed = 100;
+        const byte speed = ConnectionInfo.EchoedMoveSpeed;
         var total = 7 + 12 + count * 8;
         var packet = new byte[total];
         var s = packet.AsSpan();
@@ -181,7 +181,9 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
 
-        // The last waypoint is where the character is going: what its pet follows (never its position).
+        // The last waypoint is where the character is going; with the start tick, the server estimates where
+        // it is between two reports (what its pet trails).
+        ConnectionInfo.MoveStartTick = ServerClock.Now;
         if (count > 0)
         {
             var last = waypoints.Slice((count - 1) * 8, 8);
@@ -212,6 +214,9 @@ public class GameClient : Client
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
         ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
+
+        // A real position: the estimate of a walking character restarts from it.
+        ConnectionInfo.MoveStartTick = ServerClock.Now;
         SyncVisibleObjects();
         RefreshEventArea();
     }

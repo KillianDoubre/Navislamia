@@ -49,6 +49,7 @@ public class WarpService : IWarpService
             info.Y = y;
             info.DestinationX = x;
             info.DestinationY = y;
+            info.MoveStartTick = ServerClock.Now;
             client.Connection.Send(GameSpawnPackets.BuildWarp(x, y, 0f, (sbyte)info.Layer));
 
             _npcSpawnService.Sync(client);

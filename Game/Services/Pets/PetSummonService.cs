@@ -231,7 +231,9 @@ public class PetSummonService : IPetSummonService
         {
             if (info.ActivePet is { } active)
             {
-                Replace(client, active, info.DestinationX, info.DestinationY, active.Entry.Name);
+                // Beside where its master is, not where it is going: the destination is ahead of it.
+                var (x, y) = info.PositionAt(ServerClock.Now);
+                Replace(client, active, x, y, active.Entry.Name);
             }
         }
     }
@@ -249,9 +251,10 @@ public class PetSummonService : IPetSummonService
         info.ActivePet = handle == 0 ? null : new ActivePet(handle, active.CageHandle, entry, active.CollectRange);
     }
 
-    private static void OfferRenameLocked(GameClient client, ActivePet active)
+    private void OfferRenameLocked(GameClient client, ActivePet active)
     {
         active.RenameOffered = true;
         client.Connection.Send(GamePetPackets.BuildShowSetPetName(active.Handle));
+        _logger.Debug("{clientTag} was offered a name for pet {handle} (353)", client.ClientTag, active.Handle);
     }
 }

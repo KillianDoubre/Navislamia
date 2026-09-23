@@ -85,7 +85,8 @@ public class PetBehavior
             }
 
             var (petX, petY) = pet.PositionAt(now);
-            if (PetSummonRules.IsTooFarToWalk(petX, petY, info.DestinationX, info.DestinationY))
+            var (masterX, masterY) = info.PositionAt(now);
+            if (PetSummonRules.IsTooFarToWalk(petX, petY, masterX, masterY))
             {
                 _petSummon.Recall(client);
                 return;
@@ -109,7 +110,10 @@ public class PetBehavior
                 Move(client, pet, spot.X, spot.Y, now);
                 return;
             }
-            else if (PetSummonRules.FollowTarget(petX, petY, info.DestinationX, info.DestinationY) is { } follow &&
+            else if (PetSummonRules.FollowTarget(petX, petY, masterX, masterY,
+                         PetSummonRules.Heading(masterX, masterY, info.DestinationX, info.DestinationY).X,
+                         PetSummonRules.Heading(masterX, masterY, info.DestinationX, info.DestinationY).Y)
+                     is { } follow &&
                      (pet.HasArrived(now) ||
                       PetSummonRules.Distance(pet.DestX, pet.DestY, follow.X, follow.Y) > PetSummonDefaults.FollowDistance))
             {
