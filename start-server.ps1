@@ -28,10 +28,19 @@
 .PARAMETER SkipBuild
     Réutilise la compilation existante sans relancer « dotnet build ».
 
+.PARAMETER Watch
+    Lance le Game Server sous « dotnet watch » (Hot Reload) : une modification d'un
+    corps de méthode est appliquée au processus en cours à l'enregistrement, sans
+    le redémarrer — le client reste connecté. Un changement que Hot Reload ne sait
+    pas appliquer (signature, nouveau champ, membre d'énumération, code de
+    démarrage) redémarre le Game Server automatiquement. L'AuthServer n'est pas
+    surveillé. Debug seulement : Hot Reload ne s'applique pas au code optimisé.
+
 .EXAMPLE
     .\start-server.ps1
     .\start-server.ps1 -Configuration Release
     .\start-server.ps1 -Force
+    .\start-server.ps1 -Watch
 #>
 [CmdletBinding()]
 param(
@@ -40,11 +49,17 @@ param(
 
     [switch]$Force,
 
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+
+    [switch]$Watch
 )
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+
+if ($Watch -and $Configuration -ne 'Debug') {
+    throw "-Watch demande -Configuration Debug : Hot Reload ne s'applique pas au code optimisé de Release."
+}
 
 # Ports du serveur : auth (4502), client auth (4601), upload (4616) et jeu (4515).
 $ServerPorts = 4502, 4601, 4616, 4515
@@ -215,7 +230,22 @@ try {
     Write-Host '==> AuthServer prêt. Démarrage du Game Server (DevConsole)...' -ForegroundColor Green
     Push-Location "$root\DevConsole"
     try {
-        dotnet run -c $Configuration --no-build
+        if ($Watch) {
+            # Sans cette variable, dotnet watch s'arrête et attend une réponse au clavier à chaque
+            # modification que Hot Reload ne sait pas appliquer ; avec elle, il redémarre le Game Server.
+            $previousRestart = $env:DOTNET_WATCH_RESTART_ON_RUDE_EDIT
+            $env:DOTNET_WATCH_RESTART_ON_RUDE_EDIT = '1'
+            try {
+                Write-Host '==> Hot Reload actif : enregistrez un fichier .cs pour l''appliquer (Ctrl+C pour arrêter).' -ForegroundColor Green
+                dotnet watch run -c $Configuration
+            }
+            finally {
+                $env:DOTNET_WATCH_RESTART_ON_RUDE_EDIT = $previousRestart
+            }
+        }
+        else {
+            dotnet run -c $Configuration --no-build
+        }
     }
     finally {
         Pop-Location

@@ -16,13 +16,17 @@ dotnet build Navislamia.sln -c Release
 dotnet test Tests/Tests.csproj -c Release
 
 .\start-server.ps1
+.\start-server.ps1 -Watch      # game server under dotnet watch: Hot Reload, the client stays connected
 .\launch-client.ps1
 
 dotnet run --project AuthServer
 dotnet run --project DevConsole
 ```
 
-AuthServer must be listening before DevConsole. The solution uses the .NET 8 x64 toolchain for all
+AuthServer must be listening before DevConsole. `-Watch` (Debug only) patches method-body edits into the
+running game server; a change Hot Reload cannot apply (signature, new field or enum member, startup code
+such as catalogues and DI) restarts it automatically (`DOTNET_WATCH_RESTART_ON_RUDE_EDIT=1`), and a loop
+already running (combat, AI, rate ticks) keeps its old body until then. The solution uses the .NET 8 x64 toolchain for all
 projects referencing `Game`. PostgreSQL databases are `Arcadia`, `Telecaster` and `auth`.
 
 ## Solution layout
