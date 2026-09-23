@@ -774,7 +774,33 @@ interdit (`IBannedWordsRepository.ContainsBannedWord`). Un nom refusé **rouvre 
 refus n'existe pour un familier). Un nom accepté est écrit (`WasNameChanged = true`) et le familier est
 remis en place sous son nouveau nom (350/9 puis 3/351), le nom voyageant dans la trame d'entrée.
 
-### 17.4 Ce qui reste ouvert
+### 17.4 Le client ne reconnaît pas le familier comme « invoqué » (mesuré en jeu, 2026-09-23)
+
+Suivi, ramassage et nom au premier appel (353/354) fonctionnent en jeu. **Deux fonctions du client, non** :
+
+- **L'objet 920010** répond côté client « Please summon your decorative pet before trying to rename it. »
+  (clé `smsq_item_petnickname`, id **797** dans `db_string.rdb`) **alors que le familier est dehors**, et
+  n'envoie jamais la 253 : le refus est local. Dans ce client, « decorative pet » désigne bien ces
+  familiers-ci (les infobulles des cages : « Click the "Decorative Pet" button… turn your decorative pet's
+  item collecting ability on or off »), et l'objet ne renomme qu'un familier **permanent** (son infobulle) —
+  refusé aussi avec la cage permanente 690403.
+- **Le bouton « Decorative Pet »** s'allume et s'éteint sans ouvrir de fenêtre ; aucune 355 ne part.
+
+Écarté par mesure : (1) le contrôle de niveau du serveur (920010 : 0/0, sans borne ; la 253 n'arrive de
+toute façon pas) ; (2) **`code` = id du familier dans la 351** — essayé (commit `4b6152c`), aucun effet,
+annulé (`04d45dd`) : le champ reste à 0. La valeur 797 n'apparaît qu'une fois comme immédiat dans
+`SFrame.exe` (`push 0x31d` @`0x67ef8c`), dans le gestionnaire de la trame **28**
+(`TM_SC_DISCONNECT_DESC`), sans rapport : le client atteint donc ce message par une table de données
+(vraisemblablement celle de l'objet), pas par un code cherchable statiquement.
+
+Piste la plus probable, **non établie** : la 351 est transmise à la fenêtre d'interface **0x8a**
+(`SGameInterface` @`0x63c430`, `call 0x62f470`) ; si cette fenêtre n'est créée qu'au premier clic sur le
+bouton, la 351 arrive avant elle et se perd, ce qui laisserait une fenêtre vide — exactement ce qui est
+observé. Trancher demande de désassembler la fenêtre de familier (`SUIPetCommandWnd`, gestionnaire
+@`0x57fec8`) et sa création (@`0x635e27`) : chantier à part. En attendant, le serveur garde le traitement
+de 920010 (refus sans familier dehors, 353 sinon), inatteignable tant que le client refuse localement.
+
+### 17.5 Ce qui reste ouvert
 
 Les autres joueurs ne voient pas le familier (aucune visibilité entre joueurs) ; aucun poids ni plafond de
 sac n'est vérifié au ramassage (comme pour le ramassage manuel) ; les compétences du familier dans la

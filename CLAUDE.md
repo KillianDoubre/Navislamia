@@ -1736,6 +1736,10 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   (`RenamePet`, 120) la rouvre, refusé **avant consommation** sans familier dehors ; la 354 n'est acceptée que
   pour le handle proposé, avec **la règle des noms de personnage** (4-18 lettres/chiffres, mots interdits),
   un refus rouvrant la boîte.
+- **Le client 7.3 ne reconnaît pas le familier comme « invoqué »** (fiche §17.4) : l'objet 920010 est refusé
+  **côté client** (« Please summon your decorative pet… », id 797) et le bouton « Decorative Pet » ouvre une
+  fenêtre vide, donc aucune 355 ne part. `code` = id du familier dans la 351 a été **essayé et réfuté** en jeu ;
+  le champ reste à 0. Piste non établie : la fenêtre 0x8a, destinataire de la 351, créée après elle.
 - `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options
   (`PET_PICKUP_FILTER`), mais n'est **pas déclaré** : sa valeur n'est pas établie et le ramassage par
   familier n'existe pas. Il tombe dans `Undefined packet ID`, sans erreur.
