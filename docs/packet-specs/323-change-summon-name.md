@@ -441,3 +441,58 @@ ne sont donc pas consultables, ce qui borne §2 et §7.
 5. **Réserve hors carte** (§5.4) : les huit ids d'invocation déjà déclarés (301, 302, 303, 305, 306,
    307, 320, 321) n'ont aucun bras dans `GameClient.cs` et peuvent atteindre le `throw` final.
    Faut-il une carte dédiée ?
+
+Stade du lot `navis-dev` : **aucun de ces points n'a été tranché par devine** — les points 1 à 3
+conditionnent l'effet du paquet, et le lot se limite donc à lire et journaliser la trame, sans écrire
+ni répondre (§12.2). Les points 1 et 3 attendent aussi une capture de session (§7(a), §7(c)) : sans
+elle, ils resteront ouverts.
+
+## 12. Ce que le lot livre, et ce qu'il laisse ouvert (`navis-dev`)
+
+Implémentation de cette fiche sur `hermes/packet-323-change-summon-name`, au-dessus de `a1c4950`. Les
+numéros de ligne cités en §5.4 sont ceux de la base : après ce lot, le bras de 323 occupe
+`GameClient.cs:966-996` et le `switch` final est en `GameClient.cs:1390-1401`.
+
+### 12.1 Livré
+
+| Pièce | Fichier | Ce qui est fixé |
+|---|---|---|
+| Membre d'énumération | `Game/Network/Packets/Enums/GamePackets.cs:83` | `TM_CS_CHANGE_SUMMON_NAME = 323` (§4.1). Le membre est déclaré **entre `TM_SC_SUMMON_EVOLUTION` (307) et `TM_SC_MOUNT_SUMMON` (320)**, et non après 321 où son rang numérique le placerait : les deux bords du bloc invocation sont les points d'ancrage des branches sœurs (304 après 303, 324 après 321). **1323** (remap 9.6.3, §4.1) et **322** (trame S→C, §3.4) restent non déclarés, et un test l'assère. |
+| Lecteur | `Game/Network/Packets/Game/GameActionPackets.cs:555-619` — `TryReadChangeSummonName` et les constantes `ChangeSummonName*` | 26 octets au total, charge utile 19, `name` à l'offset **7** (**0** vu de la charge utile), champ 19 octets, **18 caractères utiles**. Toute longueur différente de 26 est refusée — le client écrit la longueur en dur (§5.3.1). Le champ doit porter un NUL (garanti par le client, §2.1 point 3) : tout ce qui suit le premier NUL est ignoré, et un champ plein sans NUL est refusé plutôt que lu au-delà de ses 19 octets (§5.3.1, même discipline que le lecteur de 4500). |
+| Bras de dispatch | `Game/Network/Clients/GameClient.cs:966-996` | Une trame 323 est lue et journalisée (`Debug`, avec le nom lu), une trame malformée est journalisée (`Warning`) : le membre ne peut plus atteindre le `throw` final. Le bras est placé **en tête de chaîne**, après la porte de stand, plutôt que dans la zone d'invocation de la queue que les branches sœurs se partagent. |
+| Tests | `Tests/Game/ChangeSummonNamePacketsTests.cs` | **20 tests** : identité et absences (1323, 322), offsets et tailles nommés séparément, forme de la trame, lecture jusqu'au premier NUL, 18 caractères utiles, nom trop long coupé par le NUL forcé, octets après le NUL ignorés, champ vide, champ sans NUL refusé, longueurs refusées (0, 7, 25, 27), et le dispatch réel : consommation complète, **aucune émission**, trame coalescée avec un keepalive, trame malformée consommée sans exception, trame 322 abandonnée par la garde. |
+
+### 12.2 Non livré, et pourquoi (périmètre assumé, pas un oubli)
+
+- **Aucune réponse n'est émise.** Ni rzu, ni NGemity, ni le récepteur du client ne porte de réponse à
+  323 (§5.1, §5.2, §7(c)). `SendResult`, 301 et 322 sont des candidats non équivalents : les émettre
+  serait choisir à la place de la capture. Un test assère que rien ne part (`Sent` vide).
+- **Aucune ligne d'invocation n'est écrite.** `SummonEntity.Name` n'est pas touché : quelle invocation
+  est renommée quand le personnage en a deux n'est pas tranché (§7(d), §5.3 point 2 — le seul point que
+  le dev ne peut pas décider seul), et aucune politique de nom n'est appliquée — ni longueur minimale ni
+  unicité, dont les valeurs ne sont pas établies (§7(e)). Le lecteur rend donc le nom tel quel et
+  l'appelant le journalise. Note d'infrastructure : rien dans le dépôt ne lit ni n'écrit aujourd'hui les
+  tables d'invocation (`SummonWorldService` le documente déjà), il n'y a donc pas de chemin de
+  persistance à réutiliser pour ce lot.
+- **Aucune borne n'est devinée** : le champ vide est rendu comme un nom vide (valeur lue), pas refusé au
+  titre d'une longueur minimale inventée ; un nom de 18 caractères est rendu tel quel. Les deux décisions
+  restent dans `## A VERIFIER PAR KILLIAN` (§11 points 1 à 3).
+- La réserve hors carte de §5.4 (les huit ids d'invocation S→C sans bras) **reste ouverte** : ce lot ne
+  l'a pas élargie (elle ne concerne que des trames S→C, jamais émises par le client) ni corrigée.
+
+### 12.3 Vérifications relevées (dev)
+
+| Commande | Code de sortie | Résultat |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` | **0** | 0 erreur, 163 avertissements — identique à la base mesurée avant ce lot (`/tmp/base_build.log`), aucun avertissement nouveau |
+| `dotnet test Tests/Tests.csproj` | **0** | **996 réussis**, 0 échec, 0 ignoré — base 976 + 20 nouveaux, le seuil de 976 n'est pas franchi à la baisse |
+| `dotnet test ... --filter ChangeSummonNamePacketsTests` | **0** | 20 réussis |
+| `git log --oneline origin/master..master` | 0 | **vide** : `master` locale n'a aucun commit d'avance |
+
+Zones de collision mesurées (`git merge-tree --write-tree --name-only`) :
+
+| Comparaison | Résultat |
+|---|---|
+| `hermes/packet-323-change-summon-name` vs `hermes/packet-304-summon` | **aucun conflit** — les points d'insertion choisis (entre 307 et 320, tête de chaîne, avant le dernier lecteur) évitent les ancrages de 304 |
+| `hermes/packet-323-change-summon-name` vs `hermes/packet-324-get-summon-setup-info` | mêmes fichiers en conflit qu'avant ce lot (`ConnectionInfo.cs`, `GameClient.cs`, `GameActionPackets.cs` — 324 est en retard sur `master`) ; `GamePackets.cs` **n'y figure pas**, contrairement à ce qu'aurait produit une déclaration après 321 |
+
