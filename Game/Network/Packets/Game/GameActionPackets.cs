@@ -619,4 +619,51 @@ public static class GameActionPackets
         request = new RankingTopRecordRequest((sbyte)packet[HeaderSize]);
         return true;
     }
+
+    /// <summary>Total size of <c>TM_CS_SUMMON</c> (304) on the wire, 7-byte header included: 12 bytes.</summary>
+    public const int SummonPacketSize = 12;
+
+    /// <summary>Offset of the <c>int8_t is_summon</c> flag: 7, the first payload byte.</summary>
+    public const int SummonFlagOffset = HeaderSize;
+
+    /// <summary>Offset of the <c>ar_handle_t card_handle</c> field: 8.</summary>
+    public const int SummonCardHandleOffset = SummonFlagOffset + 1;
+
+    /// <summary>Payload size of the frame, 12 - 7 = 5 bytes (1 byte of flag and 4 bytes of handle).</summary>
+    public const int SummonPayloadSize = SummonPacketSize - HeaderSize;
+
+    /// <summary>
+    /// <c>TM_CS_SUMMON</c> (304): a summon/unsummon request carried by a card. The 7.3 layout is the
+    /// 7-byte header, then an <c>int8_t is_summon</c> at offset 7 and an <c>ar_handle_t card_handle</c> at
+    /// offsets 8-11 (<see cref="SummonPacketSize"/> = 12, rzu <c>TS_CS_SUMMON.h</c> below EPIC_9_6_3;
+    /// NGemity declares the same order and sizes).
+    /// <para>
+    /// Both fields cross the server <strong>unread</strong> in the sense that nothing here interprets
+    /// them: rzu and NGemity name them without defining them, wait for a value of <c>is_summon</c>, and say
+    /// nothing of what <c>card_handle</c> designates. The reader therefore returns the raw signed byte and
+    /// the raw little-endian word, and nothing compares or validates them.
+    /// </para>
+    /// <para>
+    /// No refusal rule is established for this packet: a frame shorter than the declared 12 bytes cannot be
+    /// read at all and is refused, while a longer frame is read from its first 12 bytes rather than
+    /// rejected, because the fiche leaves the disposition of a non conforming length open (§5.3.4, §7).
+    /// The 7.3 client never builds this frame at all — summoning goes through the summon creature skill,
+    /// that is <c>TM_CS_SKILL</c> (400) — so no real capture exists to confirm either case.
+    /// See docs/packet-specs/304-summon.md.
+    /// </para>
+    /// </summary>
+    public static bool TryReadSummon(ReadOnlySpan<byte> packet, out sbyte isSummon, out uint cardHandle)
+    {
+        isSummon = 0;
+        cardHandle = 0;
+
+        if (packet.Length < SummonPacketSize)
+        {
+            return false;
+        }
+
+        isSummon = (sbyte)packet[SummonFlagOffset];
+        cardHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(SummonCardHandleOffset, 4));
+        return true;
+    }
 }

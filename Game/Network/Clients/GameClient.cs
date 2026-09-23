@@ -1219,6 +1219,39 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_CS_SUMMON (304): rzu declares the frame, but the 7.3 client never builds it (summoning
+            // goes through the summon creature skill, TM_CS_SKILL = 400) and NGemity has no handler for it
+            // either ("Got unknown packet"). The id is declared and routed here so that a frame cannot reach
+            // the "Unknown Packet Type" throw below; the frame is read and logged, and nothing is answered:
+            // no reference sanctions a response and the client has no incoming handler for 304. The arm sits
+            // next to the isolated TM_SC_REGION_ACK arm rather than at the end of the chain, whose insertion
+            // zone the rest of the summon family and the sibling branches already share.
+            // See docs/packet-specs/304-summon.md §5.3, §5.4.
+            if (header.ID == (ushort)GamePackets.TM_CS_SUMMON)
+            {
+                // is_summon and card_handle are exposed raw: neither rzu nor NGemity says what they mean and
+                // nothing here decides summoning, unsummoning or card consumption (the summon path already
+                // exists through TM_CS_SKILL). A frame shorter than the declared 12 bytes cannot be read and
+                // is only logged; no refusal is emitted, as no refusal rule is established (§5.3.4).
+                if (GameActionPackets.TryReadSummon(msgBuffer, out var isSummon, out var cardHandle))
+                {
+                    // Five properties: guarded, or the argument array is built before the level check.
+                    if (_logger.IsEnabled(LogEventLevel.Debug))
+                    {
+                        _logger.Debug(
+                            "TM_CS_SUMMON ({id}) Length: {length} received from {clientTag}: is_summon={isSummon} card_handle={cardHandle}",
+                            header.ID, header.Length, ClientTag, isSummon, cardHandle);
+                    }
+                }
+                else
+                {
+                    _logger.Warning("Malformed TM_CS_SUMMON ({id}) Length: {length} received from {clientTag}",
+                        header.ID, header.Length, ClientTag);
+                }
+
+                continue;
+            }
+
             // TM_CS_REQUEST (60) is declared so that the frame is read and bounded instead of being dropped
             // as an undefined id. Any arm for a declared id must run before the throwing switch below: a
             // member of GamePackets that reaches it breaks the receive loop. Nothing is answered and
