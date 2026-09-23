@@ -503,6 +503,48 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<PetRecord> GetOrCreatePetAsync(string characterName, long characterId, int accountId,
+        long cageItemId, int petResourceId, string defaultName)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var pet = await repository.GetPetByItemAsync(cageItemId);
+            if (pet is null)
+            {
+                pet = new PetEntity
+                {
+                    AccountId = accountId,
+                    CharacterId = characterId,
+                    ItemId = cageItemId,
+                    PetResourceId = petResourceId,
+                    Name = defaultName ?? string.Empty,
+                    WasNameChanged = false
+                };
+                repository.AddPet(pet);
+                await repository.SaveChangesAsync();
+            }
+
+            return new PetRecord(pet.Name ?? string.Empty, pet.WasNameChanged);
+        });
+    }
+
+    public Task<bool> RenamePetAsync(string characterName, long cageItemId, string name)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var pet = await repository.GetPetByItemAsync(cageItemId);
+            if (pet is null)
+            {
+                return false;
+            }
+
+            pet.Name = name;
+            pet.WasNameChanged = true;
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
+
     private static ItemEntity FindByHandle(IEnumerable<ItemEntity> items, uint handle)
     {
         return items?.FirstOrDefault(item => (uint)item.Id == handle);

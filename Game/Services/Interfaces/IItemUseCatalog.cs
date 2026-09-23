@@ -15,6 +15,9 @@ public interface IItemUseCatalog
     /// </summary>
     bool TryGetLevels(int itemResourceId, out ItemUseLevels levels);
 
+    /// <summary>Whether the item carries the <c>RenamePet</c> use effect (120): it opens the pet name box.</summary>
+    bool RenamesPet(int itemResourceId);
+
     /// <summary>
     /// Whether a successful use takes one unit off the stack. Only a reusable resource
     /// (<c>ItemBaseType.Use</c>) is spared; an unknown resource is consumed, the reference default.

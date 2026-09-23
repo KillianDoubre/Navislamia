@@ -58,6 +58,20 @@ public class ConnectionInfo
     public object PetLock { get; } = new();
 
     /// <summary>
+    /// The raw value of the last <c>TM_CS_SET_PET_FILTER</c> (355). Its meaning is not established: it is
+    /// kept, never applied (the pet collects everything its master owns).
+    /// </summary>
+    public uint PetPickupFilter { get; set; }
+
+    /// <summary>
+    /// Where the character is heading: the last waypoint of its last move request, or its position after
+    /// a world entry or a warp. <see cref="X"/>/<see cref="Y"/> is where it started, the destination is
+    /// where a follower should go (the pet).
+    /// </summary>
+    public float DestinationX { get; set; }
+    public float DestinationY { get; set; }
+
+    /// <summary>
     /// The PK mode, loaded from <c>Characters.PkMode</c> on world entry and persisted again by the
     /// session save. It reaches the client only through the actor status mask
     /// (<see cref="Navislamia.Game.Network.Packets.Game.ActorStatus.ForPlayer"/>): the protocol has
@@ -290,6 +304,9 @@ public class ConnectionInfo
         CharacterChaos = 0;
         SummonSlots = Array.Empty<long>();
         ActivePet = null;
+        PetPickupFilter = 0;
+        DestinationX = 0;
+        DestinationY = 0;
         PkMode = false;
         CharacterPermission = 0;
         IsSitting = false;

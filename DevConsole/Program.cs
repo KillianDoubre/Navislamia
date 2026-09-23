@@ -54,6 +54,7 @@ public class Program
         host.Services.GetRequiredService<MonsterAiService>();
         host.Services.GetRequiredService<ISkillCastService>();
         host.Services.GetRequiredService<RateEventTicker>();
+        host.Services.GetRequiredService<PetBehaviorService>();
 
         await host.RunAsync();
         await Log.CloseAndFlushAsync();
@@ -316,6 +317,7 @@ public class Program
         services.AddSingleton<IPetCatalog, PetCatalog>();
         services.AddSingleton<PetWorldService>();
         services.AddSingleton<IPetSummonService, PetSummonService>();
+        services.AddSingleton<PetBehaviorService>();
         services.AddSingleton<IQuestService, QuestService>();
         services.AddSingleton<IGmCommandService, GmCommandService>();
         services.AddSingleton<IRateService, RateService>();

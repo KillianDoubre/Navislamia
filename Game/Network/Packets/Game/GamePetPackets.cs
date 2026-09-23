@@ -82,6 +82,37 @@ public static class GamePetPackets
     /// </summary>
     public static byte[] BuildUnsummonPet(uint handle) => BuildHandlePacket(GamePackets.TM_SC_UNSUMMON_PET, handle);
 
+    /// <summary>
+    /// <c>TM_SC_SHOW_SET_PET_NAME</c> (353). 4 payload bytes, 11 with the header: <c>handle</c> @0
+    /// (<c>TS_SC_SHOW_SET_PET_NAME.h:5-6</c>). The client resolves the handle to a live creature and, only
+    /// then, opens its name box; the 354 that follows carries the same handle back
+    /// (docs/packet-specs/354-set-pet-name.md §2).
+    /// </summary>
+    public static byte[] BuildShowSetPetName(uint handle) =>
+        BuildHandlePacket(GamePackets.TM_SC_SHOW_SET_PET_NAME, handle);
+
+    /// <summary><c>TM_CS_SET_PET_FILTER</c> (355): exactly 15 bytes, <c>handle</c> @7 and the filter value @11.</summary>
+    public const int SetPetFilterPacketSize = HeaderSize + 8;
+
+    /// <summary>
+    /// Reads <c>TM_CS_SET_PET_FILTER</c> (355), whose frame the client builds at <c>SFrame.exe</c>
+    /// @<c>0x48e1f0</c> from its <c>PET_PICKUP_FILTER</c> option. Only the exact 15-byte form is read; the
+    /// value is returned raw, its meaning being <c>NON ÉTABLI</c> (socle-familier-pet.md §11.4).
+    /// </summary>
+    public static bool TryReadSetPetFilter(ReadOnlySpan<byte> packet, out uint handle, out uint filter)
+    {
+        handle = 0;
+        filter = 0;
+        if (packet.Length != SetPetFilterPacketSize)
+        {
+            return false;
+        }
+
+        handle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        filter = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4));
+        return true;
+    }
+
     private static byte[] BuildHandlePacket(GamePackets id, uint handle)
     {
         var packet = CreatePacket(id, HeaderSize + 4);

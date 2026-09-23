@@ -626,7 +626,8 @@ public class ResurrectionPacketTests
             A.Fake<ICraftingSocleService>(),
             A.Fake<IStorageService>(),
             A.Fake<IQuestService>(),
-            A.Fake<IGmCommandService>());
+            A.Fake<IGmCommandService>(),
+                A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

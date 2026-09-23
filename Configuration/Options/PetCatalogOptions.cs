@@ -24,4 +24,10 @@ public class PetResourceRow
     public int CageId { get; set; }
     public string Model { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Pickup radius in meters, from the pet's "Collect Items" skill (effect 10047, <c>var1</c>) in the 9.4
+    /// tables — the client table does not carry it. 0: the pet collects nothing.
+    /// </summary>
+    public int CollectRadius { get; set; }
 }

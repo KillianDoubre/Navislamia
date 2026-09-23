@@ -1724,6 +1724,18 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   3 et n'a jamais été essayé en jeu — à vérifier au premier appelant. Les valeurs sans source (niveau 1, PV 100, PM 0, `code`/`unknown` à 0) sont dans
   `PetSummonDefaults`. Rien n'est persisté.
 - `ActorStatus.ForPet()` vaut 0, comme les invocations.
+- **Il suit, ramasse et se nomme** (fiche §17). `PetBehaviorService` (250 ms, `NetworkService` pour la
+  seule liste des clients) fait marcher le familier vers **la destination** de son maître
+  (`ConnectionInfo.DestinationX/Y`, dernier point de passage du `TM_CS_MOVE_REQUEST`), à 2 m près, sans
+  réémettre de `TS_SC_MOVE` tant que la cible n'a pas dérivé de 3 m, et le rappelle au-delà de 540 unités.
+  **Le rayon de ramassage vient de la compétence « Collect Items » (effet 10047, `var1` en mètres : 5/10/15)**,
+  **× 12 unités par mètre** (règle de NGemity pour toute portée de compétence) ; le familier prend le butin
+  de son maître par le ramassage manuel, **`item_taker` = le familier et aucun `TS_SC_RESULT`**. Le filtre
+  355 est déclaré, lu, gardé (`PetPickupFilter`) et **jamais appliqué**. Le nom vit dans `Pets` (une ligne
+  par cage) ; un familier jamais nommé reçoit la **353 sur son handle** à chaque appel, l'objet 920010
+  (`RenamePet`, 120) la rouvre, refusé **avant consommation** sans familier dehors ; la 354 n'est acceptée que
+  pour le handle proposé, avec **la règle des noms de personnage** (4-18 lettres/chiffres, mots interdits),
+  un refus rouvrant la boîte.
 - `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options
   (`PET_PICKUP_FILTER`), mais n'est **pas déclaré** : sa valeur n'est pas établie et le ramassage par
   familier n'existe pas. Il tombe dans `Undefined packet ID`, sans erreur.

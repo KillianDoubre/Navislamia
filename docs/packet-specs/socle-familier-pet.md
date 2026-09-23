@@ -704,3 +704,69 @@ Validé en jeu sur ce correctif (Killian, 2026-09-23) : appel (3 puis 351), rang
 **La 351 n'ouvre aucune fenêtre** au moment de l'appel : son cas `SGameInterface` (§4.6, `push 0x8a`,
 action `0x35`) rafraîchit donc une fenêtre sans l'ouvrir, ou prépare des données que l'interface montre
 ailleurs — ce que la fenêtre de familier affiche une fois ouverte reste à regarder.
+
+## 17. Lot 3 — le familier suit, ramasse, et se nomme (2026-09-23)
+
+Trois volets sur `feature/pet-companion`, sans référence serveur (NGemity n'a aucune logique de familier) :
+chaque règle ci-dessous est un choix de ce dépôt, appuyé sur les données quand elles existent.
+
+### 17.1 Suivre son maître
+
+`PetBehaviorService` (boucle de 250 ms, qui ne tient `NetworkService` que pour la liste des clients, comme
+`MonsterAiService`) appelle `PetBehavior.Step` pour chaque familier dehors. Le familier vise **la
+destination** de son maître — le dernier point de passage de son dernier `TM_CS_MOVE_REQUEST`, gardé dans
+`ConnectionInfo.DestinationX/Y` (et la position après une entrée en jeu ou une téléportation) — jamais sa
+position de départ. Il reste en place à moins de 3 m ; sinon il marche jusqu'à 2 m de cette destination, de
+son côté (`PetSummonRules.FollowTarget`). Un nouveau `TS_SC_MOVE` ne part que s'il s'est arrêté ou si la
+cible a dérivé de plus de 3 m, sinon il bégaierait (même règle que la poursuite des monstres). Le
+mouvement reprend les maths des monstres (`MonsterMovement`, `ActivePet.MoveTo`/`PositionAt`) avec la
+vitesse et le tick diffusés. Au-delà de 540 unités (la vue du client), il est rappelé à côté de son
+maître (`Recall`) plutôt que de courir. Vitesse 120 (le serveur renvoie ses joueurs à 100 : le familier
+rattrape son maître quand il s'arrête).
+
+### 17.2 Ramasser le butin
+
+**Le rayon vient des données.** Chaque familier porte une compétence « Collect Items » (effet **10047**)
+dont `var1` est le rayon en mètres : arbre 43 → 46016 → **5 m**, 44 → 46017 → **10 m**, 45 → 46018 →
+**15 m**, exactement ce que disent les infobulles des cages (« collect loot for you in a 5 meter radius »).
+La table du client ne porte pas l'arbre : l'exporteur le lit dans `PetResource.skill_tree_id` 9.4 (même
+id pour 105 des 106 familiers ; le 106ᵉ, id 99, ne ramasse pas) et écrit `CollectRadius`. Le mètre vaut
+**12 unités** : NGemity multiplie ainsi toute portée de compétence (`SkillProp.cpp`, `GetVar(n) * 12.0f`).
+
+Quand aucune cible n'est en cours, le familier cherche l'objet au sol **de son maître**, sur sa couche, le
+plus proche de lui dans son rayon (`GroundItemService.TryFindNearest`), y marche, puis le prend à l'arrivée
+(`TakeForPetAsync`) : c'est le ramassage manuel — objet réservé par `Interlocked`, ajout au sac,
+`TS_SC_TAKE_ITEM_RESULT` (210), `TS_SC_LEAVE`, `TM_SC_INVENTORY` — avec **le familier comme `item_taker`**,
+pour que le client l'anime, et **sans `TS_SC_RESULT`**, puisqu'aucun `TM_CS_TAKE_ITEM` n'a été envoyé. Le
+ramassage passe avant le suivi.
+
+**Le filtre 355 est lu, gardé, jamais appliqué.** `TM_CS_SET_PET_FILTER` est déclaré et lu (15 octets,
+`handle` @7, valeur @11) ; sa valeur va dans `ConnectionInfo.PetPickupFilter`. Aucune source n'en donne le
+sens (les chaînes 9.4 n'ont aucun libellé de filtre) : le familier ramasse tout.
+
+### 17.3 Nommer le familier
+
+**Stockage.** Le nom vit dans `Pets` (une ligne par cage, `ItemId` en cascade depuis l'objet), créée au
+premier appel avec le nom de l'espèce et `WasNameChanged = false`
+(`CharacterService.GetOrCreatePetAsync`). Le familier entre sous ce nom.
+
+**Déclencheurs de 353.** Un familier **jamais nommé** ouvre la boîte de saisie du client
+(`TM_SC_SHOW_SET_PET_NAME`, 353, sur **son handle**) à chaque appel, après son entrée, tant que son maître
+ne l'a pas nommé. L'objet **920010** « Decorative Pet Name Change », effet `RenamePet` (120), rouvre la boîte
+sur le familier dehors ; sans familier dehors, son utilisation est refusée (`NotActable`) **avant** d'être
+consommée (`IItemUseCatalog.RenamesPet`).
+
+**354.** Accepté seulement pour le handle qu'une 353 a proposé (`ActivePet.RenameOffered`). Règle de nom :
+**celle des personnages**, la seule que le serveur applique déjà — 4 à 18 lettres ou chiffres, sans mot
+interdit (`IBannedWordsRepository.ContainsBannedWord`). Un nom refusé **rouvre la boîte** (aucune trame de
+refus n'existe pour un familier). Un nom accepté est écrit (`WasNameChanged = true`) et le familier est
+remis en place sous son nouveau nom (350/9 puis 3/351), le nom voyageant dans la trame d'entrée.
+
+### 17.4 Ce qui reste ouvert
+
+Les autres joueurs ne voient pas le familier (aucune visibilité entre joueurs) ; aucun poids ni plafond de
+sac n'est vérifié au ramassage (comme pour le ramassage manuel) ; les compétences du familier dans la
+« fenêtre de familier » ne sont pas servies, et on ne sait pas si le client envoie une commande pour
+activer le ramassage ; la sémantique du filtre 355.
+
+Tests : `Tests/Game/PetCageTests.cs`, `PetBehaviorTests.cs`, `PetPickupTests.cs`.

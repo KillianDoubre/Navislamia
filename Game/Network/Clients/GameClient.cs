@@ -180,6 +180,20 @@ public class GameClient : Client
         ConnectionInfo.ClientClockOffset = unchecked(curTime - ServerClock.Now);
         ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
         ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
+
+        // The last waypoint is where the character is going: what its pet follows (never its position).
+        if (count > 0)
+        {
+            var last = waypoints.Slice((count - 1) * 8, 8);
+            ConnectionInfo.DestinationX = BinaryPrimitives.ReadSingleLittleEndian(last.Slice(0, 4));
+            ConnectionInfo.DestinationY = BinaryPrimitives.ReadSingleLittleEndian(last.Slice(4, 4));
+        }
+        else
+        {
+            ConnectionInfo.DestinationX = ConnectionInfo.X;
+            ConnectionInfo.DestinationY = ConnectionInfo.Y;
+        }
+
         SyncVisibleObjects();
         RefreshEventArea();
     }
@@ -1657,7 +1671,8 @@ public class GameClient : Client
             // above, so that no member of GamePackets reaches the throwing switch below.
             if (header.ID is (ushort)GamePackets.TM_SC_UNSUMMON_PET
                 or (ushort)GamePackets.TM_SC_ADD_PET_INFO
-                or (ushort)GamePackets.TM_SC_REMOVE_PET_INFO)
+                or (ushort)GamePackets.TM_SC_REMOVE_PET_INFO
+                or (ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME)
             {
                 _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
                 continue;
@@ -1750,44 +1765,47 @@ public class GameClient : Client
                 continue;
             }
 
-            // TM_CS_SET_PET_NAME (354), the pet (familier) rename request. The 7.3 client does send it: its
-            // only frame builder writes the id 0x162 and the length 0x1e in hard (SFrame.exe 0x48e170,
-            // fiche §2.2, §3.1), and the frame carries back the handle the server itself put in
-            // TM_SC_SHOW_SET_PET_NAME (353) plus the typed name. This lot reads and journals the frame, and
-            // stops there on purpose:
-            //   * nothing is answered — no reference holds a result frame for a pet rename, so neither a
-            //     refusal nor a 353 echo is invented (fiche §5.2-6); replaying 353 would in fact reopen the
-            //     client's name box, since the 7.3 case 125 boxes every 353 whose handle resolves (§5.3);
-            //   * no summon row is written — the handle is proven to be an echo of the one the server chose,
-            //     but which object it designates and how to resolve it is not settled (fiche §7.2), and
-            //     neither the accepted length of a pet name nor its uniqueness is (fiche §7.3-4), so no
-            //     rename policy is applied rather than guessed;
-            //   * the id is declared and routed all the same, so that a real frame is read and can never
-            //     reach the "Unknown Packet Type" throw below.
-            // The arm sits just before the anti-cheat datagram, at the end of the chain, rather than in the
-            // summon region of the tail whose insertion zone the sibling summon lots share.
-            // See docs/packet-specs/354-set-pet-name.md.
+            // TM_CS_SET_PET_NAME (354), the pet (familier) rename request: the 7.3 client sends it from its name
+            // box (SFrame.exe 0x48e170) with the handle the server itself put in TM_SC_SHOW_SET_PET_NAME (353)
+            // and the typed name. PetSummonService renames the pet out when that handle is the one a 353
+            // offered; nothing is answered — no reference holds a result frame for a pet rename, and a
+            // refused name simply reopens the box. See docs/packet-specs/354-set-pet-name.md and
+            // socle-familier-pet.md §17.
             if (header.ID == (ushort)GamePackets.TM_CS_SET_PET_NAME)
             {
                 if (GameSummonPackets.TryReadSetPetName(msgBuffer, out var petHandle, out var petName))
                 {
-                    if (petName.Length == 0)
-                    {
-                        _logger.Warning(
-                            "TM_CS_SET_PET_NAME ({id}) Length: {length} received from {clientTag}: handle={handle} with an empty name (read only: no rename policy is established)",
-                            header.ID, header.Length, ClientTag, petHandle);
-                    }
-                    else
+                    if (_logger.IsEnabled(LogEventLevel.Debug))
                     {
                         _logger.Debug(
-                            "TM_CS_SET_PET_NAME ({id}) Length: {length} received from {clientTag}: handle={handle} name=\"{name}\" (read only: handle resolution and rename policy not established)",
-                            header.ID, header.Length, ClientTag, petHandle, petName);
+                            "TM_CS_SET_PET_NAME ({id}) received from {clientTag}: handle={handle} name=\"{name}\"",
+                            header.ID, ClientTag, petHandle, petName);
                     }
+
+                    _ = _networkService.PetSummonService.RenameAsync(this, petHandle, petName);
                 }
                 else
                 {
                     _logger.Warning(
                         "Malformed TM_CS_SET_PET_NAME ({id}) Length: {length} received from {clientTag}",
+                        header.ID, header.Length, ClientTag);
+                }
+
+                continue;
+            }
+
+            // TM_CS_SET_PET_FILTER (355), the pet pickup filter of the client's options (PET_PICKUP_FILTER).
+            // The value is kept and logged, never applied: its meaning is not established (socle-familier-pet.md
+            // §11.4, §17).
+            if (header.ID == (ushort)GamePackets.TM_CS_SET_PET_FILTER)
+            {
+                if (GamePetPackets.TryReadSetPetFilter(msgBuffer, out var filterHandle, out var filter))
+                {
+                    _networkService.PetSummonService.SetPickupFilter(this, filterHandle, filter);
+                }
+                else
+                {
+                    _logger.Warning("Malformed TM_CS_SET_PET_FILTER ({id}) Length: {length} received from {clientTag}",
                         header.ID, header.Length, ClientTag);
                 }
 

@@ -15,4 +15,21 @@ public interface IGroundItemService
     Task DropFromInventoryAsync(GameClient client, uint itemHandle, int count);
 
     Task TakeAsync(GameClient client, uint itemHandle);
+
+    /// <summary>
+    /// The nearest ground item <paramref name="owner"/> may take, on its layer, within
+    /// <paramref name="range"/> of (<paramref name="x"/>, <paramref name="y"/>) and not already being taken —
+    /// what a pet goes for. False when there is none.
+    /// </summary>
+    bool TryFindNearest(GameClient owner, float x, float y, byte layer, float range, out GroundItemSpot spot);
+
+    /// <summary>
+    /// A pet takes a ground item for its master: the manual pickup, with the pet as the actor
+    /// <c>TS_SC_TAKE_ITEM_RESULT</c> animates and no <c>TS_SC_RESULT</c>, since no <c>TM_CS_TAKE_ITEM</c> was
+    /// sent. False when the item is gone, not the master's, or could not be added.
+    /// </summary>
+    Task<bool> TakeForPetAsync(GameClient owner, uint itemHandle, uint petHandle);
 }
+
+/// <summary>Where a ground item lies, as a pet needs it to walk there.</summary>
+public readonly record struct GroundItemSpot(uint Handle, float X, float Y);

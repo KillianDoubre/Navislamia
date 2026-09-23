@@ -99,15 +99,14 @@ public class SetPetNamePacketsTests
     }
 
     [Test]
-    public void TheServerToClientTwin353_IsNotDeclared()
+    public void TheServerToClientTwin353_IsDeclaredNowThatThePetLotSendsIt()
     {
         // 353 TM_SC_SHOW_SET_PET_NAME is the only S→C frame of the pair (one handle, 11 bytes) and it
-        // *precedes* the 354: it opens the client's name box. Nothing emits it yet — which gesture does is
-        // not established (fiche §7.1) — and the frame has its own sheet and its own lot, so declaring it
-        // here would add a member no branch claims, with no encoder to call. This lot therefore leaves it
-        // undeclared, like lot 323 left its own twin 322 undeclared.
-        Enum.IsDefined(typeof(GamePackets), (ushort)353).Should().BeFalse(
-            "the S→C twin is declared by no lot yet and nothing in the server emits it");
+        // *precedes* the 354: it opens the client's name box. The 354 lot left it undeclared because nothing
+        // sent it; the pet companion lot (socle-familier-pet.md §17) sends it on a pet's first call and on a
+        // rename item, so it is declared — with a log-and-drop arm, being server to client only.
+        ((ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME).Should().Be(353);
+        GamePetPackets.BuildShowSetPetName(0x40000001).Should().HaveCount(11);
     }
 
     [Test]
