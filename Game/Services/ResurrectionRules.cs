@@ -15,8 +15,7 @@ namespace Navislamia.Game.Services;
 public static class ResurrectionRules
 {
     /// <summary>
-    /// Validates a <c>TM_CS_RESURRECTION</c> request against the connected character, in the order of
-    /// the specification's §5.3.
+    /// Validates a <c>TM_CS_RESURRECTION</c> request against the connected character.
     /// </summary>
     /// <remarks>
     /// The town path (<see cref="ResurrectionType.UseNone"/>) and the state path
@@ -25,18 +24,20 @@ public static class ResurrectionRules
     /// <see cref="ResultCode.NotActable"/> and change nothing: no item is known to resurrect in this
     /// data, and duels and deathmatch instances do not exist. A session with no character in the world
     /// is refused the same way: it has no vitals and nothing to resurrect.
+    /// <para>
+    /// <b>The frame's <c>handle</c> is not checked.</b> NGemity's town path never reads it
+    /// (<c>WorldSession::onRevive</c> revives <c>m_pPlayer</c>), and its state path reads it only to tell
+    /// the player from one of its summons. No summon exists here, so whatever the client sends can only
+    /// designate the connected character. The first cut refused any handle other than
+    /// <c>CharacterHandle</c> with <c>NotOwn</c> — a rule of this repository, not of the reference — and the
+    /// 7.3 client's town button was refused in game (result 3, 2026-09-23): it does not send that value.
+    /// </para>
     /// </remarks>
-    public static ResultCode CheckRequest(uint handle, ResurrectionType type, uint characterHandle,
-        int characterHp)
+    public static ResultCode CheckRequest(ResurrectionType type, uint characterHandle, int characterHp)
     {
         if (characterHandle == 0)
         {
             return ResultCode.NotActable;
-        }
-
-        if (handle != characterHandle)
-        {
-            return ResultCode.NotOwn;
         }
 
         if (characterHp > 0)

@@ -131,28 +131,38 @@ public class ResurrectionPacketTests
     [Test]
     public void CheckRequest_AcceptsTheTownPathForTheDeadOwnCharacter()
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle, 0)
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, Handle, 0)
             .Should().Be(ResultCode.Success);
     }
 
-    [Test]
-    public void CheckRequest_RefusesAnotherCharactersHandle()
+    [TestCase(0u)]
+    [TestCase(Handle + 1)]
+    [TestCase(0xFFFFFFFFu)]
+    public void Resurrect_InTown_IgnoresTheFrameHandle(uint frameHandle)
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle + 1, 0)
-            .Should().Be(ResultCode.NotOwn);
+        // The 7.3 client's town button was refused with NotOwn in game (2026-09-23): the handle it sends
+        // is not the character's. NGemity never reads it on this path, and neither does this server.
+        var connection = new FrameConnection(ClientFrame(frameHandle, ResurrectionType.UseNone));
+        var client = NewGameClient(connection, out _, realWarp: false);
+        Seed(client, new ConnectionInfo { CharacterHandle = Handle, CharacterHp = 0 });
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
+        ConnectionInfoOf(client).CharacterHp.Should().Be(5000);
     }
 
     [Test]
     public void CheckRequest_RefusesALivingCharacter()
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle, 1)
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, Handle, 1)
             .Should().Be(ResultCode.NotActable);
     }
 
     [Test]
     public void CheckRequest_AcceptsTheStatePathForTheDeadOwnCharacter()
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseState, Handle, 0).Should()
+        ResurrectionRules.CheckRequest(ResurrectionType.UseState, Handle, 0).Should()
             .Be(ResultCode.Success);
     }
 
@@ -164,14 +174,14 @@ public class ResurrectionPacketTests
                      ResurrectionType.UsePotion, ResurrectionType.Compete, ResurrectionType.Deathmatch
                  })
         {
-            ResurrectionRules.CheckRequest(Handle, type, Handle, 0).Should().Be(ResultCode.NotActable);
+            ResurrectionRules.CheckRequest(type, Handle, 0).Should().Be(ResultCode.NotActable);
         }
     }
 
     [Test]
     public void CheckRequest_RefusesASessionWithoutACharacter()
     {
-        ResurrectionRules.CheckRequest(0, ResurrectionType.UseNone, 0, 0).Should().Be(ResultCode.NotActable);
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, 0, 0).Should().Be(ResultCode.NotActable);
     }
 
     [Test]

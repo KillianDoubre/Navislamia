@@ -43,8 +43,12 @@ public class ResurrectionService : IResurrectionService
         const ushort requestId = (ushort)GamePackets.TM_CS_RESURRECTION;
         var info = client.ConnectionInfo;
 
-        var result = ResurrectionRules.CheckRequest(request.Handle, request.Type, info.CharacterHandle,
-            info.CharacterHp);
+        // The handle is logged, not checked (ResurrectionRules.CheckRequest): what the 7.3 client puts there
+        // is not established, and this line is how it gets measured.
+        _logger.Debug("{clientTag} TM_CS_RESURRECTION type={type} handle={handle:X8} (character {characterHandle:X8})",
+            client.ClientTag, request.Type, request.Handle, info.CharacterHandle);
+
+        var result = ResurrectionRules.CheckRequest(request.Type, info.CharacterHandle, info.CharacterHp);
         if (result != ResultCode.Success)
         {
             client.SendResult(requestId, (ushort)result);

@@ -255,8 +255,12 @@ Le socle n'implémente que le chemin « ville » (`type = RT_UseNone`), donc au 
 1. `packet.Length != 12` → `ResultCode.InvalidArgument` (le style du dépôt est
    `if (packet.Length < packetLength)` dans `GameActionPackets.TryReadLearnSkill` (`:155-169`) ;
    pour une trame fixe, l'égalité stricte est préférable, le client n'envoyant rien d'autre) ;
-2. `handle` ≠ handle du personnage connecté → `ResultCode.NotOwn` (le dépôt compare déjà
-   `request.Caster != info.CharacterHandle` en `SkillCastService.cs:201`) ;
+2. ~~`handle` ≠ handle du personnage connecté → `ResultCode.NotOwn`~~ **retiré le 2026-09-23** : en
+   jeu, le bouton « ville » du client 7.3 était refusé avec le résultat 3 (`NotOwn`) — le client
+   n'envoie pas `CharacterHandle` dans ce champ. NGemity ne lit jamais `handle` sur la voie ville
+   (`onRevive` ressuscite `m_pPlayer`) et ne s'en sert sur la voie état que pour distinguer le
+   joueur d'une invocation ; sans invocation, le champ ne peut désigner que le personnage. Il est
+   désormais journalisé (`Debug`) et non comparé, voir `ResurrectionRules.CheckRequest` ;
 3. personnage vivant (`info.CharacterHp > 0`) → `ResultCode.NotActable` (aucune raison de
    ressusciter un vivant) ;
 4. `type` ∈ {1, 2, 3, 4} → lot ultérieur : répondre `ResultCode.NotActable` sans rien changer
