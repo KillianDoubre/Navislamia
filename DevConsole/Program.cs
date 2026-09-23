@@ -22,6 +22,7 @@ using Navislamia.Game.Services;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.GmCommands;
 using Navislamia.Game.Services.Props;
+using Navislamia.Game.Services.Pets;
 using Navislamia.Game.Services.Rates;
 using Serilog;
 using Serilog.Exceptions;
@@ -100,6 +101,28 @@ public class Program
         ConfigureMonsterDrops(services, context);
         ConfigureFieldProps(services, context);
         ConfigureMarketCatalog(services, context);
+        ConfigurePetCatalog(services, context);
+    }
+
+    /// <summary>
+    /// The pets the 7.3 client knows (<c>tools/export_pet_catalog.py</c> from its <c>db_pet.rdb</c>). Without
+    /// the file, no cage calls a pet and using one is only acknowledged.
+    /// </summary>
+    private static void ConfigurePetCatalog(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "pet-catalog.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<PetCatalogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("PetCatalog")
+            .Deserialize<PetCatalogOptions>() ?? new PetCatalogOptions();
+
+        services.Configure<PetCatalogOptions>(options => options.Pets = catalog.Pets);
     }
 
     /// <summary>
@@ -290,6 +313,9 @@ public class Program
         services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
+        services.AddSingleton<IPetCatalog, PetCatalog>();
+        services.AddSingleton<PetWorldService>();
+        services.AddSingleton<IPetSummonService, PetSummonService>();
         services.AddSingleton<IQuestService, QuestService>();
         services.AddSingleton<IGmCommandService, GmCommandService>();
         services.AddSingleton<IRateService, RateService>();

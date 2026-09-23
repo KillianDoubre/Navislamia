@@ -632,3 +632,46 @@ Le bloc destiné à `CLAUDE.md` a été corrigé avant d'y être recopié : un i
 plus la boucle de réception » depuis que `Connection.OnReceive` rattrape l'exception (erreur journalisée,
 session maintenue), et le décompte de tests était celui de la branche. Construction `Release` et
 `dotnet test` sur la fusion : 1 247 tests, 0 échec.
+
+---
+
+## 15. Lot 2 — appeler le familier avec sa cage (2026-09-23)
+
+**Déclencheur.** Une cage de familier est un objet du groupe 18 (`PetCage`), de type de base 6 (`Use`,
+réutilisable, jamais consommé par la 253) et d'effet d'utilisation `SummonPet` (90) — sur les 258 cages
+d'Arcadia, sans exception. **L'effet ne porte pas le familier** (`opt_var1 = 0`) : le lien est la colonne
+`cage_id` de la table des familiers. `ItemUseService`, après l'acquittement habituel (`TS_SC_RESULT` 253
+puis `TM_SC_USE_ITEM_RESULT` 283), passe l'objet à `PetSummonService.TryUseCage`.
+
+**Source du lien : la table du client, pas l'export 9.4.** Le client 7.3 embarque `db_pet.rdb`
+(en-tête de 128 octets, compte `uint32` à `0x80`, enregistrements de **332 octets** à partir de `0x84` :
+`id` @0, `type` @4, `name_id` @8, `cage_id` @12, nom de modèle ASCII @64). Il liste **106 familiers et
+106 cages distinctes**. L'export 9.4 `PetResource` en liste 160 mais **réutilise 27 cages pour deux
+familiers** (la cage « Mini Munster » mène à Mini Munster et à Evil Snowman) : c'est un artefact des
+époques suivantes, absent de la table du client. 105 des 106 lignes du client sont identiques en 9.4.
+`tools/export_pet_catalog.py <db_pet.rdb>` écrit `DevConsole/pet-catalog.73.json` (noms anglais tirés de
+`StringResource_EN` par `name_id`) et refuse une taille de fichier ou une cage partagée incohérentes.
+129 cages d'Arcadia n'ont aucun familier dans la table du client (« Silex Pet », « Bear Mother Pet »…) :
+les utiliser est seulement acquitté.
+
+**Règle.** Un familier à la fois, basculé par sa cage (`PetSummonRules.Decide`) : aucun dehors →
+appel (351 puis 3) ; celui de cette cage → rangé (350 puis 9) ; celui d'une autre cage → rangé puis
+appel du nouveau. Il apparaît aux pieds de son maître (position, `z` et couche du personnage, sans
+jitter). `cage_handle` est le handle de la cage utilisée, ce qui tranche `NON ÉTABLI` 6 dans le sens
+naturel ; `pet_code` est l'`id` de la table du client. `ConnectionInfo.ActivePet` (sous `PetLock`) garde
+le familier dehors ; `ClearCharacterSession` l'oublie. Après une téléportation, `WarpService` appelle
+`FollowWarp` : le familier est rangé puis rappelé à la nouvelle position, avec `is_first_enter = 0`.
+
+**Valeurs choisies, faute de source** (`PetSummonDefaults`, une ligne chacune) : niveau 1, PV 100/100,
+PM 0/0, race 0, orientation 0, et les deux `int32` ouverts de la 351 (`code`, `unknown`) à 0 — `code`
+n'est toujours pas unifié avec `pet_code` (§14.4). Un familier ne combat pas : rien côté serveur ne lit
+ces statistiques.
+
+**Hors de ce lot** : le familier ne suit pas son maître quand il marche (aucun mouvement de familier),
+il n'est vu que par son maître (aucune visibilité entre joueurs), rien n'est persisté (`PetEntity` reste
+sans lecteur ni écrivain, le familier est rangé en quittant le monde), le nom (353/354) et le ramassage
+(355) restent ouverts. NGemity n'ayant aucune logique de familier, déclencheur, bascule et placement sont
+des choix de ce dépôt.
+
+Tests : `Tests/Game/PetCageTests.cs` (catalogue livré, bascule, trames envoyées par la vraie
+`PetWorldService`, téléportation, retour au lobby).

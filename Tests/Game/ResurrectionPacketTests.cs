@@ -698,7 +698,8 @@ public class ResurrectionPacketTests
                 new CharacterStatResult(new StatBlock { MaxHp = 5000f, MaxMp = 800f }, new StatBlock()));
 
             WarpService = new WarpService(A.Fake<INpcSpawnService>(), A.Fake<IMonsterSpawnService>(),
-                A.Fake<IFieldPropService>(), A.Fake<ICombatService>());
+                A.Fake<IFieldPropService>(), A.Fake<ICombatService>(),
+                A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>());
         }
     }
 

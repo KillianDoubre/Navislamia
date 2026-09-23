@@ -1707,11 +1707,18 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   l'est par symétrie avec les invocations, sans preuve qu'il soit nécessaire.
 - 350, 351 et 352 sont serveur → client (le client n'en construit aucune), mais chacune a un bras
   « journal + abandon » dans `GameClient.cs`, sans quoi un id déclaré atteindrait le `throw` final.
-- `PetWorldService.Enter`/`Leave` séquencent 351 → 3 et 350 → 9 et **ne décident rien** : placement
-  (`x`/`y`/`z`/`layer`, **sans jitter** — aucune référence ne place un familier), statistiques (`max_hp`
-  n'est pas `hp`), `race`, `pet_code`, `cage_handle` et les deux `int32` ouverts de la 351 viennent de
-  `PetWorldEntry`, fournis par l'appelant. Comme `SummonWorldService`, le service n'est **ni enregistré ni
-  appelé** : le déclencheur (cage, invocation du familier) est une règle de jeu encore ouverte.
+- `PetWorldService.Enter`/`Leave` séquencent 351 → 3 et 350 → 9 et **ne décident rien** : placement,
+  statistiques (`max_hp` n'est pas `hp`), `race`, `pet_code`, `cage_handle` et les deux `int32` ouverts de
+  la 351 viennent de `PetWorldEntry`, fournis par l'appelant.
+- **Son appelant est la cage** (`PetSummonService`, fiche §15). Une cage (groupe 18, type `Use`,
+  réutilisable) porte l'effet `SummonPet` (90) **sans familier dans ses valeurs** : le familier est la ligne
+  de `db_pet.rdb` dont `cage_id` est l'objet. **Source : la table du client 7.3**, 106 familiers et 106 cages
+  distinctes, exportée par `tools/export_pet_catalog.py` dans `DevConsole/pet-catalog.73.json` — **pas**
+  l'export 9.4, qui réutilise 27 cages pour deux familiers. Après l'acquittement de la 253, un familier à la
+  fois : la même cage le range, une autre cage l'échange. Il apparaît aux pieds de son maître, `cage_handle`
+  = handle de la cage utilisée, `pet_code` = `id` du client ; il suit une téléportation (`FollowWarp`), pas la
+  marche. Les valeurs sans source (niveau 1, PV 100, PM 0, `code`/`unknown` à 0) sont dans
+  `PetSummonDefaults`. Rien n'est persisté.
 - `ActorStatus.ForPet()` vaut 0, comme les invocations.
 - `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options
   (`PET_PICKUP_FILTER`), mais n'est **pas déclaré** : sa valeur n'est pas établie et le ramassage par
