@@ -477,6 +477,94 @@ Le clone était propre sur `master` au réveil ; la branche a été créée depu
 
 ---
 
+## 14. Journal d'implémentation (lot 1 : 350-352, la trame d'entrée, l'entrée et la sortie du monde)
+
+Ce que le lot a livré, et les deux endroits où il s'écarte consciemment de la rédaction de la fiche.
+Tout est commité sur `hermes/packet-socle-familier-pet`.
+
+### 14.1 Les trois ids reçoivent un bras `log + drop` dans `GameClient.cs`
+
+La §6.2 conclut qu'aucun bras de répartition n'est nécessaire ; le lot en ajoute pourtant un, et c'est
+délibéré. Le critère transversal du dépôt — « aucun membre de `GamePackets` ne peut atteindre le
+`switch` final » — est vérifié mécaniquement : un id déclaré dans l'enum mais absent de la chaîne de
+répartition fait lever `Unknown Packet Type` et **casse la boucle de réception**. Le patron en vigueur
+pour un paquet S→C est un bras qui journalise puis `continue`, comme `TM_SC_REGION_ACK`,
+`TM_SC_NPC_TRADE_INFO`, `TM_SC_MARKET`, `TM_SC_COMMERCIAL_STORAGE_*`, `TM_SC_AUCTION_*`,
+`TM_SC_WEATHER_INFO` et `TM_SC_RANKING_TOP_RECORD`. Le lot suit ce patron pour `350`, `351`, `352`
+(`Tests/Game/PetWorldTests.cs::AClientSentPetFrame_IsDroppedWithoutAnEcho` le vérifie : pas d'exception,
+pas d'écho). L'analyse de la §6.2 reste juste sur le fond — le client 7.3 ne construit aucune de ces
+trames — mais un client qui en envoie une n'est pas une requête : c'est une anomalie de protocole à
+journaliser, pas à laisser tuer la boucle.
+
+### 14.2 Le placement du familier est entièrement fourni par l'appelant
+
+`PetWorldService.Enter` n'applique **aucun** jitter : `x`, `y`, `z` et `layer` viennent de
+`PetWorldEntry` tels quels. Le socle invocation dispose de trois paliers nommés (`Skill.cpp:640`,
+`Player.cpp:820`, `World.cpp:468`) ; **aucun n'a d'équivalent pour un familier** — aucune référence ne
+place un familier dans le monde, ni à la connexion, ni au warp. Choisir un palier ici serait décider
+une règle de jeu (et, pour la connexion, rejouer l'arbitrage que `SummonWorldService` documente comme
+restant ouvert). `PetWorldEntry.X/Y/Z/Layer` portent donc le placement, et la §11.7 les classe
+« fournis par l'appelant ».
+
+### 14.3 `ActorStatus.ForPet()`
+
+L'octet de statut (`creatureInfo.status`, offset 26) passe par le point unique `ActorStatus`, comme les
+monstres, les PNJ et les invocations. Aucun drapeau de familier n'est établi pour 7.3 : `ForPet()` rend
+`0u`, avec le renvoi à la §5.1. Écrire un `0` littéral au site d'appel serait la régression que ce
+point unique existe pour empêcher.
+
+### 14.4 `code` et `unknown` restent deux champs distincts
+
+`PetWorldEntry.Code` (4ᵉ `int32` du 351, décalage 34) et `PetWorldEntry.PetCode` (`pet_code` de
+l'entrée, décalage 68) ne sont **pas** unifiés, contrairement au socle invocation où
+`SummonWorldEntry.Code` alimente les deux. Aucune source n'établit que ces deux valeurs sont la même ;
+la symétrie avec `ADD_SUMMON_INFO` est un argument, pas une preuve, et la §11.2 laisse la source du 4ᵉ
+`int32` NON ÉTABLIE. L'appelant fournit les deux, séparément.
+
+### 14.5 Pas de `FromEntity` sur `PetWorldEntry`
+
+`SummonWorldEntry.FromEntity` lit six champs d'une ligne `SummonEntity`. `PetEntity` n'en offre aucun :
+`PetResourceId` (`pet_code`) et `ItemId` (`cage_handle`) sont les deux rapprochements que la §9.2
+demande de garder en paramètres, sans jointure implicite, et la ligne ne porte aucune statistique
+(§11.3). Le seul champ lisible serait le nom — d'où l'absence de `FromEntity` : lire la ligne ici
+serait précisément la jointure implicite que la fiche interdit. Les appelants futurs passeront
+`PetCode` et `CageHandle` explicitement.
+
+### 14.6 Ordre des trames, et ce que le service ne fait pas
+
+`Enter` : `351` puis `3`, même handle dans les deux (le `pet_handle` du 351 est le handle de l'objet,
+comme le `summon_handle` du 301). `Leave` : `350` puis `9`, sur le même handle. Le `9` est porté **par
+symétrie** avec `SummonWorldService.Leave`, pas par preuve (§11.5). Le service ne diffuse à personne
+(rien dans NavisLamia ne sait quels autres joueurs voient une session), ne répond pas au `355` (§7.2.4)
+et ne touche aucune table de familier. Aucun appelant de jeu n'est câblé, exactement comme le socle
+invocation a atterri.
+
+### 14.7 Mesures de fin de lot
+
+| contrôle | commande | résultat |
+|---|---|---|
+| compilation | `dotnet build Navislamia.sln -c Debug` | **code de sortie 0**, 0 erreur |
+| tests | `dotnet test Tests/Tests.csproj` | **code de sortie 0**, `Passed: 1185, Failed: 0, Skipped: 0` (base 1165 + **20** tests ajoutés dans `Tests/Game/PetWorldTests.cs`) |
+| `master` locale | `git log --oneline origin/master..master` | vide |
+
+Les 20 tests couvrent : les offsets du 351 (42 octets, `cage_handle` @7, `pet_handle` @11, `name` @15
+sur 19, `code` @34, le 5ᵉ `int32` @38), les deux trames à handle (11 octets, `handle` @7), les trois
+ids 7.3, la trame d'entrée complète champ par champ (95 octets, `objType` @25 = 7, `status` @26 = 0,
+`master_handle` @64, `pet_code` @68 désembrouillé par le désérialiseur de la référence, `name` @76 sur
+19 octets), l'absence du `enhance` du frère invocation, la troncature du nom à 18 octets, la séquence
+`Enter` (`351`→`3`) et `Leave` (`350`→`9`), les refus (session, connexion ou entrée nulle ; handle
+nul), le fait que `max_hp`/`max_mp` ne soient pas confondus avec `hp`/`mp`, et le `log + drop` des
+trois ids reçus d'un client.
+
+### 14.8 Réserves ouvertes
+
+Aucune n'est tranchée en douce : `351` à 42 octets, valeur du filtre `355`, besoin réel du `9` après le
+`350`, source des statistiques, `cage_handle` handle ou `ItemId`, source du 4ᵉ et du 5ᵉ `int32` du 351,
+sémantique de `is_first_enter` — tout cela reste dans la liste « A VERIFIER PAR KILLIAN » ci-dessous,
+et aucun de ces champs n'a reçu de constante inventée : ils viennent tous de l'appelant.
+
+---
+
 ## A VERIFIER PAR KILLIAN
 
 1. **`351` fait 42 octets, pas 38** — rzu et NGemity déclarent 38 ; le client 7.3 lit un 5ᵉ dword
@@ -506,8 +594,20 @@ Fiche de référence : `docs/packet-specs/socle-familier-pet.md`.
   **95 octets**, `master_handle` @64, `pet_code` @68 (8 octets `EncodedInt<EncodingRandomized>`),
   `name` @76 sur 19 octets. Le `enhance` du frère `SUMMON_INFO` (`>= EPIC_7_1`) **n'existe pas** ici.
 - Il en sort par `TM_SC_UNSUMMON_PET` (350) : 11 octets, `handle` @7. Le client retire lui-même
-  l'acteur du monde en recevant cette trame.
-- `350`, `351`, `352` sont S→C : aucun bras de répartition n'est nécessaire dans `GameClient.cs`.
+  l'acteur du monde en recevant cette trame. `TM_SC_REMOVE_PET_INFO` (352) a la même forme et
+  **ferme la fenêtre de créature** : les deux ne sont pas interchangeables.
+- `350`, `351`, `352` sont S→C — le client 7.3 n'en construit aucune — mais **chacune a un bras
+  `log + drop` dans `GameClient.cs`** : un id déclaré dans `GamePackets` et absent de la chaîne de
+  répartition atteint le `switch` qui lève `Unknown Packet Type` et casse la boucle de réception.
+  Ne pas s'en tenir à « S→C, donc rien à faire » (voir la fiche §14.1).
+- Le socle vit dans `GamePetPackets.cs` (350/351/352) et `GameSpawnPackets.BuildEnterPet` (3,
+  `objType` 7) ; `PetWorldService.Enter`/`Leave` les séquence (351→3, 350→9) et **ne décide rien** :
+  placement (`x`/`y`/`z`/`layer`, **sans jitter** — aucune référence n'a de palier pour un familier),
+  statistiques, `race`, `pet_code` et les deux `int32` ouverts du 351 viennent de `PetWorldEntry`.
+  Ne jamais combler un champ ouvert par une constante : `max_hp` n'est pas `hp`.
+- Le `status` du familier passe par `ActorStatus.ForPet()` (0) comme les monstres et les invocations :
+  le point unique existe pour qu'un second drapeau n'efface pas le premier.
+- Tests d'offsets : `Tests/Game/PetWorldTests.cs` (20 tests, base 1165 → 1185).
 - `355 TM_CS_SET_PET_FILTER` : cadre de 15 octets établi par le client (`handle` @7, valeur @11,
   `SFrame.exe` @`0x48e1f0`), sémantique de la valeur NON ÉTABLIE ; porte
   `AUSIMSG_REQ_SET_PET_FILTER` (type 11701) et l'option `PET_PICKUP_FILTER`.
