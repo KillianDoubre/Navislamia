@@ -25,6 +25,12 @@ public interface IItemResourceRepository
 
     IReadOnlyList<ItemEffectFields> GetEffectFields();
 
+    /// <summary>
+    /// The items with an <c>ItemEffectInstant.Skill</c> (5) effect in their base or option slots: using one
+    /// casts the skill of var1 at the level of var2 (NGemity <c>Unit::onItemUseEffect</c>).
+    /// </summary>
+    IReadOnlyList<ItemEffectFields> GetInstantSkillItems();
+
     IReadOnlyList<ItemGroupFields> GetGroupFields();
 
     IReadOnlyList<ItemUseFields> GetUseFields();

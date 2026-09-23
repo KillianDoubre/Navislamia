@@ -57,9 +57,19 @@ Sorts 504/30501 (`SkillResources`) : 3205, 3220, 4202, 45408 (30501) ; 6001, 601
 9304, 10004 (504). Tous cible 1.
 
 **Aucun objet ne porte l'effet `ItemEffectInstant.Resurrection` (4)**, ni en `BaseTypes` ni en
-`OptTypes` (0 ligne sur 33 142). Et **`ItemResources.SkillId` est vide pour tous les objets** :
-l'import n'a pas repris `skill_id` (CLAUDE.md, *Database access*). Le lien « parchemin → compétence
-6001/6011-6013 » n'existe donc pas dans la base locale.
+`OptTypes` (0 ligne sur 33 142), et `ItemResources.SkillId` est vide partout. **La première version de
+cette fiche en concluait que le lien « parchemin → compétence » manquait : c'était faux.** Le lien est
+dans l'emplacement d'effet, déjà importé. Le Parchemin de résurrection (603002) porte
+`opt_type_0 = 5` (`ItemEffectInstant.Skill`), `opt_var1_0 = 6001` (la compétence) et
+`opt_var2_0 = 1` (son niveau) ; NGemity lit exactement ces deux variables
+(`Unit::onItemUseEffect`, cas `ITEM_EFFECT_INSTANT::SKILL` : `CastSkill(var1, var2, …)`). Le
+`skill_id` du SQL Server 9.4 ne sert qu'aux cartes de compétence (groupe 10).
+
+Les parchemins de résurrection de créature (608406, 920001, …) pointent vers 6013, qui ne vise que
+les invocations : `tf_avatar = 0`, `tf_summon = 1`. 6001 a `tf_avatar = 1`. Cette colonne n'avait
+jamais été importée (`UseOnCharacter` était rangé parmi les colonnes « absentes de la source » alors
+qu'elle s'appelle `tf_avatar`, de même que `UseOnMonster` ↔ `tf_monster`) ; elle l'est désormais.
+Sur les données réelles, un seul objet résout vers une résurrection de personnage : **603002**.
 
 ## 4. Découpage
 
@@ -84,21 +94,31 @@ La mort ne retire aucun état dans ce dépôt, donc un état de résurrection po
 toujours là à la mort. Chemin de jeu réel : apprendre 3472 (métier 112), le lancer, mourir, cliquer
 « ressusciter par état ». Chemin de test : `/buff 13472`, `/die`, puis le bouton.
 
-### Lot R2 — voie objet (bloqué par les données)
+### Lot R2 — voie objet (livré)
 
-Décision de Killian (2026-09-23) : **consommer un objet de résurrection** du sac. Il faut savoir
-quels objets le sont. Deux sources possibles, aucune disponible aujourd'hui :
+Décision de Killian (2026-09-23) : **consommer un objet de résurrection** du sac. NGemity laisse la
+branche `use_potion` vide ; ce lot applique son chemin d'objet (`Player::UseItem` →
+`ITEM_EFFECT_INSTANT::SKILL` → `SKILL_RESURRECTION`) au mort lui-même.
 
-1. **Recommandé** : réimporter `ItemResource.skill_id` (et le niveau de compétence de l'objet) depuis
-   le SQL Server 9.4 dans `ItemResources.SkillId`, la clé étrangère vers `SkillResources` étant
-   désormais remplissable. Gain général : tous les objets à compétence en profitent.
-2. Décoder `db_item.rdb` du client 7.3 (présent sur le VPS, format d'enregistrement non établi).
+- `ResurrectionItemCatalog` (figé au démarrage) : un objet de résurrection est un objet dont un
+  emplacement d'effet vaut `ItemEffectInstant.Skill` (5) et dont `var1` désigne une compétence
+  504/30501 qui vise un personnage (`UseOnCharacter`). Emplacements visités dans l'ordre de
+  NGemity (`base_type[i]` puis `opt_type[i]`), le premier gagne ; le niveau est `var2`.
+- `CharacterService.ConsumeFirstAsync` : le premier objet correspondant du sac (ordre `Idx`, objets
+  portés exclus) perd une unité, recherche et retrait dans la même opération verrouillée.
+- `ResurrectionRules.VitalsBySkill`, formules de `Skill.cpp` : 504 = `PV max × var0 × niveau`,
+  `PM max × var1 × niveau` ; 30501 = `PV max × (var0 + var1 × niveau)`,
+  `PM max × (var2 + var3 × niveau)` (termes d'enchantement nuls). PV planchés à 1, PM ajoutés à ceux
+  gardés, bornés aux maxima — mêmes bornes que la voie état.
+- Réponse : `TM_SC_UPDATE_ITEM_COUNT` (255) ou `TM_SC_DESTROY_ITEM` (254) pour la dernière unité,
+  puis les propriétés `hp`/`mp`, puis `TS_SC_RESULT(513, Success)`. **Sur place**, sans `Warp`. Sans
+  objet de résurrection : `NotActable`, rien ne change.
+- La consommation attend la base alors que le personnage est encore à 0 PV : un indicateur de session
+  (`ConnectionInfo.ResurrectionInProgress`) refuse en `NotActable` une seconde demande arrivée
+  pendant ce temps, sinon deux demandes groupées consommeraient deux parchemins.
 
-Une fois le lien présent : un objet de résurrection est un objet dont la compétence a l'effet 504
-ou 30501. Le serveur en consomme un (`ItemRemoval`, `TM_SC_UPDATE_ITEM_COUNT`/`TM_SC_DESTROY_ITEM`
-comme 253), applique la formule de `SKILL_RESURRECTION` (`PV max × var0 × niveau`,
-`PM max × var1 × niveau`) ou de `SKILL_RESURRECTION_WITH_RECOVER`, ressuscite sur place, répond
-513 `Success`. Sans objet : `NotActable`.
+Avec le parchemin 603002 (6001, niveau 1, `var0 = 0.1`, `var1 = 0`) : **10 % des PV max**, PM
+inchangés. Chemin de test : `/item 603002`, `/die`, bouton « ressusciter avec un objet ».
 
 ### Lot R3 — résurrection par autrui (non livrable)
 
@@ -113,7 +133,7 @@ foulée de 45 octets — **format du hit à établir contre rzu** avant d'écrir
 | Voie | Prérequis | Paquets |
 |---|---|---|
 | 1 `RT_UseState` | — | **livrée** |
-| 2 `RT_UsePotion` | lien objet → compétence (lot R2) | 513 (lu), 255/254, 513 résultat |
+| 2 `RT_UsePotion` | — | **livrée** (513 lu, 255/254, `hp`/`mp`, 513 résultat) |
 | 3 `RT_Compete` | duels (4500-4506), voir `socle-arenes-bataille.md` | — |
 | 4 `RT_Deathmatch` | instances de match à mort (4250), voir `socle-arenes-bataille.md` | — |
 
@@ -122,9 +142,13 @@ foulée de 45 octets — **format du hit à établir contre rzu** avant d'écrir
 - Quelle trame ferme la fenêtre de mort du client après une résurrection par état : la référence
   n'envoie que le résultat 513 et les PV/PM, c'est ce que fait ce lot.
 - Si le client 7.3 n'affiche le bouton « par état » qu'en présence d'un état 109 (probable, non vérifié).
-- Le niveau de compétence d'un objet de résurrection (colonne non importée).
+- Si le client 7.3 connaît l'objet 603002 et n'affiche le bouton « par objet » qu'en sa présence
+  (le `db_item.rdb` du client n'est pas décodé).
+- Si la réapparition par objet rend aussi l'expérience perdue : `SKILL_RESURRECTION` la laisse en
+  `@todo`, ce lot ne rend rien.
 
 ## A VERIFIER PAR KILLIAN
 
 1. En jeu : `/buff 13472`, `/die`, bouton « ressusciter par état » → retour sur place avec 5 % des PV.
-2. Démarrer SQL Server (`MSSQL$SQLEXPRESS`, droits administrateur) pour débloquer le lot R2.
+2. En jeu : `/item 603002`, `/die`, bouton « par objet » → retour sur place avec 10 % des PV, un
+   parchemin de moins.

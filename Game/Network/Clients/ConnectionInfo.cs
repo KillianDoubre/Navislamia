@@ -70,6 +70,14 @@ public class ConnectionInfo
     /// (<see cref="Navislamia.Game.Services.MonsterAiRules.PlayerDamage(int, bool)"/>). Session only.
     /// </summary>
     public bool IsImmortal { get; set; }
+
+    /// <summary>
+    /// 1 while an item resurrection is between its check and its effect. That path waits on the database
+    /// to consume the item, and the character is still at 0 HP meanwhile: without this, two requests sent
+    /// together would both pass the dead check and consume two items for one resurrection.
+    /// </summary>
+    public int ResurrectionInProgress;
+
     public uint ClientClockOffset { get; set; }
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
