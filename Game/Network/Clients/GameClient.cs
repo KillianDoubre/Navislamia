@@ -963,6 +963,38 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_CS_CHANGE_SUMMON_NAME (323), the summon rename request. The 7.3 client does send it: its
+            // only frame builder writes the id 0x143 and the length 0x1a in hard (SFrame.exe 0x48c5e0,
+            // fiche §2.1), and the frame carries the new name and nothing else — no handle, no slot index,
+            // so no target travels with it (fiche §3.3). This lot reads and journals the frame, and stops
+            // there on purpose:
+            //   * nothing is answered — none of rzu, NGemity and the client's incoming dispatcher holds a
+            //     reply to 323, so neither a refusal nor a re-publication is invented (fiche §7(c));
+            //   * no summon row is written — which of a character's two summons (MainSummon / SubSummon) a
+            //     rename targets is not settled (fiche §7(d)), and neither the accepted length of a name nor
+            //     its uniqueness is (fiche §7(e)), so no rename policy is applied rather than guessed;
+            //   * the id is declared and routed all the same, so that a real frame is read and can never
+            //     reach the "Unknown Packet Type" throw below.
+            // The arm sits at the head of the chain rather than in the summon region of the tail, whose
+            // insertion zone the sibling summon branches already share.
+            // See docs/packet-specs/323-change-summon-name.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_SUMMON_NAME)
+            {
+                if (GameActionPackets.TryReadChangeSummonName(msgBuffer, out var summonName))
+                {
+                    _logger.Debug(
+                        "TM_CS_CHANGE_SUMMON_NAME ({id}) Length: {length} received from {clientTag}: name=\"{name}\" (read only: target and name policy not established)",
+                        header.ID, header.Length, ClientTag, summonName);
+                }
+                else
+                {
+                    _logger.Warning("Malformed TM_CS_CHANGE_SUMMON_NAME ({id}) Length: {length} received from {clientTag}",
+                        header.ID, header.Length, ClientTag);
+                }
+
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_CS_MOVE_REQUEST)
             {
                 HandleMoveRequest(msgBuffer);
