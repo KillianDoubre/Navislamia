@@ -424,3 +424,22 @@ Points 1 à 6 repris de l'archéologue (§7, §5.5), 7 à 9 ajoutés par le dev 
    une autre situation. Si Killian préfère une trace visible côté client, c'est un ajout d'une ligne.
 9. **Niveau de journal** (§9.5.1) : `Debug` retenu pour rendre `item_handle` observable comme le
    demande §7b. À desserrer en `Verbose` si c'est trop bavard en production.
+
+## 11. Revue avant fusion (2026-09-23)
+
+Fusion de `origin/master` : un conflit dans `GameClient.cs`, où `master` avait ajouté les gestionnaires
+324/303 et le bras 408 ; la version de `master` est gardée, le gestionnaire et le bras de 452 réinsérés
+entiers. Deux corrections :
+
+- `Packet_IsDispatchedBeforeTheUnknownPacketThrow` cherchait le texte `throw new Exception("Unknown Packet
+  Type")`, qui n'existe plus : le `throw` final porte désormais l'id (`Unknown Packet Type {id}`, fiche 324
+  §14). Le test cherche le nouveau texte.
+- Le journal `Debug` du gestionnaire porte quatre propriétés : il est gardé par
+  `IsEnabled(LogEventLevel.Debug)` (règle de `CLAUDE.md`, *Logging*).
+
+Vérifié : `1452` est absent de la table 7.3 (`op_codes.md`), donc le test qui interdit de le déclarer ne
+bloque aucun paquet 7.3 — contrairement à `1304` pour la 304, qui est une enchère en 7.3.
+
+Donnée de comparaison pour §7b : la carte de test de Killian a le handle `55` (relevé par la 303 entrante
+le 2026-09-23). Un `item_handle=55` dans le journal de 452 établirait que le champ porte le handle
+d'inventaire de la carte. Construction `Release` et `dotnet test` : 1 227 tests, 0 échec.

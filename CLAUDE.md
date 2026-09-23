@@ -1674,6 +1674,23 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
 - Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
 
+### Paquet 452 — `TM_CS_SUMMON_CARD_SKILL_LIST` (client → serveur)
+
+- Trame cliente de **11** octets : en-tête 7 + `item_handle` (`uint32`) à l'offset 7, toute autre longueur
+  refusée avant lecture (`GameActionPackets.TryReadSummonCardSkillList`).
+- Déclencheur : le bouton `button_flip` de la fenêtre de carte de créature (seul appelant du
+  constructeur de trame, `SFrame.exe 0x48EE20`), sous la garde `[fenêtre+0x4C8] ≠ 0` que pose au préalable
+  le message interne `SMSG_SUMMON_CARD_ITEM_INFO`.
+- **Aucune réponse.** NGemity le déclare sans gestionnaire, rzu ne fournit que le côté client. La seule
+  réponse déductible, `TM_SC_SKILL_LIST` (403) avec `target` = handle de l'invocation (NGemity
+  `Messages::SendSkillList`), exige la résolution carte → invocation, qui n'existe pas
+  (`SummonSlotItemIds`, `MainSummonId`, `SubSummonId` ne sont alimentés nulle part). **Ne pas inventer de
+  table carte → invocation, ni réémettre `item_handle` comme `target`.**
+- `item_handle` est journalisé en `Debug` : c'est le relevé qui dira ce que le client y met.
+- Gating : 452 à l'Epic 7.3, `1452` seulement à partir d'`EPIC_9_6_3` (et `1452` n'a pas de sens en 7.3,
+  `op_codes.md`) : ne pas le déclarer.
+- Détail et réserves : `docs/packet-specs/452-summon-card-skill-list.md`.
+
 ### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
 
 - **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,

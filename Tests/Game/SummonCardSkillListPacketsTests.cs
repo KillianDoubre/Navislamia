@@ -250,7 +250,7 @@ public class SummonCardSkillListPacketsTests
 
         var branch = source.IndexOf(
             "header.ID == (ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST", StringComparison.Ordinal);
-        var finalSwitch = source.IndexOf("throw new Exception(\"Unknown Packet Type\")", StringComparison.Ordinal);
+        var finalSwitch = source.IndexOf("throw new Exception($\"Unknown Packet Type", StringComparison.Ordinal);
 
         branch.Should().BeGreaterThan(-1, "452 needs a branch of its own in OnDataReceived");
         finalSwitch.Should().BeGreaterThan(-1, "the final switch is the guard this test is about");
