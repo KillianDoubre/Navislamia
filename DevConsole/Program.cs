@@ -281,6 +281,7 @@ public class Program
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
         services.AddSingleton<IEventAreaService, EventAreaService>();
+        services.AddSingleton<IResurrectionItemCatalog, ResurrectionItemCatalog>();
         services.AddSingleton<IResurrectionService, ResurrectionService>();
 
         services.AddSingleton<IScriptService, ScriptService>();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Services.Buffs;
@@ -18,12 +19,12 @@ public static class ResurrectionRules
     /// Validates a <c>TM_CS_RESURRECTION</c> request against the connected character.
     /// </summary>
     /// <remarks>
-    /// The town path (<see cref="ResurrectionType.UseNone"/>) and the state path
-    /// (<see cref="ResurrectionType.UseState"/>, docs/packet-specs/socle-effets-resurrection.md) are
-    /// implemented. The item path, the competition and the deathmatch are refused with
-    /// <see cref="ResultCode.NotActable"/> and change nothing: no item is known to resurrect in this
-    /// data, and duels and deathmatch instances do not exist. A session with no character in the world
-    /// is refused the same way: it has no vitals and nothing to resurrect.
+    /// The town path (<see cref="ResurrectionType.UseNone"/>), the state path
+    /// (<see cref="ResurrectionType.UseState"/>) and the item path (<see cref="ResurrectionType.UsePotion"/>,
+    /// docs/packet-specs/socle-effets-resurrection.md) are implemented. The competition and the deathmatch
+    /// are refused with <see cref="ResultCode.NotActable"/> and change nothing: duels and deathmatch
+    /// instances do not exist. A session with no character in the world is refused the same way: it has
+    /// no vitals and nothing to resurrect.
     /// <para>
     /// <b>The frame's <c>handle</c> is not checked.</b> NGemity's town path never reads it
     /// (<c>WorldSession::onRevive</c> revives <c>m_pPlayer</c>), and its state path reads it only to tell
@@ -45,7 +46,7 @@ public static class ResurrectionRules
             return ResultCode.NotActable;
         }
 
-        if (type is not (ResurrectionType.UseNone or ResurrectionType.UseState))
+        if (type is not (ResurrectionType.UseNone or ResurrectionType.UseState or ResurrectionType.UsePotion))
         {
             return ResultCode.NotActable;
         }
@@ -101,6 +102,33 @@ public static class ResurrectionRules
     /// (<c>AddHealth(std::max(nIncHP, 1))</c>): a resurrection that left 0 HP would leave the character
     /// dead. Both are capped at their maxima.
     /// </summary>
+    /// <summary>
+    /// The vitals a resurrection skill gives back, NGemity's formulas verbatim (<c>Skill.cpp</c>):
+    /// <list type="bullet">
+    /// <item><c>EF_RESURRECTION</c> (504, <c>SKILL_RESURRECTION</c>): HP <c>max HP × var0 × level</c>, MP
+    /// <c>max MP × var1 × level</c>;</item>
+    /// <item><c>EF_RESURRECTION_WITH_RECOVER</c> (30501): HP <c>max HP × (var0 + var1 × level)</c>, MP
+    /// <c>max MP × (var2 + var3 × level)</c> — the enhancement terms (<c>var9</c>, <c>var10</c>) are zero,
+    /// enhancement is not modelled.</item>
+    /// </list>
+    /// <c>var0</c> is <c>Values[0]</c>, the <c>var1</c> column. HP floored at 1 and MP added to what the
+    /// character kept, capped at the maxima: the same bounds as <see cref="VitalsByState"/>.
+    /// </summary>
+    public static (int Hp, int Mp) VitalsBySkill(SkillEffectType effect, decimal[] vars, int skillLevel,
+        float maxHp, float maxMp, int currentMp)
+    {
+        decimal Var(int index) => vars is not null && index < vars.Length ? vars[index] : 0m;
+
+        var (hpRatio, mpRatio) = effect == SkillEffectType.ResurrectionWithRecover
+            ? (Var(0) + Var(1) * skillLevel, Var(2) + Var(3) * skillLevel)
+            : (Var(0) * skillLevel, Var(1) * skillLevel);
+
+        var hp = (int)Math.Clamp(hpRatio * (decimal)maxHp, 1m, Math.Max(1m, (decimal)maxHp));
+        var mp = (int)Math.Clamp(Math.Max(0, currentMp) + mpRatio * (decimal)maxMp, 0m,
+            Math.Max(0m, (decimal)maxMp));
+        return (hp, mp);
+    }
+
     public static (int Hp, int Mp) VitalsByState(ResurrectionStateValues values, int stateLevel, float maxHp,
         float maxMp, int currentMp)
     {

@@ -336,6 +336,28 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<(ItemEntity Item, long Remaining)?> ConsumeFirstAsync(string characterName,
+        Func<ItemEntity, bool> match)
+    {
+        return RunExclusiveAsync<(ItemEntity Item, long Remaining)?>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var item = character?.Items?
+                .Where(entry => entry.WearInfo == ItemWearType.None && entry.Amount > 0 && match(entry))
+                .OrderBy(entry => entry.Idx)
+                .FirstOrDefault();
+            if (item is null)
+            {
+                return null;
+            }
+
+            RemoveAmount(repository, character, item, 1);
+            InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
+            await repository.SaveChangesAsync();
+            return (item, character.Items.Contains(item) ? item.Amount : 0);
+        });
+    }
+
     public Task<ItemRemoval> RemoveItemAsync(string characterName, uint itemHandle,
         Func<ItemEntity, long> resolveCount)
     {

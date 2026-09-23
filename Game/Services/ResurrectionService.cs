@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
@@ -28,14 +30,19 @@ public class ResurrectionService : IResurrectionService
     private readonly IStatService _statService;
     private readonly IStateCatalog _stateCatalog;
     private readonly ISkillCastService _skillCastService;
+    private readonly ICharacterService _characterService;
+    private readonly IResurrectionItemCatalog _resurrectionItems;
 
     public ResurrectionService(IWarpService warpService, IStatService statService, IStateCatalog stateCatalog,
-        ISkillCastService skillCastService)
+        ISkillCastService skillCastService, ICharacterService characterService,
+        IResurrectionItemCatalog resurrectionItems)
     {
         _warpService = warpService;
         _statService = statService;
         _stateCatalog = stateCatalog;
         _skillCastService = skillCastService;
+        _characterService = characterService;
+        _resurrectionItems = resurrectionItems;
     }
 
     public void Resurrect(GameClient client, GameActionPackets.ResurrectionRequest request)
@@ -58,6 +65,20 @@ public class ResurrectionService : IResurrectionService
         if (request.Type == ResurrectionType.UseState)
         {
             ResurrectByState(client, requestId);
+            return;
+        }
+
+        if (request.Type == ResurrectionType.UsePotion)
+        {
+            // The one path that waits on the database: a coalesced second request must not pass the dead
+            // check while the first is still consuming its item.
+            if (Interlocked.CompareExchange(ref info.ResurrectionInProgress, 1, 0) != 0)
+            {
+                client.SendResult(requestId, (ushort)ResultCode.NotActable);
+                return;
+            }
+
+            _ = ResurrectByItemAsync(client, requestId);
             return;
         }
 
@@ -90,6 +111,59 @@ public class ResurrectionService : IResurrectionService
         catch (Exception exception)
         {
             _logger.Error(exception, "Could not resurrect {clientTag}", client.ClientTag);
+        }
+    }
+
+    /// <summary>
+    /// <c>RT_UsePotion</c>: the character comes back <b>where it fell</b> by using one resurrection item
+    /// from its bag — in this data, the Resurrection Scroll (603002, skill 6001 level 1, 10% of max HP).
+    /// NGemity leaves this branch empty; the effect is its item path (<c>Player::UseItem</c> →
+    /// <c>ITEM_EFFECT_INSTANT::SKILL</c> → <c>SKILL_RESURRECTION</c>) applied by the dead character to itself.
+    /// One unit is consumed and the stack update (255, or 254 for the last one) precedes the vitals and the
+    /// result, the order of <c>TM_CS_USE_ITEM</c>. Without such an item: <c>NotActable</c>, nothing changes.
+    /// </summary>
+    private async Task ResurrectByItemAsync(GameClient client, ushort requestId)
+    {
+        var info = client.ConnectionInfo;
+        try
+        {
+            ResurrectionItem used = default;
+            var consumed = await _characterService.ConsumeFirstAsync(info.CharacterName,
+                item => _resurrectionItems.TryGet((int)item.ItemResourceId, out used));
+
+            if (consumed is not { } result || !_resurrectionItems.TryGet((int)result.Item.ItemResourceId, out used))
+            {
+                client.SendResult(requestId, (ushort)ResultCode.NotActable);
+                return;
+            }
+
+            var handle = (uint)result.Item.Id;
+            client.Connection.Send(result.Remaining == 0
+                ? GameCharacterPackets.BuildDestroyItem(handle)
+                : GameCharacterPackets.BuildUpdateItemCount(handle, result.Remaining));
+
+            var stats = _statService.Compute(info).Total;
+            var (hp, mp) = ResurrectionRules.VitalsBySkill(used.Effect, used.Vars, used.SkillLevel, stats.MaxHp,
+                stats.MaxMp, info.CharacterMp);
+
+            info.CharacterHp = hp;
+            info.CharacterMp = mp;
+
+            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+            client.SendResult(requestId, (ushort)ResultCode.Success);
+
+            _logger.Debug("{clientTag} resurrected in place by item {itemId} (skill {skillId} level {level}) with {hp} hp",
+                client.ClientTag, used.ItemResourceId, used.SkillId, used.SkillLevel, hp);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not resurrect {clientTag} by item", client.ClientTag);
+            client.SendResult(requestId, (ushort)ResultCode.DBError);
+        }
+        finally
+        {
+            Volatile.Write(ref info.ResurrectionInProgress, 0);
         }
     }
 

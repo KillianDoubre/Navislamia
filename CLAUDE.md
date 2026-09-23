@@ -699,9 +699,12 @@ The fourth casualty was a scope decision: "none of the 111 buffs are harmful" ca
 so the `!IsToggle` filter documented above as the guard against toggle auras **protected nothing**; the
 effect-type allowlist was always the real guard.
 
-`tools/Import-SkillResourceColumns.ps1` now imports **every mappable scalar column in one pass** (94 of
+`tools/Import-SkillResourceColumns.ps1` now imports **every mappable scalar column in one pass** (96 of
 them), deriving EF property → source column by introspection and refusing to run if a required column is
-unmapped. Two traps it encodes: **a nullable column here is always a foreign key id where `0` means
+unmapped. It reads the CSV export (see *Source data*), not SQL Server. **`UseOnCharacter` and
+`UseOnMonster` were listed as "absent from the source" and read `false` for every skill**: they are
+`tf_avatar` and `tf_monster`, now overridden — the same trap one more time, and the flag that tells the
+Resurrection Scroll's 6001 (a character) from the creature scroll's 6013 (summons only). Two traps it encodes: **a nullable column here is always a foreign key id where `0` means
 "none"** and must be written `NULL` (no `StateResource` has id 0); and **`TextId`/`TooltipId`/
 `DescriptionId` cannot be imported at all** because they reference the empty `StringResources`. Prefer
 extending that script over hand-patching the next column.
@@ -1319,8 +1322,8 @@ The `&`-prefixed command lists found online do not exist in this client: none of
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
   modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding; monster damage is the
   `maxHp/15` test formula, and a player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them
-  back in town, or in place when they carry a resurrection state (item resurrection and resurrection by
-  another player are not implemented). Damage-to-monster, attack speed, walk speed
+  back in town, or in place with a resurrection state or a Resurrection Scroll (resurrection by another
+  player is not implemented). Damage-to-monster, attack speed, walk speed
   and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
   as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
@@ -1551,10 +1554,18 @@ ou `/buff 13472` pour tester. On garde l'état de **plus haut niveau**, PV rendu
 la ville. Sans état : `NotActable`. La mort ne retire aucun état ici, donc l'état posé avant la mort
 est toujours là.
 
-**La voie « objet » (type 2) reste refusée, faute de données** : NGemity la laisse vide, aucun objet ne
-porte `ItemEffectInstant.Resurrection` (4), et le parchemin de résurrection passe par une compétence
-d'objet (504/30501, ex. 6001) alors que `ItemResources.SkillId` n'a jamais été importé. Il faut
-réimporter `skill_id` depuis le SQL Server 9.4. **Les voies 3 et 4 ne sont pas des arènes** : les
+**La voie « objet » (513 type 2, `RT_UsePotion`) est livrée** : le mort consomme un objet de
+résurrection de son sac et revient **sur place**. Le lien objet → compétence n'est ni
+`ItemResources.SkillId` (vide, et réservé aux cartes de compétence) ni `ItemEffectInstant.Resurrection`
+(4, sur aucun objet) : c'est l'emplacement d'effet `ItemEffectInstant.Skill` (5), `var1` = compétence,
+`var2` = niveau (NGemity `Unit::onItemUseEffect`). Le Parchemin de résurrection 603002 porte
+`opt_type_0 = 5`, 6001, niveau 1 — **10 % des PV max** (`SKILL_RESURRECTION` : `PV max × var0 ×
+niveau`, `PM max × var1 × niveau` ; 30501 a sa propre formule). `ResurrectionItemCatalog` ne retient que
+les compétences 504/30501 qui visent un personnage (`UseOnCharacter`, colonne `tf_avatar`) : sur les
+données réelles, 603002 est le seul objet. Réponse : 255 (ou 254 à la dernière unité), `hp`/`mp`, puis
+513 `Success` ; sans objet, `NotActable`. `ConnectionInfo.ResurrectionInProgress` refuse une seconde
+demande pendant que la première attend la base, sinon deux demandes groupées consommeraient deux
+parchemins. Test en jeu : `/item 603002`, `/die`. **Les voies 3 et 4 ne sont pas des arènes** : les
 arènes de bataille (4701+) sont toutes `Since EPIC_8_1` et n'existent pas en 7.3
 (`socle-arenes-bataille.md`) ; `RT_Compete` relève du duel (4500) et `RT_Deathmatch` des instances
 (4250), qui n'existent pas encore — le refus est la réponse exacte.
@@ -1866,6 +1877,23 @@ des données est le lot K2, et elle appartient à Killian. Découpage K1…K3 : 
 (≤ 10 est une borne de protocole, pas un choix), valeur du rang et du score d'un joueur non
 classé, source des données, cadence, refus d'une trame mal formée, effet perçu d'une liste vide.
 Aucune de ces valeurs n'est devinée.
+
+## Source data (9.4 SQL Server export)
+
+The 9.4 resource database lives in a local SQL Server (`localhost\SQLEXPRESS`, database `Arcadia`) that
+is stopped by default and needs an administrator to start. **Nothing needs it running any more**:
+`tools/Export-SqlServerData.ps1` wrote every table (115 tables, 1 460 707 rows, ~180 MB) to
+`data/sqlserver/Arcadia/<Table>.csv` with `_manifest.json` (columns, SQL types, row counts). The folder
+is **git-ignored**: it is local data, regenerated by re-running the script while SQL Server is up.
+
+The CSV is what PostgreSQL's `\copy … WITH (FORMAT csv, HEADER)` reads as is: header row, NULL as an
+empty unquoted field and every string quoted (an empty string stays distinct), invariant numbers, UTF-8
+without a BOM (the Korean and Chinese string tables survive). An import script loads the whole file into
+a temporary table of `text` columns and copies the mapped ones — `Import-SkillResourceColumns.ps1` is the
+model. `Import-MonsterResourceColumns.ps1` and `Import-MonsterSpawns.ps1` still query SQL Server
+directly. The other databases of that instance (`CHARACTER_01_DBF`, `ACCOUNT_DBF`, `RANKING_DBF`,
+`LOGGING_01_DBF`) belong to another game, not to Rappelz: they are not exported and nothing here reads
+them.
 
 ## Logging
 
