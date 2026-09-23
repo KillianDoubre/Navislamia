@@ -23,7 +23,6 @@ public class MonsterSpawnService : IMonsterSpawnService
         {
             var info = client.ConnectionInfo;
             var inRange = _worldState.WithinRange(info.X, info.Y, WorldVisibility.ViewRange);
-            var dead = _worldState.GetDeadInstances();
 
             WorldObjectStreamer.Stream(client, info.MonsterVisibilityLock, inRange,
                 monster => monster.InstanceId,
@@ -37,7 +36,9 @@ public class MonsterSpawnService : IMonsterSpawnService
                         monster.MonsterId, monster.FaceDirection);
                 },
                 info.SpawnedMonsters,
-                canEnter: monster => !dead.Contains(monster.InstanceId));
+                // Asked only for a monster about to enter (WorldObjectStreamer): this used to copy the set of
+                // every dead monster in the world on every sync, i.e. on every step of every player.
+                canEnter: monster => _worldState.IsAlive(monster.InstanceId));
         }
         catch (Exception ex)
         {

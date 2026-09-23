@@ -14,6 +14,30 @@ public class Rc4Cipher
 
     public void Decode(byte[] source, byte[] destination, int length) => CodeBlock(source, destination, length);
 
+    /// <summary>Codes <paramref name="buffer"/> in place, advancing the keystream by its length.</summary>
+    public void Code(Span<byte> buffer)
+    {
+        int x = _state.X, y = _state.Y;
+        var s = _state.S;
+
+        for (var i = 0; i < buffer.Length; i++)
+        {
+            x = (x + 1) & 0xff;
+            int sx = s[x];
+
+            y = (y + sx) & 0xff;
+            int sy = s[y];
+
+            s[x] = (byte)sy;
+            s[y] = (byte)sx;
+
+            buffer[i] ^= s[(sx + sy) & 0xff];
+        }
+
+        _state.X = x;
+        _state.Y = y;
+    }
+
     public State GetState() => _state;
 
     public void LoadStateFrom(State aState) => _state = aState;

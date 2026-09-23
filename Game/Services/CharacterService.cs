@@ -16,22 +16,28 @@ namespace Navislamia.Game.Services;
 public class CharacterService : ICharacterService
 {
     private readonly ILogger<CharacterService> _logger;
-    private readonly ICharacterRepository _characterRepository;
+    private readonly ICharacterRepositoryFactory _repositories;
     private readonly IStarterItemsRepository _starterItemsRepository;
-    private readonly SemaphoreSlim _databaseGate = new(1, 1);
+    private readonly CharacterGate _gate;
 
-    public CharacterService(IStarterItemsRepository starterItemsRepository, ICharacterRepository characterRepository, ILogger<CharacterService> logger)
+    /// <summary>
+    /// Each operation gets its own repository, hence its own context, and runs under the gate of the
+    /// character it touches (<see cref="CharacterGate"/>): two players no longer wait on each other.
+    /// </summary>
+    public CharacterService(IStarterItemsRepository starterItemsRepository, ICharacterRepositoryFactory repositories,
+        CharacterGate gate, ILogger<CharacterService> logger)
     {
         _starterItemsRepository = starterItemsRepository;
-        _characterRepository = characterRepository;
+        _repositories = repositories;
+        _gate = gate;
         _logger = logger;
     }
 
     public Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false)
     {
-        return RunExclusiveAsync<IEnumerable<CharacterEntity>>(async () =>
+        return RunExclusiveAsync<IEnumerable<CharacterEntity>>(accountName, async repository =>
         {
-            var characters = (await _characterRepository.GetCharactersByAccountNameAsync(accountName, withItems)).ToList();
+            var characters = (await repository.GetCharactersByAccountNameAsync(accountName, withItems)).ToList();
             var changed = false;
             foreach (var character in characters)
             {
@@ -40,16 +46,30 @@ public class CharacterService : ICharacterService
 
             if (changed)
             {
-                await _characterRepository.SaveChangesAsync();
+                await repository.SaveChangesAsync();
             }
 
             return characters;
         });
     }
 
+    public Task<CharacterEntity> GetCharacterForWorldEntryAsync(string accountName, string characterName)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetAccountCharacterWithItemsAsync(accountName, characterName);
+            if (character is not null && CharacterDefaults.Apply(character))
+            {
+                await repository.SaveChangesAsync();
+            }
+
+            return character;
+        });
+    }
+
     public Task<CharacterEntity> CreateCharacterAsync(CharacterEntity character, bool withStarterItems = false)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(character.CharacterName, async repository =>
         {
             CharacterDefaults.Apply(character);
 
@@ -71,65 +91,72 @@ public class CharacterService : ICharacterService
                 }
             }
 
-            var result = await _characterRepository.CreateCharacterAsync(character);
-            await _characterRepository.SaveChangesAsync();
+            var result = await repository.CreateCharacterAsync(character);
+            await repository.SaveChangesAsync();
 
             return result;
         });
     }
 
-    public bool CharacterExists(string characterName)
+    public Task<bool> CharacterExistsAsync(string characterName)
     {
-        return RunExclusive(() => _characterRepository.CharacterExists(characterName));
+        return ReadAsync(repository => repository.CharacterExistsAsync(characterName));
     }
 
-    public int CharacterCount(int accountId)
+    public Task<int> CharacterCountAsync(int accountId)
     {
-        return RunExclusive(() => _characterRepository.CharacterCount(accountId));
+        return ReadAsync(repository => repository.CharacterCountAsync(accountId));
     }
 
-    public CharacterEntity GetCharacterByName(string characterName)
+    public Task<CharacterEntity> GetCharacterByNameAsync(string characterName)
     {
-        return RunExclusive(() => _characterRepository.GetCharacterByName(characterName));
+        return ReadAsync(repository => repository.GetCharacterByNameAsync(characterName));
     }
 
+    /// <summary>
+    /// Deletes and persists in one step. The delete used to be staged on the shared context and saved by
+    /// a separate, unawaited <c>SaveChanges</c> call racing it; a context per operation has nothing left
+    /// to save later.
+    /// </summary>
     public Task DeleteCharacterByNameAsync(string characterName)
     {
-        return RunExclusiveAsync(() =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var entity = _characterRepository.GetCharacterByName(characterName);
+            var entity = await repository.GetCharacterByNameAsync(characterName);
             if (entity is null)
             {
                 _logger.LogWarning("Character Delete Failed! Character {name} not found!", characterName);
-                return Task.CompletedTask;
+                return;
             }
 
-            _characterRepository.Delete(entity);
-            return Task.CompletedTask;
+            repository.Delete(entity);
+            await repository.SaveChangesAsync();
         });
     }
 
     public Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByName(characterName);
+            var character = await repository.GetCharacterByNameAsync(characterName);
             if (character is null)
             {
                 return false;
             }
 
             character.ClientInfo = clientInfo;
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
             return true;
         });
     }
 
     public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByName(characterName);
+            // The skills must be loaded here: with the shared context they came from the login's identity
+            // map, and without them an already learned skill would be inserted a second time.
+            var character = await repository.GetCharacterByNameWithSkillsAsync(characterName);
             if (character is null)
             {
                 return false;
@@ -151,16 +178,40 @@ public class CharacterService : ICharacterService
             }
 
             character.Jp = remainingJp;
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
+
+    public Task<CharacterQuestEntity[]> GetQuestsAsync(string characterName)
+    {
+        return ReadAsync(async repository => (await repository.GetQuestsAsync(characterName)).ToArray());
+    }
+
+    public Task<bool> DropQuestAsync(string characterName, int code)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            // The only eligibility condition is NGemity's own: the quest is in the character's list
+            // (Player::DropQuest, Chihiro/src/Entities/Player/Player.cpp:3173-3187). No flag, no
+            // cool-down and no quest-type exclusion is invented here (fiche §8.1).
+            var quest = await repository.GetQuestAsync(characterName, code);
+            if (quest is null)
+            {
+                return false;
+            }
+
+            repository.DeleteQuest(quest);
+            await repository.SaveChangesAsync();
             return true;
         });
     }
 
     public Task<ItemEntity> UnequipItemAsync(string characterName, ItemWearType position)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = character?.Items?.FirstOrDefault(entry => entry.WearInfo == position);
             if (item is null)
             {
@@ -168,16 +219,16 @@ public class CharacterService : ICharacterService
             }
 
             item.WearInfo = ItemWearType.None;
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
             return item;
         });
     }
 
     public Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
             if (item is null)
             {
@@ -196,22 +247,22 @@ public class CharacterService : ICharacterService
             }
 
             item.WearInfo = position;
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
             return new EquipItemResult(EquipItemOutcome.Success, character, item, displaced);
         });
     }
 
     public Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle)
     {
-        return RunExclusiveAsync(() => Task.FromResult(FindByHandle(
-            _characterRepository.GetCharacterByNameWithItems(characterName)?.Items, itemHandle)));
+        return RunExclusiveAsync(characterName, async repository => FindByHandle(
+            (await repository.GetCharacterByNameWithItemsAsync(characterName))?.Items, itemHandle));
     }
 
     public Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             if (character is null)
             {
                 return null;
@@ -226,7 +277,7 @@ public class CharacterService : ICharacterService
 
             if (InventoryArrange.Apply(items, keys))
             {
-                await _characterRepository.SaveChangesAsync();
+                await repository.SaveChangesAsync();
             }
 
             return items;
@@ -236,10 +287,10 @@ public class CharacterService : ICharacterService
     public Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests)
     {
-        return RunExclusiveAsync<IReadOnlyList<(uint Handle, long Count)>>(async () =>
+        return RunExclusiveAsync<IReadOnlyList<(uint Handle, long Count)>>(characterName, async repository =>
         {
             var erased = new List<(uint Handle, long Count)>(requests.Count);
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             if (character?.Items is null)
             {
                 return erased;
@@ -253,7 +304,7 @@ public class CharacterService : ICharacterService
                     continue;
                 }
 
-                erased.Add((request.ItemHandle, RemoveAmount(character, item, request.Count)));
+                erased.Add((request.ItemHandle, RemoveAmount(repository, character, item, request.Count)));
             }
 
             if (erased.Count == 0)
@@ -262,35 +313,57 @@ public class CharacterService : ICharacterService
             }
 
             InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
             return erased;
         });
     }
 
     public Task<long?> ConsumeItemAsync(string characterName, uint itemHandle, long count)
     {
-        return RunExclusiveAsync<long?>(async () =>
+        return RunExclusiveAsync<long?>(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
             if (item is null || count <= 0)
             {
                 return null;
             }
 
-            RemoveAmount(character, item, count);
+            RemoveAmount(repository, character, item, count);
             InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
             return character.Items.Contains(item) ? item.Amount : 0;
+        });
+    }
+
+    public Task<(ItemEntity Item, long Remaining)?> ConsumeFirstAsync(string characterName,
+        Func<ItemEntity, bool> match)
+    {
+        return RunExclusiveAsync<(ItemEntity Item, long Remaining)?>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var item = character?.Items?
+                .Where(entry => entry.WearInfo == ItemWearType.None && entry.Amount > 0 && match(entry))
+                .OrderBy(entry => entry.Idx)
+                .FirstOrDefault();
+            if (item is null)
+            {
+                return null;
+            }
+
+            RemoveAmount(repository, character, item, 1);
+            InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
+            await repository.SaveChangesAsync();
+            return (item, character.Items.Contains(item) ? item.Amount : 0);
         });
     }
 
     public Task<ItemRemoval> RemoveItemAsync(string characterName, uint itemHandle,
         Func<ItemEntity, long> resolveCount)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
             if (item is null)
             {
@@ -303,9 +376,9 @@ public class CharacterService : ICharacterService
                 return new ItemRemoval(item, 0);
             }
 
-            var removed = RemoveAmount(character, item, count);
+            var removed = RemoveAmount(repository, character, item, count);
             InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
             return new ItemRemoval(item, removed);
         });
     }
@@ -315,13 +388,14 @@ public class CharacterService : ICharacterService
     /// that runs out is deleted through the repository: removing it from <c>character.Items</c> alone
     /// would only orphan the row, since <c>ItemEntity.CharacterId</c> is nullable.
     /// </summary>
-    private long RemoveAmount(CharacterEntity character, ItemEntity item, long count)
+    private static long RemoveAmount(ICharacterRepository repository, CharacterEntity character, ItemEntity item,
+        long count)
     {
         var removed = Math.Min(count, item.Amount);
         if (removed >= item.Amount)
         {
             character.Items.Remove(item);
-            _characterRepository.DeleteItem(item);
+            repository.DeleteItem(item);
         }
         else
         {
@@ -333,9 +407,9 @@ public class CharacterService : ICharacterService
 
     public Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             if (character is null)
             {
                 return null;
@@ -354,16 +428,16 @@ public class CharacterService : ICharacterService
             };
 
             character.Items.Add(added);
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
             return added;
         });
     }
 
     public Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2)
     {
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByNameWithItems(characterName);
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             if (character?.Items is null)
             {
                 return null;
@@ -379,23 +453,23 @@ public class CharacterService : ICharacterService
 
             InventoryArrange.EnsureContiguousIndices(items);
             (first.Idx, second.Idx) = (second.Idx, first.Idx);
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
 
             return items;
         });
     }
 
     public Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp,
-        long gold, int chaos, float x, float y)
+        long gold, int chaos, float x, float y, bool pkMode)
     {
         if (string.IsNullOrEmpty(characterName))
         {
             return Task.CompletedTask;
         }
 
-        return RunExclusiveAsync(async () =>
+        return RunExclusiveAsync(characterName, async repository =>
         {
-            var character = _characterRepository.GetCharacterByName(characterName);
+            var character = await repository.GetCharacterByNameAsync(characterName);
             if (character is null)
             {
                 return;
@@ -416,6 +490,7 @@ public class CharacterService : ICharacterService
             character.Jp = jp;
             character.Gold = gold;
             character.Chaos = chaos;
+            character.PkMode = pkMode;
 
             // Without this a warp is undone by the next login: the position was never persisted
             // during play, so the character always reloaded where it last logged in.
@@ -424,13 +499,8 @@ public class CharacterService : ICharacterService
                 character.Position = new[] { (int)x, (int)y, 0 };
             }
 
-            await _characterRepository.SaveChangesAsync();
+            await repository.SaveChangesAsync();
         });
-    }
-
-    public async void SaveChanges()
-    {
-        await RunExclusiveAsync(() => _characterRepository.SaveChangesAsync());
     }
 
     private static ItemEntity FindByHandle(IEnumerable<ItemEntity> items, uint handle)
@@ -438,42 +508,29 @@ public class CharacterService : ICharacterService
         return items?.FirstOrDefault(item => (uint)item.Id == handle);
     }
 
-    private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> operation)
+    /// <summary>A read-modify-write on one character: its own repository, under that character's gate.</summary>
+    private Task<T> RunExclusiveAsync<T>(string key, Func<ICharacterRepository, Task<T>> operation)
     {
-        await _databaseGate.WaitAsync();
-        try
+        return _gate.RunAsync(key, async () =>
         {
-            return await operation();
-        }
-        finally
-        {
-            _databaseGate.Release();
-        }
+            using var repository = _repositories.Create();
+            return await operation(repository);
+        });
     }
 
-    private async Task RunExclusiveAsync(Func<Task> operation)
+    private Task RunExclusiveAsync(string key, Func<ICharacterRepository, Task> operation)
     {
-        await _databaseGate.WaitAsync();
-        try
+        return _gate.RunAsync(key, async () =>
         {
-            await operation();
-        }
-        finally
-        {
-            _databaseGate.Release();
-        }
+            using var repository = _repositories.Create();
+            await operation(repository);
+        });
     }
 
-    private T RunExclusive<T>(Func<T> operation)
+    /// <summary>A pure read: its own repository, and no gate, since it changes nothing.</summary>
+    private async Task<T> ReadAsync<T>(Func<ICharacterRepository, Task<T>> operation)
     {
-        _databaseGate.Wait();
-        try
-        {
-            return operation();
-        }
-        finally
-        {
-            _databaseGate.Release();
-        }
+        using var repository = _repositories.Create();
+        return await operation(repository);
     }
 }

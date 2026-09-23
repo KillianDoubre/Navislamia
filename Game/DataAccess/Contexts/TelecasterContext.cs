@@ -11,6 +11,7 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<AuctionEntity> Auctions { get; set; }
     public DbSet<CharacterEntity> Characters { get; set; }
     public DbSet<CharacterSkillEntity> CharacterSkills { get; set; }
+    public DbSet<CharacterQuestEntity> CharacterQuests { get; set; }
     public DbSet<DungeonEntity> Dungeons { get; set; }
     public DbSet<GuildEntity> Guilds { get; set; }
     public DbSet<ItemEntity> Items { get; set; }
@@ -53,10 +54,21 @@ public class TelecasterContext : SoftDeletionContext
             .HasForeignKey<ItemStorageEntity>(a => a.ItemId);
         
         modelBuilder.Entity<ItemEntity>().Property(i => i.SocketItemIds).HasMaxLength(4);
+
+        // The counter storage is read by account (StorageRepository.StorageRows): without an index every
+        // storage open and every storage move scanned the whole item table.
+        modelBuilder.Entity<ItemEntity>().HasIndex(i => i.AccountId);
     }
     
     private static void ConfigureCharacters(ModelBuilder modelBuilder)
     {
+        // Every character operation resolves the row by name, the lobby by account name and the creation
+        // limit by account id. None of the three was indexed, so each one scanned the character table.
+        // Not unique: existing data is not guaranteed to be, and uniqueness is the name check's job.
+        modelBuilder.Entity<CharacterEntity>().HasIndex(c => c.CharacterName);
+        modelBuilder.Entity<CharacterEntity>().HasIndex(c => c.AccountName);
+        modelBuilder.Entity<CharacterEntity>().HasIndex(c => c.AccountId);
+
         modelBuilder.Entity<CharacterEntity>()
             .HasMany(c => c.Items)
             .WithOne(i => i.Character)
@@ -72,6 +84,21 @@ public class TelecasterContext : SoftDeletionContext
         modelBuilder.Entity<CharacterSkillEntity>()
             .HasIndex(skill => new { skill.CharacterId, skill.SkillId })
             .IsUnique();
+
+        modelBuilder.Entity<CharacterEntity>()
+            .HasMany(c => c.Quests)
+            .WithOne(quest => quest.Character)
+            .HasForeignKey(quest => quest.CharacterId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // A character carries a code once: the row is the state 603 erases by character + code and
+        // 600 re-reads whole. The six wire slots live in two fixed arrays.
+        modelBuilder.Entity<CharacterQuestEntity>()
+            .HasIndex(quest => new { quest.CharacterId, quest.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<CharacterQuestEntity>().Property(quest => quest.Value).HasMaxLength(6);
+        modelBuilder.Entity<CharacterQuestEntity>().Property(quest => quest.Status).HasMaxLength(6);
         
         modelBuilder.Entity<CharacterEntity>()
             .HasOne(c => c.Party)

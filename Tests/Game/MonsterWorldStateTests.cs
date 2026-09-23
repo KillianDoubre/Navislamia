@@ -16,7 +16,7 @@ public class MonsterWorldStateTests
 {
     private const long InstanceId = 0;
 
-    private static MonsterWorldState BuildState(int hp)
+    private static MonsterWorldState BuildState(int hp, int firstAttack = 0)
     {
         var options = new MonsterSpawnOptions
         {
@@ -24,7 +24,10 @@ public class MonsterWorldStateTests
         };
         var repository = A.Fake<IMonsterResourceRepository>();
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
-            .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = hp, Race = 1 } });
+            .Returns(new[]
+            {
+                new MonsterResourceEntity { Id = 2101, Level = 5, Hp = hp, Race = 1, FirstAttack = firstAttack }
+            });
 
         return new MonsterWorldState(repository, Options.Create(options));
     }
@@ -138,6 +141,38 @@ public class MonsterWorldStateTests
 
         state.TryGetAggroHome(InstanceId, out var hx, out var hy).Should().BeTrue();
         (hx, hy).Should().Be((1000f, 2000f), "the monster returns to where it was when it aggroed");
+    }
+
+    [Test]
+    public void CollectAcquireCandidates_KeepsOnlyAggressiveLiveMonstersOutOfCombat()
+    {
+        var state = BuildState(100, firstAttack: 1);
+        var candidates = new List<(MonsterInstance Instance, float X, float Y)>();
+
+        state.CollectAcquireCandidates(new[] { InstanceId, 999L }, candidates);
+        candidates.Should().ContainSingle();
+        candidates[0].Instance.InstanceId.Should().Be(InstanceId);
+        (candidates[0].X, candidates[0].Y).Should().Be((1000f, 2000f));
+
+        state.SetAggro(InstanceId, Client());
+        state.CollectAcquireCandidates(new[] { InstanceId }, candidates);
+        candidates.Should().BeEmpty("a monster already in combat acquires nothing");
+
+        state.ClearAggro(InstanceId);
+        state.Kill(InstanceId, DateTime.UtcNow.AddSeconds(10));
+        state.CollectAcquireCandidates(new[] { InstanceId }, candidates);
+        candidates.Should().BeEmpty("a corpse acquires nothing");
+    }
+
+    [Test]
+    public void CollectAcquireCandidates_SkipsAPassiveMonster()
+    {
+        var state = BuildState(100, firstAttack: 0);
+        var candidates = new List<(MonsterInstance Instance, float X, float Y)>();
+
+        state.CollectAcquireCandidates(new[] { InstanceId }, candidates);
+
+        candidates.Should().BeEmpty();
     }
 
     // The aggro state machine only uses a client as an identity reference, so an uninitialised

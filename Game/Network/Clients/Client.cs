@@ -82,6 +82,13 @@ public class Client : IDisposable
 
             case ClientType.Game:
                 {
+                    // A client disposed first (Dispose disconnects, and the receive completion then signals
+                    // it) has nothing left to release; reading its state would throw on a pool thread.
+                    if (ConnectionInfo is null)
+                    {
+                        break;
+                    }
+
                     _networkService.AuthorizedGameClients.TryRemove(ConnectionInfo.AccountName, out _);
 
                     var logoutMsg = new Packet<TS_GA_CLIENT_LOGOUT>((ushort)AuthPackets.TS_GA_CLIENT_LOGOUT, new TS_GA_CLIENT_LOGOUT(ConnectionInfo.AccountName, (uint)ConnectionInfo.ContinuousPlayTime));

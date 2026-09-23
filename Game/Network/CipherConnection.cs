@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net.Sockets;
 
 using Navislamia.Game.Network.Interfaces;
@@ -13,7 +13,17 @@ public class CipherConnection : Connection, IConnection
 {
     private readonly Xrc4Cipher _sendCipher = new();
     private readonly Xrc4Cipher _receiveCipher = new();
-    private readonly object _sendCipherLock = new();
+
+    /// <summary>
+    /// How many bytes from <see cref="Connection.ReadOffset"/> are already decoded in place.
+    /// </summary>
+    /// <remarks>
+    /// XRC4 is a stream cipher and the stream is consumed strictly in order, so a byte can be decoded the
+    /// first time anything looks at it and never again. <see cref="Peek"/> used to decode a copy of the
+    /// header and roll the keystream back — allocating the copy and a 256-byte cipher state per packet —
+    /// only for <see cref="Read"/> to decode the same bytes a second time.
+    /// </remarks>
+    private int _decodedLength;
 
     /// <summary>
     /// Creates a new instance of the cipher connection wrapper abstraction
@@ -27,53 +37,57 @@ public class CipherConnection : Connection, IConnection
     }
 
     /// <summary>
-    /// Peeks encoded data in the receive buffer for data.
+    /// Peeks decoded data in the receive buffer.
     /// </summary>
     /// <param name="length">Amount of data to be peeked from the receive buffer</param>
     /// <returns>ReadOnlySpan pointing to the data inside the receive buffer</returns>
     public override ReadOnlySpan<byte> Peek(int length)
     {
-        var peekBuffer = new byte[length];
+        DecodeUpTo(length);
 
-        Buffer.BlockCopy(ReceiveBuffer, 0, peekBuffer, 0, length);
-
-        _receiveCipher.Decode(peekBuffer, peekBuffer, length, true);
-
-        return new ReadOnlySpan<byte>(peekBuffer, 0, length);
+        return base.Peek(length);
     }
 
     /// <summary>
-    /// Reads encoded data from the receive buffer and moves remaining data to the front of the receive buffer
+    /// Reads decoded data from the receive buffer and advances past it.
     /// </summary>
     /// <param name="input">Amount of data to be read</param>
     /// <returns>Byte array containing read data</returns>
     public override byte[] Read(int input)
     {
-        var readBuffer = base.Read(input);
+        DecodeUpTo(input);
 
-        _receiveCipher.Decode(readBuffer, readBuffer, input);
+        var readBuffer = base.Read(input);
+        _decodedLength -= readBuffer.Length;
 
         return readBuffer;
     }
 
     /// <summary>
-    /// Encodes a message and queues it.
+    /// Encodes on the send loop's own copy, in wire order.
     /// </summary>
     /// <remarks>
-    /// XRC4 is a stream cipher, so the keystream advances per message and the client decodes in the
-    /// order the server encoded. Encoding and queueing therefore have to be one atomic step: the combat
-    /// tick, the movement tick, the cast tick and the client's own thread all send on the same
-    /// connection, and two of them interleaving here would both consume the keystream out of order and
-    /// queue in an order that no longer matches it, which the client cannot decode.
+    /// XRC4's keystream advances per byte, so the client can only decode what was encoded in the order it
+    /// is sent. Encoding used to happen in <c>Send</c>, in place on the caller's array, under a lock that
+    /// held encode-and-queue together because the combat, movement and cast ticks and the client's own
+    /// thread all send on one connection. The send loop is the single reader of the queue, so encoding
+    /// there is ordered by construction and needs no lock — and a packet array is no longer altered, so
+    /// the same array can be sent to several connections.
     /// </remarks>
-    /// <param name="buffer">Message data to be sent</param>
-    public override void Send(byte[] buffer)
+    protected override void EncodeOutgoing(byte[] buffer, int length)
     {
-        lock (_sendCipherLock)
-        {
-            _sendCipher.Encode(buffer, buffer, buffer.Length);
+        _sendCipher.Code(buffer.AsSpan(0, length));
+    }
 
-            base.Send(buffer);
+    private void DecodeUpTo(int length)
+    {
+        length = Math.Min(length, AvailableLength);
+        if (length <= _decodedLength)
+        {
+            return;
         }
+
+        _receiveCipher.Code(ReceiveBuffer.AsSpan(ReadOffset + _decodedLength, length - _decodedLength));
+        _decodedLength = length;
     }
 }
