@@ -512,3 +512,12 @@ Deux corrections :
   castable par un joueur n'en porte : le test en jeu passe par `/buff`.
 
 Construction `Release` et `dotnet test` : 1 116 tests, 0 échec.
+
+**Test en jeu (Killian, 2026-09-23).** Le geste est le **double-clic sur l'icône** de la fenêtre
+d'états, ce qui lève la réserve sur l'émission de la trame : le client envoie bien la 408.
+`/buff 164401 10 300` puis double-clic → icône retirée, Force et P.Atk rétablies. `/buff 13472`
+(sans le bit 32) → rien, comme attendu. Expiration, bascule d'aura et double-clics répétés :
+inchangés, sans erreur. `/buff 41102536` applique ses stats mais **n'affiche aucune icône** : id 9.4
+absent des données d'état du client 7.3, donc inannulable côté joueur ; le retrait de
+`max_hp`/`max_mp` par la 408 n'a donc pas été observé en jeu (il passe par le même
+`SendStatRefresh` que l'expiration, validée).

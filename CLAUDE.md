@@ -833,8 +833,11 @@ hang off the skill that applied it — but nothing has been read to prove it.
 
 So the practical consequence — **a 9.4-only state id may render nothing** — stays a presumption
 rather than a proven mechanism, and "the same unresolved 7.3 gap as ground items" was an
-inference from a file that does not exist. Whether this client renders a state icon at all is
-still unverified.
+inference from a file that does not exist. **The client does render state icons** (observed
+2026-09-23 with `/buff 164401`: icon, countdown and double-click cancel), and **one 9.4-only id is
+now observed rendering nothing**: `/buff 41102536` (Guardian of Gaia) moves the stats — the server
+side works — but shows no icon, so the player cannot see or cancel it. The mechanism (which client
+file lists the known states) is still not established.
 
 **Percentage values are ratios, not percent numbers.** A `ParameterAmp` state or an `AmpParameterA` item
 carries `0.05` for "+5%", and `StatBlock.Amplify` does `stat * (1 + ratio)` exactly like the reference's
@@ -1601,8 +1604,12 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   états portent le bit 32, 350 sont `IsHarmful`. Piège : `StateTimeType` est un enum `short`
   (`smallint`) et l'état 201085 vaut `33150` (bit 15, au-delà de tout drapeau déclaré) — le script
   stocke le motif 16 bits tel quel (complément à deux), ce qui garde chaque bit pour le test `&`.
-  **Aucune aura et presque aucun buff castable ne porte le bit** : en jeu, on le teste par `/buff`
-  (164401 Strength Boost, 41102536 Guardian of Gaia…).
+  **Aucune aura et presque aucun buff castable ne porte le bit** : en jeu, on le teste par `/buff`.
+  **Validé en jeu le 2026-09-23** avec 164401 (Strength Boost) : icône, double-clic sur l'icône →
+  retrait et stats rétablies ; 13472 (sans le bit) ne s'annule pas. 41102536 (Guardian of Gaia)
+  applique ses stats mais **n'affiche aucune icône** dans ce client (id 9.4 inconnu du 7.3, voir
+  *Buffs*) : il est donc inannulable par la fenêtre, et le retrait de `max_hp`/`max_mp` par la 408
+  n'a pas été observé — seul cet état du lot annulable touche les PV/PM max.
 - **Réponse** : `TM_SC_STATE` (505), **63 octets**, `state_level`/`end_time`/`start_time` à zéro —
   c'est exactement `BuildStateRemoval`, déjà validé en jeu à l'expiration ; NGemity encode le retrait
   de la même façon (`Messages.cpp:1105-1123`). Suivi de `SendStatRefresh` (`RefreshBuffs` +
