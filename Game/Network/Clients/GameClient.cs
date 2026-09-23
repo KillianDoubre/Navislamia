@@ -1235,9 +1235,13 @@ public class GameClient : Client
                 // is only logged; no refusal is emitted, as no refusal rule is established (§5.3.4).
                 if (GameActionPackets.TryReadSummon(msgBuffer, out var isSummon, out var cardHandle))
                 {
-                    _logger.Debug(
-                        "TM_CS_SUMMON ({id}) Length: {length} received from {clientTag}: is_summon={isSummon} card_handle={cardHandle}",
-                        header.ID, header.Length, ClientTag, isSummon, cardHandle);
+                    // Five properties: guarded, or the argument array is built before the level check.
+                    if (_logger.IsEnabled(LogEventLevel.Debug))
+                    {
+                        _logger.Debug(
+                            "TM_CS_SUMMON ({id}) Length: {length} received from {clientTag}: is_summon={isSummon} card_handle={cardHandle}",
+                            header.ID, header.Length, ClientTag, isSummon, cardHandle);
+                    }
                 }
                 else
                 {

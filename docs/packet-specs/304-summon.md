@@ -375,3 +375,22 @@ Preuves d'exécution (conteneur .NET 8, aucun serveur de jeu démarré) :
 | Que désigne `card_handle` (instance d'objet, `code` de carte, handle d'invocation) ? | Valeur brute little-endian, journalisée seulement. Aucun usage. | §7.3 |
 | Faut-il répondre à 304, et le code `93 = NotEnoughSummonCard` doit-il servir ? | Aucune réponse n'est émise : le client n'a pas de gestionnaire entrant pour 304, la réponse serait au mieux ignorée. | §7.4 |
 | Le gating 9.6.3 (`1304`) est-il un déplacement ou un changement de sémantique ? | Hors périmètre 7.3 : `1304` reste **non déclaré**, et un test l'assure. | §7.5 |
+
+## Revue avant fusion (2026-09-23)
+
+Fusion de `origin/master` : un conflit dans `GameClient.cs`, les bras 304 et `TM_CS_REQUEST` (60)
+ayant été insérés au même endroit ; les deux sont gardés, 304 d'abord. Deux corrections :
+
+- **`Ids_AreTheEpic73Ones` exigeait que `1304` ne soit jamais déclaré.** Or `1304` est
+  `TM_CS_AUCTION_BIDDED_LIST` en 7.3, l'un des sept paquets d'enchères encore à implémenter : le test
+  aurait cassé le jour de leur intégration. Il vérifie désormais que `1304` est absent ou déclaré sous
+  son nom d'enchère — jamais comme demande d'invocation. Le commentaire de l'énumération dit la même chose.
+- Le journal `Debug` du bras porte cinq propriétés : il est gardé par `IsEnabled(LogEventLevel.Debug)`
+  (règle de `CLAUDE.md`, *Logging*).
+
+Constaté pendant la revue, **hors de ce paquet** : `TM_EQUIP_SUMMON` (303), que le client émet
+(`SMSG_REQUEST_EQUIP_SUMMON`, §2.2), est déclaré dans `GamePackets` sans bras de réception. Une trame
+303 atteint le `throw "Unknown Packet Type"`, attrapé par `Connection.OnReceive` : erreur journalisée,
+session maintenue, trames coalescées après elle perdues. À traiter avec son propre paquet.
+
+Construction `Release` et `dotnet test` : 1 181 tests, 0 échec.

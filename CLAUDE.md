@@ -1623,6 +1623,22 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
   `mix_type` 801/802/803 ↔ 263/264.
 
+### Paquet 304 — `TM_CS_SUMMON` (demande d'invocation par carte)
+
+- **Le client 7.3 ne l'émet pas** : l'invocation passe par le sort d'invocation de créature
+  (`db_string.rdb:34762`, compétence 4001, `EF_SUMMON = 601` ; renvoi 4002, `602`), donc par
+  `TM_CS_SKILL` (400). Le client *nomme* 304 dans sa table id → nom mais n'a aucune classe de message
+  pour le construire, alors qu'il en a une pour 303, 323 et 452. NGemity ne le traite pas non plus
+  (« Got unknown packet »).
+- Disposition 7.3 : en-tête 7 + `int8_t is_summon` (7) + `ar_handle_t card_handle` (8-11), **12 octets**.
+  Le sens des deux champs n'est pas établi : ils sont lus bruts (`GameActionPackets.TryReadSummon`,
+  trame de moins de 12 octets refusée, trame plus longue lue sur ses 12 premiers) et seulement
+  journalisés en `Debug`. **Aucune réponse**, aucune invocation, aucune consommation de carte.
+- `1304` est l'id 9.6.3 de ce paquet (`version >= EPIC_9_6_3`). En 7.3, `1304` est
+  `TM_CS_AUCTION_BIDDED_LIST` : il ne doit **jamais** être déclaré comme demande d'invocation, et un
+  test l'assure — il pourra l'être sous son nom d'enchère.
+- Détail et réserves : `docs/packet-specs/304-summon.md`.
+
 ### Paquet 408 — `TM_CS_REQUEST_REMOVE_STATE` (annuler un état)
 
 - **`TM_CS_REQUEST_REMOVE_STATE` (408) est implémenté** : trame fixe de **15 octets** — en-tête 7,

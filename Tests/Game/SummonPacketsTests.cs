@@ -63,10 +63,11 @@ public class SummonPacketsTests
     {
         ((ushort)GamePackets.TM_CS_SUMMON).Should().Be(304);
 
-        // rzu names 1304 from EPIC_9_6_3 on. In 7.3 that id is TM_CS_AUCTION_BIDDED_LIST, so it must stay
-        // undeclared here: declaring it would re-point the auction family at the summon family.
-        Enum.IsDefined(typeof(GamePackets), (ushort)1304).Should().BeFalse(
-            "1304 is the 9.6.3 remap of the summon request and the 7.3 auction id");
+        // rzu names 1304 from EPIC_9_6_3 on. In 7.3 that id is TM_CS_AUCTION_BIDDED_LIST: it may be declared
+        // one day, but only under its auction name, never as the summon request.
+        var name1304 = Enum.GetName(typeof(GamePackets), (ushort)1304);
+        (name1304 is null || name1304 == "TM_CS_AUCTION_BIDDED_LIST").Should().BeTrue(
+            "1304 is the 9.6.3 remap of the summon request and the 7.3 auction id, not {0}", name1304);
 
         // The id must be defined, otherwise OnDataReceived drops the frame as "Undefined packet ID" before
         // any dispatch, and the receive loop stays there.

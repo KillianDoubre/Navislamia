@@ -73,8 +73,9 @@ public enum GamePackets : ushort
 
     // TM_CS_SUMMON (304): rzu declares the frame but the 7.3 client never builds it — summoning goes
     // through the summon creature skill, i.e. TM_CS_SKILL (400) — and NGemity has no handler for it
-    // either ("Got unknown packet"). rzu also names 1304 from EPIC_9_6_3 on; that id must not be
-    // declared here, as 1304 is TM_CS_AUCTION_BIDDED_LIST in 7.3. See docs/packet-specs/304-summon.md.
+    // either ("Got unknown packet"). rzu also names 1304 from EPIC_9_6_3 on; 1304 must never be declared
+    // as the summon request, since in 7.3 it is TM_CS_AUCTION_BIDDED_LIST (still to implement, and to be
+    // declared under that name). See docs/packet-specs/304-summon.md.
     TM_CS_SUMMON = 304,
 
     TM_SC_UNSUMMON = 305,
