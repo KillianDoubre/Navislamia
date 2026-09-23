@@ -14,6 +14,7 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.Stats;
 
@@ -130,22 +131,39 @@ public class ResurrectionPacketTests
     [Test]
     public void CheckRequest_AcceptsTheTownPathForTheDeadOwnCharacter()
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle, 0)
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, Handle, 0)
             .Should().Be(ResultCode.Success);
     }
 
-    [Test]
-    public void CheckRequest_RefusesAnotherCharactersHandle()
+    [TestCase(0u)]
+    [TestCase(Handle + 1)]
+    [TestCase(0xFFFFFFFFu)]
+    public void Resurrect_InTown_IgnoresTheFrameHandle(uint frameHandle)
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle + 1, 0)
-            .Should().Be(ResultCode.NotOwn);
+        // The 7.3 client's town button was refused with NotOwn in game (2026-09-23): the handle it sends
+        // is not the character's. NGemity never reads it on this path, and neither does this server.
+        var connection = new FrameConnection(ClientFrame(frameHandle, ResurrectionType.UseNone));
+        var client = NewGameClient(connection, out _, realWarp: false);
+        Seed(client, new ConnectionInfo { CharacterHandle = Handle, CharacterHp = 0 });
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
+        ConnectionInfoOf(client).CharacterHp.Should().Be(5000);
     }
 
     [Test]
     public void CheckRequest_RefusesALivingCharacter()
     {
-        ResurrectionRules.CheckRequest(Handle, ResurrectionType.UseNone, Handle, 1)
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, Handle, 1)
             .Should().Be(ResultCode.NotActable);
+    }
+
+    [Test]
+    public void CheckRequest_AcceptsTheStatePathForTheDeadOwnCharacter()
+    {
+        ResurrectionRules.CheckRequest(ResurrectionType.UseState, Handle, 0).Should()
+            .Be(ResultCode.Success);
     }
 
     [Test]
@@ -153,18 +171,17 @@ public class ResurrectionPacketTests
     {
         foreach (var type in new[]
                  {
-                     ResurrectionType.UseState, ResurrectionType.UsePotion, ResurrectionType.Compete,
-                     ResurrectionType.Deathmatch
+                     ResurrectionType.UsePotion, ResurrectionType.Compete, ResurrectionType.Deathmatch
                  })
         {
-            ResurrectionRules.CheckRequest(Handle, type, Handle, 0).Should().Be(ResultCode.NotActable);
+            ResurrectionRules.CheckRequest(type, Handle, 0).Should().Be(ResultCode.NotActable);
         }
     }
 
     [Test]
     public void CheckRequest_RefusesASessionWithoutACharacter()
     {
-        ResurrectionRules.CheckRequest(0, ResurrectionType.UseNone, 0, 0).Should().Be(ResultCode.NotActable);
+        ResurrectionRules.CheckRequest(ResurrectionType.UseNone, 0, 0).Should().Be(ResultCode.NotActable);
     }
 
     [Test]
@@ -254,6 +271,97 @@ public class ResurrectionPacketTests
     }
 
     [Test]
+    public void ResurrectByState_ComesBackInPlaceConsumesTheStateAndAcknowledges()
+    {
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UseState));
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        var info = new ConnectionInfo
+        {
+            CharacterHandle = Handle,
+            CharacterHp = 0,
+            CharacterMp = 100,
+            X = 1000f,
+            Y = 2000f,
+            RespawnX = 94454f,
+            RespawnY = 126040f
+        };
+        info.ActiveBuffs.Add(new ActiveBuff(7, ResurrectionStateId, 3472, 1, 0, 180_000));
+        Seed(client, info);
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        info = ConnectionInfoOf(client);
+        info.CharacterHp.Should().Be(250, "5 % of the 5000 maximum HP");
+        info.CharacterMp.Should().Be(124, "the 100 kept plus 3 % of the 800 maximum MP");
+        A.CallTo(() => services.SkillCast.RemoveState(client, ResurrectionStateId)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => services.WarpCalls.Warp(A<GameClient>._, A<float>._, A<float>._))
+            .MustNotHaveHappened();
+        Properties(connection).Should().Equal(("hp", 250L), ("mp", 124L));
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
+    }
+
+    [Test]
+    public void ResurrectByState_WithoutAResurrectionState_IsRefusedAndChangesNothing()
+    {
+        var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UseState));
+        var client = NewGameClient(connection, out var services, realWarp: false);
+        var info = new ConnectionInfo { CharacterHandle = Handle, CharacterHp = 0 };
+        info.ActiveBuffs.Add(new ActiveBuff(3, 4001, 1011, 1, 0, 180_000));
+        Seed(client, info);
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        Results(connection).Should().Equal(A574Result((ushort)ResultCode.NotActable));
+        ConnectionInfoOf(client).CharacterHp.Should().Be(0);
+        A.CallTo(() => services.SkillCast.RemoveState(A<GameClient>._, A<int>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public void TrySelectState_KeepsTheHighestLevelResurrectionState()
+    {
+        var weak = new ResurrectionStateValues(0.05m, 0m, 0m, 0m);
+        var strong = new ResurrectionStateValues(0m, 0.03m, 0m, 0.03m);
+        var states = new[]
+        {
+            new ActiveBuff(1, 13472, 3472, 1, 0, 0),
+            new ActiveBuff(2, 4001, 1011, 9, 0, 0),
+            new ActiveBuff(3, 145226, 45424, 3, 0, 0)
+        };
+
+        bool Resolve(int stateId, out ResurrectionStateValues values)
+        {
+            values = stateId switch { 13472 => weak, 145226 => strong, _ => default };
+            return stateId is 13472 or 145226;
+        }
+
+        ResurrectionRules.TrySelectState(states, Resolve, out var state, out var selected).Should().BeTrue();
+        state.StateId.Should().Be(145226, "the reference keeps the highest level, not the first found");
+        selected.Should().Be(strong);
+
+        ResurrectionRules.TrySelectState(new[] { states[1] }, Resolve, out _, out _).Should().BeFalse();
+        ResurrectionRules.TrySelectState(null, Resolve, out _, out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void VitalsByState_FollowsTheReferenceFormula()
+    {
+        var perLevel = new ResurrectionStateValues(0m, 0.03m, 0m, 0.03m);
+
+        ResurrectionRules.VitalsByState(perLevel, 3, 5000f, 800f, 50).Should().Be((450, 122),
+            "(0 + 0.03 x 3) x 5000 HP, and 50 + (0 + 0.03 x 3) x 800 MP");
+    }
+
+    [Test]
+    public void VitalsByState_NeverLeavesTheCharacterDeadNorAboveItsMaxima()
+    {
+        var nothing = new ResurrectionStateValues(0m, 0m, 0m, 0m);
+        var everything = new ResurrectionStateValues(2m, 0m, 2m, 0m);
+
+        ResurrectionRules.VitalsByState(nothing, 1, 5000f, 800f, 0).Should().Be((1, 0));
+        ResurrectionRules.VitalsByState(everything, 1, 5000f, 800f, 700).Should().Be((5000, 800));
+    }
+
+    [Test]
     public void Resurrect_DoesNothingOnALivingCharacter()
     {
         var connection = new FrameConnection(ClientFrame(Handle, ResurrectionType.UseNone));
@@ -308,6 +416,8 @@ public class ResurrectionPacketTests
             new[] { A574Result((ushort)ResultCode.Success), A574Result((ushort)ResultCode.NotActable) },
             "the first request raises the character, the second finds it alive");
     }
+
+    private const int ResurrectionStateId = 13472;
 
     private static (ushort RequestId, ushort Result) A574Result(ushort result) =>
         ((ushort)GamePackets.TM_CS_RESURRECTION, result);
@@ -374,7 +484,7 @@ public class ResurrectionPacketTests
             A.Fake<IItemUseService>(),
             A.Fake<IWorldLocationService>(),
             new ResurrectionService(realWarp ? services.WarpService : services.WarpCalls,
-                services.StatService),
+                services.StatService, services.StateCatalog, services.SkillCast),
             A.Fake<IEventAreaService>(),
             A.Fake<ICraftingSocleService>(),
             A.Fake<IStorageService>(),
@@ -399,8 +509,17 @@ public class ResurrectionPacketTests
 
         public IWarpService WarpCalls { get; } = A.Fake<IWarpService>();
 
+        public IStateCatalog StateCatalog { get; } = A.Fake<IStateCatalog>();
+
+        public ISkillCastService SkillCast { get; } = A.Fake<ISkillCastService>();
+
         public TestServices()
         {
+            // State 13472 as the 9.4 data carries it: 5 % of the HP and 3 % of the MP, flat.
+            var resurrection = new ResurrectionStateValues(0.05m, 0m, 0.03m, 0m);
+            A.CallTo(() => StateCatalog.TryGetResurrection(ResurrectionStateId, out resurrection))
+                .Returns(true).AssignsOutAndRefParameters(resurrection);
+
             A.CallTo(() => StatService.Compute(A<ConnectionInfo>._)).Returns(
                 new CharacterStatResult(new StatBlock { MaxHp = 5000f, MaxMp = 800f }, new StatBlock()));
 

@@ -21,5 +21,12 @@ public enum StateEffectType
     ParameterAmpWhenEquip = 6,
     DoubleAttack = 21,
     AdditionalDamageOnAttack = 22,
-    AmpAdditionalDamageOnAttack = 23
+    AmpAdditionalDamageOnAttack = 23,
+
+    /// <summary>
+    /// <c>SEF_RESURRECTION</c> (NGemity <c>StateBase.h:317</c>): a state that lets its bearer come back to
+    /// life where it fell, through <c>TM_CS_RESURRECTION</c> type 1 (<c>RT_UseState</c>). Its first four
+    /// values are the HP and MP ratios, see <c>ResurrectionRules.VitalsByState</c>.
+    /// </summary>
+    Resurrection = 109
 }

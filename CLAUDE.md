@@ -1279,7 +1279,8 @@ The `&`-prefixed command lists found online do not exist in this client: none of
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
   modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding; monster damage is the
   `maxHp/15` test formula, and a player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them
-  back in town. Damage-to-monster, attack speed, walk speed
+  back in town, or in place when they carry a resurrection state (item resurrection and resurrection by
+  another player are not implemented). Damage-to-monster, attack speed, walk speed
   and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
   as a swing**, through the same `ICombatService` path
 - Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
@@ -1499,6 +1500,24 @@ Le socle est en place : `TM_CS_RESURRECTION` (513) est décodé (trame de 12 oct
 refusée plutôt que lue), le personnage réapparaît à sa position persistée avec ses PV/MP au maximum,
 et un monstre lâche une cible tombée à 0 PV (les PV d'un joueur n'ont plus de plancher à 1). Le
 serveur n'émet toujours aucun paquet de mort.
+
+**La voie « état » (513 type 1, `RT_UseState`) est livrée** (`docs/packet-specs/socle-effets-resurrection.md`) :
+port de NGemity `Unit::ResurrectByState`. Le mort doit porter un état d'effet `SEF_RESURRECTION`
+(**109**, `StateEffectType.Resurrection`) posé de son vivant — l'état 13472 du buff 3472 (métier 112),
+ou `/buff 13472` pour tester. On garde l'état de **plus haut niveau**, PV rendus
+`(value_0 + value_1 × niveau) × PV max` (planchés à 1, emprunt à `Unit::Resurrect`), PM
+`(value_2 + value_3 × niveau) × PM max` ajoutés aux PM gardés, puis l'état est **consommé**
+(`ISkillCastService.RemoveState`) et 513 répond `Success`. **Sur place, sans `Warp`**, contrairement à
+la ville. Sans état : `NotActable`. La mort ne retire aucun état ici, donc l'état posé avant la mort
+est toujours là.
+
+**La voie « objet » (type 2) reste refusée, faute de données** : NGemity la laisse vide, aucun objet ne
+porte `ItemEffectInstant.Resurrection` (4), et le parchemin de résurrection passe par une compétence
+d'objet (504/30501, ex. 6001) alors que `ItemResources.SkillId` n'a jamais été importé. Il faut
+réimporter `skill_id` depuis le SQL Server 9.4. **Les voies 3 et 4 ne sont pas des arènes** : les
+arènes de bataille (4701+) sont toutes `Since EPIC_8_1` et n'existent pas en 7.3
+(`socle-arenes-bataille.md`) ; `RT_Compete` relève du duel (4500) et `RT_Deathmatch` des instances
+(4250), qui n'existent pas encore — le refus est la réponse exacte.
 
 ### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
 
