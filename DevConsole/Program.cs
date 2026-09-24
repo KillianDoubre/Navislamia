@@ -313,6 +313,7 @@ public class Program
         services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
+        services.AddSingleton<IEtherealSacrificeCatalog, EtherealSacrificeCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IPetCatalog, PetCatalog>();
         services.AddSingleton<PetWorldService>();

@@ -64,4 +64,12 @@ public class ItemResourceRepository : IItemResourceRepository
                 item.OptTypes != null && Array.IndexOf(item.OptTypes, (short)ItemEffectInstant.RenamePet) >= 0))
             .ToList();
     }
+
+    public IReadOnlyList<ItemEtherealFields> GetEtherealFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemEtherealFields((int)item.Id, item.WearType, item.EtherealDurability))
+            .ToList();
+    }
 }

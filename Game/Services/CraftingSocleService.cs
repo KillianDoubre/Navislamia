@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
@@ -21,6 +22,12 @@ namespace Navislamia.Game.Services;
 /// failure policy is applied and no socket is touched: those are game decisions the specification
 /// deliberately leaves to Killian (docs/packet-specs/socle-artisanat-objets.md §9.2, §9.3, §9.5).
 ///
+/// The one handle that is more than resolved is the 263 one: it designates the object the player offers
+/// as the sacrifice, so it is judged — a wearable resource that carries ethereal durability, a copy that
+/// still has some — before the generic refusal (docs/packet-specs/263-transmit-ethereal-durability.md
+/// §5.4). What such a gesture would then do is still not written: the amount, the ceiling and the object
+/// consumed are not established.
+///
 /// The refusals answer <c>TM_SC_RESULT</c> (0) with the received id as <c>request_msg_id</c>. A handle
 /// that resolves to none of the character's items reports <c>NotExist</c> (1) with the handle as value,
 /// the convention the 203 drop path already uses (docs/packet-specs/203-drop-item.md §5.3); NGemity
@@ -34,10 +41,12 @@ public class CraftingSocleService : ICraftingSocleService
 {
     private readonly ILogger _logger = Log.ForContext<CraftingSocleService>();
     private readonly ICharacterService _characterService;
+    private readonly IEtherealSacrificeCatalog _etherealSacrifices;
 
-    public CraftingSocleService(ICharacterService characterService)
+    public CraftingSocleService(ICharacterService characterService, IEtherealSacrificeCatalog etherealSacrifices)
     {
         _characterService = characterService;
+        _etherealSacrifices = etherealSacrifices;
     }
 
     public async Task HandleAsync(GameClient client, ushort packetId, byte[] packet)
@@ -52,6 +61,7 @@ public class CraftingSocleService : ICraftingSocleService
         }
 
         uint[] handles;
+        var etherealHandle = 0u;
         switch (packetId)
         {
             case (ushort)GamePackets.TM_CS_MIX:
@@ -91,6 +101,10 @@ public class CraftingSocleService : ICraftingSocleService
                     return;
                 }
 
+                // Kept aside as well as resolved: the value of the answer names the object the player
+                // offered, and the guard below judges it. A zero handle is the family's empty-slot
+                // sentinel and never reaches either (CraftingSocleRules).
+                etherealHandle = transmit.Handle;
                 handles = CraftingSocleRules.ReferencedHandles(transmit);
                 break;
 
@@ -112,8 +126,20 @@ public class CraftingSocleService : ICraftingSocleService
                 return;
         }
 
-        if (await HasUnknownHandleAsync(client, packetId, handles))
+        var resolved = await ResolveHandlesAsync(client, packetId, handles);
+        if (resolved is null)
         {
+            return;
+        }
+
+        // 263 is the one frame of the family whose handle is judged rather than merely resolved: it names
+        // the object the player offers as the sacrifice, and the client emits the frame even for an object
+        // it could not qualify ("Place any equipment in Materials Slots"; spec §2.2). A frame that names no
+        // object at all (handle 0, dropped by the sentinel rule) resolves nothing and keeps the generic
+        // refusal below.
+        if (packetId == (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY && resolved.Length == 1)
+        {
+            RefuseEtherealSacrifice(client, packetId, etherealHandle, resolved[0]);
             return;
         }
 
@@ -126,14 +152,49 @@ public class CraftingSocleService : ICraftingSocleService
     }
 
     /// <summary>
+    /// The conduct of <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY</c> (263) once its handle resolves. An object
+    /// that is not an equipment of the character, or whose ethereal durability is spent, is refused with
+    /// the code the repository already answers a refused object with; a sound object is still refused with
+    /// the socle's <c>InvalidArgument</c>, because the charge it asks for is not established
+    /// (docs/packet-specs/263-transmit-ethereal-durability.md §5.4, §7.1, §7.6).
+    /// </summary>
+    private void RefuseEtherealSacrifice(GameClient client, ushort packetId, uint handle, ItemEntity item)
+    {
+        var resource = _etherealSacrifices.TryGet(item.ItemResourceId, out var fields)
+            ? fields
+            : (ItemEtherealFields?)null;
+
+        var gate = EtherealDurabilityRules.Judge(resource, item.EtherealDurability);
+        if (gate == EtherealSacrificeGate.Accepted)
+        {
+            _logger.Warning(
+                "TM_CS_TRANSMIT_ETHEREAL_DURABILITY from {clientTag} names sacrificeable item {itemHandle} ({resourceId}, ethereal durability {etherealDurability}), but the amount, the ceiling and the object consumed are not established: refused with InvalidArgument",
+                client.ClientTag, handle, item.ItemResourceId, item.EtherealDurability);
+            client.SendResult(packetId, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        _logger.Warning(
+            "TM_CS_TRANSMIT_ETHEREAL_DURABILITY from {clientTag} names item {itemHandle} ({resourceId}, ethereal durability {etherealDurability}) which {clause}: refused with NotActable",
+            client.ClientTag, handle, item.ItemResourceId, item.EtherealDurability,
+            EtherealDurabilityRules.Describe(gate));
+        client.SendResult(packetId, (ushort)EtherealDurabilityRules.RefusalCode(gate), unchecked((int)handle));
+    }
+
+    /// <summary>
     /// Resolves each named handle against the character's own inventory; an item that does not resolve is
     /// not one of this character's items, which is the <c>NotExist</c> NGemity answers with the handle as
-    /// value. Returns true when a refusal has already been sent.
+    /// value. Returns the rows in the order of <paramref name="handles"/> — so a caller that judges the
+    /// object does not read the item table a second time — or <c>null</c> when a refusal has already been
+    /// sent.
     /// </summary>
-    private async Task<bool> HasUnknownHandleAsync(GameClient client, ushort packetId, uint[] handles)
+    private async Task<ItemEntity[]> ResolveHandlesAsync(GameClient client, ushort packetId, uint[] handles)
     {
-        foreach (var handle in handles)
+        var resolved = new ItemEntity[handles.Length];
+        for (var index = 0; index < handles.Length; index++)
         {
+            var handle = handles[index];
+
             ItemEntity item;
             try
             {
@@ -143,7 +204,7 @@ public class CraftingSocleService : ICraftingSocleService
             {
                 _logger.Error(exception, "Could not read item {itemHandle} for {clientTag}", handle, client.ClientTag);
                 client.SendResult(packetId, (ushort)ResultCode.DBError, unchecked((int)handle));
-                return true;
+                return null;
             }
 
             if (item is null)
@@ -151,11 +212,13 @@ public class CraftingSocleService : ICraftingSocleService
                 _logger.Debug("Crafting packet {id} from {clientTag} names unknown item {itemHandle}, refused",
                     packetId, client.ClientTag, handle);
                 client.SendResult(packetId, (ushort)ResultCode.NotExist, unchecked((int)handle));
-                return true;
+                return null;
             }
+
+            resolved[index] = item;
         }
 
-        return false;
+        return resolved;
     }
 
     private void RefuseMalformed(GameClient client, ushort packetId, int length)
