@@ -20,6 +20,14 @@ public readonly record struct ItemGroupFields(int Id, ItemGroup Group);
 public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType,
     bool RenamesPet = false);
 
+/// <summary>
+/// The two resource fields that decide whether an item can be offered as the sacrifice of
+/// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY</c> (263): the wear type the client's "cannot be sacrificed"
+/// clause turns on, and the ethereal durability the resource can carry at all.
+/// See docs/packet-specs/263-transmit-ethereal-durability.md.
+/// </summary>
+public readonly record struct ItemEtherealFields(int Id, ItemWearType WearType, int EtherealDurability);
+
 public interface IItemResourceRepository
 {
     IReadOnlyList<ItemSortFields> GetSortFields();
@@ -35,4 +43,10 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemGroupFields> GetGroupFields();
 
     IReadOnlyList<ItemUseFields> GetUseFields();
+
+    /// <summary>
+    /// The wear type and the ethereal durability of every item resource, for the sacrifice guard of
+    /// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY</c> (263).
+    /// </summary>
+    IReadOnlyList<ItemEtherealFields> GetEtherealFields();
 }
