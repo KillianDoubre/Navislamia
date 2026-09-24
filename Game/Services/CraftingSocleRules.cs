@@ -4,12 +4,14 @@ using Navislamia.Game.Network.Packets.Game;
 namespace Navislamia.Game.Services;
 
 /// <summary>
-/// Which handles a crafting request actually names. The five request frames of the socle carry fixed
-/// handle arrays whose empty slots are written as zero — zero is a sentinel, not an item: the reference
-/// server refuses a material slot only when its handle is not zero
+/// Which handles a crafting request actually names. Every request frame of the family carries fixed
+/// handle arrays whose empty slots are written as zero — zero is a sentinel, not an item: the
+/// reference server refuses a material slot only when its handle is not zero
 /// (NGemity <c>WorldSession.cpp:1521</c> <c>pRecvPct-&gt;soulstone_handle[i] != 0</c>) and tests the main
 /// slot the same way (<c>:1451</c> <c>main_item.handle != 0</c>). Resolving a zero handle would report
-/// <c>NotExist</c> for a slot the client left deliberately empty.
+/// <c>NotExist</c> for a slot the client left deliberately empty. <c>TM_CS_SOULSTONE_CRAFT</c> (260) reads
+/// its own four slots through <see cref="FilledSlots"/>, the same reading of the zero, bounded to the
+/// chassis of the item being socketed.
 /// See docs/packet-specs/socle-artisanat-objets.md §3.1, §3.3, §3.4, §6.1 and §9.2.
 /// </summary>
 public static class CraftingSocleRules
@@ -25,23 +27,6 @@ public static class CraftingSocleRules
             foreach (var subItem in request.SubItems)
             {
                 AddIfSet(handles, subItem.Handle);
-            }
-        }
-
-        return handles.ToArray();
-    }
-
-    /// <summary>The item being socketed first, then its four soul stone slots.</summary>
-    public static uint[] ReferencedHandles(in GameActionPackets.SoulstoneCraftRequest request)
-    {
-        var handles = new List<uint>(1 + (request.SoulstoneHandles?.Length ?? 0));
-        AddIfSet(handles, request.CraftItemHandle);
-
-        if (request.SoulstoneHandles is not null)
-        {
-            foreach (var handle in request.SoulstoneHandles)
-            {
-                AddIfSet(handles, handle);
             }
         }
 
@@ -72,6 +57,48 @@ public static class CraftingSocleRules
     {
         var handles = new List<uint>(1);
         AddIfSet(handles, request.Handle);
+        return handles.ToArray();
+    }
+
+    /// <summary>
+    /// The slots of a soulstone craft frame that actually carry a stone, in slot order, limited to the
+    /// chassis the crafted item has. The reference walks only <c>0..socketCount-1</c>
+    /// (NGemity <c>WorldSession.cpp:1520</c>) while the frame always carries four handles
+    /// (rzu <c>TS_CS_SOULSTONE_CRAFT.h:7</c>): a slot past the item's chassis is ignored, never refused
+    /// (spec §6.2). Empty slots are written zero and are not stones.
+    /// </summary>
+    public static List<int> FilledSlots(uint[] handles, int socketCount)
+    {
+        var slots = new List<int>(socketCount < 0 ? 0 : socketCount);
+        if (handles is null)
+        {
+            return slots;
+        }
+
+        var bounded = socketCount < handles.Length ? socketCount : handles.Length;
+        for (var slot = 0; slot < bounded; slot++)
+        {
+            if (handles[slot] != 0)
+            {
+                slots.Add(slot);
+            }
+        }
+
+        return slots;
+    }
+
+    /// <summary>The item being socketed first, then the stones it names, in slot order.</summary>
+    public static uint[] ReferencedHandles(in GameActionPackets.SoulstoneCraftRequest request)
+    {
+        var handles = new List<uint>(1 + (request.SoulstoneHandles?.Length ?? 0));
+        AddIfSet(handles, request.CraftItemHandle);
+
+        var slots = FilledSlots(request.SoulstoneHandles, request.SoulstoneHandles?.Length ?? 0);
+        foreach (var slot in slots)
+        {
+            AddIfSet(handles, request.SoulstoneHandles[slot]);
+        }
+
         return handles.ToArray();
     }
 

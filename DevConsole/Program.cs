@@ -325,6 +325,8 @@ public class Program
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
+        services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();
+        services.AddSingleton<ISoulstoneCraftService, SoulstoneCraftService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();

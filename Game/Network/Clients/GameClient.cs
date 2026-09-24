@@ -1614,13 +1614,20 @@ public class GameClient : Client
                 continue;
             }
 
-            // The crafting and item-enchantment family (256, 260, 262, 263, 264) goes through the
+            // TM_CS_SOULSTONE_CRAFT (260) has its own engine: it fills the chassis of the named item and
+            // writes what the client asks for. See docs/packet-specs/260-soulstone-craft.md §5.
+            if (header.ID == (ushort)GamePackets.TM_CS_SOULSTONE_CRAFT)
+            {
+                _ = _networkService.SoulstoneCraftService.HandleAsync(this, msgBuffer);
+                continue;
+            }
+
+            // The rest of the crafting and item-enchantment family (256, 262, 263, 264) goes through the
             // structural socle, which reads and bounds the frame, resolves the handles it names and
-            // refuses: the crafting engine and its game policy are not written yet. One arm covers the
-            // five ids so that no member of GamePackets reaches the "Unknown Packet Type" throw below.
+            // refuses: those crafting engines and their game policy are not written yet. One arm covers the
+            // four ids so that no member of GamePackets reaches the "Unknown Packet Type" throw below.
             // See docs/packet-specs/socle-artisanat-objets.md §9.2.
             if (header.ID is (ushort)GamePackets.TM_CS_MIX or
-                (ushort)GamePackets.TM_CS_SOULSTONE_CRAFT or
                 (ushort)GamePackets.TM_CS_REPAIR_SOULSTONE or
                 (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY or
                 (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT)

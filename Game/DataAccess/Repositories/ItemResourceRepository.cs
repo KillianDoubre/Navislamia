@@ -64,4 +64,14 @@ public class ItemResourceRepository : IItemResourceRepository
                 item.OptTypes != null && Array.IndexOf(item.OptTypes, (short)ItemEffectInstant.RenamePet) >= 0))
             .ToList();
     }
+
+    public IReadOnlyList<ItemSoulstoneCraftFields> GetSoulstoneCraftFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemSoulstoneCraftFields((int)item.Id, item.ItemBaseType, item.Group,
+                item.ItemType, item.SocketCount, item.Price, item.BaseTypes, item.BaseVar1, item.OptTypes,
+                item.OptVar1))
+            .ToList();
+    }
 }
