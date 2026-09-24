@@ -7,6 +7,11 @@ Toutes les adresses `SFrame.exe` sont des **adresses virtuelles** (`image base 0
 par `objdump -d -M intel`, ou des positions dans le dump `strings`. Aucun binaire, aucun Lua,
 aucun script du client n'a été exécuté ; la résolution est statique (§8).
 
+**Périmètre.** Cette fiche ne traite que **262**. Le PO a réservé 260 et 261 à d'autres cartes : ce
+qui est dit ici de 259/260/261 ne sert qu'à **dater la chaîne du geste** (quel paquet ouvre la
+fenêtre, et par quelle classe de message le client le reçoit) et n'est pas un relevé de ces
+paquets — les fiches 259/260 restent les leurs.
+
 Cette fiche **tranche deux questions ouvertes** que les documents antérieurs laissaient en
 suspens :
 
@@ -218,6 +223,12 @@ Les offsets ci-dessous sont absolus depuis le début de la trame.
 **Taille totale attendue : 31 octets** — 7 d'en-tête + 6 × 4. Aucun champ de comptage, aucune
 longueur variable, aucune chaîne. La trame est identique qu'un seul slot soit rempli ou six.
 
+Recoupement avec le socle : la forme qu'il annonçait (`socle-artisanat-objets.md` §3.4 : six
+`item_handle` aux offsets 7, 11, 15, 19, 23, 27, **31 octets**) et sa décision d'id (`§5.1` : 262)
+sont **confirmées** par la lecture du client 7.3 ci-dessus — **aucun fait de la trame n'est
+déplacé**, et la forme du test d'offsets attendue (`Tests/Game/CraftingSoclePacketsTests.cs:247-277`)
+reste valide telle quelle.
+
 ### 3.2 Preuve par lecture du client (les deux extrémités)
 
 | Ce qui est prouvé | Relevé |
@@ -305,26 +316,55 @@ le bras de dispatch de `GameClient` (`GameClient.cs:1622-1630`) et trois tests d
    réception journalise puis rejette un 261 entrant (`GameClient.cs:1419-1428`), mais rien dans le
    dépôt ne **construit** ce paquet. Sans lui, la fenêtre ne s'ouvre pas et 262 est inatteignable
    en jeu (§2.1 étape 5).
-2. **Aucun gestionnaire du déclencheur de PNJ.** `show_soulstone_repair_window()` n'apparaît que
-   dans les données (`DevConsole/npc-dialogs.73.json`) ; le service de dialogues n'en a pas de
-   gestionnaire, donc le point d'armement du contact (`RepairSoulStone` chez NGemity,
-   `Messages.cpp:939`) n'existe pas côté dépôt — même situation que celle décrite par
-   `260-soulstone-craft.md` §5.4.
+2. **Aucun gestionnaire du déclencheur de PNJ.** Le sous-système de contact **existe** sur
+   `master` (`TM_CS_CONTACT = 3002` `GamePackets.cs:162`, bras `GameClient.cs:1714`,
+   `NpcDialogService.Contact` `Game/Services/NpcDialogService.cs:39`) et le catalogue
+   `DevConsole/npc-dialogs.73.json` porte bien le déclencheur, via `NpcDialogOptions`
+   (`Configuration/Options/NpcDialogOptions.cs:5-22`, même forme que le fichier). Ce qui manque est
+   le **traitement** de `show_soulstone_repair_window()` : `Select` accepte le déclencheur
+   (il a été annoncé par la page courante, garde `:92-96`) puis, faute de gestionnaire, il **ferme
+   la page** et journalise (`:141-148` : `ClearNpcDialog()` + « NPC dialog action {function} is not
+   implemented yet »). Aucun armement de contact ne subsiste donc, et aucun émetteur de 261
+   n'existe (§5.4).
 3. **Aucun stockage de la « Soul Power ».** `grep -ni soul ArcadiaSchemaPSQL.sql` ne rend **aucune**
    occurrence, et `Game/DataAccess/Entities/Telecaster/ItemEntity.cs:30-31` ne porte que
    `EtherealDurability` et `Endurance` (l'équivalent `ethereal_durability` de la ressource est en
    `MSSQLItemResource.cs:40`). Un rechargement ne pourrait donc rien persister aujourd'hui.
 
-### 5.4 Garde de contact
+### 5.4 Garde de contact — l'équivalent du dépôt suffit-il, et à qui la garde revient-elle ?
 
-NGemity arme le contact dans le message d'**ouverture** (`Messages.cpp:939`) et le consomme dans le
-gestionnaire de la requête ; pour 260 ce contrôle est `WorldSession.cpp:1499`. La transposition
-directe est **impossible aujourd'hui** : le point d'armement (le déclencheur de dialogue, et son
-paquet d'ouverture 261) est un lobe non livré (`socle-artisanat-objets.md` §9.4), et
-`NpcDialogService` efface l'armement dès que le déclencheur n'a pas de gestionnaire
-(`260-soulstone-craft.md` §5.4, point 1). Décision de cette fiche : **la garde de contact de 262
-appartient au lobe « ouverture de fenêtre »**, pas au traitement de la requête. Aucun état de
-contact ne doit être inventé.
+**Ce que la référence fait.** NGemity arme `SetLastContact("RepairSoulStone", 1)` dans le message
+d'**ouverture** (`Messages.cpp:939`) et le gestionnaire de la requête le teste ; pour 260 le
+contrôle équivalent est `GetLastContactLong("SoulStoneCraft") == 0` en tête de gestionnaire
+(`WorldSession.cpp:1499`). `git grep -niE "lastcontact" -- Game Tests` est **vide** : le dépôt n'a
+pas cet état, il a son équivalent fonctionnel.
+
+**L'équivalent du dépôt.** `ConnectionInfo.NpcDialogHandle` / `NpcDialogTriggers`
+(`Game/Network/Clients/ConnectionInfo.cs:209-210`), posés par `NpcDialogService.TryShow`
+(`Game/Services/NpcDialogService.cs:166-171`) et testés par la garde de `Select`
+(`:92-96`) : un déclencheur n'est accepté que s'il a été **annoncé par la page de dialogue
+courante**. C'est bien la même idée que `LastContact` — « le joueur a bien ouvert ce dialogue et a
+choisi cette entrée » — et c'est cette garde qui protégerait l'ouverture de la fenêtre.
+
+**Réponse à la question posée : l'équivalent suffit comme *forme*, il ne suffit pas en *état*
+aujourd'hui, et la garde ne revient pas à une carte 262 seule.**
+
+1. Aujourd'hui `Select` **ferme la page** dès qu'un déclencheur n'a pas de gestionnaire
+   (`:141-148`) : une fois la fenêtre ouverte, plus rien ne subsiste que le gestionnaire de 262
+   pourrait tester. Un handler de `show_soulstone_repair_window()` devrait donc soit laisser la
+   page courante en place (comme le fait le marché, `:130-138`, qui « laisse le dialogue courant
+   pour qu'une seconde sélection passe la garde »), soit porter un état propre — la décision
+   appartient au lobe qui livrera ce handler.
+2. Cette garde ne dit rien des **six handles**. La trame les nomme elle-même ; au mieux la garde
+   établit « une fenêtre de rechargement a été ouverte depuis un contact joaillier », jamais qu'un
+   objet donné était affiché dans un slot. **Faute de règle sourcée, cette fiche ne prescrit aucun
+   état de contact pour 262** : elle écrit que le point d'armement est le déclencheur + 261, et que
+   c'est là qu'il se place.
+3. **À qui** : au lobe « ouverture de fenêtre » (`socle-artisanat-objets.md` §9.4 : le
+   déclencheur de fenêtre est une carte dédiée, hors du socle), c'est-à-dire à la carte qui livrera
+   261 et le handler du déclencheur — pas à une carte 262 seule, qui n'a rien à armer. Killian
+   arbitre s'il exige cette garde pour la famille ; en l'état, le refus systématique du socle rend
+   l'absence de garde sans conséquence.
 
 ---
 
