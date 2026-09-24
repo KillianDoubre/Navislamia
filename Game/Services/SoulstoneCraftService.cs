@@ -112,7 +112,7 @@ public class SoulstoneCraftService : ISoulstoneCraftService
         }
 
         var stones = new List<NamedStone>(crafted.SocketCount);
-        foreach (var slot in SoulstoneCraftRules.FilledSlots(request.SoulstoneHandles, crafted.SocketCount))
+        foreach (var slot in CraftingSocleRules.FilledSlots(request.SoulstoneHandles, crafted.SocketCount))
         {
             var handle = request.SoulstoneHandles[slot];
 

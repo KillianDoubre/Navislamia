@@ -52,32 +52,6 @@ public static class SoulstoneCraftRules
     }
 
     /// <summary>
-    /// The slots of the frame that carry a stone, in slot order, limited to the chassis the crafted item
-    /// actually has. NGemity only walks <c>0..socketCount-1</c> (<c>WorldSession.cpp:1520</c>) while the
-    /// frame always carries four handles (rzu <c>TS_CS_SOULSTONE_CRAFT.h:7</c>): the slots past the item's
-    /// chassis are ignored, never refused.
-    /// </summary>
-    public static List<int> FilledSlots(uint[] handles, int socketCount)
-    {
-        var slots = new List<int>(socketCount);
-        if (handles is null)
-        {
-            return slots;
-        }
-
-        var bounded = socketCount < handles.Length ? socketCount : handles.Length;
-        for (var slot = 0; slot < bounded; slot++)
-        {
-            if (handles[slot] != 0)
-            {
-                slots.Add(slot);
-            }
-        }
-
-        return slots;
-    }
-
-    /// <summary>
     /// How many chassis other than <paramref name="slot"/> already hold a stone of the same profile.
     /// The stone being socketed never counts against itself (<c>k != i</c>, <c>WorldSession.cpp:1535</c>),
     /// and a chassis the catalog does not know is left out of the count rather than compared.

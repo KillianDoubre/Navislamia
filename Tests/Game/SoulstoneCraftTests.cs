@@ -64,21 +64,21 @@ public class SoulstoneCraftTests
     [Test]
     public void FilledSlots_KeepsTheOrderAndSkipsTheZeroSentinel()
     {
-        SoulstoneCraftRules.FilledSlots(new[] { 0u, 0x80000031u, 0u, 0x80000033u }, 4).Should().Equal(1, 3);
+        CraftingSocleRules.FilledSlots(new[] { 0u, 0x80000031u, 0u, 0x80000033u }, 4).Should().Equal(1, 3);
     }
 
     [Test]
     public void FilledSlots_IgnoresTheSlotsBeyondTheChassis()
     {
         // The frame always names four handles; an item with two chassis only has two of them looked at.
-        SoulstoneCraftRules.FilledSlots(new[] { 0x80000031u, 0x80000032u, 0x80000033u, 0x80000034u }, 2)
+        CraftingSocleRules.FilledSlots(new[] { 0x80000031u, 0x80000032u, 0x80000033u, 0x80000034u }, 2)
             .Should().Equal(0, 1);
     }
 
     [Test]
     public void FilledSlots_SurvivesARequestWithoutSlots()
     {
-        SoulstoneCraftRules.FilledSlots(null, 4).Should().BeEmpty();
+        CraftingSocleRules.FilledSlots(null, 4).Should().BeEmpty();
     }
 
     [Test]

@@ -337,6 +337,80 @@ objdump -d --start-address=0x48ceb0 --stop-address=0x48cf10 -M intel SFrame.exe 
 objdump -d --start-address=0x48da50 --stop-address=0x48daa0 -M intel SFrame.exe   # émetteur
 ```
 
+## 9. Implémentation livrée par `navis-dev` (24/09/2026)
+
+Branche `hermes/packet-260-soulstone-craft`. §3 (trame de 27 octets) et §4 (aucun gating) ne sont pas
+touchés : ils sont **confirmés** par l'implémentation, aucun champ n'a bougé.
+
+| Fichier | Rôle | Nature |
+| --- | --- | --- |
+| `Game/Services/SoulstoneCraftService.cs` | le moteur : lecture, bornage, résolution, refus, écriture, réponses | nouveau |
+| `Game/Services/Interfaces/ISoulstoneCraftService.cs` | son contrat (`HandleAsync(GameClient, byte[])`) | nouveau |
+| `Game/Services/SoulstoneCraftRules.cs` | les deux règles de jeu isolées (`CraftCost`, `DuplicationLimit`, `CountIdenticalSockets`) | nouveau |
+| `Game/Services/SoulstoneCraftCatalog.cs` | projection en mémoire de `ItemResources` : `IsSoulstone`, `SocketCount`, `Price`, `SoulstoneProfile` | nouveau |
+| `Game/Services/SoulstoneCraftResult.cs` | `SoulstoneSlotAssignment`, `SoulstoneCraftOutcome`, `SoulstoneCraftResult` | nouveau |
+| `Game/Services/CraftingSocleRules.cs` | **socle réutilisé** : `FilledSlots(handles, socketCount)` (lecture du zéro + bornage) et `ReferencedHandles(SoulstoneCraftRequest)` restauré ; le moteur appelle `FilledSlots` au lieu de redupliquer la règle | modifié |
+| `Game/Services/CraftingSocleService.cs`, `Interfaces/ICraftingSocleService.cs` | 260 **quitte** le socle, qui garde 256/262/263/264 ; aucune ligne de la lecture, du bornage ou du refus générique n'est dupliquée | modifié |
+| `Game/Services/CharacterService.cs`, `ICharacterService.cs` | `SocketSoulstonesAsync` : écriture unique sous le verrou du personnage | modifié |
+| `Game/DataAccess/Repositories/Interfaces/IItemResourceRepository.cs`, `ItemResourceRepository.cs` | `GetSoulstoneCraftFields()` : une lecture `AsNoTracking` de la table au démarrage | modifié |
+| `Game/Network/Clients/GameClient.cs` | bras dédié à 260 **avant** le bras du socle (qui ne le couvre plus) | modifié |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | injection du service et du catalogue | modifié |
+| `Tests/Game/SoulstoneCraftTests.cs` | 37 tests : règles, catalogue, chaîne complète sur un vrai `CharacterService`, refus | nouveau |
+| `Tests/Game/CraftingSoclePacketsTests.cs` | test du socle **restauré** (`ReferencedHandles_SkipsTheEmptySocketsOfASoulstoneCraft`) + un test de `FilledSlots` ; aucun test existant n'est supprimé | modifié |
+
+**Aucune table, aucun fichier de données, aucun catalogue au sens de §9.5 du socle** : le
+« catalogue » de ce lot est une projection en mémoire de la table `ItemResources` existante, lue
+une fois au démarrage, comme le sont déjà les autres projections du dépôt. Le service est le
+**moteur de 260**, pas un second socle : il appelle `TryReadSoulstoneCraft`, `SendResult`,
+`GetItemByHandleAsync` et le motif `DBError` du socle (`CraftingSocleService.cs:129-141`) sans en
+réécrire un seul.
+
+### 9.1 Ce qui répond, et avec quel code
+
+| Cas | Réponse | Source |
+| --- | --- | --- |
+| hors du monde (`CharacterHandle == 0`) | rien, journalisé `Debug` | patron du socle (`CraftingSocleService.cs:51-56`) |
+| trame ≠ 27 octets | `InvalidArgument` (28), valeur 0 | §3, socle (`CraftingSocleService.RefuseMalformed`) |
+| `craft_item_handle` non résolu | `NotExist` (1), valeur = handle | NGemity `:1503-1507` ; §7.7 respecté (le `0` n'est pas une sentinelle) |
+| ressource de l'objet inconnue du catalogue | `AccessDenied` (6), valeur = handle | conséquence de `:1508-1513` : le nombre de châsses n'est pas lisible |
+| `SocketCount` hors [1, 4] | `AccessDenied` (6), valeur = handle | NGemity `:1509-1513` |
+| handle de pierre non résolu | `AccessDenied` (6), valeur = handle | NGemity `:1520-1526` |
+| objet qui n'est pas `type 7 / group 93 / class 401` | `NotActable` (5), valeur = handle | NGemity `:1527-1531` ; axes §5.5 |
+| règle des deux pierres identiques | `AlreadyExist` (9), valeur 0 | NGemity `:1515`, `:1533-1552` |
+| aucune pierre nommée | `InvalidArgument` (28), valeur 0 | NGemity `:1557-1561` |
+| or insuffisant | `NotEnoughMoney` (10), valeur 0 | NGemity `:1562-1565` |
+| exception du dépôt | `DBError`, valeur = handle | convention du socle, pas une politique de 260 |
+| succès | `TM_SC_GOLD_UPDATE` (1001), `TM_SC_UPDATE_ITEM_COUNT` (206)/`TM_SC_DESTROY_ITEM`, `TM_SC_INVENTORY` (207) avec l'objet, puis `Success` (0) | NGemity `:1554-1587`, §5.2 |
+
+Les châsses écrites portent le **code de ressource** de la pierre (`StoneCode`), pas son handle
+(§5.5, réserve A VERIFIER 1). Les slots non nuls **au-delà** de `SocketCount` sont ignorés, jamais
+refusés (§6.2). Les pierres sont consommées (`EraseItem` ≙ la suppression ou la décrémentation du
+tas dans la même écriture).
+
+### 9.2 Ce que le moteur ne fait pas, volontairement
+
+- **endurance** : aucune écriture, la sémantique de `:1567-1581` n'est pas établie (§6.3, A VERIFIER 3) ;
+- **garde de contact** : non portée, son point d'armement appartient au lobe d'ouverture (§5.4, A VERIFIER 5) ;
+- **`TS_SC_ERR` (500)** : non émis en accompagnement d'un refus (§7.3) ;
+- **`CHECK_ITEM_CLASS`** : plus de réserve, les trois axes existent (§6.4) ;
+- **`craft_item_handle = 0`** : traité comme NGemity, réponse `NotExist` (§7.7).
+
+### 9.3 Base mesurée après livraison (24/09/2026)
+
+```
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug     → code de sortie 0
+dotnet test  Tests/Tests.csproj          → code de sortie 0 — Failed: 0, Passed: 1340, Skipped: 0
+git log --oneline origin/master..master  → vide
+```
+
+### 9.4 Zone de recouvrement nommée
+
+`GamePackets.cs` et `GameClient.cs` sont touchés par **les 12 MR ouvertes** (relevé du brief PO).
+Ce lot n'ajoute **aucun membre** à `GamePackets` (260 est déclaré depuis le socle) et ne touche
+`GameClient.cs` que par un **bras de six lignes** plus le retrait de 260 de la liste du socle :
+c'est le minimum possible, et c'est la zone à surveiller au rebasage des 12 branches.
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Le contenu de la châsse de `TS_SC_INVENTORY`** : la fiche tranche « code d'objet » (§5.5, §6.4,
@@ -364,6 +438,13 @@ objdump -d --start-address=0x48da50 --stop-address=0x48daa0 -M intel SFrame.exe 
    (trois axes, valeurs identiques à NGemity). Faut-il amender le socle, ou la présente fiche
    suffit-elle comme correctif ?
 
+**État de ces points après le lot d'implémentation** (24/09/2026, §9) : les points 1 à 5 sont
+**ouverts et portés tels quels** par le code livré — le moteur applique la valeur de la référence et
+l'annonce, aucune n'est présentée comme tranchée. Le point 7 est traité par la fiche elle-même
+(§6.4, §9.2) ; il reste à Killian de décider s'il faut aussi amender `socle-artisanat-objets.md`. Le
+point 6 est **le seul qui bloque l'observation en jeu** : sans l'id du paquet d'ouverture, 260 n'est
+joignable par aucun client, et la vérification de ce lot reste unitaire.
+
 ## Bloc prêt à coller dans `CLAUDE.md`
 
 ````markdown
@@ -390,4 +471,20 @@ Fiche complète : `docs/packet-specs/260-soulstone-craft.md`.
 - **Correction au socle** : les trois axes d'objet de NGemity existent dans le dépôt avec les mêmes
   valeurs (`ItemBaseType.Soulstone = 7`, `ItemGroup.Soulstone = 93`, `ItemType.Soulstone = 401`) —
   la réserve du socle §6.2 sur `CHECK_ITEM_CLASS` est levée.
+- **Le moteur est livré** (`Game/Services/SoulstoneCraftService.cs`, ses règles dans
+  `SoulstoneCraftRules`, la projection d'`ItemResources` dans `SoulstoneCraftCatalog`). 260 **quitte**
+  `CraftingSocleService`, qui garde 256/262/263/264 et reste le socle : la lecture du zéro et le
+  bornage des châsses vivent dans `CraftingSocleRules.FilledSlots`, que le moteur appelle. Le bras de
+  dispatch de `GameClient` précède celui du socle ; **aucun membre n'est ajouté à `GamePackets`**.
+- **Codes de refus** (tous `TM_SC_RESULT`, `request_msg_id = 260`) : `NotExist` (1) pour
+  `craft_item_handle` non résolu — même à `0`, comme la référence —, `AccessDenied` (6) pour une pierre
+  non résolue ou un `SocketCount` hors [1, 4], `NotActable` (5) pour un objet qui n'est pas
+  `type 7 / group 93 / class 401`, `AlreadyExist` (9) pour la règle des deux pierres identiques
+  (seuil 2 si quatre châsses), `InvalidArgument` (28) pour une trame mal formée ou sans pierre,
+  `NotEnoughMoney` (10) pour l'or. Le succès envoie l'or, les pierres consommées, `TM_SC_INVENTORY`
+  (207) puis `Success` (0).
+- **Deux décisions de la référence ne sont pas portées** : l'**endurance** de l'objet après
+  sertissage (`WorldSession.cpp:1567-1581`, sémantique non établie) et la **garde de contact** (son
+  point d'armement appartient au lobe d'ouverture de fenêtre). Le coût (`Σ price / 10`) et le seuil
+  de duplication sont repris de NGemity tels quels, faute de seconde source.
 ````

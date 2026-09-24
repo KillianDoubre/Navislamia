@@ -384,6 +384,27 @@ public class CraftingSoclePacketsTests
     }
 
     [Test]
+    public void ReferencedHandles_SkipsTheEmptySocketsOfASoulstoneCraft()
+    {
+        var request = new GameActionPackets.SoulstoneCraftRequest(0x80000020u,
+            new[] { 0u, 0x80000030u, 0u, 0u });
+
+        // The item being socketed is resolved too, and the three empty sockets are not.
+        CraftingSocleRules.ReferencedHandles(request).Should().Equal(0x80000020u, 0x80000030u);
+    }
+
+    [Test]
+    public void FilledSlots_LimitsTheNamedSocketsToTheChassisOfTheItem()
+    {
+        var handles = new[] { 0x80000030u, 0u, 0x80000032u, 0x80000033u };
+
+        // The same reading as ReferencedHandles, but it keeps the slot numbers: that is what the
+        // socketing engine writes into, so slot 2 of a four-chassis item stays slot 2.
+        CraftingSocleRules.FilledSlots(handles, 4).Should().Equal(0, 2, 3);
+        CraftingSocleRules.FilledSlots(handles, 2).Should().Equal(0);
+    }
+
+    [Test]
     public void ReferencedHandles_ListsTheSixRepairHandlesAndSkipsTheZeroes()
     {
         var request = new GameActionPackets.RepairSoulstoneRequest(new[]
