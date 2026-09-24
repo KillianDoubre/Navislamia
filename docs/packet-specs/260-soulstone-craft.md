@@ -228,6 +228,18 @@ réserve est portée en `## A VERIFIER PAR KILLIAN` (point 5).
 | sort des pierres | consommées (`EraseItem(pierre, 1)`) | NGemity `:1573` | établi |
 | réponse | `207` + `0`/`Success` | §5.2 | établi |
 
+### 5.6 Base mesurée avant livraison (24/09/2026)
+
+```
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug     → code de sortie 0 (0 erreur)
+dotnet test  Tests/Tests.csproj          → code de sortie 0 — Failed: 0, Passed: 1302, Skipped: 0, Total: 1302
+git log --oneline origin/master..master  → vide (master = origin/master = b56967a)
+```
+
+C'est la base du socle déjà livré : le compte de tests doit **monter**, jamais baisser. Cette fiche
+ne modifie aucun fichier de code.
+
 ## 6. Écarts assumés avec NGemity
 
 1. **Garde de contact** : NGemity retourne silencieusement sans contact armé (`:1499-1500`) ; le
