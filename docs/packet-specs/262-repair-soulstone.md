@@ -294,9 +294,9 @@ porter » : NGemity porte bien **l'ouverture**, et c'est cette moitié-là qui m
 | Taille acceptée | **exactement 31 octets** ; toute autre longueur = malformé | §3.1 ; déjà implémenté (`GameActionPackets.cs:509-518`) |
 | Slot vide | `0` = vide, **jamais résolu** | §3.3 ; `CraftingSocleRules.cs:78-80` |
 | Handle non nul inconnu du personnage | refus `NotExist` (avec le handle) | modèle NGemity `WorldSession.cpp:1521` ; dépôt `CraftingSocleService.cs:114-118` |
-| Trame à six zéros | ne peut pas venir du client (§2.4) ; la traiter comme malformée ou comme refus, **au choix du dev, mais à écrire** | déduit du prédicat `0x56b270-0x56b2ae` |
+| Trame à six zéros | ne peut pas venir du client (§2.4) ; la traiter comme malformée ou comme refus, **au choix du dev, mais à écrire** — **conduite retenue par `navis-dev` (§9.2)** : lue comme une trame bien formée qui ne nomme rien, puis refusée `InvalidArgument`, aucun handle résolu | déduit du prédicat `0x56b270-0x56b2ae` |
 | **Réponse de succès** | **aucune source** : rzu ne déclare aucun paquet de résultat dans cette famille, NGemity n'a pas de gestionnaire, et le client n'a qu'un seul message entrant lié au rechargement (261, sans corps). Il n'existe donc **rien** qui puisse transporter un prix, un taux ou un résultat par objet | §5.1, §2.2 |
-| Comportement retenu pour ce cycle | **refus `InvalidArgument` (0)**, c'est-à-dire l'état actuel du dépôt : la trame est lue, bornée, ses handles résolus, puis refusée | `CraftingSocleService.cs:115-125` |
+| Comportement retenu pour ce cycle | **refus `InvalidArgument`**, porté par `TM_SC_RESULT` (**id 0**) avec `request_msg_id = 262`, `Result = ResultCode.InvalidArgument = 28` et `Value = 0` — c'est-à-dire l'état actuel du dépôt : la trame est lue, bornée, ses handles résolus, puis refusée. Le « (0) » de la colonne précédente est l'**id de `TM_SC_RESULT`**, pas le code de résultat | `CraftingSocleService.cs:115-125` ; `ResultCode.cs:37` |
 
 Un moteur de rechargement exigerait trois valeurs qu'aucune source du corpus ne porte : le coût
 en Lak, la formule du rechargement, et l'endroit où vit la « Soul Power » d'une pierre (§7). Ce
@@ -493,6 +493,76 @@ comparables à ceux des fiches antérieures.
 
 ---
 
+## 9. Implémentation (`navis-dev`, branche `hermes/packet-262-repair-soulstone`)
+
+### 9.1 Aucun code de production modifié — et pourquoi
+
+Le lot n'ajoute **aucune ligne** au serveur : tout ce que cette fiche tient pour décidable est déjà
+livré par le socle. Vérifié fichier par fichier sur la branche :
+
+| Ce que la fiche demande | Où c'est déjà livré |
+| --- | --- |
+| l'id dans l'énumération | `Game/Network/Packets/Enums/GamePackets.cs` — `TM_CS_REPAIR_SOULSTONE = 262` |
+| le lecteur borné à 31 octets | `Game/Network/Packets/Game/GameActionPackets.cs` — `TryReadRepairSoulstone` |
+| les sentinelles nulles jamais résolues | `Game/Services/CraftingSocleRules.cs` — `ReferencedHandles(RepairSoulstoneRequest)` |
+| la résolution puis le refus | `Game/Services/CraftingSocleService.cs` — bras `TM_CS_REPAIR_SOULSTONE` |
+| le bras de dispatch | `Game/Network/Clients/GameClient.cs` — `header.ID is … TM_CS_REPAIR_SOULSTONE …` |
+| les trois tests d'offsets du socle | `Tests/Game/CraftingSoclePacketsTests.cs:247-277` |
+
+Conséquence directe : `GamePackets.cs` et `GameClient.cs` — **la zone de collision nommée par le brief
+de ce lot** — ne sont pas touchés par cette carte, et aucun test existant n'est affaibli. Le seul
+fichier ajouté est `Tests/Game/RepairSoulstonePacketsTests.cs`, 26 cas.
+
+### 9.2 Ce que la fiche laissait au dev, et la conduite retenue
+
+1. **Trame à six zéros** (§5.2). Le client ne l'émet jamais (prédicat `0x56b270-0x56b2ae`). Conduite
+   retenue : elle est **lue comme une trame bien formée qui ne nomme rien** — aucun handle résolu,
+   aucune lecture en base — puis refusée `InvalidArgument`, comme toute autre trame lisible.
+   L'alternative « malformée » produirait le **même code sur le fil** (`RefuseMalformed` répond lui
+   aussi `InvalidArgument`) : le choix est documentaire et ne change pas la trame. Il est écrit ici et
+   figé par `HandleAsync_RefusesASixZeroFrameWithoutResolvingAnything`.
+2. **Garde de contact** (§5.4). **Aucun état de contact pour 262** : le refus est inconditionnel,
+   rien n'est lu et rien n'est écrit sur la session ; le point d'armement reste au lobe d'ouverture de
+   fenêtre (261 + déclencheur de PNJ), comme §5.4.3 l'établit. Test :
+   `HandleAsync_RequiresNoContactStateAndWritesNone`.
+3. **Le code du refus.** Il voyage dans `TM_SC_RESULT` (**id 0**) : `request_msg_id = 262`,
+   `Result = ResultCode.InvalidArgument = 28`, `Value = 0`. La formule « refus `InvalidArgument` (0) »
+   de §5.2 visait l'id de `TM_SC_RESULT` ; les tests épinglent la valeur réelle (`28`) pour qu'aucun
+   lecteur ne prenne le `0` pour le code de résultat.
+4. **La foulée du lecteur.** Six `uint32` consécutifs à partir de l'offset 7 (7, 11, 15, 19, 23, 27),
+   aucun compteur, aucune sentinelle de remplissage : la trame est la même qu'un seul slot soit rempli
+   ou six (test `TryReadRepairSoulstone_ReadsEachSlotAtItsOwnOffset`, valeurs asymétriques, et
+   `TryReadRepairSoulstone_KeepsAnEmptySlotAsZero`).
+
+### 9.3 Ce que le lot ne fait pas
+
+Les trois blocages de §5.3 restent entiers : **aucun émetteur de 261**, **aucun gestionnaire du
+déclencheur `show_soulstone_repair_window()`**, **aucun stockage de la Soul Power**. Ils appartiennent
+au lobe d'ouverture de fenêtre et à la carte qui tranchera le stockage : une carte 262 n'a rien à armer
+et rien à persister. Aucun moteur de rechargement, aucune réponse de succès et aucun coût en Lak ne
+sont inventés — §7 et « A VERIFIER PAR KILLIAN » restent ouverts, et les huit points `NON ÉTABLI`
+n'ont été ni devinés ni contournés.
+
+### 9.4 Vérification exécutée
+
+| Commande | Résultat |
+| --- | --- |
+| `dotnet build Navislamia.sln -c Debug` | **code 0**, 0 erreur |
+| `dotnet test Tests/Tests.csproj` | **code 0**, **1328 réussis / 1328** (1302 avant le lot, +26) |
+| `git log --oneline origin/master..master` | **vide** (aucun commit sur `master` locale) |
+
+Le lot a été **falsifié deux fois** avant commit, pour prouver que ses tests peuvent échouer :
+
+| Mutation appliquée puis annulée | Effet |
+| --- | --- |
+| foulée du lecteur décalée de deux octets (`HeaderSize + 2 + i * 4`) | **8 cas tombent** (offsets, sentinelles, refus, boucle) |
+| bras `TM_CS_REPAIR_SOULSTONE` retiré du dispatch de `GameClient` | **5 cas tombent** avec `System.Exception: Unknown Packet Type 262` |
+
+Le code a été remis à l'identique après chaque essai : `git status` ne montre que le fichier de tests
+ajouté et cette fiche.
+
+---
+
 ## A VERIFIER PAR KILLIAN
 
 Aucun de ces points ne bloque la livraison documentaire : ce sont des décisions de jeu ou des
@@ -545,3 +615,14 @@ arbitrages d'infrastructure que le corpus ne permet pas de trancher.
 - **Réponse** : aucune source n'en décrit une (pas de paquet de résultat dans la famille, ni chez
   rzu ni chez NGemity). Le refus `InvalidArgument` du socle reste la seule réponse justifiable
   tant que le coût en Lak, la formule et le stockage de la Soul Power ne sont pas tranchés.
+- **Le refus, tel qu'il part sur le fil** (complété par `navis-dev`, §9.2) : `TM_SC_RESULT` (**id 0**)
+  avec `request_msg_id = 262`, `Result = ResultCode.InvalidArgument = 28`, `Value = 0`. Le « (0) »
+  de la fiche visait l'id du message, pas le code de résultat.
+- **Sentinelles** : un slot vide (`0`) n'est **jamais** résolu et ne doit **jamais** produire
+  `NotExist` ; une trame à six zéros ne résout rien et est refusée comme toute trame lisible ; un
+  handle non nul inconnu du personnage est refusé `NotExist` avec le handle en `value`.
+- **Tests du paquet** : `Tests/Game/RepairSoulstonePacketsTests.cs` (26 cas) — offsets 7/11/15/19/23/27
+  octet par octet, longueurs refusées 0/7/11/27/30/32/33, sentinelles, refus, et passage par la vraie
+  boucle de réception. Retirer le bras de `GameClient` fait tomber 5 cas avec
+  `Unknown Packet Type 262`. Zone de collision `GamePackets.cs` / `GameClient.cs` **non touchée** par
+  cette carte.
