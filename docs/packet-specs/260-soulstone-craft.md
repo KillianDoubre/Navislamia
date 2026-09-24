@@ -105,11 +105,15 @@ Chaîne relevée par désassemblage statique de `SFrame.exe`
   `+0x17`, `+0x1b`, `+0x1f`, `+0x23`) vers les offsets **7, 11, 15, 19 et 23** de la trame
   (`0x48da6a`, `0x48da70`, `0x48da79`, `0x48da7f`, `0x48da7c`), puis réécrit `length = 0x1b`
   (`0x48da82`) et la somme de contrôle (`0x48da8c-0x48da9a`).
-- `0x49e33c` — seul appelant, dans la table de dispatch de l'interface : la case **voisine**
-  immédiatement après (`0x49e349`) appelle `0x48dad0`, qui construit avec `0x48cf10` une trame
-  **id `0x106` = 262, longueur `0x1f` = 31** — c'est-à-dire `TM_CS_REPAIR_SOULSTONE`. Les deux
-  trames de la famille « pierres d'âme » sortent donc bien du **même écran** du client, et 260 est
-  celle dont la trame fait 27 octets.
+- `0x49e33c` — **seul site d'appel de tout le binaire**, à l'intérieur du **stub de dispatch de
+  l'IHM** de clé **1138** (`0x472`) : `push edi` en `0x49e339`, `mov ecx,esi`, `call 0x48da50`,
+  `jmp 0x49e75f` (`0x49e341`). La clé se lit par la table d'octets `0x49EA50` (index 111, valeur 27)
+  puis la table de sauts `0x49E98C` (entrée 27 = `0x49e339`) — mécanisme déjà relevé par les fiches
+  de ce dépôt (`clé = i + 0x403`, `i` tel que `octets[i] == entrée de saut`).
+- `0x49e346` — le stub **suivant** du même flux d'IHM appelle `0x48dad0`, qui construit avec
+  `0x48cf10` une trame **id `0x106` = 262, longueur `0x1f` = 31**, c'est-à-dire
+  `TM_CS_REPAIR_SOULSTONE`. Les deux trames de la famille « pierres d'âme » sortent donc d'un
+  couple de stubs voisins du même flux d'IHM, et 260 est celle dont la trame fait 27 octets.
 
 Aucune donnée de capture n'existe pour ce paquet (pas de `dump` de trafic) : les « valeurs
 observées » de 260 sont des identifiants choisis par le client, et `0` pour une châsse vide est la
