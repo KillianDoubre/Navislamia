@@ -21,6 +21,12 @@ public class CharacterService : ICharacterService
     private readonly CharacterGate _gate;
 
     /// <summary>
+    /// An item carries four chassis at most and the frame names four handles
+    /// (rzu <c>TS_CS_SOULSTONE_CRAFT.h</c>, NGemity <c>WorldSession.cpp:1520,1568</c>).
+    /// </summary>
+    private const int SoulstoneSocketCount = 4;
+
+    /// <summary>
     /// Each operation gets its own repository, hence its own context, and runs under the gate of the
     /// character it touches (<see cref="CharacterGate"/>): two players no longer wait on each other.
     /// </summary>
@@ -333,6 +339,70 @@ public class CharacterService : ICharacterService
             InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
             await repository.SaveChangesAsync();
             return character.Items.Contains(item) ? item.Amount : 0;
+        });
+    }
+
+    public Task<SoulstoneCraftResult> SocketSoulstonesAsync(string characterName, uint craftItemHandle,
+        IReadOnlyList<SoulstoneSlotAssignment> assignments, long cost)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var item = FindByHandle(character?.Items, craftItemHandle);
+            if (item is null)
+            {
+                return new SoulstoneCraftResult(SoulstoneCraftOutcome.ItemNotFound, null, craftItemHandle,
+                    character?.Gold ?? 0, character?.Chaos ?? 0, null);
+            }
+
+            var stones = new List<ItemEntity>(assignments.Count);
+            foreach (var assignment in assignments)
+            {
+                var stone = FindByHandle(character.Items, assignment.StoneHandle);
+                if (stone is null)
+                {
+                    return new SoulstoneCraftResult(SoulstoneCraftOutcome.StoneNotFound, item,
+                        assignment.StoneHandle, character.Gold, character.Chaos, null);
+                }
+
+                stones.Add(stone);
+            }
+
+            if (character.Gold < cost)
+            {
+                return new SoulstoneCraftResult(SoulstoneCraftOutcome.NotEnoughMoney, item, 0, character.Gold,
+                    character.Chaos, null);
+            }
+
+            // The column always carries four chassis (ItemEntity.SocketItemIds is capped at four); an item whose
+            // array is shorter - the migration writes a single zero - is padded rather than written out of bounds.
+            var sockets = new long[SoulstoneSocketCount];
+            if (item.SocketItemIds is not null)
+            {
+                Array.Copy(item.SocketItemIds, sockets, Math.Min(SoulstoneSocketCount, item.SocketItemIds.Length));
+            }
+
+            for (var index = 0; index < assignments.Count; index++)
+            {
+                sockets[assignments[index].Slot] = assignments[index].StoneCode;
+            }
+
+            item.SocketItemIds = sockets;
+
+            var consumed = new List<(uint Handle, long Remaining)>(stones.Count);
+            for (var index = 0; index < assignments.Count; index++)
+            {
+                var stone = stones[index];
+                RemoveAmount(repository, character, stone, 1);
+                consumed.Add((assignments[index].StoneHandle, character.Items.Contains(stone) ? stone.Amount : 0));
+            }
+
+            character.Gold -= cost;
+            InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
+            await repository.SaveChangesAsync();
+
+            return new SoulstoneCraftResult(SoulstoneCraftOutcome.Success, item, 0, character.Gold,
+                character.Chaos, consumed);
         });
     }
 

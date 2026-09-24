@@ -64,7 +64,8 @@ internal static class StorageTestHarness
             storageService ?? A.Fake<IStorageService>(),
             A.Fake<IQuestService>(),
             gmCommandService ?? A.Fake<IGmCommandService>(),
-            petSummonService ?? A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>());
+            petSummonService ?? A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
+            A.Fake<ISoulstoneCraftService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
