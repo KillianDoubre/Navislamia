@@ -353,6 +353,73 @@ du décalage.
 
 ---
 
+## 9. Lot dev — ce qui est écrit, et ce qui reste ouvert
+
+Branche `hermes/packet-263-transmit-ethereal-durability`, commits `248c057` (« judge the object 263
+names before refusing it ») et `3ac2f4a` (« the 263 sacrifice guard, from the clauses to the frames it
+answers »). La trame n'a pas bougé : `GameActionPackets.cs` et `CraftingSocleRules.cs` sont intacts
+(§5.3, §7.8). Le lot ajoute la garde que le client porte lui-même, et rien d'autre.
+
+### 9.1 Ce que le socle fait désormais du handle (`CraftingSocleService.cs`)
+
+1. **Lecture et bornage** : 11 octets exactement, sinon `InvalidArgument` sans aucune lecture d'objet
+   (inchangé, socle §3.5).
+2. **Existence et propriété** : le handle est résolu contre les items du personnage de la session
+   (`ICharacterService.GetItemByHandleAsync(characterName, handle)`) ; absent → `NotExist` (1) avec le
+   handle en `value` (inchangé, convention du chemin 203). La résolution est faite une seule fois : le lot
+   lui fait rendre ses lignes (`ResolveHandlesAsync`) au lieu de relire la table.
+3. **Nature et intégrité** (nouveau) : l'objet résolu est jugé par `EtherealDurabilityRules.Judge`
+   - la ressource doit déclarer une position de port (`ItemResource.WearType != None`, `None` et
+     `CantWear` valant tous deux -1) **et** porter une durabilité éthérée
+     (`ItemResource.EtherealDurability > 0`) ;
+   - la copie possédée doit avoir `ItemEntity.EtherealDurability > 0`.
+   Tout ce qui échoue est refusé par `TM_SC_RESULT` avec **`NotActable` (5)** et le handle offert en
+   `value`. Les faits de ressource viennent de la nouvelle projection
+   `IItemResourceRepository.GetEtherealFields()`, exposée par `EtherealSacrificeCatalog` sur le patron
+   d'`ItemUseCatalog` : aucune lecture d'objet supplémentaire.
+   Une ressource inconnue du catalogue **n'est pas jugée** (convention `IItemGroupCatalog`) : seule
+   l'intégrité de la copie décide alors.
+4. **Le refus générique reste la réponse d'une trame que la garde accepte** : l'objet est sacrifiable,
+   mais le montant, le plafond, l'objet consommé et le code de succès ne sont pas établis (§7.5, §7.6).
+   Un handle 0 (sentinelle de case vide, `CraftingSocleRules`) garde lui aussi `InvalidArgument`, comme
+   avant le lot.
+
+`NotActable` est un **choix documenté, pas une mesure** : c'est le code dont le dépôt se sert déjà pour
+refuser une action sur un objet précis (`ItemUseService`, `EquipmentService`) ; aucun code « objet non
+sacrifiable » n'existe dans `ResultCode.cs` et rien ne dit lequel des textes du client
+(`db_string.dump:1015-1016`, `:189826`) un code déclenche (§7.6). Voir A VERIFIER PAR KILLIAN 3.
+
+### 9.2 Tests (`Tests/Game/EtherealDurabilityTests.cs`, 35 cas)
+
+Offsets : les 11 octets de la trame avec le handle à 7 ; les **15 octets** de la réponse `TM_SC_RESULT`
+— `request_msg_id` à 7, `result` à 9, `value` à 11 — mesurés sur la trame réellement émise par le socle.
+Modèle : les deux colonnes lues (`WearType`, `EtherealDurability`, type `integer`) sont bien mappées sur
+`ItemResourceEntity`. Conduite : garde acceptée → `InvalidArgument` ; nature refusée → `NotActable` ;
+copie épuisée → `NotActable` ; handle inconnu → `NotExist` ; lecture en échec → `DBError` ; trame
+malformée ou handle 0 → `InvalidArgument` sans lire d'objet ; hors monde → aucune réponse ; une seule
+lecture d'objet, et sous le nom du personnage de la session. Dispatch : le bras 263 précède le `switch`
+final de `GameClient.cs`. Mesure sur cette branche : `dotnet test Tests/Tests.csproj` → **1337 passés,
+0 échec, 0 ignoré** (1302 avant le lot, §5.3).
+
+### 9.3 Fichiers touchés
+
+| Fichier | Nature |
+| --- | --- |
+| `Game/Services/CraftingSocleService.cs` | garde 263, résolution qui rend ses lignes, dépendance au catalogue |
+| `Game/Services/EtherealDurabilityRules.cs` | nouveau : les deux clauses, `EtherealSacrificeGate`, code de refus |
+| `Game/Services/EtherealSacrificeCatalog.cs`, `Game/Services/Interfaces/IEtherealSacrificeCatalog.cs` | nouveaux |
+| `Game/DataAccess/Repositories/Interfaces/IItemResourceRepository.cs`, `.../ItemResourceRepository.cs` | projection `ItemEtherealFields` / `GetEtherealFields()` |
+| `DevConsole/Program.cs` | enregistrement du catalogue |
+| `Tests/Game/EtherealDurabilityTests.cs` | nouveau, 35 cas |
+
+`Game/Network/Clients/GameClient.cs`, `Game/Network/Packets/Game/GameActionPackets.cs` et
+`Game/Services/CraftingSocleRules.cs` ne sont **pas** touchés : le bras de dispatch existait déjà (socle
+§9.2) et la trame est inchangée. Chevauchement avec `hermes/packet-260-soulstone-craft` :
+`CraftingSocleService.cs` (constructeur), `IItemResourceRepository.cs`, `ItemResourceRepository.cs`,
+`DevConsole/Program.cs` — §7.8 et A VERIFIER 5.
+
+---
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Le geste et la route** (§7.1, §7.2) : le bouton « Charge Stone » émet-il 263 (un équipement
@@ -363,12 +430,30 @@ du décalage.
 2. **La politique de la charge** (§7.5) : montant rechargé (proportion au prix de l'objet — quelle
    formule, quel arrondi), plafond appliqué (1000 / 10000), objet(s) consommé(s) — l'équipement seul,
    ou aussi l'« Ethereal Charge Stone » —, et comportement quand la pierre est au plafond.
-3. **Le code de résultat** du refus (§7.6) : `InvalidArgument` suffit-il, ou faut-il un code propre à
-   « objet non sacrifiable » ?
+3. **Le code de résultat** du refus (§7.6, §9.1) : le lot répond **`NotActable` (5)** à « non
+   sacrifiable » comme à « plus de durabilité à sacrifier », et laisse `InvalidArgument` (28) à une
+   trame que la garde accepte. Ces deux codes sont-ils ceux que le client attend ? Le dépôt les emploie
+   déjà dans des situations voisines, mais rien ne mesure l'appariement code ↔ texte
+   (`db_string.dump:1015-1016`) : un relevé en jeu trancherait.
 4. **Le champ `+0xC = 0xD`** (§7.3) : confirmer contre `db_item.rdb` s'il s'agit du `type` d'objet, et
    ce que vaut 13 dans cette table.
-5. **Priorité d'atterrissage** (§7.8) : le lot 263 doit passer après le merge de
-   `hermes/packet-260-soulstone-craft` (mêmes fichiers). Le PO décide.
+5. **Priorité d'atterrissage** (§7.8, §9.3) : le lot 263 doit passer après le merge de
+   `hermes/packet-260-soulstone-craft` (mêmes fichiers : `CraftingSocleService.cs`,
+   `IItemResourceRepository.cs`, `ItemResourceRepository.cs`, `DevConsole/Program.cs`). Le PO décide.
+6. **La frontière de la « nature »** (§9.1, point 3) : la garde accepte tout objet dont la ressource
+   déclare une position de port autre que -1 — donc aussi `Skill` (100), `SummonOnly` (200) et
+   `RideItem` (22), qui ne sont pas des équipements. Ce qui tranche : poser une carte de compétence, un
+   objet de monture ou un sac dans le slot matériau d'une pierre éthérée et voir si le client émet 263
+   (il émettrait, la validation est serveur) puis quel texte il affiche.
+7. **L'amorçage de `ItemEntity.EtherealDurability`** : rien dans le dépôt n'écrit ce champ (aucune
+   affectation hors des entités et des migrations) ; toute copie créée vaut donc 0 et la clause
+   d'intégrité refuse aujourd'hui **tout** objet. Ce n'est pas une régression observable — la réponse
+   reste un refus — mais la garde ne devient effective que le jour où le chemin de création d'objet
+   amorce le champ depuis `ItemResource.EtherealDurability`. À trancher : qui amorce (création, retrait
+   au sol, chargement) et avec quelle valeur.
+8. **La ressource inconnue du catalogue** : le lot choisit de **ne pas juger** un objet dont la
+   ressource n'est pas chargée (convention `IItemGroupCatalog` : ne pas refuser ce qu'on ne peut pas
+   juger). Confirmer, ou préférer un refus.
 
 ---
 
@@ -404,6 +489,20 @@ code de refus sont des **décisions de jeu**. Côté dépôt, tout est déjà l�
 `GameActions.cs:275` — **entrée en monde seulement**), `ItemEntity.EtherealDurability` (motif de 75
 octets, offset 24, `ItemFixedInfoWriter.cs:89` ; ne pas reconstruire les 71/81 octets de rzu),
 `TM_SC_DESTROY_ITEM` (254), `TM_SC_UPDATE_ITEM_COUNT` (255) et le refus par `TM_SC_RESULT` (0).
+
+**La garde est au serveur, et elle est écrite** (lot dev, §9.1) : le socle 263 résout le handle contre
+les seuls items du personnage de la session (`ICharacterService.GetItemByHandleAsync`, une seule
+lecture d'objet) — handle inconnu → `TM_SC_RESULT` `NotExist` (1) avec le handle en `value` — puis juge
+l'objet par `EtherealDurabilityRules` : la ressource doit déclarer une position de port
+(`ItemResource.WearType != None`, `None` et `CantWear` valant -1) **et** porter
+`ItemResource.EtherealDurability > 0`, et la copie possédée `ItemEntity.EtherealDurability > 0`. Tout
+échec répond `TM_SC_RESULT` avec `NotActable` (5) et le handle en `value` ; une trame que la garde
+accepte garde le refus générique `InvalidArgument` (28), le montant, le plafond et l'objet consommé
+n'étant pas établis. Les faits de ressource viennent de `IItemResourceRepository.GetEtherealFields()`
+via `EtherealSacrificeCatalog` (patron `ItemUseCatalog`) ; une ressource inconnue de ce catalogue n'est
+pas jugée (convention `IItemGroupCatalog`), et un handle 0 (sentinelle de case vide) reste
+`InvalidArgument`. La réponse de refus fait 15 octets (`request_msg_id` à 7, `result` à 9, `value` à
+11), mesurée par `Tests/Game/EtherealDurabilityTests.cs`.
 
 **Aucun paquet descendant n'est dédié à la charge** : le résultat passe par ces primitives, pas par un
 paquet 263 descendant. Voir `docs/packet-specs/263-transmit-ethereal-durability.md` et
