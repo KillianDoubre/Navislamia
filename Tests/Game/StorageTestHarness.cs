@@ -36,6 +36,7 @@ internal static class StorageTestHarness
 
     public static GameClient NewGameClient(Connection connection, IStorageService storageService = null,
         IGmCommandService gmCommandService = null,
+        IMarketSellService marketSellService = null,
         Navislamia.Game.Services.Pets.IPetSummonService petSummonService = null)
     {
         var networkService = new NetworkService(
@@ -57,6 +58,7 @@ internal static class StorageTestHarness
             A.Fake<ISkillCastService>(),
             A.Fake<IFieldPropService>(),
             A.Fake<IItemUseService>(),
+            marketSellService ?? A.Fake<IMarketSellService>(),
             A.Fake<IWorldLocationService>(),
             A.Fake<IResurrectionService>(),
             A.Fake<IEventAreaService>(),
