@@ -298,6 +298,7 @@ public class Program
         services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMarketCatalog, MarketCatalog>();
         services.AddSingleton<IMarketService, MarketService>();
+        services.AddSingleton<IMarketTradeService, MarketTradeService>();
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
         services.AddSingleton<IAuctionCateryResourceRepository, AuctionCateryResourceRepository>();
