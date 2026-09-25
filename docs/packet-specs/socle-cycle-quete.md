@@ -431,7 +431,7 @@ défaut de découpage, c'est le prix de ne pas inventer les conditions d'accepta
 | contact PNJ | **livré** : `TM_CS_CONTACT` / `TM_CS_DIALOG` résolus par handle (`GameClient.cs:1714-1723`), catalogue de dialogues versionné | `docs/npc-dialogs.md:5-28` |
 | `TS_SC_RESULT` | **livré**, utilisé pour les acquittements | `Game/Network/Packets/Game/TS_SC_RESULT.cs` ; `SendResult` défini en `GameClient.cs:68`, employé par ex. en `:543` |
 | état de quête du personnage | **livré** par (a) : `CharacterQuests` (`Code`, `StartId`, `Value[6]`, `Status[6]`, `Progress`, `TimeLimit`), migration `Version0008_CharacterQuests` | `Game/DataAccess/Entities/Telecaster/CharacterQuestEntity.cs:16-38` ; `socle-quetes.md` §10.2 |
-| catalogue de quêtes | **absent** : ni entité, ni dépôt, ni chargement, ni donnée | `Game/DataAccess/Entities/Arcadia/` (aucune entité « Quest ») ; tables au schéma `ArcadiaSchemaPSQL.sql:906,1234,1789` |
+| catalogue de quêtes | **livré** par (b2), carte `t_8a150442` : entités miroir, dépôt, migration `20260925222917_AddQuestCatalogue`, tests de mapping hors ligne (§9) — mais **toujours aucune donnée** chargée | `Game/DataAccess/Entities/Arcadia/QuestResourceEntity.cs`, `QuestLinkResourceEntity.cs` ; `Game/DataAccess/Repositories/QuestCatalogueRepository.cs` ; tables au schéma `ArcadiaSchemaPSQL.sql:906,1234,1789` |
 | écriture d'une quête | **absente** : la table est lue et vidée, jamais remplie | `socle-quetes.md` §10.5.1 |
 
 ## 6. Écarts assumés avec NGemity, et pourquoi
@@ -502,6 +502,16 @@ de version ou de périmètre, pas des erreurs de la référence.
    du PNJ (c'est ce que la fenêtre affiche), mais aucune référence lue ici ne le prouve : le titre est
    donc à confirmer en jeu, au même titre que le choix titre/texte.
 
+10. **Domaine des colonnes `char` et noms non interprétés.** Le modèle transporte ces colonnes comme
+    des caractères (`'0'`/`'1'` pour `flag_start`/`flag_progress`/`flag_end` d'après le dump 4.1.1,
+    `Arcadia.sql:37098`) mais **aucune référence ne prouve le domaine de chaque drapeau** de
+    `QuestResource` (`limit_deva`…`limit_summoner`, `repeatable`, `or_flag`, `is_auto_quest`,
+    `mark_hide`) : NGemity les replie avec `GetUInt8() == 1`, test insatisfiable contre le caractère
+    `'1'`, et avec `!= 0` pour `or_flag` — les deux lectures ne se réconcilient pas. De même, `ld` et
+    `holicpoint` n'ont **aucune sémantique établie** (4.1.1 lit `nGold` à cette place, le schéma 7.3
+    n'a pas de colonne `gold`). Le type PostgreSQL réel de ces colonnes (`char` = `bpchar(1)` au
+    schéma, déclaré `character varying(1)` au modèle) n'est pas vérifiable sans base (§5.1).
+
 ## 8. Commits épinglés
 
 | référence | commit | autorité |
@@ -509,6 +519,59 @@ de version ou de périmètre, pas des erreurs de la référence.
 | rzu (`librzu`) | `87c1e83bf84efe29bb6405e8e6da80349712f3fa` (2023-10-02) | tailles, ordre des champs, gating par version |
 | NGemity (`Chihiro`) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` (2025-12-03) | logique de quête, catalogue, déclencheurs, sous réserve d'`EPIC_4_1_1` |
 | client Epic 7.3 | `reference/client73/SFrame.exe`, `sha256 41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` | tranche en dernier ressort |
+
+## 9. Livré — lot (b2), miroir du catalogue (carte `t_8a150442`)
+
+Le lot exécuté est **(b2) seul**. La carte dev énonce que « 604 et 605 ne reviennent qu'après, sur
+leurs propres cartes » : c'est le cas de figure anticipé au §5.5 (« si la carte dev exclut 604/605, le
+lot se réduit à (b2) »). Rien de (b1) n'est livré ici — (b1) reste la spécification de `RjcBclVP` /
+`BAMvMQ7u` —, rien de (b3) ni de (b4) non plus. Le lot ne touche **ni** `GamePackets`, **ni** la
+chaîne de dispatch de `GameClient` : aucun paquet n'est déclaré sans bras.
+
+Livré :
+
+| fichier | contenu |
+| --- | --- |
+| `Game/DataAccess/Entities/Arcadia/QuestResourceEntity.cs` | les **82 colonnes** de `QuestResource`, dans l'ordre du schéma |
+| `Game/DataAccess/Entities/Arcadia/QuestLinkResourceEntity.cs` | les **8 colonnes** de `QuestLinkResource` |
+| `Game/DataAccess/Contexts/ArcadiaContext.cs` | `QuestResources` / `QuestLinkResources`, clés, largeurs, `IsRequired` |
+| `Game/DataAccess/Migrations/Arcadia/20260925222917_AddQuestCatalogue.{cs,Designer.cs}` | création des deux tables (elles n'existaient dans aucune base migrée) et instantané du modèle |
+| `Game/DataAccess/Repositories/QuestCatalogueRepository.cs` (+ `Interfaces/IQuestCatalogueRepository.cs`) | `GetResources()` par `id`, `GetLinks()` par `(npc_id, quest_id)`, sans suivi ; enregistré dans `DevConsole/Program.cs` |
+| `Tests/DataAccess/ArcadiaQuestCatalogueModelTests.cs` | 5 tests hors ligne : colonnes/types/nullabilité des deux tables, ordre du schéma, clés, `Up`/`Down` de la migration, instantané sans différence |
+
+**Mapping tranché, et ce qui le prouve.** `QuestResources` (clé `Id`, identité par défaut comme les
+autres tables de ressources du contexte) ; `QuestLinkResources` (clé `(NpcId, QuestId)` : le schéma
+**ne déclare aucune clé primaire** pour cette table — c'est un choix de modélisation, pas une garantie
+sur les données). Les colonnes `char` du schéma sont déclarées `character varying(1)`
+(`TimeLimitType` 10, `script_*` 512) et **aucun drapeau n'est replié en `bool`**. Les quinze colonnes
+`not null` du schéma (`limit_*`, `repeatable`, `or_flag`, `is_auto_quest`, `time_limit_type`,
+`flag_*`) portent `IsRequired()` : les autres tables de ressources du contexte laissent au contraire
+toutes leurs colonnes texte optionnelles (`MonsterResource.model` est `not null` au schéma et
+optionnel au modèle), ce miroir-ci colle donc exactement au schéma. Les `default 0` / `default 999`
+du schéma ne sont pas reproduits.
+
+**Pièges relevés pendant l'implémentation.**
+
+1. **L'ordre positionnel de NGemity n'est pas celui du schéma 7.3.** `ObjectMgr::LoadQuestResource`
+   (`ObjectMgr.cpp:289-375`) fait un `SELECT *` et lit la liste de colonnes **4.1.1** : là où 4.1.1 a
+   `limit_quest_indication char(1)`, le schéma 7.3 a `limit_job_depth smallint` ; 7.3 ajoute
+   `limit_begin_time`, `limit_end_time`, `limit_max_level`, `limit_max_job_level`, `time_limit_type`,
+   `ld` ; et là où 4.1.1 lit `nGold` (juste avant `default_reward_id`), 7.3 porte `holicpoint` puis
+   `ld` — **le `QuestResource` 7.3 n'a aucune colonne `gold`**. Le §5.1 ci-dessus reprend
+   `limit_quest_indication` de 4.1.1 : la colonne 7.3 est `limit_job_depth`.
+2. **Le domaine des drapeaux `char` n'est pas celui qu'écrit NGemity** (§7.10). Le modèle transporte
+   le caractère, sans repli : un repli `bool` figerait un domaine non prouvé.
+3. **`dotnet ef` n'est pas installé dans ce conteneur.** La migration est produite hors ligne par les
+   services design-time d'EF Core 8.0.0 : un projet console jetable, hors dépôt, appelle
+   `DesignTimeServicesBuilder(typeof(ArcadiaContext).Assembly, …, reporter, args)`, puis
+   `IMigrationsScaffolder.ScaffoldMigration("AddQuestCatalogue", "Navislamia.Game", subNamespace:
+   "DataAccess.Migrations.Arcadia")` et `Save(projectDir, migration, outputDir)`.
+   `Microsoft.EntityFrameworkCore.Design` 8.0.0 est dans le cache NuGet (`Game.csproj` le référence
+   déjà), donc l'opération est reproductible sans réseau — et le test
+   `TheTwoCatalogueTablesAreCreatedByOneMigration` vérifie ensuite la migration engendrée.
+4. **Aucune donnée réelle.** `QuestCatalogueRepository` n'est exercé par aucun test : il n'y a ni
+   PostgreSQL ni base Arcadia ici (§5.1). Les tests portent sur le modèle et sur la migration, pas sur
+   des lignes ; le premier consommateur réel (b3) les exercera en jeu.
 
 ## A VERIFIER PAR KILLIAN
 
@@ -530,6 +593,17 @@ de version ou de périmètre, pas des erreurs de la référence.
 5. **Conditions d'acceptation, de progression et de fin** (§7.4, §7.5) : plafond, `repeatable`,
    `forequest*`, limites, `cool_time`, `is_auto_quest`, sémantique de `type` / `value1..12`.
    Ce sont des décisions de jeu, hors socle.
+6. **Type et domaine des colonnes `char`** (§7.10, §9). Le miroir déclare `character varying(1)` là où
+   le schéma dit `char` (`bpchar(1)` en PostgreSQL), et il transporte le caractère sans jugement. À
+   confirmer contre une vraie base Arcadia avant d'écrire la moindre condition d'acceptation : le
+   domaine de chaque drapeau (`'0'`/`'1'`, `'y'`/`'n'`, autre) décide de la lecture.
+7. **Clé de `QuestLinkResource`** (§9). Le schéma ne déclare **aucune** clé primaire : le modèle clé
+   sur `(npc_id, quest_id)`. À confirmer sur un catalogue réel : si plusieurs lignes partagent cette
+   paire (deux jeux de drapeaux ou deux menus pour le même PNJ), le choix demandera une clé de
+   substitution ou une clé étendue, et (b3) doit le savoir avant de lire les liens.
+8. **Les deux tables sont créées vides** (§9). La migration `AddQuestCatalogue` les crée dans une base
+   migrée ; **aucune ligne** n'y est importée. L'alimentation du catalogue (même question que le point
+   4, et même dispositif : import outillé + catalogue versionné) reste entière.
 
 ## Annexe — bloc destiné à `CLAUDE.md` (proposition)
 
@@ -550,6 +624,17 @@ protégé, `navis-ref` et `navis-dev` ne l'écrivent pas.
 - Définitions : `QuestResource` et `QuestLinkResource` du schéma Arcadia
   (`ArcadiaSchemaPSQL.sql:906,1789`) ; le client n'en porte pas (`db_quest.rdb` réécrit par un outil
   tiers, non authentifié). Six récompenses optionnelles en 7.3, contre trois chez NGemity.
+- Catalogue : miroir livré (`QuestResourceEntity`, `QuestLinkResourceEntity`, migration
+  `AddQuestCatalogue`, `QuestCatalogueRepository`) — tables créées vides, aucune donnée importée.
+  Colonnes `char` du schéma = `character varying(1)`, jamais repliées en `bool` ; `QuestLinkResource`
+  n'a pas de clé primaire au schéma, le modèle clé sur `(NpcId, QuestId)`. Ne pas reprendre l'ordre
+  positionnel de `ObjectMgr::LoadQuestResource` (liste 4.1.1 : `limit_quest_indication` au lieu de
+  `limit_job_depth`, `nGold` au lieu de `holicpoint` + `ld`).
+- Migration Arcadia sans `dotnet ef` : les services design-time d'EF Core 8.0.0
+  (`DesignTimeServicesBuilder` + `IMigrationsScaffolder.Save`) génèrent migration, `.Designer.cs` et
+  instantané depuis un projet console jetable, hors ligne (`Microsoft.EntityFrameworkCore.Design`
+  8.0.0 est au cache NuGet). Les tests de mapping hors ligne (`ArcadiaQuestCatalogueModelTests`)
+  vérifient ensuite modèle, migration et instantané.
 - Déclencheur : un `TM_SC_DIALOG` (3000) dont le **texte** est `QUEST|<code>|<textID>` et dont le
   menu porte `\tSTART\tstart_quest( code, textid )\t` / `\tNULL\tend_quest( code, i )\t`. Le client
   7.3 reconnaît ces motifs (`0x0067ce8a`, `0x0057d14d`, `0x0057d174`) ; le retour est un
