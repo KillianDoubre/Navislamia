@@ -348,7 +348,91 @@ comme ce lot : ce sont les deux fichiers à conflit probable. Aucune de ces bran
 comme base ; la base est `master` `b56967a`. La branche du socle marché
 (`hermes/packet-socle-marche-npc`) est mergée et n'a pas été réutilisée.
 
-## 11. Bloc destiné à `CLAUDE.md`
+## 11. Implémentation livrée (lot `navis-dev`)
+
+Commit `d6d597a` (+ ce bloc) sur `hermes/packet-251-buy-item`, base `b56967a`.
+`dotnet build Navislamia.sln -c Debug` → **0 erreur** ; `dotnet test Tests/Tests.csproj` →
+**1333 réussis, 0 échec** (base `b56967a` : 1302 — le compte ne baisse pas). 31 tests neufs dans
+`Tests/Game/BuyItemPacketsTests.cs` : 14 dans `BuyItemPacketTests` (trame, offsets, refus de
+longueur, bras de dispatch, boucle de réception), 17 dans `MarketTradeTests` (le geste, ses refus,
+ses trois trames, la mémoire du marché).
+
+### 11.1 Ce qui a été écrit
+
+| Fichier | Livré |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_BUY_ITEM = 251` (commentaire de gating : 1251 à partir d'`EPIC_9_6_3`, jamais déclaré) |
+| `Game/Network/Packets/Game/GameTradePackets.cs` | `BuyItemSize = 13` et `TryReadBuyItem(ReadOnlySpan<byte>, out int, out ushort)`, qui refuse toute longueur ≠ 13 (`GameActionPackets.TryReadCheckIllegalUser` comme patron) |
+| `Game/Network/Clients/ConnectionInfo.cs` | `OpenMarketName`, vidé par `ClearNpcDialog()` (donc aussi par `ClearCharacterSession()`) — c'est la mémoire de §5.3 |
+| `Game/Services/Interfaces/IMarketService.cs`, `Game/Services/MarketService.cs` | `Open` renvoie désormais `bool` : vrai si 250 a été envoyé. Aucun autre changement du socle |
+| `Game/Services/NpcDialogService.cs` | le bras `PropActionKind.OpenMarket` mémorise `action.Name` **si et seulement si** `Open` a renvoyé vrai |
+| `Game/Services/Interfaces/IMarketTradeService.cs`, `Game/Services/MarketTradeService.cs` | le corps du geste, sur le modèle de `ItemUseService` |
+| `Game/Network/NetworkService.cs` | champ `MarketTradeService` (nouveau paramètre de constructeur, en queue) |
+| `Game/Network/Clients/GameClient.cs` | `HandleBuyItemAsync` + bras `if (header.ID == (ushort)GamePackets.TM_CS_BUY_ITEM)`, placé **avant** le `switch` final |
+| `DevConsole/Program.cs` | `AddSingleton<IMarketTradeService, MarketTradeService>()` |
+| `Tests/Game/StorageTestHarness.cs`, `Tests/Game/ResurrectionPacketTests.cs` | le service est injectable dans le harnais (paramètre optionnel en queue) ; les deux appels de `NetworkService` reçoivent le nouveau paramètre — aucun test existant n'est affaibli |
+
+### 11.2 Décisions prises sur les réserves de la fiche
+
+1. **Ce qui ouvre le marché (§5.3, §7 point 5).** Ce qui est mémorisé est le **nom** du marché (pas
+   les lignes compilées), et il est écrit au moment où 250 part réellement — un marché refusé n'est
+   jamais mémorisé. « Marché ouvert » à l'achat =
+   `NpcDialogHandle != 0 && OpenMarketName non vide && le catalogue résout ce nom` ; sinon
+   `TS_SC_RESULT(251, 7, 0)`. Invalidation : `ClearNpcDialog()`, c'est-à-dire dialogue fermé,
+   téléport, ouverture du stockage, changement de PNJ, disparition du PNJ, changement de personnage.
+   Aucune règle de distance n'est ajoutée (la référence n'en applique aucune).
+2. **Ordre des trois trames (§5.2, §7 point 2).** Or (1001, 19 o) → `TS_SC_RESULT` (15 o) → écho 240
+   (36 o), l'ordre du tableau §5.2 ; c'est aussi l'ordre logique de la référence, qui débite avant
+   d'accuser réception. L'ordre reçu reste `NON ÉTABLI` côté client.
+3. **`value` des refus (§7 point 3).** `0` pour le refus d'or (comme `WorldSession.cpp:765`),
+   `item_code` pour le succès (comme `:804`).
+4. **`huntaholic_point` de l'écho (§7 point 4).** `line.HuntaholicPoint`, la valeur que 250 vient
+   d'annoncer pour la même ligne, plutôt que le `0` de fait de la référence.
+5. **Poids et empilement (§6 points 2 et 3).** Non portés, comme prévu : l'ajout passe par
+   `ICharacterService.AddItemAsync(code, buy_count)`, la branche « empilable » (le refus 11 n'a
+   aucun producteur, `TooHeavy` reste déclaré sans émetteur), et la quantité du client est honorée
+   telle quelle. `buy_count == 0` étant refusé avant l'ajout, le `Math.Max(1, count)` de
+   `AddItemAsync` ne peut pas transformer un achat nul en achat d'une unité.
+6. **Prix (§6 point 4).** `total = buyCount * line.Price` en `long`, sans troncature `int32` ;
+   refus 10 si `total < 0` ou `total > CharacterGold` (la garde de `:764-767` ramenée à `long`).
+7. **Doublon de `code` (§7 point 8).** La **première** ligne portant le code est retenue : un 251 =
+   un achat = un écho. Le quirk de la référence (balayage sans `break`, deux achats pour un 251)
+   n'est pas porté.
+8. **Achats concurrents (§7 point 6) — la forme sûre.** Le débit est pris **synchroniquement sur
+   l'or de session, avant le premier `await`** : la boucle de réception d'un client traite ses
+   trames sur un seul fil, donc deux 251 présents dans le même tampon ne peuvent pas franchir tous
+   deux le contrôle. La porte par personnage (`RunExclusiveAsync`) reste ce qui protège l'écriture
+   de l'objet, exactement comme `AddItemAsync` le fait déjà. Un test tient les deux ajouts ouverts
+   (`TaskCompletionSource`) et vérifie que le troisième achat est déjà refusé : c'est la preuve
+   exécutable de cette forme.
+9. **Écriture ratée.** Si l'ajout échoue (exception) ou ne trouve pas le personnage, l'or de session
+   est **recrédité**, une mise à jour d'or repart, et le refus est `ResultCode.DBError` (8). Ce code
+   n'est **pas** sourcé sur la référence (qui n'a pas de base) : c'est la convention du dépôt pour
+   une écriture ratée (`ItemUseService.cs:50`). Aucun écho 240 n'est envoyé dans ce cas.
+10. **Le socle marché n'est pas réécrit** : `BuildMarketInfo` et `BuildNpcTradeInfo` sont utilisés
+    tels quels, `MarketService.Open` ne change que par son `bool` de retour, et aucun test de
+    `MarketCatalogTests.cs` n'est modifié.
+
+### 11.3 Preuve que les tests d'offsets mordent
+
+Deux mutations, chacune appliquée seule dans un worktree détaché sur `d6d597a`
+(`/tmp/mut251`, ajouté puis retiré, `git worktree list` propre avant et après) :
+
+| Mutation | Résultat de `BuyItemPacketTests` |
+| --- | --- |
+| `item_code` lu à `HeaderSize + 2` au lieu de `HeaderSize` | **2 échecs** (position du code et valeur relue), 12 réussis |
+| `buy_count` lu à `HeaderSize` au lieu de `HeaderSize + 4` | **2 échecs** (position de la quantité), 12 réussis |
+
+Le reste de la trame ne peut pas être déplacé sans casser ces assertions, et
+`TryReadBuyItem_RejectsAnyLengthOtherThanThirteen` refuse 0, 7, 12, 14 et 36 octets.
+
+### 11.4 Ce que ce lot ne fait pas
+
+Rien n'existe côté données pour qu'un marchand s'ouvre en jeu : `open_market(` est toujours tronqué
+et `DevConsole/market-catalog.73.json` est toujours vide (47 octets). Le chemin est donc vérifié au
+niveau trame et service, pas en jeu — aucune carte ne peut l'être sur ce VPS.
+
+## 12. Bloc destiné à `CLAUDE.md`
 
 `CLAUDE.md` n'est pas modifié par ce lot (fichier protégé par Hermes). Le bloc ci-dessous voyage
 dans la description de la MR, portée par la QA.
@@ -380,6 +464,19 @@ dans la description de la MR, portée par la QA.
 >   `docs/packet-specs/socle-marche-npc.md`.
 
 ## A VERIFIER PAR KILLIAN
+
+**État au lot `navis-dev` (commit `d6d597a`)** — les questions ci-dessous restent ouvertes côté
+client ; ce que le lot a **tranché** pour pouvoir livrer, et qu'il faut confirmer :
+
+| Question | Décision du lot dev (§11.2) | Rouvrir si… |
+| --- | --- | --- |
+| Ce qui vaut « marché ouvert » | nom de marché mémorisé quand 250 part, vidé avec le dialogue ; `7` sinon | un achat légitime après fermeture de la fenêtre doit passer |
+| Objet absent du marché | **silence**, comme la référence | le client attend un refus explicite |
+| `value` du refus d'or | `0` (référence) | le client a besoin du `item_code` |
+| `huntaholic_point` de l'écho | valeur de la ligne de catalogue | le client attend `0` |
+| Doublon de `code` | première ligne seule | la référence (deux achats) doit être reproduite |
+| Écriture ratée | or recrédité + `TS_SC_RESULT(251, 8, 0)` — code de convention du dépôt, non sourcé | un autre code est préféré |
+| Poids / empilement | non portés (dépôt sans modèle de charge ni drapeau de pile) | une règle de plafond est fournie |
 
 1. **Ce qui décide du refus d'un achat.**
    - *Objet absent du marché* : la référence ne répond **rien** (`WorldSession.cpp:749-814`). La
