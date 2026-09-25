@@ -598,6 +598,14 @@ fusionné, `master` + ce lot comptent deux compositions du masque, **octet pour 
 `Pk_SetsTheModeAndPublishesItsBit` (`GmCommandServiceTests.cs:555-563`) et les tests de
 `PkModeStatusTests` passent **sans modification**.
 
+**Cette branche ne dépend d'aucun symbole de la branche 800** : `SendActorStatus()` est **définie
+ici**, avec son corps, et n'est appelée que par le bras 801 ; aucun autre apport de la branche 800
+(membre d'énumération 800, `HandleTurnOnPkMode`, `GameActionPackets` de 800) n'est requis, cité ou
+supposé présent. La preuve est le build du lot sur sa **propre base** : `b56967a` + ces commits →
+`dotnet build Navislamia.sln -c Debug` code **0**, `0 Error(s)` (§11.10), l'arbre de travail ne
+contenant que les fichiers de ce lot. La seule dépendance à 800 est **de fusion**, pas de
+compilation, et elle est mesurée en §11.7.
+
 ### 11.6 Ce qui n'est pas porté, et pourquoi
 
 - **Aucune réponse, aucun code de résultat** : aucun `TM_SC_*` PK n'existe (§1) et rien n'établit que
