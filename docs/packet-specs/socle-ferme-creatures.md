@@ -31,7 +31,7 @@ puisse produire honnêtement : un `6001` vide (§5.3).
 **Statut : implémenté** par la branche `hermes/packet-socle-ferme-creatures` (commits `feat(farm): read
 the creature farm frames and answer 6000 with an empty 6001` et `docs(farm): what the lot delivered and
 the two deviations it assumes`) : six membres déclarés, six bras de réception dans `GameClient`,
-`GameFarmPackets.cs` (lecteurs + `6001` vide) et 54 tests. Les écarts assumés par rapport au §5.3 sont
+`GameFarmPackets.cs` (lecteurs + `6001` vide) et 55 tests. Les écarts assumés par rapport au §5.3 sont
 consignés en §5.5.
 
 ---
@@ -385,12 +385,14 @@ rien dans le code ne consomme ni ne pose ces deux drapeaux.
   le motif plutôt que l'objet évite de trancher à la place du lot suivant ; un appelant qui tient l'entité
   de la carte construit le motif avec `ItemFixedInfoWriter.FromItem`, comme le §5.3 le prévoit.
 
-**Tests** — `Tests/Game/FarmPacketsTests.cs`, 54 tests (1302 → 1356 au total, `dotnet test` code 0,
+**Tests** — `Tests/Game/FarmPacketsTests.cs`, 55 tests (1302 → 1357 au total, `dotnet test` code 0,
 `dotnet build` code 0, 164 avertissements, inchangé) :
 
 * les six ids, et l'absence de `6003`/`6005`/`6007` ;
 * `6001` vide : 8 octets, `length` `8`, id `6001`, checksum, `summons = 0` ;
-* taille `8 + 120 N` pour `N = 0`, `1` et `2` (248), et **la liste d'offsets du §5.3.5 littéralement**
+* taille `8 + 120 N` pour `N = 0`, `1` et `2` (248), l'absence du champ `unknown` gaté `EPIC_9_8_1` (les
+  quatre derniers octets d'une trame à deux entrées sont l'`appearance_code` du second `card_info`, donc
+  l'entrée fait bien 45 + 75 et rien de plus), et **la liste d'offsets du §5.3.5 littéralement**
   (`summons` `+7`, `index` `+8`, `exp` `+12`, `name` `+20`, `duration` `+39`, `elasped_time` `+43`,
   `refresh_time` `+47`, `using_cash` `+51`, `using_cracker` `+52`, `card_info` `+53`, fin d'entrée `+128`),
   plus `card_info` `+71` = `appearance_code` nul et `entry end = card_info début + 75` ;

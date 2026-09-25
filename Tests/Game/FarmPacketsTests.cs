@@ -129,6 +129,26 @@ public class FarmPacketsTests
     }
 
     [Test]
+    public void FarmInfoEntry_HasNoEpic98UnknownField()
+    {
+        // Gating 7.3: the entry is 45 bytes of fields plus the 75-byte card_info and nothing else — rzu only
+        // appends its `unknown` field from EPIC_9_8_1 on. A frame of N entries is therefore exactly
+        // 8 + 120N bytes, with the last byte inside the last entry's card_info.
+        var packet = GameFarmPackets.BuildFarmInfo(new[]
+        {
+            Summon(0, 0, "a", 0, 0, 0, 0, 0),
+            Summon(1, 0, "b", 0, 0, 0, 0, 0)
+        });
+
+        packet.Length.Should().Be(248);
+        var lastEntry = GameFarmPackets.GetSummonEntryOffset(1);
+        var lastCardInfo = lastEntry + CardInfoInEntry;
+        (lastCardInfo + ItemFixedInfoWriter.Size).Should().Be(packet.Length);
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(packet.Length - 4, 4))
+            .Should().Be(0, "the last four bytes are the appearance_code of the second card_info");
+    }
+
+    [Test]
     public void EmptyFarmInfo_IsEightBytesAndAnnouncesNoSummon()
     {
         var packet = GameFarmPackets.BuildEmptyFarmInfo();
