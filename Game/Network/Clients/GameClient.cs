@@ -99,6 +99,22 @@ public class GameClient : Client
         Connection.Send(GameWeatherPackets.BuildWeatherInfo(regionId, weatherId));
     }
 
+    /// <summary>
+    /// Publishes this client's own actor status mask as a <c>TM_SC_STATUS_CHANGE</c> (500): the complete
+    /// instant snapshot composed by <see cref="ActorStatus.ForPlayer"/> — PK bit
+    /// (<see cref="CreatureStatus.PlayerPkOn"/>, bit 11), sitting, battle mode and walking. Every site that
+    /// changes one of those four states goes through here, so none of them can publish a mask that clears
+    /// another flag. The 7.3 client reads bit 11 to choose between <c>TM_CS_TURN_ON_PK_MODE</c> (800) and
+    /// its twin 801, so a stale mask makes it oscillate between the two.
+    /// See docs/packet-specs/socle-mode-pk.md §5.2 and 801-turn-off-pk-mode.md §5.3.
+    /// </summary>
+    public void SendActorStatus()
+    {
+        var info = ConnectionInfo;
+        Connection.Send(GameCharacterPackets.BuildStatusChange(info.CharacterHandle,
+            ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking)));
+    }
+
     private void HandleTimeSync(byte[] packet)
     {
         const int sampleWindow = 4;
@@ -413,6 +429,38 @@ public class GameClient : Client
         _logger.Debug(
             "TM_CS_XTRAP_CHECK ({id}) Length: {length} pCheckBuffer: {bufferLength} bytes received from {clientTag}",
             (ushort)GamePackets.TM_CS_XTRAP_CHECK, buffer.Length, checkBuffer.Length, ClientTag);
+    }
+
+    /// <summary>
+    /// TM_CS_TURN_OFF_PK_MODE (801): the player switched PK mode off from the client (the toggle key, or
+    /// the <c>/PKOFF</c> line the client turns into the same constructor), a header-only frame of 7 bytes
+    /// with an empty body. The treatment is exactly the one the GM command <c>/pk</c> already applies to the
+    /// same session state — mutate <see cref="ConnectionInfo.PkMode"/> and republish the actor status mask
+    /// through <see cref="SendActorStatus"/> — because the mask is the only channel that state travels on.
+    /// Nothing is answered: no <c>TM_SC_*</c> PK packet exists in rzu, NGemity or the 7.3 client's incoming
+    /// dispatcher (grepped, none), and the texts the client shows (<c>smsq_pkmode_off</c>) are its own,
+    /// played locally before it even sends. No restriction is invented either: the client's "off" path
+    /// never consults the area lock its "on" path reads (SFrame.exe+0x684fc7), so no state in which turning
+    /// the mode off would be refused is established, and the server keeps no copy of that rule. The frame is
+    /// not a toggle: receiving it twice republishes the same mask, because <see cref="ConnectionInfo.PkMode"/>
+    /// is the only source of truth. Persistence is already in place: the session save writes
+    /// <c>ConnectionInfo.PkMode</c> back to <c>Characters.PkMode</c> on disconnect.
+    /// See docs/packet-specs/801-turn-off-pk-mode.md §5.1-§5.5.
+    /// </summary>
+    private void HandleTurnOffPkMode(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadTurnOffPkMode(buffer))
+        {
+            _logger.Warning("Malformed TM_CS_TURN_OFF_PK_MODE ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_TURN_OFF_PK_MODE, buffer.Length, ClientTag);
+            return;
+        }
+
+        ConnectionInfo.PkMode = false;
+        SendActorStatus();
+
+        _logger.Debug("TM_CS_TURN_OFF_PK_MODE ({id}) Length: {length} received from {clientTag}: PK mode off",
+            (ushort)GamePackets.TM_CS_TURN_OFF_PK_MODE, buffer.Length, ClientTag);
     }
 
     /// <summary>
@@ -1848,6 +1896,19 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_XTRAP_CHECK)
             {
                 HandleXtrapCheck(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_TURN_OFF_PK_MODE (801): a header-only client frame (7 bytes, empty body) with no server
+            // answer — the PK state travels on bit 11 of the status mask of TM_SC_STATUS_CHANGE (500) only,
+            // exactly like the /pk command and its twin 800. It must stay before the throwing switch below: a
+            // member of GamePackets that reaches it breaks the receive loop. 801 is the twin that belongs to
+            // this branch; 800 is declared by its own branch, and an undeclared id is logged and dropped, so
+            // nothing breaks meanwhile.
+            // See docs/packet-specs/801-turn-off-pk-mode.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_TURN_OFF_PK_MODE)
+            {
+                HandleTurnOffPkMode(msgBuffer);
                 continue;
             }
 

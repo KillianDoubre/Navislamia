@@ -747,4 +747,26 @@ public static class GameActionPackets
         request = new EquipSummonRequest(packet[HeaderSize] != 0, handles);
         return true;
     }
+
+    /// <summary>
+    /// The size of <c>TM_CS_TURN_OFF_PK_MODE</c> (801) on the wire: the 7-byte header and nothing else.
+    /// rzu's <c>TS_CS_TURN_OFF_PK_MODE_DEF(_)</c> is empty — no field is defined after the header — and the
+    /// client's own constructor writes <c>Length = 7</c> (SFrame.exe+0x684c08, id 0x321 at +0x684c22)
+    /// without writing a single body byte.
+    /// See docs/packet-specs/801-turn-off-pk-mode.md §3.1.
+    /// </summary>
+    public const int TurnOffPkModeLength = HeaderSize;
+
+    /// <summary>
+    /// <c>TM_CS_TURN_OFF_PK_MODE</c> (801): the player switched PK mode off, a <b>header-only</b> frame —
+    /// its whole body is the header, like 23, 25 and 27 (<c>TM_CS_RETURN_LOBBY</c> and friends), and like
+    /// its twin 800. The exact 7-byte form is therefore the only one accepted: the client writes that
+    /// length in hard and exposes no producer for any other form (a single constructor, called from exactly
+    /// two sites), so a longer frame is a protocol anomaly refused before anything is applied, and nothing
+    /// is ever read past the header. A frame shorter than its own header never reaches the dispatch at all —
+    /// the receive loop disconnects on it (<c>GameClient.OnDataReceived</c>) — so the 7-byte case is the
+    /// only one the loop can hand over.
+    /// See docs/packet-specs/801-turn-off-pk-mode.md §5.2.
+    /// </summary>
+    public static bool TryReadTurnOffPkMode(ReadOnlySpan<byte> packet) => packet.Length == TurnOffPkModeLength;
 }
