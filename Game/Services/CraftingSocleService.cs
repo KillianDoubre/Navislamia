@@ -17,7 +17,10 @@ namespace Navislamia.Game.Services;
 ///
 /// It does four things, in this order, and writes no crafting of any kind: read the frame at its
 /// established Epic 7.3 size, bound it, resolve every handle it names against the character's own items,
-/// then refuse. No <c>MixResource</c>/<c>EnhanceResource</c> table is loaded, no rate is rolled, no
+/// then refuse. For <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT</c> the bound is the <c>(0,1]</c>
+/// domain its <c>rate</c> is measured to live in (docs/packet-specs/264-transmit-ethereal-durability-to-equipment.md
+/// §2.3, §5.5): the frame names no handle, so nothing is resolved for it.
+/// No <c>MixResource</c>/<c>EnhanceResource</c> table is loaded, no rate is rolled, no
 /// failure policy is applied and no socket is touched: those are game decisions the specification
 /// deliberately leaves to Killian (docs/packet-specs/socle-artisanat-objets.md §9.2, §9.3, §9.5).
 ///
@@ -95,11 +98,23 @@ public class CraftingSocleService : ICraftingSocleService
                 break;
 
             case (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT:
-                // The 7.3 frame carries a float rate and no handle at all: nothing can be resolved, and the
-                // unit of the rate is not established, so the frame is only bounded.
-                if (!GameActionPackets.TryReadTransmitEtherealDurabilityToEquipment(packet, out _))
+                // The 7.3 frame carries a float rate and no handle at all: nothing can be resolved. The rate
+                // is a share of the restitution asked for, and the client can only write (0,1]
+                // (docs/packet-specs/264-transmit-ethereal-durability-to-equipment.md §2.3), so the frame is
+                // bounded by that domain before the socle's usual refusal. A rate outside it is not a frame
+                // Epic 7.3 can produce: it is refused, never clamped or interpreted.
+                if (!GameActionPackets.TryReadTransmitEtherealDurabilityToEquipment(packet, out var restoration))
                 {
                     RefuseMalformed(client, packetId, packet.Length);
+                    return;
+                }
+
+                if (!CraftingSocleRules.IsRestorableRate(restoration.Rate))
+                {
+                    _logger.Warning(
+                        "Crafting packet {id} from {clientTag} carries a rate outside the domain the Epic 7.3 client can produce (Rate: {rate}), refused with InvalidArgument",
+                        packetId, client.ClientTag, restoration.Rate);
+                    client.SendResult(packetId, (ushort)ResultCode.InvalidArgument);
                     return;
                 }
 

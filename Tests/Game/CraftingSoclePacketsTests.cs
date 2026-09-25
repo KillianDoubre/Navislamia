@@ -1,4 +1,6 @@
+using System;
 using System.Buffers.Binary;
+using System.IO;
 using FluentAssertions;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
@@ -305,19 +307,42 @@ public class CraftingSoclePacketsTests
         request.Handle.Should().Be(0u);
     }
 
-    [Test]
-    public void TryReadTransmitEtherealDurabilityToEquipment_ReadsTheRateAsAFloatAtSeven()
+    private static byte[] EtherealToEquipmentFrame(float rate)
     {
         var packet = new byte[11];
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), 11u);
         BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2),
             (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT);
-        BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(7, 4), 0.5f);
+        BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(7, 4), rate);
+        return packet;
+    }
+
+    [Test]
+    public void TryReadTransmitEtherealDurabilityToEquipment_ReadsTheRateAsAFloatAtSeven()
+    {
+        var packet = EtherealToEquipmentFrame(0.5f);
+
+        GameActionPackets.TryReadTransmitEtherealDurabilityToEquipment(packet, out var request).Should().BeTrue();
+
+        // 7 bytes of header, then the four bytes of the float and nothing else: no target byte, no handle.
+        // The quadruplet at offset 7, read little-endian, spells the float — 0.5f is 00 00 00 3F — so an
+        // integer read, a two-byte read or a big-endian read fails here.
+        packet.Length.Should().Be(11);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x3F000000u);
+        request.Rate.Should().Be(0.5f);
+    }
+
+    [Test]
+    public void TryReadTransmitEtherealDurabilityToEquipment_ReadsTheFullRateQuadruplet0000803FAtSeven()
+    {
+        // The other emitter of the 7.3 client (spec §2.3) writes 1.0f, i.e. 00 00 80 3F at offset 7.
+        var packet = EtherealToEquipmentFrame(1f);
 
         GameActionPackets.TryReadTransmitEtherealDurabilityToEquipment(packet, out var request).Should().BeTrue();
 
         packet.Length.Should().Be(11);
-        request.Rate.Should().Be(0.5f);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x3F800000u);
+        request.Rate.Should().Be(1f);
     }
 
     [TestCase(0f, TestName = "TryReadTransmitEtherealDurabilityToEquipment_KeepsAZeroRate")]
@@ -326,8 +351,11 @@ public class CraftingSoclePacketsTests
     [TestCase(-1.5f, TestName = "TryReadTransmitEtherealDurabilityToEquipment_KeepsANegativeRate")]
     public void TryReadTransmitEtherealDurabilityToEquipment_DoesNotInterpretTheRate(float rate)
     {
-        // The rate is a float of unknown unit (spec §7 NON ÉTABLI 7) and NGemity has no handler to copy:
-        // the reader must not turn it into a percentage or refuse it.
+        // The reader carries the shape of the frame, not the policy: it keeps the float exactly as the wire
+        // has it. The (0,1] domain the 7.3 client is measured to write is a rule, not a reading constraint,
+        // so these out-of-domain values still read back unchanged and the bound is tested where it lives
+        // (IsRestorableRate below, and CraftingSocleService).
+        // See docs/packet-specs/264-transmit-ethereal-durability-to-equipment.md §5.5.1-2.
         var packet = new byte[11];
         BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(7, 4), rate);
 
@@ -355,6 +383,70 @@ public class CraftingSoclePacketsTests
         var packet = new byte[length];
 
         GameActionPackets.TryReadTransmitEtherealDurabilityToEquipment(packet, out _).Should().BeFalse();
+    }
+
+    // ------------------------------------------------------------ the (0,1] domain of the rate
+
+    [TestCase(0.5f, TestName = "IsRestorableRate_AcceptsThePartialRateOfTheSecondEmitter")]
+    [TestCase(1f, TestName = "IsRestorableRate_AcceptsTheFullRateOfTheFirstEmitter")]
+    [TestCase(0.0001f, TestName = "IsRestorableRate_AcceptsAShareJustAboveZero")]
+    public void IsRestorableRate_AcceptsTheDomainTheEpic73ClientWrites(float rate)
+    {
+        // Path A writes exactly 1.0f (0x5EAE8A fld1) and path B writes part/100, reached only when the
+        // request exceeds the stone charge (0x5EAE57 jg), so strictly positive and strictly below 1.
+        CraftingSocleRules.IsRestorableRate(rate).Should().BeTrue();
+    }
+
+    [TestCase(0f, TestName = "IsRestorableRate_RefusesAZeroRate")]
+    [TestCase(-1.5f, TestName = "IsRestorableRate_RefusesANegativeRate")]
+    [TestCase(1.0000001f, TestName = "IsRestorableRate_RefusesARateJustAboveOne")]
+    [TestCase(100f, TestName = "IsRestorableRate_RefusesAPercentStyleRate")]
+    [TestCase(float.NaN, TestName = "IsRestorableRate_RefusesNaN")]
+    [TestCase(float.PositiveInfinity, TestName = "IsRestorableRate_RefusesPositiveInfinity")]
+    [TestCase(float.NegativeInfinity, TestName = "IsRestorableRate_RefusesNegativeInfinity")]
+    public void IsRestorableRate_RefusesEveryRateTheEpic73ClientCannotProduce(float rate)
+    {
+        // NaN and ±∞ are named on purpose: NaN > 0f is false and ±∞ <= 1f is false, so the single
+        // conjunction rejects them without a separate test. A NaN that crossed this rule would enter every
+        // later item computation silently.
+        CraftingSocleRules.IsRestorableRate(rate).Should().BeFalse();
+    }
+
+    // ------------------------------------------------------ the family reaches its receive arm
+
+    [TestCase(GamePackets.TM_CS_MIX)]
+    [TestCase(GamePackets.TM_CS_SOULSTONE_CRAFT)]
+    [TestCase(GamePackets.TM_CS_REPAIR_SOULSTONE)]
+    [TestCase(GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY)]
+    [TestCase(GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT)]
+    public void CraftingFamily_IsDispatchedBeforeTheUnknownPacketThrow(GamePackets packet)
+    {
+        // GameClient's dispatch is a chain of ifs, so a member added to the enum without a branch reaches
+        // the final switch and its `throw` kills the receive loop. Nothing smaller than a source scan can
+        // check that without a live socket.
+        var source = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "Game", "Network", "Clients", "GameClient.cs"));
+
+        var branch = source.IndexOf($"GamePackets.{packet}", StringComparison.Ordinal);
+        var finalSwitch = source.IndexOf("throw new Exception($\"Unknown Packet Type", StringComparison.Ordinal);
+
+        branch.Should().BeGreaterThan(-1, $"{packet} needs a branch of its own in OnDataReceived");
+        finalSwitch.Should().BeGreaterThan(-1, "the final switch is the guard this test is about");
+        branch.Should().BeLessThan(finalSwitch, $"{packet} must be handled before the final switch throws");
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Navislamia.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull("the repository root is needed to check the dispatch chain");
+
+        return directory!.FullName;
     }
 
     // --------------------------------------------------------- the handles actually named
