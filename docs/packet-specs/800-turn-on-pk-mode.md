@@ -465,7 +465,7 @@ ouvert`.
 |---|---|---|---|
 | 1 | `dotnet build Navislamia.sln -c Debug` code 0 | **OK** | code **0**, `0 Error(s)`, 164 avertissements — aucun ne cite un fichier du lot (vérifié par `grep -i` sur les quatre fichiers livrés) |
 | 2 | `dotnet test Tests/Tests.csproj` code 0, compte jamais en baisse | **OK** | base de la fiche (§5.5) : **1302** réussis / 1302. Après le lot : code **0**, **1316** réussis / 1316, 0 échec, 0 ignoré → **+14** |
-| 3 | Au moins un test d'offsets (taille totale et position de chaque champ) | **OK** | `Tests/Game/TurnOnPkModePacketsTests.cs` (§11.3) : `ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix`, `TryReadTurnOnPkMode_AcceptsTheSevenByteFrame`, `…RefusesEveryOtherLength` (6, 8, 15), plus l'exercice de la vraie boucle sur 8 et 15 |
+| 3 | Au moins un test d'offsets (taille totale et position de chaque champ) | **OK** | `Tests/Game/TurnOnPkModePacketsTests.cs` (§11.3) : `ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix`, `TryReadTurnOnPkMode_AcceptsTheSevenByteFrame`, `…RefusesEveryOtherLength` (6, 8, 15), plus l'exercice de la vraie boucle sur 8 et 15 ; la **preuve que les tests mordent** est en §11.11 |
 | 4 | Enum et dispatch modifiés ensemble | **OK** | membre `TM_CS_TURN_ON_PK_MODE = 800` (`GamePackets.cs:149`) **et** bras `if (header.ID == …)` en `GameClient.cs:1906`, **avant** le `switch` de `GameClient.cs:1912` qui lève `Unknown Packet Type` (balayage exhaustif en §11.7) |
 | 5 | Savoir durable dans la fiche commitée + bloc `CLAUDE.md` dans la description de la MR | **OK côté fiche** | cette section ; le bloc §10 est corrigé en §11.9 (le dev n'écrit pas `CLAUDE.md`, Hermes protège ce fichier) |
 | 6 | Version est tranchée | **OK** | **800 déclaré, 1800 non déclaré** (`Ids_AreTheEpic73Ones` vérifie `Enum.IsDefined(1800) == false`) ; 801 reste non déclaré et appartient à sa propre branche |
@@ -497,7 +497,7 @@ serveur → client de cette famille (§5.2) — `GameCharacterPackets.cs` est in
 `TryReadTurnOnPkMode` **n'accepte que les 7 octets** (`packet.Length == TurnOnPkModeLength`) : un
 producteur unique (§3.1) écrit toujours 7, donc 8 et plus sont des anomalies. Le refus de 6 est testé
 aussi, mais il **ne peut pas venir de la boucle** : un `Length` inférieur à l'en-tête fait
-`Connection.Disconnect()` avant tout dispatch (`GameClient.cs:1237`) — c'est écrit dans le commentaire du
+`Connection.Disconnect()` avant tout dispatch (`GameClient.cs:1285`) — c'est écrit dans le commentaire du
 lecteur, et c'est pour ça que le lecteur le refuse lui aussi (appel direct). Les longueurs 8 et 15 sont
 en plus **exercées à travers la vraie boucle de réception** :
 `OnDataReceived_ConsumesAPaddedFrameWithoutTurningTheModeOn` et `…ALongerFrameWithoutTurningTheModeOn`
@@ -573,9 +573,9 @@ les conflits dans `GamePackets.cs`/`GameClient.cs` contre `origin/master` seul (
 | `packet-4003-huntaholic-create-instance` | 1 | 1 | **0** |
 | les 9 autres (`212`, `215`, `221`, `260`, `262`, `263`, `264`, `281`, `323`) | 0 | 0 | **0** |
 
-Le lot **n'ajoute aucune zone de conflit** : les 11 conflits constatés sont ceux qu'ont déjà les
-branches sœurs entre elles (bases communes anciennes), et l'insertion de ce lot tombe hors de leurs
-points d'ancrage — membre d'énumération entre 603 et 900, bras de dispatch **juste après** celui de
+Le lot **n'ajoute aucune zone de conflit** : les 11 conflits constatés sont ceux que chaque branche sœur
+a **déjà contre la base** (`origin/master` seul, bases communes anciennes), et l'insertion de ce lot tombe
+hors de leurs points d'ancrage — membre d'énumération entre 603 et 900, bras de dispatch **juste après** celui de
 `TM_CS_XTRAP_CHECK` (59), handler et méthode d'envoi dans des régions disjointes. À noter pour la
 fusion : `hotspot: Game/Network/Packets/Enums/GamePackets.cs` et
 `hotspot: Game/Network/Clients/GameClient.cs` restent les deux fichiers les plus disputés du dépôt
@@ -608,8 +608,8 @@ do grep -q "GamePackets\.$n" Game/Network/Clients/GameClient.cs \
    d'une ligne.
 4. **Deux tests sont écrits pour survivre à la fusion du lot 801** :
    `OnDataReceived_ConsumesTheUndeclaredTwin801WithoutThrowing` (vert avec ou sans 801) et
-   `Ids_AreTheEpic73Ones` (ne vérifie que 1800, pas 801). Le lot 801 devra supprimer l'assertion
-   « id inconnu » de son côté, pas ici.
+   `Ids_AreTheEpic73Ones` (ne vérifie que 1800, pas 801). Aucun des deux n'assert quoi que ce soit sur
+   le journal ni sur ce que 801 publiera : ils restent verts avec ou sans ce lot-là.
 5. **Le mode PK n'est toujours visible que du client de l'acteur** (§5.4) : le paquet rend la bascule
    du client correcte, pas le PK visible par un tiers.
 6. **Le bloc §10 a été corrigé sur place** : il citait `GmCommandService.SendStatus`, supprimée par ce
@@ -655,3 +655,34 @@ dotnet test Tests/Tests.csproj             → code 0, 1316 réussis / 1316, 0 �
 ```
 
 `dotnet ef` reste absent du conteneur : aucun schéma n'est touché par ce paquet (rien à migrer).
+
+### 11.11 Preuve que les tests mordent (critère 3 : « une assertion fausse doit échouer »)
+
+Deux mutations **transitoires** ont été portées sur le code de production, mesurées, puis annulées
+(`git checkout -- <fichier>`, arbre de travail propre revérifié avant et après) :
+
+1. `GamePackets.cs` : `TM_CS_TURN_ON_PK_MODE = 800` remplacé par `= 1800` →
+   `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~TurnOnPkMode"` → **code 1**,
+   `Failed: 2, Passed: 12` :
+   ```
+   Failed ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix
+     Expected BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4, 2)) to be 800us, but found 1800us
+   Failed Ids_AreTheEpic73Ones
+     Expected ((ushort)GamePackets.TM_CS_TURN_ON_PK_MODE) to be 800us, but found 1800us
+   ```
+   L'assertion d'offset sur l'`ID` (octets 4-5) mord donc bien.
+2. `GameActionPackets.cs` : `TryReadTurnOnPkMode` passé de `packet.Length == 7` à `>= 7` (la règle
+   recommandée §7 point 5 retirée) → **code 1**, `Failed: 4, Passed: 10` :
+   ```
+   Failed TryReadTurnOnPkMode_RefusesAPaddedFrame   → Expected …BeFalse, but found True
+   Failed TryReadTurnOnPkMode_RefusesALongerFrame   → Expected …BeFalse, but found True
+   Failed OnDataReceived_ConsumesAPaddedFrameWithoutTurningTheModeOn
+     Expected session.PkMode to be false …, but found True
+   Failed OnDataReceived_ConsumesALongerFrameWithoutTurningTheModeOn
+     Expected session.PkMode to be false …, but found True
+   ```
+   Les tests de taille totale et de cas de bord (8 et 15 octets) mordent donc eux aussi, au niveau du
+   lecteur **et** de la vraie boucle de réception.
+
+Après annulation des deux mutations : arbre propre (`git status --porcelain` vide) et
+`TurnOnPkMode` de nouveau **14 réussis / 14** en code 0.
