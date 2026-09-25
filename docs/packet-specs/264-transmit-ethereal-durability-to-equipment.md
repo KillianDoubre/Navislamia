@@ -456,7 +456,7 @@ mutation n'a pas été écrit.
 
 | Test | Verrou | Mutation jouée → ce qui tombe |
 |---|---|---|
-| `..._ReadsTheFullRateQuadruplet0000803FAtSeven`, `..._ReadsTheHalfRateQuadruplet0000003FAtSeven` (`CraftingSoclePacketsTests`) | le **quadruplet brut** à l'offset 7 : `ReadUInt32LittleEndian(packet[7..11]) == 0x3F800000` pour `1.0f` (`00 00 80 3F`) et `0x3F000000` pour `0.5f` (`00 00 00 3F`), **et** `Rate`, **et** la taille totale 11 | lecteur lisant les 4 octets comme un entier (`(float)ReadInt32LittleEndian`) → **5 échecs** |
+| `..._ReadsTheRateAsAFloatAtSeven` (0.5f, renforcé), `..._ReadsTheFullRateQuadruplet0000803FAtSeven` (nouveau, 1.0f) (`CraftingSoclePacketsTests`) | le **quadruplet brut** à l'offset 7 : `ReadUInt32LittleEndian(packet[7..11]) == 0x3F000000` pour `0.5f` (`00 00 00 3F`) et `0x3F800000` pour `1.0f` (`00 00 80 3F`), **et** `Rate`, **et** la taille totale 11. Le test d'origine garde son nom : aucune assertion n'a été retirée | lecteur lisant les 4 octets comme un entier (`(float)ReadInt32LittleEndian`) → **5 échecs** |
 | `..._RefusesTheTwelveByteEightOneForm` | que `target` n'est pas lu en 7.3 | lecteur acceptant 12 octets (`!=` → `<`) → **1 échec** |
 | `..._DoesNotInterpretTheRate` (`0f`, `1f`, `100f`, `-1.5f`) | que la borne **n'est pas dans le lecteur** | inchangé (test de `master`, commentaire mis à jour) |
 | `IsRestorableRate_AcceptsTheDomainTheEpic73ClientWrites` (`0.5f`, `1f`, `0.0001f`) | le domaine du client | règle déplacée en `rate >= 0f && rate < 1f` → **2 échecs** |

@@ -317,23 +317,32 @@ public class CraftingSoclePacketsTests
         return packet;
     }
 
-    [TestCase(0.5f, 0x3F000000u,
-        TestName = "TryReadTransmitEtherealDurabilityToEquipment_ReadsTheHalfRateQuadruplet0000003FAtSeven")]
-    [TestCase(1f, 0x3F800000u,
-        TestName = "TryReadTransmitEtherealDurabilityToEquipment_ReadsTheFullRateQuadruplet0000803FAtSeven")]
-    public void TryReadTransmitEtherealDurabilityToEquipment_ReadsTheRateAsFourLittleEndianBytesAtSeven(float rate,
-        uint quadruplet)
+    [Test]
+    public void TryReadTransmitEtherealDurabilityToEquipment_ReadsTheRateAsAFloatAtSeven()
     {
-        var packet = EtherealToEquipmentFrame(rate);
+        var packet = EtherealToEquipmentFrame(0.5f);
 
         GameActionPackets.TryReadTransmitEtherealDurabilityToEquipment(packet, out var request).Should().BeTrue();
 
         // 7 bytes of header, then the four bytes of the float and nothing else: no target byte, no handle.
-        // The quadruplet at offset 7, read little-endian, spells the float — 1.0f is 00 00 80 3F, 0.5f is
-        // 00 00 00 3F — so an integer read, a two-byte read or a big-endian read fails here.
+        // The quadruplet at offset 7, read little-endian, spells the float — 0.5f is 00 00 00 3F — so an
+        // integer read, a two-byte read or a big-endian read fails here.
         packet.Length.Should().Be(11);
-        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(quadruplet);
-        request.Rate.Should().Be(rate);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x3F000000u);
+        request.Rate.Should().Be(0.5f);
+    }
+
+    [Test]
+    public void TryReadTransmitEtherealDurabilityToEquipment_ReadsTheFullRateQuadruplet0000803FAtSeven()
+    {
+        // The other emitter of the 7.3 client (spec §2.3) writes 1.0f, i.e. 00 00 80 3F at offset 7.
+        var packet = EtherealToEquipmentFrame(1f);
+
+        GameActionPackets.TryReadTransmitEtherealDurabilityToEquipment(packet, out var request).Should().BeTrue();
+
+        packet.Length.Should().Be(11);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(0x3F800000u);
+        request.Rate.Should().Be(1f);
     }
 
     [TestCase(0f, TestName = "TryReadTransmitEtherealDurabilityToEquipment_KeepsAZeroRate")]
