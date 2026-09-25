@@ -28,6 +28,12 @@ Conséquence directe sur le lot : le serveur **ne peut pas** peupler `TM_SC_FARM
 stockage de ferme. Le lot est donc un lot « lecture et bornage » plus la seule réponse que le serveur
 puisse produire honnêtement : un `6001` vide (§5.3).
 
+**Statut : implémenté** par la branche `hermes/packet-socle-ferme-creatures` (commits `feat(farm): read
+the creature farm frames and answer 6000 with an empty 6001` et `docs(farm): what the lot delivered and
+the two deviations it assumes`) : six membres déclarés, six bras de réception dans `GameClient`,
+`GameFarmPackets.cs` (lecteurs + `6001` vide) et 54 tests. Les écarts assumés par rapport au §5.3 sont
+consignés en §5.5.
+
 ---
 
 ## 2. Identité des trames
@@ -337,7 +343,71 @@ ne rien répondre tant qu'aucune référence ne sanctionne la réponse
 `FarmedSummon = 27` et `NursedSummon = 28`, **sans aucun usage** dans le code. Ce sont les deux
 drapeaux d'objet que le modèle client associe à une carte passée par la ferme ; ils ne suffisent pas
 à établir le stockage (aucune relation ferme ↔ personnage n'existe), mais ils indiquent où le lot
-suivant devra regarder avant d'inventer une table (§7.1).
+suivant devra regarder avant d'inventer une table (§7.1). Toujours sans aucun usage après ce lot :
+rien dans le code ne consomme ni ne pose ces deux drapeaux.
+
+### 5.5 Ce que le lot a effectivement livré (`navis-dev`)
+
+1. **`GamePackets.cs`** — les six membres du §5.3, insérés après le couple `TM_CS/TM_SC_RANKING_TOP_RECORD`
+   (`5000`/`5001`), avec un commentaire qui nomme la famille, le marqueur rzu `// Since EPIC_7_3` et les
+   trois ids volontairement absents. `6003`/`6005`/`6007` restent **non déclarés**, et un test
+   (`TheThreeResultIds_AreNotDeclared`) échoue si l'un d'eux apparaît sans bras de dispatch.
+2. **`Game/Network/Packets/Game/GameFarmPackets.cs`** — un lecteur par trame C→S, un écrivain pour `6001` :
+   * `HasNoPayload(ReadOnlySpan<byte>)` pour `6000` **et** `6008` (`EmptyLength = 7`), sur le modèle de
+     `GameInstanceGamePackets.HasNoPayload` ;
+   * `TryReadRetrieveCreature` / `TryReadNurseCreature(out uint creatureCardHandle)` — `6004` et `6006`,
+     longueur exigée **11** (`CreatureCardHandleLength`) ;
+   * `TryReadFosterCreature(out FosterCreatureRequest)` — `6002`, avec `FosterTicket` et `FosterCracker`
+     (`uint handle` + `int32 count`, 8 octets chacun). Refuse `T < 0`, `C < 0` et toute longueur différente
+     de `19 + 8T + 8C` ; la longueur déclarée est calculée en **64 bits avant toute allocation**, pour qu'un
+     compteur énorme ne puisse pas déborder sur une longueur plausible (test dédié) ;
+   * `BuildFarmInfo(IReadOnlyList<FarmSummonInfo>)` et `BuildEmptyFarmInfo()` — `8 + 120 N` octets, compteur
+     écrit en dernier ressort égal au nombre d'entrées réellement écrites, liste plafonnée à 127
+     (`MaxSummons`, borne du protocole : `int8_t` de rzu). `FarmSummonInfo` porte les neuf champs de
+     l'entrée, `name` écrit sur 19 octets ASCII tronqué à 18 + NUL (même écrivain que
+     `GameSummonPackets`), `card_info` écrit par `ItemFixedInfoWriter.Write` sur 75 octets.
+3. **`GameClient.cs`** — cinq bras (`6000`, `6002`, `6004`, `6006`, `6008`) et le garde-fou entrant `6001`,
+   placés après le bras `TM_CS_XTRAP_CHECK` et donc avant le `switch` qui lève `Unknown Packet Type`, avec
+   cinq méthodes `Handle…` insérées après `HandleRankingTopRecord`. Seul `6000` répond
+   (`Connection.Send(GameFarmPackets.BuildEmptyFarmInfo())`). Chaque trame malformée est journalisée en
+   `Warning` et abandonnée, jamais répondue. Aucune entrée n'est écrite dans le journal pour un `6001`
+   entrant autre que l'avertissement, et aucun `TS_SC_RESULT` n'est émis (`6003`/`6005`/`6007` non déclarés).
+
+**Deux écarts assumés par rapport au §5.3** :
+
+* la signature est `BuildFarmInfo(IReadOnlyList<FarmSummonInfo>)` et non `BuildFarmInfo(uint count, …)` :
+  un paramètre `count` séparé de la liste pourrait la contredire, alors que la valeur sur le fil doit
+  toujours être le nombre d'entrées écrites (le client boucle sur le compteur et ignore le champ de
+  longueur). `BuildEmptyFarmInfo()` reste l'appel explicite de la trame vide ;
+* l'écrivain prend le motif `ItemFixedInfo` du `card_info` **de son appelant** au lieu d'appeler lui-même
+  `ItemFixedInfoWriter.FromItem` : le §7.9 laisse non établi *quel* objet décrit ce motif (la carte du
+  joueur ou une ligne de catalogue), et le seul `6001` que le serveur produit aujourd'hui est vide. Prendre
+  le motif plutôt que l'objet évite de trancher à la place du lot suivant ; un appelant qui tient l'entité
+  de la carte construit le motif avec `ItemFixedInfoWriter.FromItem`, comme le §5.3 le prévoit.
+
+**Tests** — `Tests/Game/FarmPacketsTests.cs`, 54 tests (1302 → 1356 au total, `dotnet test` code 0,
+`dotnet build` code 0, 164 avertissements, inchangé) :
+
+* les six ids, et l'absence de `6003`/`6005`/`6007` ;
+* `6001` vide : 8 octets, `length` `8`, id `6001`, checksum, `summons = 0` ;
+* taille `8 + 120 N` pour `N = 0`, `1` et `2` (248), et **la liste d'offsets du §5.3.5 littéralement**
+  (`summons` `+7`, `index` `+8`, `exp` `+12`, `name` `+20`, `duration` `+39`, `elasped_time` `+43`,
+  `refresh_time` `+47`, `using_cash` `+51`, `using_cracker` `+52`, `card_info` `+53`, fin d'entrée `+128`),
+  plus `card_info` `+71` = `appearance_code` nul et `entry end = card_info début + 75` ;
+* deux entrées à valeurs asymétriques (le pas de 120 est prouvé par la seconde), `name` tronqué à 18 + NUL
+  et jamais débordant sur `duration`, remplissage NUL, liste nulle = ferme vide, plafond à 127 sans
+  bouclage du compteur ;
+* `6002` : 27 octets (1 ticket, 0 cracker — la forme réelle du client), 35 (1 + 1), 51 (2 tickets +
+  2 crackers, offsets `19`/`27`/`35`/`43`), minimum de 19 ; refus des longueurs `< 19`, d'une longueur
+  incohérente avec les compteurs, d'une trame paddée, des compteurs négatifs et de deux compteurs à
+  `int.MaxValue` ;
+* `6004`/`6006` : poignée lue en `+7`, poignée `uint` gardée jusqu'à `0xFFFFFFFF`, refus de `0`/`7`/`10`/`12`
+  (`6006` aussi `19`) ;
+* `6000`/`6008` : 7 octets acceptés, `0`/`6`/`8`/`11` refusés ;
+* **boucle de réception** (`StorageTestHarness`, comme les tests 57) : une trame `6000` de 7 octets produit
+  exactement une réponse, `6001` de 8 octets avec `summons = 0` ; `6000` malformée, `6002`, `6004`, `6006` et
+  `6008` bien formées ne lèvent pas et ne répondent rien ; une trame `6001` entrante ne lève pas et ne
+  répond rien — soit le critère 4 prouvé à l'exécution et pas seulement par relecture.
 
 ---
 
