@@ -471,6 +471,112 @@ protégé par Hermes. Bloc à insérer après la section « Paquets 240 / 250 �
 >   n'est pas prise.
 > - Voir `docs/packet-specs/252-sell-item.md`.
 
+## 12. Implémentation livrée (lot `navis-dev`, branche `hermes/packet-252-sell-item`)
+
+Commit `020a2d9` (code, tests et branchement) ; la fiche est commitée juste après. Base : `master`
+`b56967a`, comme la fiche le prescrit — **aucun symbole de la branche sœur 251 n'est utilisé**.
+
+### 12.1 Fichiers
+
+| Fichier | Nature | Rôle |
+|---|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | modifié | `TM_CS_SELL_ITEM = 252`, déclaré avec la famille des objets (à côté de 253-255) et non sous l'ancre 250/283 que le lot 251 écrit |
+| `Game/Network/Packets/Game/GameTradePackets.cs` | modifié | `SellItemSize = 13` et `TryReadSellItem` (`handle` `uint32` à 7, `sell_count` `uint16` à 11, tout autre longueur refusée), placés après `BuildNpcTradeInfo`, loin de l'insertion du lot 251 |
+| `Game/Network/Clients/GameClient.cs` | modifié | bras de dispatch 252 (avant le `switch` qui lève `Unknown Packet Type`) et `HandleSellItemAsync` (lecture bornée puis geste) |
+| `Game/Network/NetworkService.cs` | modifié | `MarketSellService`, paramètre inséré après `IItemUseService` (le lot 251 ajoute le sien en fin de liste) |
+| `Game/Services/Interfaces/IMarketSellService.cs`, `Game/Services/MarketSellService.cs` | neufs | le geste : prix, refus, retrait, paiement, écho |
+| `Game/Services/MarketSellPrice.cs` | neuf | le barème (`f[rank - 1]`, un incrément par niveau au-dessus de 1, quart final) et la bande 602700-602799 |
+| `Game/Services/Interfaces/IItemSellCatalog.cs`, `Game/Services/ItemSellCatalog.cs` | neufs | `(rank, price)` de chaque objet, chargé une fois comme les autres catalogues d'objets |
+| `Game/DataAccess/Repositories/Interfaces/IItemResourceRepository.cs`, `Game/DataAccess/Repositories/ItemResourceRepository.cs` | modifiés | `ItemSellFields(Id, Rank, Price)` et `GetSellPriceFields()` — l'accès `Price` que §5.4 signalait comme manquant |
+| `DevConsole/Program.cs` | modifié | enregistrement des deux nouveaux services |
+| `Tests/Game/SellItemPacketsTests.cs` | neuf | 48 tests (trame, dispatch, branchement, geste, barème) |
+| `Tests/Game/StorageTestHarness.cs`, `Tests/Game/ResurrectionPacketTests.cs` | modifiés | `NetworkService` a un paramètre de plus : les deux points de construction des tests suivent |
+
+### 12.2 Décisions prises là où la fiche laissait ouvert
+
+Aucune n'est une supposition : chacune est soit une règle de la référence portée telle quelle, soit un
+refus explicite là où la référence n'a pas de comportement reproductible. Les six réserves restent
+ouvertes ci-dessous.
+
+- **Arrondi du prix (A VERIFIER 3)** : le lot porte le **chemin de la référence**, troncature de
+  l'incrément à chaque tour de boucle, en `float` 32 bits, puis un quart du total
+  (`MarketSellPrice.TryComputeUnitPrice`). L'exemple mesuré de §5.3 (`price = 2`, `rank = 2`, `lv = 5`
+  → **0** pièce) est reproduit par un test nommé pour cette règle, avec le résultat de l'autre règle
+  (**1**) écrit en commentaire : la substitution de l'une par l'autre fera rougir le test. La largeur
+  de `float_t` reste non établie, la règle reste donc à confirmer.
+- **`rank` hors 0-8 (§6 écart 2)** : refus, `NotExist` (1) valeur = code d'objet, journalisé en
+  avertissement. C'est le code que la référence répond à un objet non vendable ; la référence, elle,
+  lit hors de son tableau (`GameContent.cpp:214`) et ne produit aucune valeur reproductible. Le refus
+  remplace donc un débordement, pas une politique de jeu. *(La fiche renvoie ce point à « A VERIFIER
+  6 », qui traite en fait de la bande de prix : la conduite de repli n'a pas de question numérotée
+  propre — elle est signalée ici, et son état de code est en §6 écart 2.)*
+- **`target` de l'écho 240 (A VERIFIER 4)** : `ConnectionInfo.NpcDialogHandle`, l'équivalent du
+  `GetLastContactLong("npc")` de la référence. `NpcDialogService` laisse délibérément le dialogue
+  courant à l'ouverture d'une fenêtre de marché, donc le handle survit à la vente ; `ClearNpcDialog()`
+  l'efface, et une vente sans dialogue courant émet `target = 0` (la référence n'a pas de refus pour
+  ce cas non plus). **Aucune donnée de session neuve n'a été ajoutée là où la fiche envisageait un
+  champ « dernier marchand »** : à trancher.
+- **Politique « vendable » (A VERIFIER 2)** : le sous-ensemble démontrable que la fiche fixe —
+  `WearInfo == ItemWearType.None`, `StorageId == null`, `EquippedBySummonId == null` — refusé en
+  `NotExist` (1) valeur = code d'objet. Cartes liées et drapeau `Taming` : hors périmètre, comme la
+  fiche le réserve.
+- **Bande `[602700, 602799]` (A VERIFIER 6)** : **portée telle quelle** (`× 1,0` au lieu de `× 0,25`),
+  bornes comprises, avec un test des quatre codes frontière et un test de bout en bout sur 602700.
+  C'est la branche sourcée de `WorldSession.cpp:1038` ; son sens métier reste à confirmer.
+- **Plafond d'or (A VERIFIER 1)** : **non porté**, faute d'équivalent dans le dépôt ;
+  `TOO_MUCH_MONEY` (53) reste sans producteur. La garde de débordement de la référence
+  (`:1050-1053`) est en revanche portée telle quelle (`NotActable` 5 valeur = code d'objet) : sur un
+  or `int64` elle ne se déclenche qu'en débordement.
+- **Bug `code`/`count` de la référence (A VERIFIER 5)** : non porté. `code` = code d'objet et
+  `count` = quantité vendue, la fiche tranche déjà dans ce sens pour le contrat de la trame.
+
+### 12.3 Trames et ordre, tels que testés
+
+Une vente réussie émet, dans cet ordre : `TM_SC_UPDATE_ITEM_COUNT` (255, 19 octets) ou
+`TM_SC_DESTROY_ITEM` (254, 11 octets) quand la pile est vidée — le retrait de la référence précède son
+paiement, et c'est ce retrait qui fait disparaître les unités chez le client —, puis
+`TM_SC_GOLD_UPDATE` (19 octets, or + chaos), puis `TS_SC_RESULT` (15 octets, `request_msg_id = 252`,
+`result = 0`, `value` = handle), puis l'écho `TM_SC_NPC_TRADE_INFO` (240, 36 octets, `is_sell = 1`,
+`code` = code d'objet, `count` = quantité, `price` = **total**, `huntaholic_point` = 0, `target` =
+handle du marchand). Les refus n'émettent **qu'un `TS_SC_RESULT`** : `NotExist` (1) valeur 0 (objet
+inconnu, hors du sac, sans template), `Unknown` (7) valeur 0 (`sell_count == 0`), `NotExist` (1) valeur
+= code (non vendable, quantité supérieure à la pile, `rank` hors échelle), `NotActable` (5) valeur =
+handle (retrait refusé), `NotActable` (5) valeur = code (débordement de bourse), `DBError` (8) valeur 0
+(magasin muet, convention du dépôt et non de la référence).
+
+### 12.4 Ce que le lot ne fait pas
+
+- Aucune vérification de fenêtre ouverte : la référence n'en a pas non plus à la vente.
+- Aucune persistance de l'or : la session est mise à jour et la trame part, comme `CombatService` et
+  la commande GM le font déjà ; l'écriture en base reste l'affaire de `SaveProgressAsync`.
+- `TOO_MUCH_MONEY` (53) : sans producteur (A VERIFIER 1).
+- Cartes liées, drapeau `Taming`, barème hors 0-8 : hors périmètre (A VERIFIER 2 et 6).
+
+### 12.5 Tests livrés et preuve de morsure
+
+- 48 tests neufs dans `Tests/Game/SellItemPacketsTests.cs` : offsets de la trame (octets posés à la
+  main, en-tête de 7 vérifié par `Marshal.SizeOf<Header>()`, longueurs 0/7/12/14/36 refusées),
+  présence du bras de dispatch **avant** le `throw` (analyse de source), consommation de la trame dans
+  la boucle de réception, branchement des valeurs décodées au service, ordre et charge utile de chaque
+  trame répondue, chaque refus, la bande de prix, le barème par rang et la règle d'arrondi.
+- `dotnet build Navislamia.sln -c Debug` → **0 erreur** ; `dotnet test Tests/Tests.csproj` →
+  **1350 réussis, 0 échec** (1302 sur `master` + 48), donc le compte ne baisse pas.
+- Desarmorçage dans un worktree jetable (`git worktree add --detach`), mutant par mutant, chacun
+  annulé ensuite — témoin 48/48 vert, puis : garde de longueur relâchée en `<` → 2 échecs ; borne de
+  `rank` retirée → 3 échecs ; bras de dispatch vidé → 2 échecs ; écho portant le prix unitaire au lieu
+  du total → 1 échec. Les tests mordent sur la trame, le gating, le dispatch et le calcul.
+
+### 12.6 Collision mesurée avec la jumelle 251
+
+`git merge-tree --write-tree --name-only hermes/packet-252-sell-item hermes/packet-251-buy-item` →
+**un seul fichier en conflit** : `Tests/Game/StorageTestHarness.cs`, où les deux lots ajoutent un
+paramètre optionnel à `NewGameClient` (résolution : garder les deux). `GamePackets.cs`,
+`GameTradePackets.cs`, `GameClient.cs`, `NetworkService.cs`, `ResurrectionPacketTests.cs` et
+`DevConsole/Program.cs` fusionnent **automatiquement** : le membre d'enum, le lecteur, le bras de
+dispatch, le paramètre de constructeur et le point de construction des tests ont été placés à distance
+des insertions du lot 251. `StorageTestHarness.cs` est donc le point chaud à signaler (§10) : c'est le
+seul fichier que tous les lots qui ajoutent un service doivent toucher.
+
 ## A VERIFIER PAR KILLIAN
 
 Six décisions ne sont pas tranchables par lecture statique ; aucune n'a été comblée par une
@@ -484,26 +590,41 @@ la question laissée ouverte par le socle ; le point 6 borne un défaut de la r�
    resterait donc sans producteur. Faut-il introduire le plafond de la référence, un autre, ou
    laisser la vente toujours aboutir tant que l'or tient dans un `int64` ? Réponse attendue :
    « plafond de la référence » / « autre valeur : … » / « pas de plafond ».
+   *État du code : non porté, `TOO_MUCH_MONEY` (53) n'est produit nulle part ; la garde de
+   débordement `:1050-1053` est portée telle quelle (`NotActable` 5 valeur = code, testée).*
 2. **Politique de « vendable ».** La référence a laissé le contrôle commenté (`:1035`), porte son
    propre aveu « not 100% correct » (`Player.cpp:3164`) et lit `ITEM_FLAG_TAMING` comme un masque
    `0x20000000` alors que le drapeau du dépôt est un **indice de bit** (`ItemFlag.Taming = 29`).
    Peut-on livrer la vente avec le sous-ensemble démontrable (non équipé, hors stockage, hors
    invocation) et laisser les cas « carte liée » et « familier apprivoisé » hors périmètre, ou
    faut-il un arbitrage plus complet avant d'ouvrir la fenêtre de vente ?
+   *État du code : le sous-ensemble démontrable est livré (`MarketSellService.cs`, `IsSellable`), refus
+   `NotExist` (1) valeur = code d'objet ; cartes liées et `ItemFlag.Taming` ne sont pas jugés.*
 3. **Arrondi du prix de vente.** Deux règles vérifiables, deux résultats différents : troncature de
    l'incrément **à chaque** tour de boucle (comportement mesuré de la référence — `price = 2`,
    `rank = 2`, `lv = 5` → **0** pièce) ou calcul décimal tronqué **une fois** à la fin (même cas →
    **1** pièce). La largeur exacte de `float_t` dans la compilation de NGemity n'est pas établie.
    La fiche ne choisit pas : laquelle retenir, et laquelle documenter dans le test ?
+   *État du code : le chemin de la référence est porté (troncature à chaque tour, `float` 32 bits), avec
+   un test nommé sur le cas mesuré `price = 2`, `rank = 2`, `lv = 5` → 0 ; le résultat de l'autre règle
+   (1) est écrit dans le commentaire du test, qu'un basculement fera rougir.*
 4. **Provenance du `target` de l'écho 240.** NGemity utilise `GetLastContactLong("npc")`
    (`WorldSession.cpp:1070`, posé au contact du PNJ `:702`). Le dépôt n'a que
    `ConnectionInfo.NpcDialogHandle` (`ConnectionInfo.cs:209`) et `NpcDialogTriggers` (`:210`),
    effacés par `ClearNpcDialog()` (`:375-378`) — et aucune mémoire de ce type pour un marchand
    ouvert par `TM_SC_MARKET`. Faut-il retenir le handle du marchand à l'ouverture de la fenêtre
    (donnée de session neuve) et l'émettre comme `target`, ou émettre autre chose ?
+   *État du code : `target` = `ConnectionInfo.NpcDialogHandle` au moment de la vente, aucune donnée de
+   session neuve n'a été ajoutée ; un dialogue effacé donne `target = 0`. Testé avec un handle de
+   marchand distinctif.*
 5. **Bug `code`/`count` de la référence.** Le socle le classe « à ne pas porter »
    (`socle-marche-npc.md:245`) et cette fiche retient `code` = code d'objet, `count` = quantité.
    Confirmation demandée, puisque c'est le contrat exact de la trame 240 lue par le client.
+   *État du code : non porté — `code` = code d'objet, `count` = quantité vendue, `price` = total ; les
+   trois sont lus aux offsets 8/12/20 par un test d'offsets.*
 6. **Bande `[602700, 602799]`.** `same_price_for_buying` vaut vrai pour ces codes (`:1038`) et la
    vente se fait alors à `× 1,0` au lieu de `× 0,25`. La plage est sourcée, son sens métier ne
    l'est pas : faut-il la porter telle quelle, ou la laisser de côté en attendant ?
+   *État du code : portée telle quelle (`MarketSellPrice.IsSamePriceForBuying`, bornes comprises), avec
+   un test des quatre codes frontière et une vente de bout en bout sur 602700. Le retrait est sans effet
+   ailleurs : l'éteindre, c'est changer une ligne et faire rougir deux tests.*
