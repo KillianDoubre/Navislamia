@@ -502,7 +502,7 @@ en 7.3. `TM_SC_RESULT = 0` reste écrit en dur (`GamePackets.cs:5`).
 
 ### 12.2 Tests ajoutés (1302 → **1316** cas, 0 échec)
 
-`Tests/Game/StorageServiceTests.cs` — 6 tests, 13 cas NUnit :
+`Tests/Game/StorageServiceTests.cs` — 6 tests, 21 cas NUnit (dont 14 nouveaux) :
 
 1. `SendResult_LaysOutTheFifteenByteEpic73ResultFrame` : les six offsets du tableau 12.1, l'id 0, la
    taille 15, le checksum, et `1000` comme `TM_SC_STAT_INFO` (donc pas de bascule possible) ;
