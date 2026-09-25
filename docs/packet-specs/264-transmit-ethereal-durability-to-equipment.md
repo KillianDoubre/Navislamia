@@ -429,6 +429,72 @@ Le dépôt est en NUnit (`[Test]`, `[TestCase]`, FluentAssertions). Le compte de
 | Client 7.3 | **pas de dépôt git** : `SFrame.exe` md5 `6fcf80ff1f2b5ae9a05ccc8e73d56746` (9 841 664 octets), `db_string.rdb` md5 `f0aeb4bc7dce4728ef3c5be8da8a421d` | adresses citées en §2, §3 ; textes en §2.4 |
 | Dépôt | base `b56967a07430422add88e0e5cdf292b41b18f6c6` (`origin/master`) | `GamePackets.cs:56-62` ; `GameActionPackets.cs:558-585` ; `GameClient.cs:1622-1629` ; `CraftingSocleService.cs:97-107,115-125` ; `CraftingSocleRules.cs:70-76` ; `Tests/Game/CraftingSoclePacketsTests.cs:24-45,308-349` |
 
+## 9. Lot dev — ce qui a été livré, et ce que les tests mordent
+
+Implémenté sur la branche de cette fiche (`hermes/packet-264-transmit-ethereal-durability-to-equipment`),
+en suivant la conduite du §5.5. Aucune décision de jeu n'a été prise : le lot **borne** et **refuse**.
+
+### 9.1 Ce qui a changé
+
+| Élément | Fichier | Ce qu'il fait |
+|---|---|---|
+| `IsRestorableRate(float rate)` | `Game/Services/CraftingSocleRules.cs:92` | `rate > 0f && rate <= 1f` — **le seul endroit du dépôt où vit le domaine (0,1]** |
+| Bras 264 de `HandleAsync` | `Game/Services/CraftingSocleService.cs:100-124` | lit le `rate` (`out var restoration`, plus de `out _`), refuse hors domaine par `TM_SC_RESULT` + `InvalidArgument` (28), valeur 0, avec une ligne de journal distincte (« rate outside the domain the Epic 7.3 client can produce ») ; dans le domaine, la conduite existante (refus `InvalidArgument`) est inchangée |
+| Lecteur | `Game/Network/Packets/Game/GameActionPackets.cs:571-585` | **comportement inchangé** : exactement 11 octets, `float` LE à l'offset 7 tel quel. Seul le commentaire de documentation a été corrigé — il affirmait encore « the unit of the rate is not established », ce que le §2.3 établit désormais |
+
+Ce qui n'a **pas** été touché, et c'est un choix : l'énumération (`GamePackets.cs`), le bras de réception
+commun 256/260/262/263/264 (`GameClient.cs:1622-1630`), le `target` d'`EPIC_8_1` (toujours non lu, forme
+12 octets toujours refusée), l'id 264 du 7.3. Aucun service parallèle du genre de ceux de la branche 263
+(`EtherealDurabilityRules`, `EtherealSacrificeCatalog`) n'a été ouvert, aucune restitution, aucune
+consommation, aucun paquet descendant.
+
+### 9.2 Tests ajoutés, et la mutation que chacun tue
+
+Chaque ligne a été vérifiée par **mutation** : la mutation est appliquée dans un *worktree* détaché du
+commit livré, `dotnet test` est lancé, puis le worktree est rendu propre. Un test qui ne tombe sur aucune
+mutation n'a pas été écrit.
+
+| Test | Verrou | Mutation jouée → ce qui tombe |
+|---|---|---|
+| `..._ReadsTheFullRateQuadruplet0000803FAtSeven`, `..._ReadsTheHalfRateQuadruplet0000003FAtSeven` (`CraftingSoclePacketsTests`) | le **quadruplet brut** à l'offset 7 : `ReadUInt32LittleEndian(packet[7..11]) == 0x3F800000` pour `1.0f` (`00 00 80 3F`) et `0x3F000000` pour `0.5f` (`00 00 00 3F`), **et** `Rate`, **et** la taille totale 11 | lecteur lisant les 4 octets comme un entier (`(float)ReadInt32LittleEndian`) → **5 échecs** |
+| `..._RefusesTheTwelveByteEightOneForm` | que `target` n'est pas lu en 7.3 | lecteur acceptant 12 octets (`!=` → `<`) → **1 échec** |
+| `..._DoesNotInterpretTheRate` (`0f`, `1f`, `100f`, `-1.5f`) | que la borne **n'est pas dans le lecteur** | inchangé (test de `master`, commentaire mis à jour) |
+| `IsRestorableRate_AcceptsTheDomainTheEpic73ClientWrites` (`0.5f`, `1f`, `0.0001f`) | le domaine du client | règle déplacée en `rate >= 0f && rate < 1f` → **2 échecs** |
+| `IsRestorableRate_RefusesEveryRateTheEpic73ClientCannotProduce` (`0f`, `-1.5f`, `1.0000001f`, `100f`, `NaN`, `+∞`, `-∞`) | la borne basse, `NaN` et ±∞ nommément (la conjonction les rejette : `NaN > 0f` est faux, `±∞ <= 1f` est faux) | idem ci-dessus |
+| `CraftingFamily_IsDispatchedBeforeTheUnknownPacketThrow` (5 ids, scan de source) | qu'aucun membre de la famille n'atteint le `throw` final | retrait de 264 du bras de `GameClient` → **1 échec** |
+| `CraftingSocleServiceTests.Handle264_*` (nouveau fichier) : refus hors domaine (6 valeurs) et refus dans le domaine (`0.5f`, `1f`) par `TM_SC_RESULT` 264 + `InvalidArgument` + valeur 0, forme 12 octets refusée par le service, silence avant l'entrée dans le monde | que le service **répond** le refus du §5.5 et que rien n'est crédité ni consommé | comportement inchangé par la mutation du câblage (§9.3) |
+| `CraftingSocleServiceTests.TheTwoSixFourArm_BoundsTheRateWithTheSocleRule` (scan de source) | que le bras 264 appelle bien la règle | bras muté en `if (false)` → **1 échec** (le seul) |
+
+Mesure de la suite complète : **1329 tests, `Failed: 0`, `Passed: 1329`** (la base de `master` en compte
+1302 ; +27 cas, aucun retiré, aucun affaibli).
+
+### 9.3 Réserve explicite — le refus hors domaine n'est pas distinguable de l'autre refus
+
+Le §5.5.3-4 prescrit **la même** réponse `TM_SC_RESULT` + `InvalidArgument` + valeur 0 pour un `rate` hors
+domaine et pour un moteur non écrit : le bras n'ajoute donc **aucune observable** qu'un client ou un test
+boîte-noire puisse distinguer. C'est mesuré, pas supposé — avec le bras muté en `if (false)`, les tests de
+comportement de `CraftingSocleServiceTests` restent **tous verts** et seul le scan de source tombe.
+
+Conséquence assumée : le domaine est verrouillé par le test de la règle (§9.2, lignes 4-5) et le câblage par
+le scan de source. La seule observable qui distingue les deux refus est la **ligne de journal**, et aucun
+test du dépôt ne lit les journaux.
+
+### 9.4 Base mesurée sur ce poste (dev, 2026-09-25)
+
+```
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug    → code de sortie 0 (0 erreur ; 164 avertissements, aucun nouveau)
+dotnet test  Tests/Tests.csproj         → code de sortie 0 — Failed: 0, Passed: 1329, Skipped: 0
+git log --oneline origin/master..master → vide (aucun commit sur master locale)
+```
+
+### 9.5 Ce qui reste NON ÉTABLI
+
+Rien de neuf, et rien de deviné : le §7 est l'état après ce lot. Le montant restitué, ce qui est consommé,
+réparer ou ressusciter, l'identité de l'objet visé, les plafonds et le paquet descendant attendent
+l'arbitrage de Killian, et le lot ne les préjuge pas — il refuse comme avant, mais refuse désormais en
+connaissant le domaine du champ qu'il reçoit.
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Sens et bornes de `rate`** — cette fiche l'établit **par le client 7.3** : part de la restitution,
