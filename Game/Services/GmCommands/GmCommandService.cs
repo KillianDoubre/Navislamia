@@ -132,12 +132,12 @@ public class GmCommandService : IGmCommandService
                 // not keep swinging.
                 _combatService.StopAttack(client);
                 info.IsSitting = true;
-                SendStatus(client);
+                client.SendActorStatus();
                 break;
 
             case GmCommand.Standup:
                 info.IsSitting = false;
-                SendStatus(client);
+                client.SendActorStatus();
                 break;
 
             case GmCommand.Battle:
@@ -148,7 +148,7 @@ public class GmCommandService : IGmCommandService
                 }
 
                 info.IsBattleMode = battle;
-                SendStatus(client);
+                client.SendActorStatus();
                 break;
 
             case GmCommand.Walk:
@@ -159,7 +159,7 @@ public class GmCommandService : IGmCommandService
                 }
 
                 info.IsWalking = walking;
-                SendStatus(client);
+                client.SendActorStatus();
                 break;
 
             case GmCommand.KillAll:
@@ -294,9 +294,10 @@ public class GmCommandService : IGmCommandService
                 }
 
                 // PkMode reaches the client through the status mask only, and the session save persists it
-                // (docs/packet-specs/socle-mode-pk.md): this is what 800/801 will do once they exist.
+                // (docs/packet-specs/socle-mode-pk.md): the client's own packets 800/801 apply the same pair,
+                // through the same GameClient.SendActorStatus (docs/packet-specs/800-turn-on-pk-mode.md).
                 info.PkMode = pk;
-                SendStatus(client);
+                client.SendActorStatus();
                 Reply(client, pk ? "PK mode on." : "PK mode off.");
                 break;
 
@@ -627,13 +628,6 @@ public class GmCommandService : IGmCommandService
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", maxHp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", maxMp));
-    }
-
-    private static void SendStatus(GameClient client)
-    {
-        var info = client.ConnectionInfo;
-        client.Connection.Send(GameCharacterPackets.BuildStatusChange(info.CharacterHandle,
-            ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking)));
     }
 
     private static bool IsAlive(ConnectionInfo info) => MonsterAiRules.IsAlive(info.CharacterHp);
