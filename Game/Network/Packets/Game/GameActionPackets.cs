@@ -559,7 +559,10 @@ public static class GameActionPackets
     /// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT</c> (264): a float rate and nothing else in
     /// 7.3. The <c>target</c> field of the later clients (player, or the summon 1 to 6) is gated
     /// <c>version &gt;= EPIC_8_1</c> and is absent here, so the request only ever designates the player.
-    /// The unit of the rate is not established.
+    /// The rate is a share of the restitution asked for in <c>(0,1]</c> — both emitters of the 7.3 client
+    /// write <c>1.0f</c> or <c>part/100</c>, never anything else (docs/packet-specs/264-transmit-ethereal-durability-to-equipment.md
+    /// §2.3). The reader keeps the float exactly as the wire carries it; bounding it is
+    /// <c>CraftingSocleRules.IsRestorableRate</c>'s job.
     /// </summary>
     public readonly record struct TransmitEtherealDurabilityToEquipmentRequest(float Rate);
 
