@@ -453,6 +453,10 @@ Aucun accès réseau n'a été nécessaire : toutes les références sont locale
 
 ## 9. A VERIFIER PAR KILLIAN
 
+> Note du dev (25/09/2026) : aucun de ces sept points n'a été tranché ni contourné par le lot
+> d'implémentation. Le traitement livré est le choix minimal documenté au §11, et **§11.8 reprend ces
+> sept réserves** une par une ; le §9 est livré tel quel dans `## A VERIFIER PAR KILLIAN`.
+
 1. **Ordre de fusion des deux jumeaux, et choix du site d'émission.** Les branches 800 et 801
    partagent la base `b56967a` et la même ancre dans `GamePackets.cs` : fusionner **800 d'abord**, puis
    rebaser 801 sur `master`, donne le résultat le plus propre (801 réutilise alors
@@ -499,3 +503,286 @@ n'appelle jamais son `SetPKOn`/`SetPKOff` : il n'y a rien à y porter.
 Détail complet : `docs/packet-specs/800-turn-on-pk-mode.md` et
 `docs/packet-specs/801-turn-off-pk-mode.md`.
 ```
+---
+
+## 11. Implémentation livrée (dev)
+
+Section ajoutée par `navis-dev` le 25/09/2026 ; l'analyse de l'archéologue (§1 à §10) est laissée
+intacte. La branche `hermes/packet-801-turn-off-pk-mode` a été créée par `navis-ref` depuis `master`
+(`b56967a`), qui y a commité cette fiche (`37f4678`). Commits du lot : `bc84521` (membre
+d'énumération, lecteur, méthode d'envoi, handler et bras de dispatch), `d21d556`
+(`Tests/Game/TurnOffPkModePacketsTests.cs`, 15 tests), puis le commit `docs(packet-specs)` de cette
+section.
+
+### 11.1 Checklist des critères transversaux, avec les codes de sortie relevés
+
+| # | Critère | État | Mesure |
+|---|---|---|---|
+| 1 | `dotnet build Navislamia.sln -c Debug` code 0 | **OK** | code **0**, `0 Error(s)`, **164** avertissements — aucun ne cite un fichier du lot (`grep -iE` sur les quatre fichiers livrés → aucune ligne) |
+| 2 | `dotnet test Tests/Tests.csproj` code 0, compte jamais en baisse | **OK** | base mesurée par la fiche (§5.7) : **1302** réussis / 1302 sur `b56967a`. Après le lot : code **0**, **1317** réussis / 1317, 0 échec, 0 ignoré → **+15** |
+| 3 | Au moins un test d'offsets (taille totale et position de chaque champ) | **OK** | `Tests/Game/TurnOffPkModePacketsTests.cs` (§11.3) : `ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix` (les quatre assertions d'offset et les sept octets exacts), `TryReadTurnOffPkMode_AcceptsTheSevenByteFrame`, `…RefusesEveryOtherLength` (6, 8, 15), plus l'exercice de la vraie boucle sur 8 et 15 ; la **preuve que les tests mordent** est en §11.11 |
+| 4 | Enum et dispatch modifiés ensemble | **OK** | membre `TM_CS_TURN_OFF_PK_MODE = 801` (`GamePackets.cs:150`) **et** bras `if (header.ID == …)` en `GameClient.cs:1909`, **avant** le `switch` de `GameClient.cs:1924` qui lève `Unknown Packet Type` (balayage exhaustif en §11.7) |
+| 5 | Savoir durable dans la fiche commitée + bloc `CLAUDE.md` dans la description de la MR | **OK côté fiche** | cette section ; le bloc complet à coller est en §11.9 (le dev n'écrit pas `CLAUDE.md`, Hermes protège ce fichier) |
+| 6 | Version est tranchée | **OK** | **801 déclaré, 1801 non déclaré** (`Ids_AreTheEpic73Ones` vérifie `Enum.IsDefined(1801) == false`) ; 800 reste non déclaré ici et appartient à sa propre branche |
+| 7 | Aucun commit sur `master` locale | **OK** | `git log --oneline origin/master..master` → aucune ligne (relevé §11.10) |
+| 8 | Aucun champ `NON ÉTABLI` deviné | **OK** | aucune réponse, aucun code de refus, aucune restriction de zone, aucune règle de mort, aucune diffusion à un tiers : §11.6 point par point, et §9 est reporté tel quel dans `## A VERIFIER PAR KILLIAN` |
+
+### 11.2 Fichiers livrés
+
+| Fichier | Modification |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_TURN_OFF_PK_MODE = 801` (+10 lignes, commentaire de gating inclus), inséré entre `TM_CS_DROP_QUEST = 603` et `TM_CS_CHANGE_LOCATION = 900` |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TurnOffPkModeLength` (7, `:758`) et `TryReadTurnOffPkMode(ReadOnlySpan<byte>)` (`:771`) (+22) |
+| `Game/Network/Clients/GameClient.cs` | `SendActorStatus()` public (`:111`), `HandleTurnOffPkMode(byte[])` (`:450`), bras de dispatch (`:1909`) (+52) |
+| `Tests/Game/TurnOffPkModePacketsTests.cs` | **nouveau**, 15 tests |
+| `Game/Services/GmCommands/GmCommandService.cs` | **inchangé** — décision §5.6 : c'est le lot 800 qui supprime sa copie privée de la composition du masque |
+
+Aucun constructeur de trame descendante n'est ajouté : la fiche établit qu'il n'existe **aucune**
+trame serveur → client de cette famille (§1, §5.4) — `GameCharacterPackets.cs` est inchangé.
+
+### 11.3 Offsets livrés, et les tests qui les tiennent
+
+| Offset | Taille | Champ | Valeur livrée | Test |
+|---|---|---|---|---|
+| 0 | 4 | `Length` `uint32` LE | **7** | `ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix` |
+| 4 | 2 | `ID` `uint16` LE | **801** (`0x321`), l'id du client | `…WithLengthAtZeroIdAtFourAndChecksumAtSix`, `Ids_AreTheEpic73Ones` |
+| 6 | 1 | `Checksum` | somme des octets 0-5 = **0x2B** (`07 00 00 00 21 03`) | `…ChecksumAtSix` (deux assertions : la règle du dépôt **et** la valeur figée `0x2B`) |
+| 7 | 0 | — corps vide — | taille totale = `GameActionPackets.TurnOffPkModeLength` = **7** | `frame.Should().HaveCount(7)` et `frame.Should().Equal(07 00 00 00 21 03 2B)` dans le même test |
+
+`TryReadTurnOffPkMode` **n'accepte que les 7 octets** (`packet.Length == TurnOffPkModeLength`) : le
+client n'a qu'un producteur de cette trame et il écrit toujours 7 (§3.1), donc 8 et plus sont des
+anomalies de protocole. Le refus de 6 est testé aussi, mais il **ne peut pas venir de la boucle** : un
+`Length` inférieur à l'en-tête fait `Connection.Disconnect()` avant tout dispatch
+(`GameClient.cs:1287-1292`) — c'est écrit dans le commentaire du lecteur, et c'est pour ça que le
+lecteur le refuse lui aussi (appel direct). Les longueurs 8 et 15 sont en plus **exercées à travers la
+vraie boucle de réception** : `OnDataReceived_ConsumesAPaddedFrameWithoutTurningTheModeOff` et
+`…ALongerFrameWithoutTurningTheModeOff` (trame consommée en entier, `PkMode` intact, `Connection.Sent`
+vide).
+
+### 11.4 Ce qui est publié : le masque, et rien d'autre
+
+Par trame 801 acceptée, **exactement une** `TM_SC_STATUS_CHANGE` (500) est envoyée : 15 octets,
+`Length` 0-3 = 15, `ID` 4-5 = 500, checksum en 6, `handle` en 7 (= `ConnectionInfo.CharacterHandle`),
+masque en **11** avec le **bit 11 effacé**. C'est le seul envoi :
+`OnDataReceived_TurnsThePkModeOffAndPublishesTheStatusMaskAsTheOnlyAnswer` assert
+`connection.Sent.Should().ContainSingle()`. Aucun `TM_SC_RESULT`, aucun paquet PK (§5.4, §7 point 4).
+Une seconde trame 801 republie le **même** masque — le paquet n'est pas une bascule
+(`OnDataReceived_TurningTheModeOffTwiceKeepsTheSameMask`) : c'est bien le lecteur du bit 11 côté
+client qui choisit entre 800 et 801, pas le serveur qui alterne.
+
+Le masque publié est l'**instantané complet**, jamais un delta : un joueur assis et en mode combat qui
+éteint son mode PK reste assis et en combat
+(`OnDataReceived_ClearsThePkBitWithoutTouchingTheOtherFlagsOfTheSnapshot`, qui compare au masque entier
+`ActorStatus.ForPlayer(pkModeOn: false, sitting: true, battleMode: true)`). C'est l'invariant que le
+socle PK a introduit et que `PkModeStatusTests` tient déjà pour les autres drapeaux.
+
+Journalisation : trame valide → **`Debug`** (l'idiome du dépôt pour une trame client reçue) ; longueur
+différente de 7 → **`Warning`** puis trame ignorée, sans rien lire après l'en-tête — la recommandation
+explicite de §5.2 et §7 point 5, appliquée telle quelle (§11.8 réserve 1).
+
+### 11.5 Le site d'envoi du masque, et le jumeau 800
+
+`GameClient.SendActorStatus()` (`GameClient.cs:111`) compose
+`BuildStatusChange(info.CharacterHandle, ActorStatus.ForPlayer(info.PkMode, info.IsSitting,
+info.IsBattleMode, info.IsWalking))`, avec **le même nom, la même signature et le même corps** que la
+méthode du lot frère 800 : c'est la recommandation de §5.6, choisie pour que le rebasage des deux
+branches soit une **insertion identique au même endroit** (on en garde une seule) au lieu de laisser
+deux compositions parallèles du masque après la fusion. Le bras 801 publie par cette méthode
+(`Packet801AndTheGmCommandPublishTheSameFrame` : la trame du paquet et l'appel direct de
+`SendActorStatus()` produisent des octets identiques, donc le paquet ne compose pas son masque à part).
+
+`GmCommandService.SendStatus` n'est **pas** touchée par cette branche : elle est légitime sur `master`
+et c'est le lot 800 qui la supprime (§5.6). Conséquence assumée et bornée : tant que 800 n'est pas
+fusionné, `master` + ce lot comptent deux compositions du masque, **octet pour octet identiques**
+(même expression `ActorStatus.ForPlayer(...)`) ; après la fusion de 800, il n'en reste qu'une. Le test
+`Pk_SetsTheModeAndPublishesItsBit` (`GmCommandServiceTests.cs:555-563`) et les tests de
+`PkModeStatusTests` passent **sans modification**.
+
+### 11.6 Ce qui n'est pas porté, et pourquoi
+
+- **Aucune réponse, aucun code de résultat** : aucun `TM_SC_*` PK n'existe (§1) et rien n'établit que
+  le client 7.3 lirait un `TM_SC_RESULT` portant l'id 801 (§5.4, §7 point 4). `ResultCode.PKLimit`
+  reste inutilisé.
+- **Aucune restriction, aucun refus** : le chemin « extinction » du client ne consulte **aucun** verrou
+  de zone (`SFrame.exe+0x684fc7`, §2.2), donc aucun état d'interdiction n'est établi ; §7 point 1 reste
+  ouvert et le paquet ne devine rien (§9 point 2).
+- **Aucune condition de zone ni de monde** dans `HandleTurnOffPkMode` : le seul fait de recevoir 801
+  sur une session suffit. La conséquence est bornée — `PkMode` est **rechargé depuis
+  `Characters.PkMode` à l'entrée en monde** (`Actions/GameActions.cs:127`) et remis à **faux** par
+  `ClearCharacterSession` (`ConnectionInfo.cs:336`), donc une trame reçue hors session de personnage ne
+  survit pas à la session suivante.
+- **Aucune écriture de persistance** : elle est déjà en place (§5.5), le paquet ne fait que muter
+  `ConnectionInfo.PkMode`.
+- **Aucune diffusion à un tiers** : impossible dans cette base (§5.4, §7 point 8) ; c'est le
+  sous-ensemble B du socle PK, non fusionné.
+- **Aucune limitation de fréquence** : rien ne l'établit, et les deux sites d'émission du client sont
+  des gestes manuels (§2.3).
+- **Le jumeau 800 reste non déclaré** : une trame 800 est consommée comme un id inconnu
+  (« Undefined packet ID », `Debug`) et la connexion reste ouverte.
+  `OnDataReceived_ConsumesTheUndeclaredTwin800WithoutThrowing` le pin, et il est écrit pour **rester
+  vert** quand le lot 800 fusionnera (il part d'un mode déjà allumé et n'assert rien d'autre).
+- **L'état PK n'est toujours visible que du client de l'acteur** (§7 point 8) : le paquet rend
+  l'extinction correcte du point de vue du client concerné, pas le PK visible par un tiers.
+
+### 11.7 Point de collision : mesure refaite
+
+Mesure du 25/09/2026 sur cette branche, `git merge-tree --write-tree` (aucun index ni worktree
+touché), contre les **18** branches sœurs non fusionnées de `origin/master`. Deux comptages par
+branche sœur : les conflits contre `origin/master` seul (la base, conflits qui **précèdent** ce lot) et
+contre `HEAD` (base + ce lot) :
+
+| Branche sœur | conflits base | conflits avec le lot | ajoutés par le lot |
+|---|---|---|---|
+| `packet-800-turn-on-pk-mode` (**le jumeau**) | 0 | **3** | **3** — `GamePackets.cs`, `GameClient.cs`, `GameActionPackets.cs` |
+| `packet-258-donate-item` | 4 | 4 | **0** |
+| `packet-285-unbind-skillcard` | 6 | 6 | **0** |
+| `packet-284-bind-skillcard` | 5 | 5 | **0** |
+| `packet-214-puton-card` | 3 | 3 | **0** |
+| `packet-10000-open-item-shop` | 2 | 2 | **0** |
+| `packet-221-hide-equip-info` | 2 | 2 | **0** |
+| `packet-223-swap-equip` | 2 | 2 | **0** |
+| `packet-259-donate-reward` | 1 | 1 | **0** |
+| `packet-281-puton-item-set` | 1 | 1 | **0** |
+| `packet-4003-huntaholic-create-instance` | 1 | 1 | **0** |
+| les 7 autres (`212`, `215`, `260`, `262`, `263`, `264`, `323`) | 0 | 0 | **0** |
+
+Contre les **17** branches qui ne sont pas le jumeau, le lot **n'ajoute aucune zone de conflit** : les
+27 conflits constatés sont ceux que chaque branche sœur a **déjà contre la base**, et l'insertion de ce
+lot tombe hors de leurs points d'ancrage (membre d'énumération entre 603 et 900, bras de dispatch
+juste après celui de `TM_CS_XTRAP_CHECK` (59), handler et méthode d'envoi dans des régions disjointes).
+
+**Le seul conflit ajouté est celui du jumeau 800, et il est attendu** (§5.6, §5.8) : les deux branches
+partagent la base `b56967a` et insèrent au même endroit. Les trois conflits se résolvent en gardant
+**les deux** côtés — deux membres d'énumération adjacents (800 puis 801), deux bras de dispatch
+adjacents, deux blocs de fin de `GameActionPackets.cs` — et **une seule** copie de
+`SendActorStatus()`, qui a le même corps des deux côtés. La résolution doit se faire **par rebasage**,
+jamais en éditant une branche sœur à la main.
+
+`hotspot: Game/Network/Packets/Enums/GamePackets.cs` et
+`hotspot: Game/Network/Clients/GameClient.cs` restent les deux fichiers les plus disputés du dépôt
+(§5.8) ; ce lot y ajoute la quinzième insertion.
+
+**Invariant « aucun membre de `GamePackets` n'atteint le `switch` final »**, refait après le lot :
+l'énumération compte **141** membres, **42** ne sont référencés ni dans `GameClient.cs` ni dans
+`GameActions.cs`, et ces 42 sont **tous** des `TM_SC_*` (aucun `TM_CS_*`, donc aucun id reçu). 801 est
+référencé **7** fois dans `GameClient.cs` (commentaires compris).
+
+```
+for n in $(grep -oE '^\s+TM_[A-Z0-9_]+' Game/Network/Packets/Enums/GamePackets.cs | tr -d ' ')
+do grep -q "GamePackets\.$n" Game/Network/Clients/GameClient.cs \
+     Game/Network/Clients/Actions/GameActions.cs || echo "ABSENT: $n"; done
+→ 42 lignes ABSENT, toutes TM_SC_*
+```
+
+### 11.8 Réserves
+
+1. **`header.Length == 7` exigé (§5.2, §7 point 5)** : la fiche recommandait « journaliser en
+   `Warning` et ignorer la trame », c'est ce qui est livré — le refus est dans
+   `TryReadTurnOffPkMode`, donc une trame rembourrée n'est jamais appliquée. C'est un **choix**,
+   explicitement laissé à Killian (§9 point 3) : revenir à « accepter toute longueur » est une ligne,
+   et le comportement observable d'une trame anormale resterait un `Warning`.
+2. **`SendActorStatus()` dupliquée jusqu'à la fusion de 800** : sur la base de cette branche, la
+   méthode publique recommandée par §5.6 n'existe pas encore (elle appartient au lot 800), donc 801
+   l'introduit avec le **même nom, la même signature et le même corps** — c'est la recommandation de
+   §9 point 1 (« fusionner 800 d'abord, puis 801 réutilise `GameClient.SendActorStatus()` ») rendue
+   inoffensive quel que soit l'ordre de fusion : au rebasage, deux insertions identiques se réduisent à
+   une seule copie, et il ne reste alors qu'un site qui compose le masque. Tant que 800 n'est pas
+   fusionné, `master` + ce lot comptent deux compositions du masque, **octet pour octet identiques**.
+   La troisième option de §9 point 1 (aucun membre public, masque composé *inline* dans le bras 801)
+   n'a **pas** été retenue : c'est elle, et elle seule, qui laisserait deux compositions divergentes
+   après la fusion (§11.5).
+3. **Aucune restriction de zone, de moral, de niveau ou de ville** : §7 point 1 n'est pas tranché et le
+   paquet ne devine rien. Si Killian veut gater, le point d'insertion est `HandleTurnOffPkMode`
+   (`GameClient.cs:450`), avant la mutation.
+4. **Le niveau de journal de la trame valide est `Debug`** : une ligne par extinction manuelle, pas de
+   trace persistante. Un niveau supérieur est un changement d'une ligne.
+5. **`GmCommandService.cs` est volontairement inchangé** (§5.6) : ce n'est pas un oubli, c'est pour ne
+   pas créer un conflit avec le lot 800 qui supprime sa copie privée. Après la fusion des deux lots,
+   les cinq appels de `/sitdown`, `/standup`, `/battle`, `/walk` et `/pk` passent par
+   `SendActorStatus()` comme le prévoit le lot 800.
+6. **§7 point 9 (correction de la fiche 800) n'est pas appliquée ici** : elle appartient au lot 800 ou
+   à Killian au rebasage, et ne change rien au traitement de 801.
+7. **La visibilité par un tiers reste absente** (§7 point 8) : le mode PK n'est publié qu'au client de
+   l'acteur, comme pour 800.
+
+### 11.9 Bloc `CLAUDE.md` prêt à coller (le §10, avec la réserve du §5.6 précisée)
+
+Texte à coller dans `CLAUDE.md` (le dev n'écrit pas ce fichier : Hermes le protège). Il reprend le
+§10, en précisant que tant que le lot 800 n'est pas fusionné, `GmCommandService` en garde une copie
+privée identique :
+
+```markdown
+### Mode PK — les paquets 800 et 801
+
+`TM_CS_TURN_ON_PK_MODE (800)` et `TM_CS_TURN_OFF_PK_MODE (801)` sont **des trames à en-tête seul**
+(7 octets, corps vide, ids `0x320`/`0x321`), construites par le client
+(`SFrame.exe+0x684bb0` et `+0x684c00`) — de la même famille que les trames à en-tête seul déjà
+nommées en 23/25/27. Elles n'ont **aucune réponse serveur** : l'état PK circule dans le **bit 11 du
+masque de statut** de `TM_SC_STATUS_CHANGE (500)`, avec `ActorStatus.ForPlayer`, qui est un
+instantané complet (bit 11 = `CreatureStatus.PlayerPkOn`). C'est ce bit que le client teste
+(`SFrame.exe+0x68b006`) pour choisir entre 800 et 801 : publier un masque faux fait osciller le
+client entre les deux paquets. Une longueur autre que 7 n'est pas une variante : elle est
+journalisée en `Warning` et ignorée, sans rien lire après l'en-tête.
+
+Gating : rzu renomme les deux ids en 1800/1801 **à partir d'`EPIC_9_6_3`** — pour 7.3, ce sont 800
+et 801. Traitement attendu : muter `ConnectionInfo.PkMode` puis republier le masque, exactement ce
+que fait la commande `/pk` — quand les deux lots sont fusionnés, les deux passent par
+`GameClient.SendActorStatus()`, seul site qui compose le masque du joueur (tant que 800 n'est pas
+fusionné, `GmCommandService.SendStatus` en garde une copie privée, identique octet pour octet). Le
+chemin « extinction » du client ne consulte **aucun** verrou de zone : le serveur n'a rien à y
+reproduire. NGemity ne traite ni l'un ni l'autre paquet et n'appelle jamais son `SetPKOn`/`SetPKOff` :
+il n'y a rien à y porter.
+
+Détail complet : `docs/packet-specs/800-turn-on-pk-mode.md` et
+`docs/packet-specs/801-turn-off-pk-mode.md`.
+```
+
+### 11.10 Commandes relevées
+
+```
+git branch --show-current                  → hermes/packet-801-turn-off-pk-mode
+git status --porcelain                     → vide avant le lot
+git log --oneline origin/master..master    → aucune ligne
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug --no-incremental
+                                           → code 0, 0 Error(s), 164 avertissements (hors lot)
+dotnet test Tests/Tests.csproj             → code 0, 1317 réussis / 1317, 0 échec, 0 ignoré
+                                             (base §5.7 : 1302 / 1302 sur b56967a)
+```
+
+`dotnet ef` reste absent du conteneur : aucun schéma n'est touché par ce paquet (rien à migrer).
+
+### 11.11 Preuve que les tests mordent (critère 3 : « une assertion fausse doit échouer »)
+
+Deux mutations **transitoires** ont été portées sur le code de production, mesurées, puis annulées
+(`git checkout -- <fichier>`, arbre de travail revérifié propre avant et après) :
+
+1. `GamePackets.cs` : `TM_CS_TURN_OFF_PK_MODE = 801` remplacé par `= 1801` →
+   `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~TurnOffPkMode"` → **code 1**,
+   `Failed: 2, Passed: 13` :
+   ```
+   Failed ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix
+     Expected BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4, 2)) to be 801us because ID sits
+     at offset 4 and reads 0x321, but found 1801us (difference of 1000).
+   Failed Ids_AreTheEpic73Ones
+     Expected ((ushort)GamePackets.TM_CS_TURN_OFF_PK_MODE) to be 801us, but found 1801us (difference of 1000).
+   ```
+   L'assertion d'offset sur l'`ID` (octets 4-5) mord donc bien. À noter : les tests de la vraie boucle
+   restent verts sous cette mutation, parce que la trame de test est construite **depuis le membre
+   d'énumération** — c'est voulu (le test suit l'enum, il ne fige pas une constante dupliquée), et
+   c'est la paire `Ids_AreTheEpic73Ones` / `…AtSix` qui fige la valeur 801.
+2. `GameActionPackets.cs` : `TryReadTurnOffPkMode` passé de `packet.Length == 7` à `>= 7` (la règle
+   de longueur stricte retirée) → **code 1**, `Failed: 4, Passed: 11` :
+   ```
+   Failed TryReadTurnOffPkMode_RefusesAPaddedFrame   → Expected …BeFalse, but found True
+   Failed TryReadTurnOffPkMode_RefusesALongerFrame   → Expected …BeFalse, but found True
+   Failed OnDataReceived_ConsumesAPaddedFrameWithoutTurningTheModeOff
+     Expected info.PkMode to be true because a frame of another length is refused before anything is
+     applied, but found False.
+   Failed OnDataReceived_ConsumesALongerFrameWithoutTurningTheModeOff  (même message)
+   ```
+   Les tests de taille totale et de cas de bord (8 et 15 octets) mordent donc eux aussi, au niveau du
+   lecteur **et** de la vraie boucle de réception.
+
+Après annulation des deux mutations : arbre propre (`git status --porcelain` vide) et
+`TurnOffPkMode` de nouveau **15 réussis / 15** en code 0.
