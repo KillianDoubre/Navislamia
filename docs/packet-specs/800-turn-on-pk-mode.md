@@ -441,8 +441,217 @@ client entre les deux paquets.
 
 Gating : rzu renomme les deux ids en 1800/1801 **à partir d'`EPIC_9_6_3`** — pour 7.3, ce sont 800
 et 801. Traitement attendu : muter `ConnectionInfo.PkMode` et republier le masque, exactement ce que
-fait la commande `/pk` (`GmCommandService.SendStatus`). NGemity ne traite ni l'un ni l'autre paquet
-et n'appelle jamais son `SetPKOn` : il n'y a rien à y porter.
+fait la commande `/pk` — les deux passent désormais par `GameClient.SendActorStatus()`, seul site qui
+compose le masque du joueur. NGemity ne traite ni l'un ni l'autre paquet et n'appelle jamais son
+`SetPKOn` : il n'y a rien à y porter.
 
 Détail complet : `docs/packet-specs/800-turn-on-pk-mode.md`.
 ```
+
+---
+
+## 11. Implémentation livrée (dev)
+
+Section ajoutée par `navis-dev` le 25/09/2026 ; l'analyse de l'archéologue (§1 à §10) est laissée
+intacte. La branche `hermes/packet-800-turn-on-pk-mode` a été créée par `navis-ref` depuis `master`
+(`b56967a`), qui y a commité la fiche (`a62dab3`). Commits du lot : `64d6e18` (code, tests d'offsets et
+dispatch, 5 fichiers, +304/−13), `983ebd0` et `b968375` (deux tests ajoutés après mesure exhaustive) ;
+cette section est livrée par le commit `docs(packet-800): ce que le lot dev livre et ce qu'il laisse
+ouvert`.
+
+### 11.1 Checklist des critères transversaux, avec les codes de sortie relevés
+
+| # | Critère | État | Mesure |
+|---|---|---|---|
+| 1 | `dotnet build Navislamia.sln -c Debug` code 0 | **OK** | code **0**, `0 Error(s)`, 164 avertissements — aucun ne cite un fichier du lot (vérifié par `grep -i` sur les quatre fichiers livrés) |
+| 2 | `dotnet test Tests/Tests.csproj` code 0, compte jamais en baisse | **OK** | base de la fiche (§5.5) : **1302** réussis / 1302. Après le lot : code **0**, **1316** réussis / 1316, 0 échec, 0 ignoré → **+14** |
+| 3 | Au moins un test d'offsets (taille totale et position de chaque champ) | **OK** | `Tests/Game/TurnOnPkModePacketsTests.cs` (§11.3) : `ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix`, `TryReadTurnOnPkMode_AcceptsTheSevenByteFrame`, `…RefusesEveryOtherLength` (6, 8, 15), plus l'exercice de la vraie boucle sur 8 et 15 |
+| 4 | Enum et dispatch modifiés ensemble | **OK** | membre `TM_CS_TURN_ON_PK_MODE = 800` (`GamePackets.cs:149`) **et** bras `if (header.ID == …)` en `GameClient.cs:1906`, **avant** le `switch` de `GameClient.cs:1912` qui lève `Unknown Packet Type` (balayage exhaustif en §11.7) |
+| 5 | Savoir durable dans la fiche commitée + bloc `CLAUDE.md` dans la description de la MR | **OK côté fiche** | cette section ; le bloc §10 est corrigé en §11.9 (le dev n'écrit pas `CLAUDE.md`, Hermes protège ce fichier) |
+| 6 | Version est tranchée | **OK** | **800 déclaré, 1800 non déclaré** (`Ids_AreTheEpic73Ones` vérifie `Enum.IsDefined(1800) == false`) ; 801 reste non déclaré et appartient à sa propre branche |
+| 7 | Aucun commit sur `master` locale | **OK** | `git log --oneline origin/master..master` → aucune ligne (relevé §11.10) |
+| 8 | Aucun champ `NON ÉTABLI` deviné | **OK** | aucune restriction de zone, aucune réponse, aucun code de refus, aucune règle de mort, aucune diffusion à un tiers : §11.6 point par point |
+
+### 11.2 Fichiers livrés
+
+| Fichier | Modification |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_TURN_ON_PK_MODE = 800` (+9 lignes, commentaire de gating inclus), inséré entre `TM_CS_DROP_QUEST = 603` et `TM_CS_CHANGE_LOCATION = 900` — aucun lot frère n'insère dans cet intervalle |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `TurnOnPkModeLength` (7) et `TryReadTurnOnPkMode(ReadOnlySpan<byte>)` (+20) |
+| `Game/Network/Clients/GameClient.cs` | `SendActorStatus()` (`:111`), `HandleTurnOnPkMode(byte[])` (`:448`), bras de dispatch (`:1906`) (+58) |
+| `Game/Services/GmCommands/GmCommandService.cs` | `SendStatus` privé supprimé ; ses 5 appels (`/sitdown`, `/standup`, `/battle`, `/walk`, `/pk`) passent par `client.SendActorStatus()` ; commentaire du `case Pk` mis à jour |
+| `Tests/Game/TurnOnPkModePacketsTests.cs` | **nouveau**, 14 tests |
+
+Aucun constructeur de trame descendante n'est ajouté : la fiche établit qu'il n'existe **aucune** trame
+serveur → client de cette famille (§5.2) — `GameCharacterPackets.cs` est inchangé.
+
+### 11.3 Offsets livrés, et les tests qui les tiennent
+
+| Offset | Taille | Champ | Valeur livrée | Test |
+|---|---|---|---|---|
+| 0 | 4 | `Length` `uint32` LE | **7** | `ClientFrame_IsSevenBytes_WithLengthAtZeroIdAtFourAndChecksumAtSix` |
+| 4 | 2 | `ID` `uint16` LE | **800** (`0x320`), l'id du client | `…WithLengthAtZeroIdAtFourAndChecksumAtSix`, `Ids_AreTheEpic73Ones` |
+| 6 | 1 | `Checksum` | somme des octets 0-5 = **0x2A** (`07 00 00 00 20 03`) | `…ChecksumAtSix` (deux assertions : boucle du dépôt **et** valeur figée) |
+| 7 | 0 | — corps vide — | taille totale = `GameActionPackets.TurnOnPkModeLength` = **7** | `frame.Should().HaveCount(7)` dans le même test |
+
+`TryReadTurnOnPkMode` **n'accepte que les 7 octets** (`packet.Length == TurnOnPkModeLength`) : un
+producteur unique (§3.1) écrit toujours 7, donc 8 et plus sont des anomalies. Le refus de 6 est testé
+aussi, mais il **ne peut pas venir de la boucle** : un `Length` inférieur à l'en-tête fait
+`Connection.Disconnect()` avant tout dispatch (`GameClient.cs:1237`) — c'est écrit dans le commentaire du
+lecteur, et c'est pour ça que le lecteur le refuse lui aussi (appel direct). Les longueurs 8 et 15 sont
+en plus **exercées à travers la vraie boucle de réception** :
+`OnDataReceived_ConsumesAPaddedFrameWithoutTurningTheModeOn` et `…ALongerFrameWithoutTurningTheModeOn`
+(trame consommée en entier, `PkMode` inchangé, `Connection.Sent` vide).
+
+### 11.4 Ce qui est publié : le masque, et rien d'autre
+
+Par trame 800 acceptée, **exactement une** `TM_SC_STATUS_CHANGE` (500) est envoyée : 15 octets,
+`Length` 0-3 = 15, `ID` 4-5 = 500, checksum en 6, `handle` en 7 (= `ConnectionInfo.CharacterHandle`),
+masque en 11. C'est le seul envoi : `OnDataReceived_TurnsThePkModeOnAndPublishesTheStatusMaskAsTheOnlyAnswer`
+assert `connection.Sent.Should().ContainSingle()`. Aucun `TM_SC_RESULT`, aucun paquet PK (§5.2, §7
+point 4). Une seconde trame 800 republie le **même** masque — le paquet n'est pas une bascule
+(`OnDataReceived_TurningTheModeOnTwiceKeepsTheSameMask`) : c'est bien le lecteur du bit 11 côté client
+qui choisit entre 800 et 801, pas le serveur qui alterne.
+
+Journalisation : trame valide → **`Debug`** (l'idiome du dépôt pour une trame client reçue) ; longueur
+différente de 7 → **`Warning`** puis trame ignorée sans rien lire après l'en-tête — la recommandation
+explicite de §7 point 5, appliquée telle quelle (§11.8 réserve 1).
+
+### 11.5 Le masque n'a plus qu'un seul site d'envoi, et `/pk` l'utilise aussi
+
+`GameClient.SendActorStatus()` (`GameClient.cs:111`) compose
+`BuildStatusChange(info.CharacterHandle, ActorStatus.ForPlayer(info.PkMode, info.IsSitting,
+info.IsBattleMode, info.IsWalking))` — l'instantané complet, exactement la paire que la fiche §5.2
+imposait. `GmCommandService.SendStatus`, qui faisait la même chose en `private static`, est supprimée :
+ses cinq appels (`/sitdown`, `/standup`, `/battle`, `/walk`, `/pk`) passent par la méthode publique.
+Les deux sites publient donc le même masque **par construction**, et la preuve au niveau de la trame est
+`Packet800AndTheGmCommandPublishTheSameFrame` : un état déjà posé (`IsWalking`) survit au masque que 800
+republie, et l'appel direct de `SendActorStatus()` produit des octets identiques à la trame du paquet.
+Les tests existants de `/pk` (`GmCommandServiceTests.cs:559`, `PkModeStatusTests`) passent **sans
+modification**.
+
+### 11.6 Ce qui n'est pas porté, et pourquoi
+
+- **Aucun refus** : le verrou de zone `+0x660` n'est pas identifié (§7 point 1) et le client refuse
+  déjà localement (§2.1). Aucune des trois références ne refuse côté serveur. Rien n'a été inventé
+  (§9 point 2).
+- **Aucune réponse, aucun code de résultat** : aucun `TM_SC_*` PK n'existe et rien n'établit que le
+  client 7.3 lirait un `TM_SC_RESULT` portant l'id 800 (§7 point 4). `ResultCode.PKLimit` reste
+  inutilisé.
+- **Aucune condition de zone ni de monde** dans `HandleTurnOnPkMode` : le seul fait de recevoir 800
+  sur une session suffit. Ce n'est pas un oubli mais l'absence de règle établie ; la conséquence est
+  bornée — `PkMode` est **rechargé depuis `Characters.PkMode` à l'entrée en monde**
+  (`Actions/GameActions.cs:127`) et remis à **faux** par `ClearCharacterSession`
+  (`ConnectionInfo.cs:336`), donc une trame reçue hors session de personnage ne peut pas survivre à la
+  session suivante.
+- **Aucune écriture de persistance** : elle est déjà en place (§5.3), le paquet n'a qu'à muter l'état.
+- **Aucune diffusion à un tiers** : impossible dans cette base (§5.4) ; c'est le sous-ensemble B du
+  socle PK, non fusionné.
+- **Aucune limitation de fréquence** : rien ne l'établit, et le client n'émet que sur son propre
+  changement d'état (§2.2).
+- **Le jumeau 801 reste non déclaré** : une trame 801 est consommée comme un id inconnu
+  (« Undefined packet ID », `Debug`) et la connexion reste ouverte. `OnDataReceived_ConsumesTheUndeclaredTwin801WithoutThrowing`
+  le pin, et il est écrit pour **rester vert** quand le lot 801 fusionnera (il n'assert rien sur ce que
+  801 publiera alors).
+
+### 11.7 Point de collision : mesure refaite, et **zéro conflit ajouté**
+
+Mesure du 25/09/2026 sur cette branche, `git merge-tree --write-tree` (aucun index ni worktree touché),
+contre les **17** branches sœurs non fusionnées de `origin/master`. Deux comptages par branche sœur :
+les conflits dans `GamePackets.cs`/`GameClient.cs` contre `origin/master` seul (la base, conflits qui
+**précèdent** ce lot) et contre `HEAD` (base + ce lot) :
+
+| Branche sœur | conflits base | conflits avec le lot | ajoutés par le lot |
+|---|---|---|---|
+| `packet-10000-open-item-shop` | 2 | 2 | **0** |
+| `packet-214-puton-card` | 1 | 1 | **0** |
+| `packet-223-swap-equip` | 1 | 1 | **0** |
+| `packet-258-donate-item` | 1 | 1 | **0** |
+| `packet-259-donate-reward` | 1 | 1 | **0** |
+| `packet-284-bind-skillcard` | 2 | 2 | **0** |
+| `packet-285-unbind-skillcard` | 2 | 2 | **0** |
+| `packet-4003-huntaholic-create-instance` | 1 | 1 | **0** |
+| les 9 autres (`212`, `215`, `221`, `260`, `262`, `263`, `264`, `281`, `323`) | 0 | 0 | **0** |
+
+Le lot **n'ajoute aucune zone de conflit** : les 11 conflits constatés sont ceux qu'ont déjà les
+branches sœurs entre elles (bases communes anciennes), et l'insertion de ce lot tombe hors de leurs
+points d'ancrage — membre d'énumération entre 603 et 900, bras de dispatch **juste après** celui de
+`TM_CS_XTRAP_CHECK` (59), handler et méthode d'envoi dans des régions disjointes. À noter pour la
+fusion : `hotspot: Game/Network/Packets/Enums/GamePackets.cs` et
+`hotspot: Game/Network/Clients/GameClient.cs` restent les deux fichiers les plus disputés du dépôt
+(§5.6) ; le rebasage doit rester la règle, jamais l'édition à la main d'une branche sœur.
+
+**Invariant « aucun membre de `GamePackets` n'atteint le `switch` final »**, refait après le lot :
+l'énumération compte **141** membres, **42** ne sont référencés ni dans `GameClient.cs` ni dans
+`GameActions.cs`, et ces 42 sont **tous** des `TM_SC_*` (aucun `TM_CS_*`, donc aucun id reçu).
+`TM_CS_TURN_ON_PK_MODE` est référencé **8** fois dans `GameClient.cs`.
+
+```
+for n in $(grep -oE '^\s+TM_[A-Z0-9_]+' Game/Network/Packets/Enums/GamePackets.cs | tr -d ' ')
+do grep -q "GamePackets\.$n" Game/Network/Clients/GameClient.cs \
+     Game/Network/Clients/Actions/GameActions.cs || echo "ABSENT: $n"; done
+→ 42 lignes ABSENT, toutes TM_SC_*
+```
+
+### 11.8 Réserves
+
+1. **`header.Length == 7` exigé (§7 point 5)** : la fiche recommandait « journaliser en `Warning` et
+   ignorer la trame », c'est ce qui est livré — le refus est dans `TryReadTurnOnPkMode`, donc une
+   trame rembourrée n'est jamais appliquée. C'est un **choix**, explicitement laissé à Killian (§9
+   point 3) : le revenir à « accepter toute longueur » est une ligne (`TryReadTurnOnPkMode`), et le
+   comportement observable d'une trame anormale resterait un `Warning`.
+2. **Aucune restriction de zone, de moral, de niveau ou de ville** : §7 point 1 n'est pas tranché et
+   le paquet ne devine rien. Si Killian veut gater, le point d'insertion est `HandleTurnOnPkMode`
+   (`GameClient.cs:448`), avant la mutation.
+3. **Le niveau de journal de la trame valide est `Debug`** : c'est le comportement observable actuel
+   (une ligne par bascule manuelle, pas de trace persistante). Un niveau supérieur est un changement
+   d'une ligne.
+4. **Deux tests sont écrits pour survivre à la fusion du lot 801** :
+   `OnDataReceived_ConsumesTheUndeclaredTwin801WithoutThrowing` (vert avec ou sans 801) et
+   `Ids_AreTheEpic73Ones` (ne vérifie que 1800, pas 801). Le lot 801 devra supprimer l'assertion
+   « id inconnu » de son côté, pas ici.
+5. **Le mode PK n'est toujours visible que du client de l'acteur** (§5.4) : le paquet rend la bascule
+   du client correcte, pas le PK visible par un tiers.
+6. **Le bloc §10 a été corrigé sur place** : il citait `GmCommandService.SendStatus`, supprimée par ce
+   lot. §11.9 redonne le bloc complet, prêt à coller dans `CLAUDE.md`.
+
+### 11.9 Bloc `CLAUDE.md` prêt à coller (le §10, avec une phrase corrigée)
+
+Le bloc §10 a été corrigé **sur place** par le commit de cette section : `GmCommandService.SendStatus`
+n'existe plus, les deux sites d'envoi du masque passent par `GameClient.SendActorStatus()`. Voici le
+bloc complet tel qu'il doit être collé dans `CLAUDE.md` (c'est le texte de §10, vérifié après le lot) :
+
+```markdown
+### Mode PK — les paquets 800 et 801
+
+`TM_CS_TURN_ON_PK_MODE (800)` et `TM_CS_TURN_OFF_PK_MODE (801)` sont **des trames à en-tête seul**
+(7 octets, corps vide, ids `0x320`/`0x321`), construites par le client
+(`SFrame.exe+0x684bb0` et `+0x684c00`) — de la même famille que les trames à en-tête seul déjà
+nommées en 23/25/27. Elles n'ont **aucune réponse serveur** : l'état PK circule dans le **bit 11 du
+masque de statut** de `TM_SC_STATUS_CHANGE (500)`, avec `ActorStatus.ForPlayer`, qui est un
+instantané complet (bit 11 = `CreatureStatus.PlayerPkOn`). C'est ce bit que le client teste
+(`SFrame.exe+0x68b006`) pour choisir entre 800 et 801 : publier un masque faux fait osciller le
+client entre les deux paquets.
+
+Gating : rzu renomme les deux ids en 1800/1801 **à partir d'`EPIC_9_6_3`** — pour 7.3, ce sont 800
+et 801. Traitement attendu : muter `ConnectionInfo.PkMode` et republier le masque, exactement ce que
+fait la commande `/pk` — les deux passent désormais par `GameClient.SendActorStatus()`, seul site qui
+compose le masque du joueur. NGemity ne traite ni l'un ni l'autre paquet et n'appelle jamais son
+`SetPKOn` : il n'y a rien à y porter.
+
+Détail complet : `docs/packet-specs/800-turn-on-pk-mode.md`.
+```
+
+### 11.10 Commandes relevées
+
+```
+git branch --show-current                  → hermes/packet-800-turn-on-pk-mode
+git status --porcelain                     → vide avant le lot
+git log --oneline origin/master..master    → aucune ligne
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug       → code 0, 0 Error(s), 164 avertissements (hors lot)
+dotnet test Tests/Tests.csproj             → code 0, 1316 réussis / 1316, 0 échec, 0 ignoré
+                                             (base §5.5 : 1302 / 1302 sur b56967a)
+```
+
+`dotnet ef` reste absent du conteneur : aucun schéma n'est touché par ce paquet (rien à migrer).
