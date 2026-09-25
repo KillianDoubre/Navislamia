@@ -207,4 +207,32 @@ public class TurnOnPkModePacketsTests
         (mask & PkBit).Should().Be(PkBit);
         (mask & CreatureStatus.PlayerSitdown).Should().Be(CreatureStatus.PlayerSitdown);
     }
+
+    [Test]
+    public void Packet800AndTheGmCommandPublishTheSameFrame()
+    {
+        // The fiche (§5.2) requires both send sites to publish the same mask. The command /pk and the
+        // client's own packet now share GameClient.SendActorStatus; this is the frame-level proof that a
+        // state set before the packet arrives survives the mask the packet republishes.
+        var frame = ClientFrame();
+        var connection = new StorageTestHarness.FrameConnection(frame);
+        var client = StorageTestHarness.NewGameClient(connection);
+        var session = StorageTestHarness.Session(client);
+        session.CharacterHandle = 0x40000001u;
+        session.IsWalking = true;
+
+        client.OnDataReceived(connection.BytesAvailable);
+
+        connection.Sent.Should().ContainSingle();
+        var fromThePacket = connection.Sent[0];
+
+        // Exactly what the /pk command reaches after its own mutation: same state, same snapshot, same bytes.
+        client.SendActorStatus();
+
+        connection.Sent.Should().HaveCount(2);
+        connection.Sent[1].Should().Equal(fromThePacket);
+
+        var mask = BinaryPrimitives.ReadUInt32LittleEndian(connection.Sent[1].AsSpan(StatusOffset, 4));
+        mask.Should().Be(ActorStatus.ForPlayer(pkModeOn: true, walking: true));
+    }
 }
