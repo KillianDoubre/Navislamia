@@ -235,4 +235,27 @@ public class TurnOnPkModePacketsTests
         var mask = BinaryPrimitives.ReadUInt32LittleEndian(connection.Sent[1].AsSpan(StatusOffset, 4));
         mask.Should().Be(ActorStatus.ForPlayer(pkModeOn: true, walking: true));
     }
+
+    [Test]
+    public void OnDataReceived_ConsumesTheUndeclaredTwin801WithoutThrowing()
+    {
+        // 801 (turn off) belongs to its own lot and stays undeclared here: an id outside GamePackets is
+        // logged "Undefined packet ID" and dropped, which keeps the receive loop alive and the connection
+        // open until that lot lands. The test is written to survive that merge — it asserts nothing about
+        // what 801 will then publish, only that such a frame never breaks the loop.
+        var frame = ClientFrame();
+        BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(4, 2), 801);
+        frame[6] = StorageTestHarness.Checksum(frame);
+
+        var connection = new StorageTestHarness.FrameConnection(frame);
+        var client = StorageTestHarness.NewGameClient(connection);
+        var session = StorageTestHarness.Session(client);
+        session.CharacterHandle = 0x40000001u;
+
+        var receive = () => client.OnDataReceived(connection.BytesAvailable);
+
+        receive.Should().NotThrow();
+        connection.BytesAvailable.Should().Be(0, "an undeclared frame is still consumed");
+        session.PkMode.Should().BeFalse("801 turns the mode off, it can never turn it on");
+    }
 }
