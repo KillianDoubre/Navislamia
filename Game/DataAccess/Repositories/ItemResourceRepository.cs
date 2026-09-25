@@ -64,4 +64,12 @@ public class ItemResourceRepository : IItemResourceRepository
                 item.OptTypes != null && Array.IndexOf(item.OptTypes, (short)ItemEffectInstant.RenamePet) >= 0))
             .ToList();
     }
+
+    public IReadOnlyList<ItemSellFields> GetSellPriceFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemSellFields((int)item.Id, item.Rank, item.Price))
+            .ToList();
+    }
 }

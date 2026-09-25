@@ -98,6 +98,37 @@ public static class GameTradePackets
     }
 
     /// <summary>
+    /// 7-byte header + <c>handle</c> (4) + <c>sell_count</c> (2): the fixed 13-byte
+    /// <c>TM_CS_SELL_ITEM</c> (252) frame.
+    /// </summary>
+    public const int SellItemSize = 13;
+
+    /// <summary>
+    /// <c>TM_CS_SELL_ITEM</c> (252), client to server: <c>handle</c> (<c>uint32</c>) at offset 7 and
+    /// <c>sell_count</c> (<c>uint16</c>) at offset 11, 13 bytes in all. The frame has one established form
+    /// and no optional field, so every other length is refused instead of partially read — the client writes
+    /// the length in hard (<c>0xd</c> at <c>SFrame.exe</c> <c>0x48f43d</c>) and the emitter loops over one
+    /// 12-byte element per sold line (<c>0x48f410</c>, <c>add esi,0xc</c> at <c>0x48f487</c>), of which only
+    /// the first 6 bytes are read. One frame per sold item, hence one answer per item. 7.3 is below
+    /// <c>EPIC_9_6_3</c>, so the id is 252, and above <c>EPIC_4_1</c>, so <c>sell_count</c> is the
+    /// <c>uint16</c> variant and not the <c>int64</c> of <c>EPIC_8_2</c> (rzu
+    /// <c>TS_CS_SELL_ITEM.h:7-10</c>, <c>:11-13</c>).
+    /// </summary>
+    public static bool TryReadSellItem(ReadOnlySpan<byte> packet, out uint itemHandle, out ushort sellCount)
+    {
+        if (packet.Length != SellItemSize)
+        {
+            itemHandle = 0;
+            sellCount = 0;
+            return false;
+        }
+
+        itemHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        sellCount = BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(HeaderSize + 4, 2));
+        return true;
+    }
+
+    /// <summary>
     /// The client's own header checksum: the low byte of the sum of the six bytes before it. Same rule
     /// as <see cref="GameNpcDialogPackets"/> and <see cref="GameCharacterPackets"/>.
     /// </summary>

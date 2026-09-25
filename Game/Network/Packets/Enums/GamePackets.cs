@@ -47,6 +47,10 @@ public enum GamePackets : ushort
     TM_CS_USE_ITEM = 253,
     TM_SC_DESTROY_ITEM = 254,
     TM_SC_UPDATE_ITEM_COUNT = 255,
+    // The sell gesture (252), declared with the other item ids rather than in the trade block
+    // (240-283), where the sibling packet branch anchors its own buy member.
+    // See docs/packet-specs/252-sell-item.md.
+    TM_CS_SELL_ITEM = 252,
 
     // The crafting and item-enchantment family. Epic 7.3 keeps the low ids (rzu remaps them to
     // +1000 from EPIC_9_6_3 on, which is above EPIC_7_3 = 0x070300). TM_SC_SHOW_SOULSTONE_CRAFT_WINDOW

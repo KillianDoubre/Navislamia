@@ -29,6 +29,7 @@ public class NetworkService : INetworkService
     public readonly IEquipmentService EquipmentService;
     public readonly IInventoryService InventoryService;
     public readonly IItemUseService ItemUseService;
+    public readonly IMarketSellService MarketSellService;
     public readonly IStorageService StorageService;
     public readonly IQuestService QuestService;
     public readonly IGmCommandService GmCommandService;
@@ -60,6 +61,7 @@ public class NetworkService : INetworkService
         IEquipmentService equipmentService, IInventoryService inventoryService,
         IGroundItemService groundItemService, ISkillCastService buffService,
         IFieldPropService fieldPropService, IItemUseService itemUseService,
+        IMarketSellService marketSellService,
         IWorldLocationService worldLocationService,
         IResurrectionService resurrectionService,
         IEventAreaService eventAreaService,
@@ -95,6 +97,7 @@ public class NetworkService : INetworkService
         WorldLocationService = worldLocationService;
         NetworkOptions = networkOptions.Value;
         ServerOptions = serverOptions.Value;
+        MarketSellService = marketSellService;
     }
 
     public bool IsReady()

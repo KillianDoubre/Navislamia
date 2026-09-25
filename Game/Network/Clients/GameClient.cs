@@ -832,6 +832,29 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// <c>TM_CS_SELL_ITEM</c> (252), one frame per sold item (the client loops over its trade lines). The
+    /// frame is read and bounded here; the gesture — the price, the erase, the gold and the two answers —
+    /// belongs to <c>IMarketSellService</c>.
+    /// </summary>
+    private async Task HandleSellItemAsync(byte[] packet)
+    {
+        if (!GameTradePackets.TryReadSellItem(packet, out var itemHandle, out var sellCount))
+        {
+            SendResult((ushort)GamePackets.TM_CS_SELL_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.MarketSellService.SellAsync(this, itemHandle, sellCount);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process sell item for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleTakeItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadTakeItem(packet, out var itemHandle))
@@ -1626,6 +1649,12 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT)
             {
                 _ = _networkService.CraftingSocleService.HandleAsync(this, header.ID, msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_SELL_ITEM)
+            {
+                _ = HandleSellItemAsync(msgBuffer);
                 continue;
             }
 
