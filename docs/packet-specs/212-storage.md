@@ -317,6 +317,16 @@ dès maintenant avec `BeltItemIds`, si Killian veut la fermer. La sémantique ex
 (id d'objet ou id de ressource) est **incertaine** — le commentaire du champ le dit lui-même
 (`CharacterEntity.cs:62`) — et doit être vérifiée avant de comparer avec `item.Id`.
 
+**Mesure du dev (2026-09-25) : la colonne n'est jamais écrite, donc la clause est inatteignable
+aujourd'hui.** `BeltItemIds` est lu une seule fois — `GameActions.cs:248`, passé tel quel à
+`BuildBeltSlotInfo` (`GameCharacterPackets.cs:312-324`) — et `grep "BeltItemIds ="` ne rend **aucune**
+affectation hors `Migrations/`. NGemity ne stocke pas cet état en base non plus : `m_aBindSummonCard`
+est un tableau d'`Item*` (`Player.h:353`) et la clause compare des **identités d'objet**
+(`WorldSession.cpp:1619-1625`, `v == pItem`), pas des codes ; c'est `TS_EQUIP_SUMMON.card_handle[i]`
+qui reçoit les six handles (`Messages.cpp:130-131`). Conséquence : la clause n'est **pas** portée par
+ce lot, et ne doit pas l'être tant qu'aucune fonction ne remplit la colonne (voir §12.5 et
+A VERIFIER 4).
+
 ### 7.7 Refus par les codes 51 / 88 — **confirmé : à ne pas employer**
 
 `RESULT_NOT_ACTABLE_WHILE_USING_STORAGE = 51` (`shared/Server/TS_MESSAGE.h:104`) et
@@ -401,6 +411,18 @@ sont donc comportementaux, avec vérification des octets des **réponses** :
    construite par `BuildInventory`) ;
 5. le compte ne baisse pas : `dotnet test Tests/Tests.csproj` doit rester **≥ 1302 tests**, 0 échec.
 
+### 9.1 Ce que le lot résiduel a effectivement ajouté (2026-09-25)
+
+Le point **1** est livré, au-delà de sa formulation : les quatre chemins de refus sont vérifiés octet
+par octet (taille 15, `ID` 0, checksum, `request_msg_id` 212, `result`, `value`), plus cinq modes
+hors barème (`5`, `6`, `127`, `128`, `255`), le mode 4 avec quatre comptes dont un négatif, la
+priorité du compte non positif sur le refus d'or, et les montants `1`, `1e11`, `long.MaxValue` sur
+les modes d'or. Les points **2** et **4** sont **conditionnels à une décision non prise** et ne sont
+donc **pas** écrits (les écrire supposerait la décision, et le point 4 produirait un filtre sans
+ligne à filtrer). Le point **3** est écarté sur mesure : la colonne qu'il interroge n'est jamais
+écrite et la référence compare des identités d'objet (§7.6, §12.5). Le point **5** est vérifié :
+**1316 cas**, 0 échec. Détail complet et preuve que les tests mordent : §12.
+
 ## 10. Commits et binaires épinglés
 
 | Référence | Commit / empreinte | Usage |
@@ -422,22 +444,143 @@ sont donc comportementaux, avec vérification des octets des **réponses** :
 - `211` = `TM_SC_OPEN_STORAGE`, **7 octets** en 7.3 : `maxStorageItemCount` est gaté `>= EPIC_7_4`
   par rzu et le binaire 7.3 ne connaît pas ce nom. Ne pas envoyer les 4 octets du 7.4.
 - `1211`/`1212` n'existent qu'à partir d'`EPIC_9_6_3` : ne jamais les déclarer. `TM_SC_RESULT`
-  vaut **0** en 7.3 (1000 à partir de 9.6.3), charge 8 octets.
+  vaut **0** en 7.3 (1000 à partir de 9.6.3) et sa charge fait 8 octets : `request_msg_id` @7,
+  `result` @9, `value` @11 (`int32`, le `item_handle` reçu). Les refus du `212` sont tous cette
+  trame de 15 octets — témoin `AssertRefusal` dans `Tests/Game/StorageServiceTests.cs`. Le 1000 de
+  9.6.3 est déjà pris ici par `TM_SC_STAT_INFO` : la bascule est interdite deux fois.
 - L'or d'entrepôt n'a **pas de colonne** dans le dépôt : NGemity le range dans une ligne d'objet
   `code = 0` (`CharacterDatabase.cpp:97`) qu'il exclut de la liste par `code == 0`
   (`Player.cpp:318-324`). Si cette voie est reprise, filtrer `ItemResourceId != 0` dans **toute**
-  construction de liste d'entrepôt, sinon la ligne d'or part au client comme un objet.
+  construction de liste d'entrepôt, sinon la ligne d'or part au client comme un objet. **Voie non
+  reprise au 2026-09-25** : les modes d'or 2/3 sont refusés `NotActable (5)` pour tout montant,
+  bornes de 1e11 comprises, et un test le fige.
 - Bornes d'or NGemity : `MAX_GOLD_FOR_STORAGE = MAX_GOLD_FOR_INVENTORY = 1e11`
   (`ItemTemplate.hpp:4-5`) — politique serveur, pas un champ de trame.
 - Les codes `51` (`NOT_ACTABLE_WHILE_USING_STORAGE`) et `88` (`TARGET_IS_USING_STORAGE`) ne sont
   **jamais** renvoyés par NGemity : rester sur `NotActable` (5).
-- `IsErasable` (`Player.cpp:3136-3160`) n'est porté que pour la clause de port ; la clause
-  « carte d'invocation liée » est portable avec `CharacterEntity.BeltItemIds` (6 emplacements),
-  pas la clause de carte de compétence (aucun état avant 284/285).
-- Pas de capacité d'entrepôt en 7.3 (aucune source) : ne pas inventer de borne.
+- `IsErasable` (`Player.cpp:3136-3160`) n'est porté que pour la clause de port. Les deux autres
+  clauses ne sont **pas** portables aujourd'hui : « carte d'invocation liée » compare des identités
+  d'objet chez NGemity (`WorldSession.cpp:1619-1625`) et `CharacterEntity.BeltItemIds` n'est
+  **jamais écrit** dans le dépôt (une seule lecture, `GameActions.cs:248`) ; la clause de carte de
+  compétence attend l'état de 284/285. Ne pas porter de comparaison inatteignable.
+- Pas de capacité d'entrepôt en 7.3 (aucune source, le `maxStorageItemCount` du `211` est 7.4) :
+  ne pas inventer de borne — `NextFreeIndex` reste non borné et `Tests/Game/StorageRulesTests.cs`
+  échoue si quelqu'un y met les 10000 du 7.4.
 - Hotspot : 13/16 MR ouvertes touchent `GameClient.cs` et 12/16 `GamePackets.cs` ; le lot résiduel
-  se tient dans `Game/Services/Storage*` + `Game/DataAccess/` + `Tests/Game/Storage*`.
+  se tient dans `Game/Services/Storage*` + `Game/DataAccess/` + `Tests/Game/Storage*`. Mesuré le
+  2026-09-25 : le lot résiduel ne touche que `Tests/Game/StorageServiceTests.cs`,
+  `Tests/Game/StorageRulesTests.cs` et la fiche — aucun fichier chaud, et
+  `Tests/Game/StorageTestHarness.cs` (MR #45) est laissé intact.
 ```
+
+## 12. Lot résiduel — ce que le dev a livré (2026-09-25)
+
+Branche `hermes/packet-212-storage`, base `master` `b56967a`. **Aucun fichier de production n'est
+modifié, et c'est une conclusion, pas un oubli** : sur les cinq points résiduels, un seul est
+tranchable par lecture et il l'était déjà (`§7.2` — la conclusion « pas de borne » est écrite dans le
+commentaire de `StorageRules.NextFreeIndex`, son test manquait) ; les quatre autres demandent
+l'arbitrage de Killian (`§7.1`, `§7.5`, `§7.6`, `§7.7`). Le lot renforce donc la **preuve sur le fil**,
+fige les décisions déjà prises et laisse nommé ce qui reste ouvert.
+
+### 12.1 Le paquet que ce lot touche : `TM_SC_RESULT` (id 0) — 15 octets
+
+Les quatre chemins de refus du `212` répondent tous par cette trame, et c'est le seul paquet dont le
+lot dépend (il n'en ajoute aucun) :
+
+| Offset | Taille | Champ | Valeur ici | Source |
+| --- | --- | --- | --- | --- |
+| 0 | 4 | `Length` | `15` (7 + 8) | `GameClient.SendResult` (`GameClient.cs:68-72`) |
+| 4 | 2 | `ID` | **0** en 7.3 | `rzu TS_SC_RESULT.h:12-14` (1000 seulement `>= EPIC_9_6_3`) |
+| 6 | 1 | `Checksum` | somme des 6 premiers octets | en-tête du dépôt |
+| 7 | 2 | `request_msg_id` | `212` | `rzu TS_SC_RESULT.h:7` |
+| 9 | 2 | `result` | `5` / `10` / `6` / `1` selon le refus | `rzu TS_SC_RESULT.h:8` |
+| 11 | 4 | `value` (`int32`) | le `item_handle` reçu | `rzu TS_SC_RESULT.h:9` ; NGemity `WorldSession.cpp:1596`, `:1610`, `:1614`, `:1646` |
+
+L'id 1000 de la version 9.6.3 est **déjà occupé** dans l'énumération du dépôt par `TM_SC_STAT_INFO`
+(`GamePackets.cs:145`) : raison indépendante du gating de ne jamais y basculer le résultat de requête
+en 7.3. `TM_SC_RESULT = 0` reste écrit en dur (`GamePackets.cs:5`).
+
+### 12.2 Tests ajoutés (1302 → **1316** cas, 0 échec)
+
+`Tests/Game/StorageServiceTests.cs` — 6 tests, 13 cas NUnit :
+
+1. `SendResult_LaysOutTheFifteenByteEpic73ResultFrame` : les six offsets du tableau 12.1, l'id 0, la
+   taille 15, le checksum, et `1000` comme `TM_SC_STAT_INFO` (donc pas de bascule possible) ;
+2. `Handle_AnswersNotActableForACloseWhenNoCounterIsOpen` : l'état de session est lu **avant** le mode
+   (`WorldSession.cpp:1595-1598`), donc un mode 4 sur un comptoir fermé répond comme les autres ;
+3. `Handle_RefusesAModeOutsideTheFive` : modes `5`, `6`, `127`, `128`, `255` — les deux derniers sont
+   `-128` et `-1` pour le `int8_t` de rzu, et le refus est l'écart assumé `§6.1` ;
+4. `Handle_ClosesTheWindowWithoutAnAnswer` : `count` `0`, `100`, `1e11`, `-1` — le mode 4 est lu avant
+   le compte, aucun des quatre n'en fait un refus, et l'état de session tombe ;
+5. `Handle_RefusesANonPositiveCountWithNotEnoughMoney` : les six cas dont `(2, -1)`, `(2, 0)` et
+   `(3, -1)` — les modes d'or répondent `NotEnoughMoney (10)` et non `NotActable` pour un compte
+   nul ou négatif, dans cet ordre (`§5.2`, écart `§6.2`) ;
+6. `Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace` : modes 2/3 pour `1`, `1e11` (la borne
+   NGemity) et `long.MaxValue` — **tout montant est refusé de la même façon**, aucune borne d'or n'est
+   inventée, et le chemin d'objet n'est jamais atteint.
+
+`Tests/Game/StorageRulesTests.cs` — 1 test :
+
+7. `NextFreeIndex_IsNotBoundedByAnyStorageCapacity` : `0..10000` occupés → l'emplacement rendu est
+   `10001`. Le `maxStorageItemCount` de 7.4 (défaut `10000`) ne doit jamais devenir une borne 7.3.
+
+Renforcement sans affaiblissement : `Handle_RefusesWhenNoCounterIsOpen` gagne les assertions d'octets
+et l'état de session ; les cinq autres tests de refus existants gardent leurs assertions d'origine
+(lecture par `Packet<TS_SC_RESULT>`) **et** gagnent l'assertion d'octets via le nouveau témoin
+`AssertRefusal` (taille 15, `ID` 0, checksum, `request_msg_id` 212, `result`, `value`). Aucun test
+n'a été supprimé ni affaibli ; aucun test du socle dans `StoragePacketsTests.cs` n'a été touché.
+
+### 12.3 Preuve que les tests mordent
+
+Deux mutations temporaires du code de production, laissées en place le temps d'une exécution filtrée
+puis **annulées** (`git status` ne montre ensuite que les deux fichiers de test) :
+
+| Mutation | Exécution | Résultat |
+| --- | --- | --- |
+| `StorageService.RequestId` = `212 + 1` | `dotnet test --filter FullyQualifiedName~Storage` | **18 échecs / 102** ; entre autres `Handle_AnswersDBErrorWhenTheMoveFails` : « Expected result.RequestMsgID to be 212us, but found 213us » et `AssertRefusal` : « ...because request_msg_id, but found 213us » |
+| `StorageRules.NextFreeIndex` borné à `10000` | `dotnet test --filter FullyQualifiedName~StorageRulesTests` | **1 échec / 25** ; `NextFreeIndex_IsNotBoundedByAnyStorageCapacity` : « Expected ... to be 10001, but found 10000 » |
+
+### 12.4 Sort de chaque point résiduel
+
+| Point de `§7` | Sort | Raison |
+| --- | --- | --- |
+| 7.1 tolérance de 4 octets du `211` | **inchangé : 7 octets**, décision non rejouée | aucune lecture ne l'établit ; c'est une correction de trame si Killian la connaît (A VERIFIER 1) |
+| 7.2 capacité | **tranché : aucune borne serveur**, rien à coder | aucune source 7.3 ; désormais fige par le test 7 (`§12.2`) |
+| 7.3 site → mode du `212` | sans impact serveur | les cinq modes sont traités ; le lot n'ajoute rien |
+| 7.4 mode 4 | accepté, sans réponse, ne libère pas l'état serveur de façon fiable | fige par le test 4 |
+| 7.5 or d'entrepôt | **ouvert** : modes 2/3 refusés `NotActable (5)` pour tout montant | décision d'architecture de données (A VERIFIER 2 et 3) |
+| 7.6 clauses d'`IsErasable` | port déjà portée ; **invocation liée : non portée** (`§12.5`) ; compétence liée : état absent tant que 284/285 ne sont pas mergés | ne pas porter du code mort |
+| 7.7 codes 51 / 88 | **non employés** : `NotActable (5)`, comme livré | NGemity ne les émet jamais (`§7.7`) |
+| 7.8 conteneur | inchangé : la table d'objets discriminée par propriétaire | `ItemStorageEntity` reste l'entrepôt d'enchères |
+| 7.9 forme de la notification de déplacement | inchangée (`254`/`255` puis `207`) | couverte par les tests de déplacement existants |
+
+### 12.5 Clause « carte d'invocation liée » — l'état n'est pas alimenté (lecture faite)
+
+`§7.6` disait « état disponible » d'après l'existence de la colonne. La lecture du dépôt montre que la
+colonne **n'est jamais écrite** :
+
+* `CharacterEntity.BeltItemIds` (`long[]` de 6, `CharacterEntity.cs:62`, `TelecasterContext.cs:142`)
+  est **lu une seule fois** — `GameActions.cs:248`, qui le passe tel quel à
+  `GameCharacterPackets.BuildBeltSlotInfo` (`:312-324`, six emplacements de 4 octets) — et
+  **aucune affectation n'existe** dans le dépôt (`BeltItemIds =` hors `Migrations/` : zéro
+  occurrence) ;
+* NGemity ne stocke pas cet état en base non plus : `m_aBindSummonCard` est un tableau d'`Item*`
+  (`Player.h:353`) et la clause du chemin d'entrepôt compare des **identités d'objet**
+  (`WorldSession.cpp:1619-1625`, `v == pItem`), pas des codes ; ses six handles partent au client
+  dans `TS_EQUIP_SUMMON.card_handle[i]` (`Messages.cpp:130-131`) ;
+* conséquence : une comparaison `BeltItemIds.Contains(item.Id)` écrite aujourd'hui serait
+  **inatteignable** (rien ne remplit la colonne) et la sémantique du champ — handle ou code de
+  ressource — n'est tranchée ni par le dépôt ni par la référence. La clause reste donc **ouverte**
+  (A VERIFIER 4), non portée et non devinée ;
+* ce qui l'établirait : la fonction qui écrira `BeltItemIds` (aucune n'existe) **et** une capture
+  cliente du paquet 216.
+
+### 12.6 Collisions mesurées sur ce lot
+
+Le lot ne touche que `Tests/Game/StorageServiceTests.cs` et `Tests/Game/StorageRulesTests.cs`, plus la
+présente fiche. **Aucun** des deux fichiers chauds (`GameClient.cs`, `GamePackets.cs`) ni
+`Tests/Game/StorageTestHarness.cs` (seul point de contact des 16 MR ouvertes, MR #45) n'est modifié :
+la collision annoncée par `§8` est donc nulle pour ce lot.
 
 ## A VERIFIER PAR KILLIAN
 
@@ -459,3 +602,15 @@ sont donc comportementaux, avec vérification des octets des **réponses** :
 5. **Capacité d'entrepôt** — aucune source 7.3 (ni rzu, ni NGemity, ni le binaire client) : je
    conclus « pas de borne ». Si le client affiche un nombre fixe d'emplacements, la valeur m'est
    inconnue ; les archives d'interface (`data.001`…`data.008`) ne sont pas dans `reference/client73/`.
+
+### État au 2026-09-25, après le lot résiduel (`§12`)
+
+| # | État | Ce que le lot en a fait |
+| --- | --- | --- |
+| 1 | **ouvert** | rien : la trame d'ouverture reste à **7 octets** (décision socle non rejouée) ; un seul relevé client trancherait |
+| 2 | **ouvert** | rien : les modes d'or 2/3 restent refusés `NotActable (5)`, la fiche ne choisit pas de schéma (le dev n'en a pas le mandat) |
+| 3 | **ouvert** | rien : aucune borne d'or n'est écrite, donc `1e11` n'est ni adoptée ni écartée ; les tests figent seulement que **tout** montant est refusé tant que la voie 2 n'est pas tranchée |
+| 4 | **ouvert, affiné** | la mesure `§12.5` retire l'argument « état disponible » : `BeltItemIds` n'est **jamais écrit** et NGemity compare des identités d'objet. Fermer la clause demanderait d'abord la fonction qui écrit la colonne (inexistante) — la question devient « qui écrira `BeltItemIds` ? » |
+| 5 | **tranché par lecture**, confirmé | « pas de borne » : `§7.2`, désormais figé par un test (`NextFreeIndex` non borné). Reste à Killian seulement si le client 7.3 affiche un nombre fixe d'emplacements — hors de portée des sources présentes |
+
+Aucun champ n'a été deviné pour ces cinq points : tout ce qui n'était pas établi est resté dehors.
