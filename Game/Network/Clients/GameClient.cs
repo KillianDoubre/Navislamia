@@ -1001,6 +1001,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleBuyItemAsync(byte[] packet)
+    {
+        if (!GameTradePackets.TryReadBuyItem(packet, out var itemCode, out var buyCount))
+        {
+            SendResult((ushort)GamePackets.TM_CS_BUY_ITEM, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.MarketTradeService.BuyAsync(this, itemCode, buyCount);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process item purchase for {clientTag}", ClientTag);
+        }
+    }
+
     private void HandleSkill(byte[] packet)
     {
         if (!GameActionPackets.TryReadSkill(packet, out var request))
@@ -1605,6 +1623,15 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_BUY_ITEM (251): one frame per catalogue line the player validated, answered by the
+            // open market's transaction side. It must stay before the throwing switch below: a member of
+            // GamePackets that reaches it breaks the receive loop. See docs/packet-specs/251-buy-item.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_BUY_ITEM)
+            {
+                _ = HandleBuyItemAsync(msgBuffer);
                 continue;
             }
 

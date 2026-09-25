@@ -39,6 +39,35 @@ public static class GameTradePackets
     public const int NpcTradeInfoSize = 36;
 
     /// <summary>
+    /// 7-byte header + <c>item_code</c> (4) + <c>buy_count</c> (2): the fixed 13-byte
+    /// <c>TM_CS_BUY_ITEM</c> (251) frame.
+    /// </summary>
+    public const int BuyItemSize = 13;
+
+    /// <summary>
+    /// <c>TM_CS_BUY_ITEM</c> (251), client to server: <c>item_code</c> (<c>int32</c>) at offset 7 and
+    /// <c>buy_count</c> (<c>uint16</c>) at offset 11, 13 bytes in all. The frame has one established form
+    /// and no optional field, so every other length is refused instead of partially read — the client
+    /// writes the length in hard and the emitter loops over one 12-byte element per catalogue line
+    /// (<c>SFrame.exe</c> <c>0x48f380</c>). 7.3 is below <c>EPIC_9_6_3</c>, so the id is 251, and above
+    /// <c>EPIC_4_1</c>, so <c>buy_count</c> is the <c>uint16</c> variant
+    /// (rzu <c>TS_CS_BUY_ITEM.h:9-11</c>, <c>:14-15</c>).
+    /// </summary>
+    public static bool TryReadBuyItem(ReadOnlySpan<byte> packet, out int itemCode, out ushort buyCount)
+    {
+        if (packet.Length != BuyItemSize)
+        {
+            itemCode = 0;
+            buyCount = 0;
+            return false;
+        }
+
+        itemCode = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        buyCount = BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(HeaderSize + 4, 2));
+        return true;
+    }
+
+    /// <summary>
     /// <c>TM_SC_MARKET</c> (250). The catalogue must be non-empty: no producer of a size-13 frame
     /// (<c>n = 0</c>) is known, so the market service refuses instead of sending one.
     /// </summary>

@@ -207,6 +207,17 @@ public class ConnectionInfo
         }
     }
     public uint NpcDialogHandle { get; set; }
+
+    /// <summary>
+    /// The market whose window <c>MarketService.Open</c> just opened for <see cref="NpcDialogHandle"/>, or
+    /// an empty string. <c>TM_CS_BUY_ITEM</c> (251) carries no market name, and the reference resolves a
+    /// purchase through the market its last contact named (<c>GetLastContactStr("market")</c>,
+    /// <c>WorldSession.cpp:733</c>): this is that memory, dropped with the dialog it belongs to
+    /// (<see cref="ClearNpcDialog"/>), which is also what a purchase reads to know a counter is open.
+    /// See docs/packet-specs/251-buy-item.md §5.3.
+    /// </summary>
+    public string OpenMarketName { get; set; } = string.Empty;
+
     public HashSet<string> NpcDialogTriggers { get; } = new();
     public Dictionary<int, byte> LearnedSkills { get; } = new();
     public float X { get; set; }
@@ -376,5 +387,9 @@ public class ConnectionInfo
     {
         NpcDialogHandle = 0;
         NpcDialogTriggers.Clear();
+
+        // The trade window is bound to the dialog that opened it: a dialog that ended (or moved to
+        // another NPC) no longer sells. TM_CS_BUY_ITEM (251) reads this to refuse with 7.
+        OpenMarketName = string.Empty;
     }
 }

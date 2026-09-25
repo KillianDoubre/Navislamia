@@ -36,7 +36,8 @@ internal static class StorageTestHarness
 
     public static GameClient NewGameClient(Connection connection, IStorageService storageService = null,
         IGmCommandService gmCommandService = null,
-        Navislamia.Game.Services.Pets.IPetSummonService petSummonService = null)
+        Navislamia.Game.Services.Pets.IPetSummonService petSummonService = null,
+        IMarketTradeService marketTradeService = null)
     {
         var networkService = new NetworkService(
             A.Fake<ILogger<NetworkService>>(),
@@ -64,7 +65,8 @@ internal static class StorageTestHarness
             storageService ?? A.Fake<IStorageService>(),
             A.Fake<IQuestService>(),
             gmCommandService ?? A.Fake<IGmCommandService>(),
-            petSummonService ?? A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>());
+            petSummonService ?? A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
+            marketTradeService ?? A.Fake<IMarketTradeService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

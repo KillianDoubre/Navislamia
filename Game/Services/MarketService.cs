@@ -11,6 +11,12 @@ namespace Navislamia.Game.Services;
 /// (<c>WorldSession.cpp:707-729</c>), <c>SCRIPT_ShowMarket</c> resolves the catalogue
 /// (<c>XLua.cpp:485-496</c>) and <c>Messages::SendMarketInfo</c> fills the packet
 /// (<c>Messages.cpp:229-247</c>).
+/// <para>
+/// The window this opens is remembered by the caller, not here: <c>TM_CS_BUY_ITEM</c> (251) carries no
+/// market name, so who opened which market has to outlive this call. <see cref="Open"/> therefore only
+/// reports whether the window was opened, and <c>NpcDialogService</c> writes it to the session.
+/// See docs/packet-specs/251-buy-item.md §5.3.
+/// </para>
 /// </summary>
 public class MarketService : IMarketService
 {
@@ -22,12 +28,12 @@ public class MarketService : IMarketService
         _catalog = catalog;
     }
 
-    public void Open(GameClient client, uint npcHandle, string marketName)
+    public bool Open(GameClient client, uint npcHandle, string marketName)
     {
         if (npcHandle == 0)
         {
             _logger.Warning("Refused a market opening for {clientTag} without an NPC handle", client.ClientTag);
-            return;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(marketName))
@@ -38,7 +44,7 @@ public class MarketService : IMarketService
             // wrong window. Nothing is sent.
             _logger.Warning("NPC handle {handle} announced a truncated open_market() trigger for {clientTag}: "
                             + "no market name, so no TM_SC_MARKET was sent", npcHandle, client.ClientTag);
-            return;
+            return false;
         }
 
         if (!_catalog.TryGetMarket(marketName, out var lines) || lines.Count == 0)
@@ -47,11 +53,12 @@ public class MarketService : IMarketService
             // (Messages.cpp:231-232). A size-13 TM_SC_MARKET (n = 0) has no known producer.
             _logger.Warning("Unknown market {market} for NPC handle {handle} of {clientTag}: no TM_SC_MARKET "
                             + "was sent", marketName, npcHandle, client.ClientTag);
-            return;
+            return false;
         }
 
         client.Connection.Send(GameTradePackets.BuildMarketInfo(npcHandle, lines));
         _logger.Debug("{clientTag} opened market {market} of NPC handle {handle} with {lines} lines",
             client.ClientTag, marketName, npcHandle, lines.Count);
+        return true;
     }
 }
