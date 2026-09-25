@@ -408,6 +408,15 @@ structurelle (§5.5).
 **(b4) parquée** jusqu'à ce que la sémantique des valeurs de quête et la provenance du catalogue
 soient tranchées (c'est le même motif que la carte 605 `BAMvMQ7u` déjà parquée par le PO).
 
+**Conflit de cadrage, écrit ici pour que le dev ne le devine pas.** La carte dev du PO
+(`t_8a150442`) énonce que « 604 et 605 ne reviennent qu'après, sur leurs propres cartes » : deux cartes
+de paquets parkées en `THINKING` les attendent (604 `RjcBclVP`, 605 `BAMvMQ7u`), citées par la carte
+parente. Cette fiche juge pourtant la **réception** des deux trames structurelle et sans décision de
+jeu, d'où (b1). Les deux lectures ne s'excluent pas : **si la carte dev exclut 604/605, le lot se réduit
+à (b2)**, et (b1) devient la spécification de `RjcBclVP` / `BAMvMQ7u` — aucune archéologie n'est à
+refaire. Exécuter ce que dit la carte dev ; si elle est muette, (b1) + (b2) est le lot que cette fiche
+recommande.
+
 Conséquence assumée : après (b1)+(b2), le serveur **reçoit** les deux trames et ne fait toujours
 avancer aucune quête — comme après (a), aucun chemin d'écriture ne crée de quête. Ce n'est pas un
 défaut de découpage, c'est le prix de ne pas inventer les conditions d'acceptation.
