@@ -139,6 +139,16 @@ public enum GamePackets : ushort
     TM_SC_QUEST_LIST = 600,
     TM_SC_QUEST_STATUS = 601,
     TM_CS_DROP_QUEST = 603,
+
+    // TM_CS_TURN_OFF_PK_MODE (801): the 7.3 client's PK mode switch, the extinguished twin of 800. A
+    // header-only frame (7 bytes, empty body) built by the client itself (SFrame.exe+0x684c00, id 0x321):
+    // rzu declares no field for it and the server answers nothing — the state reaches the client through
+    // bit 11 of the status mask of TM_SC_STATUS_CHANGE (500) only, and that same bit is what the client
+    // tests (SFrame.exe+0x68b006) to choose between 800 and 801. rzu renames the id to 1801 from
+    // EPIC_9_6_3 on, above EPIC_7_3, so 1801 must not be declared here.
+    // See docs/packet-specs/801-turn-off-pk-mode.md.
+    TM_CS_TURN_OFF_PK_MODE = 801,
+
     TM_CS_CHANGE_LOCATION = 900,
     TM_SC_WEATHER_INFO = 902,
     TM_CS_GET_WEATHER_INFO = 903,
