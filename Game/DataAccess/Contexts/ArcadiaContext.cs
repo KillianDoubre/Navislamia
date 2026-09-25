@@ -29,6 +29,8 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<MonsterResourceEntity> MonsterResources { get; set; }
     public DbSet<AuctionCateryResourceEntity> AuctionCateryResources { get; set; }
     public DbSet<WorldLocationEntity> WorldLocations { get; set; }
+    public DbSet<QuestResourceEntity> QuestResources { get; set; }
+    public DbSet<QuestLinkResourceEntity> QuestLinkResources { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,6 +49,52 @@ public class ArcadiaContext : SoftDeletionContext
         ConfigureMonsterResource(modelBuilder);
         ConfigureAuctionCateryResource(modelBuilder);
         ConfigureWorldLocations(modelBuilder);
+        ConfigureQuestCatalogue(modelBuilder);
+    }
+
+    /// <summary>
+    /// The two tables of the quest catalogue. Every <c>char</c> column of the schema is declared as a
+    /// one-character column (<c>character varying(1)</c>, <c>HasMaxLength(1)</c>): the retail data holds a
+    /// character there (<c>'0'</c>/<c>'1'</c>) and no reference proves the same domain for each flag, so none
+    /// of them is folded into a <c>bool</c> (docs/packet-specs/socle-cycle-quete.md §5.1).
+    /// <c>QuestLinkResource</c> declares no primary key, so the pair (npc_id, quest_id) is used as one — EF
+    /// requires a key and that is the pair the schema's data uses once per row.
+    /// </summary>
+    private static void ConfigureQuestCatalogue(ModelBuilder modelBuilder)
+    {
+        var quest = modelBuilder.Entity<QuestResourceEntity>();
+
+        // The schema declares these fifteen columns `not null`; every other column of the table carries its
+        // own type and nullability without configuration. Without IsRequired they would be created nullable,
+        // because this project compiles without nullable reference types and EF then reads every string as
+        // optional — which is what the other resource tables of this context do (MonsterResource.model is
+        // `not null` in the schema and optional in the model).
+        quest.Property(resource => resource.LimitDeva).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.LimitAsura).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.LimitGaia).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.LimitFighter).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.LimitHunter).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.LimitMagician).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.LimitSummoner).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.Repeatable).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.OrFlag).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.IsAutoQuest).HasMaxLength(1).IsRequired();
+        quest.Property(resource => resource.TimeLimitType).HasMaxLength(10).IsRequired();
+        quest.Property(resource => resource.ScriptStartText).HasMaxLength(512);
+        quest.Property(resource => resource.ScriptEndText).HasMaxLength(512);
+        quest.Property(resource => resource.ScriptDropText).HasMaxLength(512);
+        quest.Property(resource => resource.ShowTargetType).HasMaxLength(1);
+        quest.Property(resource => resource.MarkHide).HasMaxLength(1);
+
+        var questLink = modelBuilder.Entity<QuestLinkResourceEntity>();
+
+        // The table declares no primary key; EF requires one, so the pair the schema's data uses once per
+        // row is declared as the key. That uniqueness is a modelling choice, not a schema guarantee.
+        questLink.HasKey(link => new { link.NpcId, link.QuestId });
+
+        questLink.Property(link => link.FlagStart).HasMaxLength(1).IsRequired();
+        questLink.Property(link => link.FlagProgress).HasMaxLength(1).IsRequired();
+        questLink.Property(link => link.FlagEnd).HasMaxLength(1).IsRequired();
     }
 
     /// <summary>
