@@ -25,7 +25,7 @@ tranche la logique, sous réserve de sa version (`EPIC_4_1_1`, `shared/Common/De
 | --- | --- | --- | --- |
 | **604** | `TM_CS_QUEST_INFO` | interrogation d'une quête précise (client → serveur) | `op_codes.md:159` ; structure `reference/rzu/librzu/src/packets/GameClient/TS_CS_QUEST_INFO.h:7-15` ; NGemity `shared/Server/Packets/GameClient/TS_CS_QUEST_INFO.h` |
 | **605** | `TM_CS_END_QUEST` | fin de quête, avec choix de la récompense optionnelle (client → serveur) | `op_codes.md:160` ; `TS_CS_END_QUEST.h:5-14` ; NGemity `TS_CS_END_QUEST.h` |
-| 602 | `TM_SC_QUEST_INFOMATION` | candidate de réponse descendante à 604 — **écartée**, §5.3 | `op_codes.md:157` ; `TS_SC_QUEST_INFOMATION.h:12-22` |
+| 602 | `TM_SC_QUEST_INFOMATION` (graphie de rzu) / `TM_SC_QUEST_INFORMATION` (graphie d'`op_codes.md`) | candidate de réponse descendante à 604 — **écartée**, §5.3 | `op_codes.md:157` ; `TS_SC_QUEST_INFOMATION.h:12-22` |
 | 600 / 601 | `TM_SC_QUEST_LIST` / `TM_SC_QUEST_STATUS` | état déjà livré par (a), réutilisé tel quel | `socle-quetes.md` §3.4-3.5 |
 | 3000 / 3001 | `TM_SC_DIALOG` / `TM_CS_DIALOG` | **transport du déclencheur** : c'est par là que le serveur arme la fenêtre de quête | `op_codes.md:220-221` ; `docs/npc-dialogs.md:30-53` |
 
@@ -138,11 +138,15 @@ Côté serveur, NGemity **fabrique ces déclencheurs** dans `Messages::SendQuest
 
 | élément | valeur produite | source |
 | --- | --- | --- |
-| titre du dialogue | nom du PNJ, `type` = 3 / 7 / 8 selon la progression | `Messages.cpp:672-675`, `627-641` |
+| titre du dialogue | **littéral** `"Guide Arocel"` — valeur de la référence, **non dérivée du PNJ** — et `type` = 3 / 7 / 8 selon la progression | `Messages.cpp:672-675` (titre), `627-641` (type) |
 | **texte** du dialogue | `QUEST\|{code}\|{textID}` | `Messages.cpp:676` |
 | menu, quête terminable, récompenses optionnelles | un bouton par récompense avec déclencheur `end_quest( {code}, {i} )`, libellé `NULL`, puis libellé `REWARD` de déclencheur vide | `Messages.cpp:682-704` |
 | menu, quête terminable sans récompense optionnelle | déclencheur `end_quest( {code}, -1 )` | `Messages.cpp:699` |
 | menu, quête démarrable | libellé `START`, déclencheur `start_quest( {code}, {textID} )`, puis libellé `REJECT` de déclencheur vide | `Messages.cpp:713-716` |
+
+Le **titre** est donc, chez NGemity, une chaîne constante (`"Guide Arocel"`, `Messages.cpp:672`) : la
+référence ne dit pas d'où un serveur 7.3 tire ce titre. Seuls le préfixe du **texte** et la grammaire du
+menu sont structurels ; le titre à émettre reste NON ÉTABLI (§7.9).
 
 Le menu part tel quel dans `TS_SC_DIALOG` sous la forme `\t<libellé>\t<déclencheur>\t`
 (`Player::AddDialogMenu`, `Chihiro/src/Entities/Player/Player.cpp:1098-1109` ; `Player::ShowDialog`,
@@ -300,7 +304,7 @@ Ce qu'il faut lire pour chaque étape du cycle :
 | **accepter** | la définissabilité : pas déjà portée, `repeatable`, prérequis `forequest*`, limites de niveau/métier/race, plafond de quêtes actives | `Player::StartQuest` (`Chihiro/src/Entities/Player/Player.cpp:2222-2266`), `QuestManager::IsStartableQuest` (`Chihiro/src/Quests/QuestManager.cpp:505-529`), `Player::IsStartableQuest` (`Player.cpp:2006`), plafond `20` (`Player.cpp:2228`) | `QuestResource` (colonnes `limit_*`, `repeatable`, `forequest1..3`, `or_flag`) + la table de quêtes du personnage (a) |
 | **progresser** | les couples clé/valeur de la quête et les événements qui les font bouger | `Player::updateQuestStatus` (`Player.cpp:2280+`), `QuestManager::UpdateQuestStatusByItemCount` / `ByMonsterKill` / `BySkillLevel` / `ByJobLevel` / `ByParameter` (`QuestManager.cpp`), `Player::onStatusChanged` (`Player.cpp:2050`) | `QuestResource.type` + `value1..12` (sémantique **non établie**, §7) |
 | **terminer** | la finabilité, puis les récompenses | `Player::EndQuest` (`Player.cpp:2333-2418`), `CheckFinishableQuestAndGetQuestStruct` (`Player.cpp:2428`), `Player::IsFinishableQuest` (`:2039`), `QuestManager::EndQuest` (`QuestManager.cpp:245`) | `QuestResource` : `default_reward_*`, `optional_reward_*1..6`, `exp`, `jp`, `favor`, `drop_group_id` |
-| **journaliser** | l'échange de messages chat | `Messages::SendQuestMessage` (`Chihiro/src/Network/Messages.cpp:860-863`) → `SendChatMessage(120, "@QUEST", …)` (`:206-218`) : `START\|SUCCESS\|<code>`, `START\|FAIL\|NOT_STARTABLE\|<textid>`, `START\|FAIL\|QUEST_NUMBER_EXCEED\|<textid>`, `END\|EXP\|…`, `END\|FAIL\|0`, `END\|TOO_MUCH_MONEY\|…`, `END\|REWARD\|<item>` | politique de jeu — §5.5 |
+| **journaliser** | l'échange de messages chat | `Messages::SendQuestMessage` (`Chihiro/src/Network/Messages.cpp:860-863`) → `SendChatMessage(120, "@QUEST", …)` (`:206-218`) ; chaînes produites aux sites d'appel `Player.cpp:2229,2235,2254,2264,2337,2355,2359,2400,2407,2424` : `START\|SUCCESS\|<code>`, `START\|FAIL\|NOT_STARTABLE\|<textid>`, `START\|FAIL\|QUEST_NUMBER_EXCEED\|<textid>`, `END\|EXP\|…`, `END\|FAIL\|0`, `END\|TOO_MUCH_MONEY\|…`, `END\|REWARD\|<item>` | politique de jeu — §5.5 |
 
 **Prérequis d'infrastructure (à signaler, non installable depuis ce rôle)** : il n'y a **pas de
 PostgreSQL ni de base Arcadia** sur ce VPS ; l'entité, la migration et le dépôt peuvent être écrits et
@@ -327,7 +331,8 @@ Pour qu'une fenêtre de quête s'ouvre, le serveur doit posséder et émettre **
    (`0x0067ce8a`) et sait que `start_quest` / `end_quest` sont les commandes de quête
    (`0x0057d14d`, `0x0057d174`) ;
 4. **le dernier contact PNJ** côté serveur, puisque le retour `TM_CS_DIALOG` ne porte qu'une chaîne :
-   NGemity garde `GetLastContactLong("npc")` (`WorldSession.cpp:703,718`) ; le dépôt a l'équivalent
+   NGemity garde `GetLastContactLong("npc")` (`WorldSession.cpp:720` ; la ligne `:718` en est la variante
+commentée) ; le dépôt a l'équivalent
    (`GameClient.cs:1714-1723`, `NpcDialogService`, `docs/npc-dialogs.md:5-13`).
 
 Le dépôt possède **déjà la plomberie du dialogue** : `TS_SC_DIALOG` (3000) est construit
@@ -483,6 +488,10 @@ de version ou de périmètre, pas des erreurs de la référence.
    `docs/npc-dialogs.md:41-42` nomme longueurs `title` et `text`. Lequel des deux porte le préfixe
    dans l'octet-stream d'origine n'est pas tranché sans l'essai en jeu ; comme le préfixe est unique
    dans le dialogue, produire le texte comme NGemity est le choix le plus sûr et le seul attesté.
+   **Le titre** n'est pas établi non plus : NGemity écrit une chaîne constante (`"Guide Arocel"`,
+   `Messages.cpp:672`), qui n'est **pas** le nom du PNJ. Un serveur 7.3 y met vraisemblablement le nom
+   du PNJ (c'est ce que la fenêtre affiche), mais aucune référence lue ici ne le prouve : le titre est
+   donc à confirmer en jeu, au même titre que le choix titre/texte.
 
 ## 8. Commits épinglés
 
@@ -500,7 +509,9 @@ de version ou de périmètre, pas des erreurs de la référence.
 2. **Forme du déclencheur** (§5.2, §7.6, §7.9). Le format `QUEST|<code>|<textID>` + menu
    `\tSTART\tstart_quest( code, textid )\t` est celui de NGemity (4.1.1) et le client 7.3 en reconnaît
    les deux motifs, mais l'écriture exacte de 3000 n'a pas pu être confrontée à un serveur 7.3 :
-   titre ou texte, libellés de menu, page initiale. À valider en jeu.
+   titre ou texte, libellés de menu, page initiale. À valider en jeu. Le **titre** est chez NGemity une
+   constante (`"Guide Arocel"`, `Messages.cpp:672`), donc non dérivée du PNJ ; le titre 7.3 (nom du PNJ
+   affiché par la fenêtre ?) reste à confirmer.
 3. **Borne de `nOptionalReward`** (§7.1). `-1` est prouvé ; la borne supérieure (3 chez NGemity,
    6 emplacements au schéma 7.3) doit être confirmée par un catalogue réel.
 4. **Provenance du catalogue de quêtes** (§5.1). Le VPS n'a ni PostgreSQL ni base Arcadia, et la
@@ -534,6 +545,8 @@ protégé, `navis-ref` et `navis-dev` ne l'écrivent pas.
   menu porte `\tSTART\tstart_quest( code, textid )\t` / `\tNULL\tend_quest( code, i )\t`. Le client
   7.3 reconnaît ces motifs (`0x0067ce8a`, `0x0057d14d`, `0x0057d174`) ; le retour est un
   `TM_CS_DIALOG` (3001) porteur du déclencheur, à lire comme une **grammaire fermée** — jamais de Lua.
+  Le **titre** est chez NGemity une constante (`"Guide Arocel"`, `Messages.cpp:672`), pas le nom du PNJ :
+  le titre 7.3 reste à confirmer.
 - Détail, sources et réserves : `docs/packet-specs/socle-cycle-quete.md`.
 ```
 
