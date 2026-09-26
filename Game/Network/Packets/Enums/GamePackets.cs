@@ -81,6 +81,15 @@ public enum GamePackets : ushort
     TM_SC_UNSUMMON = 305,
     TM_SC_UNSUMMON_NOTICE = 306,
     TM_SC_SUMMON_EVOLUTION = 307,
+
+    // TM_CS_CHANGE_SUMMON_NAME = 323 is declared inside the summon block, between 307 and 320, and not
+    // after TM_SC_UNMOUNT_SUMMON (321) where its numeric rank would put it: the two boundaries of this
+    // block are exactly where the sibling summon branches anchor their own members (304 after
+    // TM_EQUIP_SUMMON, 324 after 321), so a third insertion point keeps the family together without
+    // sharing one with them. The 9.6.3 remap to 1323 is above EPIC_7_3 and must not be declared here.
+    // See docs/packet-specs/323-change-summon-name.md.
+    TM_CS_CHANGE_SUMMON_NAME = 323,
+
     TM_SC_MOUNT_SUMMON = 320,
     TM_SC_UNMOUNT_SUMMON = 321,
     TM_CS_GET_SUMMON_SETUP_INFO = 324,

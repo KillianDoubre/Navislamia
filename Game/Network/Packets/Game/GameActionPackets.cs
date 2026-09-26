@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Text;
 using Navislamia.Game.Network.Packets.Enums;
 
 namespace Navislamia.Game.Network.Packets.Game;
@@ -630,6 +631,72 @@ public static class GameActionPackets
         request = new TakeoutCommercialItemRequest(
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
             BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(HeaderSize + 4, 2)));
+        return true;
+    }
+
+    /// <summary>
+    /// Total size of <c>TM_CS_CHANGE_SUMMON_NAME</c> (323) on the wire, 7-byte header included: 26 bytes.
+    /// The client writes that length in hard (<c>0x1a</c>, <c>SFrame.exe</c> 0x48c61d) from its only frame
+    /// builder, so any other length is a malformed frame rather than a shorter or padded variant.
+    /// </summary>
+    public const int ChangeSummonNamePacketSize = 26;
+
+    /// <summary>Payload size of the frame, 26 - 7 = 19 bytes: the whole payload is the name field.</summary>
+    public const int ChangeSummonNamePayloadSize = ChangeSummonNamePacketSize - HeaderSize;
+
+    /// <summary>Offset of the <c>name</c> field: 7, the first payload byte (offset 0 seen from the payload).</summary>
+    public const int ChangeSummonNameOffset = HeaderSize;
+
+    /// <summary>
+    /// Width of the <c>name</c> field in Epic 7.3: 19 bytes. rzu declares
+    /// <c>_(def)(string)(name, 20)</c> with an <c>_(impl)(string)(name, 19, version &lt; EPIC_9_6)</c>
+    /// override, and the client's frame builder writes 7 + 19 = 26 bytes, which confirms 19 for 7.3.
+    /// </summary>
+    public const int ChangeSummonNameFieldSize = 19;
+
+    /// <summary>
+    /// Usable characters in the field: 18. The 19th byte is the terminator — the client copies the typed
+    /// name up to the NUL and forces a NUL into the last byte of the field, so a longer name is truncated
+    /// there. This is the width of the field, not a rule of the client: neither the accepted minimum nor
+    /// the uniqueness of a name is established (fiche §7(e)), and nothing here enforces either.
+    /// </summary>
+    public const int ChangeSummonNameMaxLength = ChangeSummonNameFieldSize - 1;
+
+    /// <summary>
+    /// <c>TM_CS_CHANGE_SUMMON_NAME</c> (323), the summon rename request: the 7-byte header, then a
+    /// <c>char[19] name</c> at offsets 7-25 — 26 bytes in all, the only client to server frame of the
+    /// summon family that carries <strong>no</strong> handle.
+    /// <para>
+    /// Only the exact 26-byte form is accepted. The field must hold a NUL, which the client guarantees:
+    /// its frame builder zeroes the 19 bytes first and forces a NUL into the 19th one. Reading past a
+    /// field that is full would spill the byte that follows into the name, so such a frame is refused
+    /// rather than guessed — the same discipline as the 4500 reader above. What follows the first NUL
+    /// inside the field is ignored.
+    /// </para>
+    /// <para>
+    /// The value crosses the server <strong>unapplied</strong>: this reader decides nothing about which
+    /// summon is renamed (the frame carries no target, fiche §3.3) nor about the length or uniqueness of
+    /// a name (fiche §7(d), §7(e)). See docs/packet-specs/323-change-summon-name.md.
+    /// </para>
+    /// </summary>
+    public static bool TryReadChangeSummonName(ReadOnlySpan<byte> packet, out string name)
+    {
+        name = null;
+
+        if (packet.Length != ChangeSummonNamePacketSize)
+        {
+            return false;
+        }
+
+        var field = packet.Slice(ChangeSummonNameOffset, ChangeSummonNameFieldSize);
+        var terminator = field.IndexOf((byte)0);
+
+        if (terminator < 0)
+        {
+            return false;
+        }
+
+        name = Encoding.ASCII.GetString(field.Slice(0, terminator));
         return true;
     }
 
