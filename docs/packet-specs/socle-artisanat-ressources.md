@@ -27,8 +27,9 @@ dans ce dépôt (`git rev-parse` : variable) — c'est bien `b56967a` qui est la
 (bloc commenté « The crafting and item-enchantment family », `:52-58`). Le lecteur `256` existe
 (`Game/Network/Packets/Game/GameActionPackets.cs:415-459`), le bras de réception est en
 `Game/Network/Clients/GameClient.cs:1618-1631` (appel `:1628`), la conduite est
-`Game/Services/CraftingSocleService.cs:43-126` et les règles de poignées
-`Game/Services/CraftingSocleRules.cs:18-32`. `257` est un paquet **descendant** : sur `master` il n'a
+`Game/Services/CraftingSocleService.cs:43-291` — `HandleAsync` à `:57`, le `case (ushort)GamePackets.TM_CS_MIX`
+à `:71`, `ResolveMixAsync` à `:151`, `TryReadMaterialAsync` à `:208`, `HasUnknownHandleAsync` à `:257` — et
+les règles de poignées `Game/Services/CraftingSocleRules.cs:18-32`. `257` est un paquet **descendant** : sur `master` il n'a
 pas de bras de réception et c'est correct (`GameClient.cs:1419-1424` le cite dans la liste des ids
 strictement S→C journalisés et jetés). **Aucune branche ne construit de trame 257** : mesure sur les 55
 branches locales `hermes/*` — les seules occurrences de `MIX_RESULT` sont la déclaration de l'énumération,
@@ -262,6 +263,14 @@ nombreux — qui ne reçoivent rien de NGemity. `MixManager::CreateItem` (`MixMa
 couvrirait 202/302/402/601) **n'est appelé de nulle part** : code mort. Ne pas s'en servir de modèle
 sans le dire.
 
+**Hors périmètre : les quatre gardes de `check_mixable_item`.** `MixManager.cpp:320-341` refuse, **avant**
+toute règle, un matériau dont la quantité détenue est inférieure à la quantité déclarée, un objet dont
+`status_flag` porte le bit 4, un objet non `IsMixable` et un objet d'un autre type — et sur ces quatre
+refus la référence **ne répond rien**. Le socle ne porte que la résolution de poignée (`NotExist` quand
+l'objet n'est pas dans l'inventaire, `DBError` quand la lecture échoue) : la quantité déclarée par la
+trame n'est confrontée qu'à la **règle**, jamais à l'inventaire. Le palier des effets devra les porter ou
+les écarter explicitement (§9 pt 9).
+
 ### 6.1 La résolution — `GetProperMixInfo` (`MixManager.cpp:242-298`)
 
 C'est le cœur **mécanique** (aucune politique de jeu), dans cet ordre exact :
@@ -344,7 +353,7 @@ contredite par sa propre logique et sera re-vérifiée par la QA client (§9).
 ### 6.4 Ce que le socle fait aujourd'hui, et ce que le moteur ajoute
 
 Sur `master`, 256 est lu, borné, ses poignées résolues (`NotExist` sinon), puis **refusé**
-`InvalidArgument` (`CraftingSocleService.cs:122-125`) : la fiche sœur §9.2 l'a livré comme étape
+`InvalidArgument` (`CraftingSocleService.cs:136-141`) : la fiche sœur §9.2 l'a livré comme étape
 structurelle. Ce lobe ajoute la **résolution** (§6.1) et deux refus distincts dans le journal, mais
 **conserve le refus `InvalidArgument`** comme réponse tant que les effets ne sont pas décidés : aucune
 trame 257 n'est émise, aucun objet n'est touché, aucun taux n'est tiré.
@@ -389,7 +398,7 @@ trame 257 n'est émise, aucun objet n'est touché, aucun taux n'est tiré.
 | code 20 | inerte dans le contrôle préalable (`default: break`, `:443-444`), `return false` dans le post-réordonnancement (`:574-576`) | refusé **au même endroit** : inerte avant, `false` dans le post-réordonnancement | garder le refus là où la référence le met le rend exerçable par un test (§13 pt 6) ; un refus préalable le rendait inatteignable |
 | codes 15-18 | `default: break` = **satisfaits** | **refusés** (fermé par défaut) | porter un `default` silencieux reproduirait un bug : un code non établi ne peut pas valider une recette (§10) |
 | code 11/12 | commentés (jamais testés) | refusés | idem |
-| 257 sur refus | `TM_SC_RESULT` 256 `InvalidArgument` | identique | `CraftingSocleService.cs:122-125` |
+| 257 sur refus | `TM_SC_RESULT` 256 `InvalidArgument` | identique | `CraftingSocleService.cs:141` |
 | `EnhanceResource` filtré localement | oui (`ObjectMgr.cpp:1099`) | non : toutes les lignes chargées, clé `(Id, LocalFlag)` | le `local_flag` du serveur n'existe pas dans notre configuration (§9) |
 
 ## 8. Découpage — ce que cette fiche autorise
@@ -423,7 +432,7 @@ ajoutée**.
 
 | fichier | contenu |
 |---|---|
-| `Game/Services/MixResourceMatcher.cs` (neuf, statique et pur comme `CraftingSocleRules`) | l'algorithme du §6.1 : `sub_material_count == N`, `check_material_info` sur la cible, appariement **par permutation** des matériaux — lecture **choisie**, la boucle exécutée de la référence étant positionnelle (§6.1 pt 4, §7) —, `post_arrange` pour les codes 19 et 20 ; **refus fermé** pour ce qu'aucune référence n'établit : 11, 12, 15-18 et tout code inconnu. **Les codes 8, 9, 13 et 14 sont implémentés** (`MixManager.cpp:390-399`, `:434-451` ; le code 9 porte 45 lignes du dump) |
+| `Game/Services/MixResourceMatcher.cs` (neuf, statique et pur comme `CraftingSocleRules`) | l'algorithme du §6.1 : `sub_material_count == N`, `check_material_info` sur la cible, appariement **par permutation** des matériaux — lecture **choisie**, la boucle exécutée de la référence étant positionnelle (§6.1 pt 4, §7) —, `post_arrange` pour les codes 19 et 20 ; **refus fermé** pour ce qu'aucune référence n'établit : 11, 12, 15-18 et tout code inconnu. **Les codes 8, 9, 13 et 14 sont implémentés** (`MixManager.cpp:390-399`, `:434-451` ; le code 9 porte 45 lignes du dump — décision détaillée au §13 pt 2) |
 | `Game/Services/CraftingSocleService.cs` | après la résolution des poignées : chercher la règle ; journaliser **deux cas distincts** — « aucune règle » (Debug/Information) et « règle résolue, effets non implémentés » (Warning) ; conserver le refus `InvalidArgument` dans les deux cas |
 | `Tests/Game/MixResourceMatcherTests.cs` (neuf) | lignes construites à la main, aucune base : match exact, `sub_material_count` divergent, cible qui ne satisfait pas un code, **permutation** (matériaux donnés dans un autre ordre), consommation de quantité par un même groupe, code non établi ⇒ **pas** de match, post-arrangement 19 et **refus du code 20 au post-arrangement** (là où il est atteignable) |
 | `Tests/Game/CraftingSocleServiceTests.cs` (neuf, carte de correction `t_4a2ccfe1`) | la conduite de `CraftingSocleService.HandleAsync` : sentinelle 0 jamais résolue, poignée inconnue `NotExist` avec la poignée en valeur, lecture en échec `DBError`, ressource absente d'`ItemResource` `InvalidArgument`, trame malformée refusée avant toute lecture, garde hors monde, 260 et 262 — et les **deux niveaux du journal** (« aucune règle » en Debug, « règle résolue » en Warning) |
@@ -486,6 +495,11 @@ conflit, pas dans l'énumération. **Ne pas réécrire `GamePackets.cs` ni la bo
    ne les départage : `db_combineres.rdb` n'est pas décodé (pt 6) et la donnée 7.3 est absente (pt 1).
    Elles rendent aujourd'hui la **même réponse** — refus `InvalidArgument` — et ne diffèrent que par la
    ligne de journal ; c'est donc l'observation client (§10 pt 9) qui décide.
+9. **Les quatre gardes de `check_mixable_item`** (`MixManager.cpp:320-341` : quantité détenue ≥ quantité
+   déclarée, `status_flag` bit 4, `IsMixable`, type d'objet) sont **hors périmètre** du socle (§6.0), qui
+   ne résout que les poignées (`NotExist`/`DBError`). La quantité déclarée par la trame n'est donc
+   vérifiée que contre la **règle**, jamais contre l'inventaire, et la référence **ne répond rien** sur
+   ces refus. Le palier des effets devra les porter — et décider de la réponse, que NGemity n'envoie pas.
 
 ## 10. A VERIFIER PAR KILLIAN
 
@@ -645,6 +659,7 @@ trois points documentaires. Le lot corrige la fiche **et** le code :
 |---|---|
 | `9e45e2b` | `TryArrange` documenté comme **écart choisi** (la boucle exécutée est positionnelle, `getProperMixInfoSub` est morte) ; refus du **code 20 déplacé** dans le post-réordonnancement, là où la référence le porte ; « aucune règle » journalisé en **Debug** ; `Tests/Game/CraftingSocleServiceTests.cs` (11 tests de conduite) ; deux tests du refus du code 20 ; message du test de permutation corrigé |
 | `a7b4646` | §6.1 pt 4, §7, §8 L1b, §9 pt 8, §10 pt 9 et §11 : comportement exécuté, écarts étiquetés, question ouverte portée |
+| `HEAD` de la branche | C5 (citations vers `CraftingSocleService.cs` rafraîchies) et C6 (les quatre gardes de `check_mixable_item` déclarées hors périmètre en §6.0 et §9 pt 9) |
 
 Décisions prises ici (suite de la liste du §13) :
 
@@ -665,6 +680,17 @@ code 0, **1 347 verts**, 0 échec, aucun test retiré ; deux mutations rejouées
 `return false` du code 20 ⇒ 3 échecs ; repasser « aucune règle » en Warning ⇒ 1 échec), puis les fichiers
 restaurés au commit.
 
-Hors de ce lot, réserves de la QA laissées telles quelles : R4 (citations du §1 vieillies avec le lot),
-R5 (convention `ItemFlag.None` face à `GroundItemDropRules`) et R6 (les quatre gardes de
-`check_mixable_item`, toujours absentes du §9 et du §6.0).
+Deux points du lot ne touchent que la fiche :
+
+8. **Citations rafraîchies** (le fichier passe de 287 à 291 lignes avec le correctif). §1 :
+   `CraftingSocleService.cs:43-291`, `HandleAsync` `:57`, `case (ushort)GamePackets.TM_CS_MIX` `:71`,
+   `ResolveMixAsync` `:151`, `TryReadMaterialAsync` `:208`, `HasUnknownHandleAsync` `:257` ; §6.4 et §7 :
+   le refus partagé est à `:136-141` (`SendResult` à `:141`).
+9. **Les quatre gardes de `check_mixable_item`** (`MixManager.cpp:320-341`) sont désormais explicitement
+   hors périmètre, en §6.0 **et** en §9 pt 9 : le socle ne porte que la résolution de poignée
+   (`NotExist`/`DBError`), la quantité déclarée n'est confrontée qu'à la règle, et sur ces quatre refus la
+   référence ne répond rien.
+
+Reste hors de ce lot, porté aux réserves de la QA : la convention `ItemFlag.None` (-1) lue comme « tous
+les bits » par le matcher alors que `GroundItemDropRules` la traite comme « aucun drapeau » (arbitrage lié
+à la donnée 7.3), et l'ordre de fusion avec #55 sur `ArcadiaContextModelSnapshot.cs`.
