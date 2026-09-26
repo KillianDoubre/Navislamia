@@ -271,10 +271,19 @@ C'est le cœur **mécanique** (aucune politique de jeu), dans cet ordre exact :
 2. `sub_material_cnt == nSubMaterialCount` où `nSubMaterialCount` = nombre de slots matériaux de la
    trame 256 (`:245`) ;
 3. `check_material_info(main_material, pMainMaterial, …)` sur l'objet cible (`:249`) ;
-4. **appariement des matériaux par permutation, pas par position** : pour chaque groupe `sub[i]` de la
-   ligne, un matériau de la trame encore libre doit satisfaire `check_material_info` (`:256-275`,
-   `getProperMixInfoSub` `:300-318`) ; un matériau de la trame peut être absorbé par **plusieurs** groupes
-   par incréments de quantité (`pCountList`) ;
+4. **appariement des matériaux — par position dans la boucle qui s'exécute, par permutation dans une
+   fonction morte** : la boucle de `:257-276` appelle
+   `check_material_info((*it).sub_material[idx], pSubItem[idx], pCountList[idx])` avec le **même index**
+   des deux côtés (`idx` = `nSubMaterialIdx`), la boucle externe `nMaterialInfoIdx` ne servant qu'à
+   remplir `pSubMaterialArrangeBuffer` dans l'ordre. Elle exige donc que **chaque** groupe `j` accepte la
+   pile `j` : l'arrangement produit est l'**identité**, et une trame que seul un autre arrangement
+   satisferait est refusée. La fonction qui permute réellement, `getProperMixInfoSub`
+   (`MixManager.h:162`, `MixManager.cpp:300-318`), **n'a aucun appelant : code mort**, comme `CreateItem`
+   (`:192-240`) — c'est pourtant elle que cite le commentaire de `:256-275`. Aucun matériau n'est absorbé
+   par plusieurs groupes : `bSubMaterialChecked` marque une pile dès qu'elle est assignée, et la
+   quantité de la trame n'est consommée qu'une fois par groupe (défaut 1, §6.5 pt 5). Le port retient la
+   lecture **permutante**, la plus permissive des deux : écart assumé (§7) et question ouverte
+   (§9 pt 8, §10 pt 9) ;
 5. `post_arrange_check_material_info` sur la cible puis sur chaque groupe, avec le tableau des matériaux
    **déjà réordonné** selon les groupes de la ligne (`:279-291`, fonction `:553-582`) — c'est ce qui
    donne leur sens aux codes 19/20.
@@ -376,6 +385,8 @@ trame 257 n'est émise, aucun objet n'est touché, aucun taux n'est tiré.
 | version | `EPIC_4_1_1` (`shared/Common/Define.h:25`) | 7.3 | gating rzu (§4) |
 | types traités | 5 sur 20, les autres sans réponse | la résolution couvre **les 20** types (elle ne dépend pas du type) ; les effets restent hors lot | la table est la même, seuls les effets diffèrent ; ne rien répondre est un trou de référence, pas une cible |
 | code mort `CreateItem` | présent, jamais appelé | non porté | aucun appelant, décision de jeu incluse |
+| appariement des matériaux | **par position** : `:263` teste `sub_material[idx]` contre `pSubItem[idx]`, même index — arrangement identité | **par permutation** : chaque groupe prend la première pile libre qu'il accepte, sans retour arrière | lecture la plus permissive des deux ; les deux rendent aujourd'hui la même réponse (`InvalidArgument`), seul le journal diffère ; **non établi** pour 7.3 (§9 pt 8, §10 pt 9) |
+| code 20 | inerte dans le contrôle préalable (`default: break`, `:443-444`), `return false` dans le post-réordonnancement (`:574-576`) | refusé **au même endroit** : inerte avant, `false` dans le post-réordonnancement | garder le refus là où la référence le met le rend exerçable par un test (§13 pt 6) ; un refus préalable le rendait inatteignable |
 | codes 15-18 | `default: break` = **satisfaits** | **refusés** (fermé par défaut) | porter un `default` silencieux reproduirait un bug : un code non établi ne peut pas valider une recette (§10) |
 | code 11/12 | commentés (jamais testés) | refusés | idem |
 | 257 sur refus | `TM_SC_RESULT` 256 `InvalidArgument` | identique | `CraftingSocleService.cs:122-125` |
@@ -412,9 +423,10 @@ ajoutée**.
 
 | fichier | contenu |
 |---|---|
-| `Game/Services/MixResourceMatcher.cs` (neuf, statique et pur comme `CraftingSocleRules`) | l'algorithme du §6.1 : `sub_material_count == N`, `check_material_info` sur la cible, appariement **par permutation** des matériaux, `post_arrange` pour le code 19 ; **refus fermé** pour tout code non établi (8, 11-18, 20) |
+| `Game/Services/MixResourceMatcher.cs` (neuf, statique et pur comme `CraftingSocleRules`) | l'algorithme du §6.1 : `sub_material_count == N`, `check_material_info` sur la cible, appariement **par permutation** des matériaux — lecture **choisie**, la boucle exécutée de la référence étant positionnelle (§6.1 pt 4, §7) —, `post_arrange` pour les codes 19 et 20 ; **refus fermé** pour ce qu'aucune référence n'établit : 11, 12, 15-18 et tout code inconnu. **Les codes 8, 9, 13 et 14 sont implémentés** (`MixManager.cpp:390-399`, `:434-451` ; le code 9 porte 45 lignes du dump) |
 | `Game/Services/CraftingSocleService.cs` | après la résolution des poignées : chercher la règle ; journaliser **deux cas distincts** — « aucune règle » (Debug/Information) et « règle résolue, effets non implémentés » (Warning) ; conserver le refus `InvalidArgument` dans les deux cas |
-| `Tests/Game/MixResourceMatcherTests.cs` (neuf) | lignes construites à la main, aucune base : match exact, `sub_material_count` divergent, cible qui ne satisfait pas un code, **permutation** (matériaux donnés dans un autre ordre), consommation de quantité par un même groupe, code non établi ⇒ **pas** de match, post-arrangement 19 |
+| `Tests/Game/MixResourceMatcherTests.cs` (neuf) | lignes construites à la main, aucune base : match exact, `sub_material_count` divergent, cible qui ne satisfait pas un code, **permutation** (matériaux donnés dans un autre ordre), consommation de quantité par un même groupe, code non établi ⇒ **pas** de match, post-arrangement 19 et **refus du code 20 au post-arrangement** (là où il est atteignable) |
+| `Tests/Game/CraftingSocleServiceTests.cs` (neuf, carte de correction `t_4a2ccfe1`) | la conduite de `CraftingSocleService.HandleAsync` : sentinelle 0 jamais résolue, poignée inconnue `NotExist` avec la poignée en valeur, lecture en échec `DBError`, ressource absente d'`ItemResource` `InvalidArgument`, trame malformée refusée avant toute lecture, garde hors monde, 260 et 262 — et les **deux niveaux du journal** (« aucune règle » en Debug, « règle résolue » en Warning) |
 
 Ce que L1b **ne fait pas** : ni taux, ni probabilité, ni suppression d'objet, ni drapeau, ni échec, ni
 trame 257 (§6.3, §10). Un constructeur de 257 sans appelant serait du code mort : la spécification
@@ -467,6 +479,13 @@ conflit, pas dans l'énumération. **Ne pas réécrire `GamePackets.cs` ni la bo
    fenêtre du client ne sont donc pas confirmés côté client 7.3.
 7. **La sémantique exacte de 257 côté client** (rafraîchissement d'infobulle vs d'inventaire) est
    déduite du code serveur ; l'asymétrie du cas 102 (§6.3) reste inexpliquée.
+8. **L'appariement des matériaux : permutation ou position ?** La boucle que la référence exécute est
+   **positionnelle** (`:257-276`, même index des deux côtés : chaque groupe `j` doit accepter la pile
+   `j`) et la fonction qui permute, `getProperMixInfoSub` (`:300-318`), n'est **jamais appelée** (§6.1
+   pt 4). Le port a retenu la lecture **permutante**, la plus permissive des deux. Aucune source locale
+   ne les départage : `db_combineres.rdb` n'est pas décodé (pt 6) et la donnée 7.3 est absente (pt 1).
+   Elles rendent aujourd'hui la **même réponse** — refus `InvalidArgument` — et ne diffèrent que par la
+   ligne de journal ; c'est donc l'observation client (§10 pt 9) qui décide.
 
 ## 10. A VERIFIER PAR KILLIAN
 
@@ -492,6 +511,12 @@ conflit, pas dans l'énumération. **Ne pas réécrire `GamePackets.cs` ni la bo
    rzu (`>= EPIC_8_1`) ; reste à choisir **quand** émettre (NGemity émet à chaque mix traité, y compris
    sur échec) et si l'asymétrie du cas 102 est reproduite ou corrigée.
 8. **Le déclencheur de fenêtre** (contact PNJ) : hors de ce lobe, comme l'a tranché la fiche sœur §9.4.
+9. **Permutation ou position pour les matériaux ?** (§9 pt 8) L'observation qui tranche est l'**étape 7
+   du protocole client** : la même trame 256, ses matériaux dans l'ordre des groupes, puis dans l'ordre
+   inverse. Trois issues : le client accepte les deux ordres (la lecture permutante est la bonne), il
+   n'en produit qu'un, ou l'ordre inverse produit chez NGemity un refus que le port, lui, résout — auquel
+   cas 7.3 est positionnel et la permutation reste un écart assumé (§7) que **L2** devra aligner
+   (modification du moteur et des tests, pas de ce lot).
 
 ## 11. Bloc destiné à `CLAUDE.md`
 
@@ -506,8 +531,12 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-ressources.
   `MixResourceMatcher`, branchement dans `CraftingSocleService`) ; il n'ajoute aucune politique de jeu
   et n'émet toujours pas de 257.
 - **Résolution = mécanique, pas politique** : parcours de `MixResource` dans l'ordre de la table,
-  `sub_material_count == N`, contrôle de la cible, puis **appariement des matériaux par permutation**
-  (pas par position) et post-arrangement (code 19). Sources : `MixManager.cpp:242-298,300-318,553-582`.
+  `sub_material_count == N`, contrôle de la cible, puis appariement des matériaux et
+  post-arrangement (code 19). **Attention au piège** : la référence épinglée apparie **par position**
+  (`MixManager.cpp:263` teste `sub_material[j]` contre `pSubItem[j]`, même index) ; l'appariement
+  **par permutation** que le port implémente vient de `getProperMixInfoSub` (`:300-318`), **jamais
+  appelé** — code mort, comme `CreateItem` (`:192-240`). Le choix n'est **pas établi** en 7.3 :
+  à trancher par le test client (fiche §10).
 - **109 colonnes de `MixResource` lues en position**, jamais par nom isolé : `id`, `mix_type`,
   `mix_value_01..06`, `sub_material_count`, `main_type_01..05`/`main_value_01..05`, puis
   `sub01..sub09` × `type_01..05`/`value_01..05` (`ArcadiaSchemaPSQL.sql:471-582`,
@@ -527,11 +556,12 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-ressources.
   (`MixManager.cpp:459-501`, `MAX_SOCKET_NUMBER = 4`), `max_enhance = 0` sur toute la donnée de
   référence (l'enchantement ne peut pas réussir), `mix_value_02/03 = 0` pour les 154 lignes 101 alors
   que le code en tire `irand(value[1], value[2])`, et `CreateItem` (`:192-240`) qui n'est appelé de
-  nulle part. Les codes `CHECK_*` sont tranchés : **11, 12, 15-18 et 20 sont refusés** (aucune
-  référence ne les établit ; NGemity les satisfait en silence), **8, 9, 13 et 14 sont implémentés**
-  (`:390-399`, `:434-451`) et 19 est décidé dans le post-réordonnancement. La quantité de la trame est
-  comparée puis remplacée par 1 quand aucun code 10 ne l'a contrôlée — NGemity le fait toujours
-  (`bIsCountChecked` jamais affecté, `:449-450`).
+  nulle part. Les codes `CHECK_*` sont tranchés : **11, 12 et 15-18 sont refusés** (aucune référence
+  ne les établit ; NGemity les satisfait en silence), **8, 9, 13 et 14 sont implémentés**
+  (`:390-399`, `:434-451`) et **19 et 20 sont décidés dans le post-réordonnancement** — 19 sur les
+  piles réordonnées, 20 par un `false` constant, comme la référence (`:574-576`). La quantité de la
+  trame est comparée puis remplacée par 1 quand aucun code 10 ne l'a contrôlée — NGemity le fait
+  toujours (`bIsCountChecked` jamais affecté, `:449-450`).
 - **N'écris jamais de trame 257 sans appelant** : sa spécification est complète dans la fiche, son
   écriture appartient au palier des effets.
 - **Restent à trancher** (détail en fin de fiche) : taux et politique d'échec, les six codes
@@ -558,7 +588,9 @@ référence : `reference/ngemity/Database/Arcadia.sql`, sha256
 ## 13. État livré (navis-dev, branche `hermes/packet-socle-artisanat-ressources`)
 
 **L1a et L1b sont livrés.** Base mesurée avant tout changement : `master` `b56967a` — build 0, 1 302
-tests verts. Après livraison : build 0, **1 334 tests verts** (32 ajoutés), aucun test retiré.
+tests verts. Après livraison : build 0, **1 334 tests verts** (32 ajoutés), aucun test retiré. Après le
+lot de correction de la carte `t_4a2ccfe1` : build 0, **1 347 tests verts** (13 ajoutés), aucun test
+retiré.
 
 | commit | contenu |
 |---|---|
@@ -603,3 +635,36 @@ Contrôles exécutés :
 Ce que le paquet **ne** fait toujours pas : aucun taux, aucun `Random`, aucune suppression d'objet,
 aucune trame 257. La réponse à 256 reste `InvalidArgument` dans les deux cas de résolution ; seul le
 journal les distingue.
+
+### Corrections du lot `t_4a2ccfe1` (fiche et code)
+
+La QA a renvoyé la fiche sur un point de fond (l'appariement présenté comme un fait de la référence) et
+trois points documentaires. Le lot corrige la fiche **et** le code :
+
+| commit | contenu |
+|---|---|
+| `9e45e2b` | `TryArrange` documenté comme **écart choisi** (la boucle exécutée est positionnelle, `getProperMixInfoSub` est morte) ; refus du **code 20 déplacé** dans le post-réordonnancement, là où la référence le porte ; « aucune règle » journalisé en **Debug** ; `Tests/Game/CraftingSocleServiceTests.cs` (11 tests de conduite) ; deux tests du refus du code 20 ; message du test de permutation corrigé |
+| *(ce commit)* | §6.1 pt 4, §7, §8 L1b, §9 pt 8, §10 pt 9 et §11 : comportement exécuté, écarts étiquetés, question ouverte portée |
+
+Décisions prises ici (suite de la liste du §13) :
+
+6. **Niveau du journal.** Le §8 L1b demande « aucune règle » en Debug/Information et le code écrivait
+   `Warning` : c'est le **code** qui est aligné sur la fiche, pas l'inverse. Une trame qu'aucune règle
+   n'accepte est un événement courant de la fenêtre de combinaison (un joueur qui essaie), alors que la
+   règle effectivement résolue est la seule information utile. `Mix_LogsAFrameNoRuleAcceptsAtDebug`
+   verrouille le niveau et échoue si on repasse en Warning.
+7. **Où refuser le code 20.** Le refus vivait dans le contrôle préalable (`default: return false`), ce qui
+   rendait la branche correspondante du post-réordonnancement **inatteignable** : une mutation qui la
+   neutralise survivait à toute la suite (constat de la QA). Le portage suit maintenant la répartition de
+   la référence — inerte avant (`default: break`), `false` après (`:574-576`) — sans changer la réponse
+   d'une seule trame : une règle portant le code 20 est refusée dans les deux lectures. La mutation est
+   désormais tuée par trois tests.
+
+Contrôles de ce lot : `dotnet build Navislamia.sln -c Debug` code 0 ; `dotnet test Tests/Tests.csproj`
+code 0, **1 347 verts**, 0 échec, aucun test retiré ; deux mutations rejouées à la main (neutraliser le
+`return false` du code 20 ⇒ 3 échecs ; repasser « aucune règle » en Warning ⇒ 1 échec), puis les fichiers
+restaurés au commit.
+
+Hors de ce lot, réserves de la QA laissées telles quelles : R4 (citations du §1 vieillies avec le lot),
+R5 (convention `ItemFlag.None` face à `GroundItemDropRules`) et R6 (les quatre gardes de
+`check_mixable_item`, toujours absentes du §9 et du §6.0).
