@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.IO;
 using System.Text;
 using FluentAssertions;
 using Navislamia.Game.Network.Packets;
@@ -9,12 +10,13 @@ using Navislamia.Game.Network.Packets.Game;
 namespace Tests.Game;
 
 /// <summary>
-/// Offset tests for <c>TM_CS_START_BOOTH</c> (700) and <c>TM_CS_STOP_BOOTH</c> (701) of the player
-/// booth socle (docs/packet-specs/socle-booths.md §3.2 and §3.3). Both sizes are measured in the
+/// Offset tests for <c>TM_CS_START_BOOTH</c> (700), <c>TM_CS_STOP_BOOTH</c> (701) and
+/// <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711) of the player booth family (docs/packet-specs/socle-booths.md
+/// §3.2 and §3.3, docs/packet-specs/711-check-booth-startable.md §3). Every size is measured in the
 /// Epic 7.3 client, not deduced: its frame builder <c>VA 0x48CBD0</c> writes 59 in the length, adds
-/// <c>16 × N</c> with a stride of <c>0x10</c>, and <c>VA 0x48CC20</c> builds 701 as the bare 7 byte
-/// header. 700 is therefore 59 + 16×N bytes — name[49] at 7, type at 56, count (uint16) at 57, items
-/// at 59 — and 701 has no field at all.
+/// <c>16 × N</c> with a stride of <c>0x10</c>, <c>VA 0x48CC20</c> builds 701 as the bare 7 byte header
+/// and <c>VA 0x48CFD0</c> builds 711 the same way. 700 is therefore 59 + 16×N bytes — name[49] at 7,
+/// type at 56, count (uint16) at 57, items at 59 — and 701 and 711 have no field at all.
 /// </summary>
 [TestFixture]
 public class BoothPacketsTests
@@ -202,6 +204,80 @@ public class BoothPacketsTests
     }
 
     [Test]
+    public void TryReadCheckBoothStartable_AcceptsTheSevenByteHeaderAlone()
+    {
+        var packet = ClientCheckBoothStartableFrame();
+
+        // Epic 7.3 layout (fiche §3): the 7 byte header and nothing else. The client writes the id
+        // 0x2C7 at offset 4 (0x48CFF2), the length 7 as a literal (0x48CFD8) and the checksum over the
+        // six first bytes (0x48D010).
+        packet.Should().HaveCount(7, "the total size is the header: no field follows offset 7");
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0, 4)).Should().Be(7, "length at offset 0");
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)).Should().Be(711, "id at offset 4");
+        packet[4].Should().Be(0xC7, "id low byte at offset 4 (711 = 0x02C7, little endian)");
+        packet[5].Should().Be(0x02, "id high byte at offset 5");
+        packet[6].Should().Be(Checksum(packet), "checksum at offset 6: the sum of the bytes 0..5");
+
+        BoothPackets.CheckBoothStartableLength.Should().Be(7);
+        BoothPackets.TryReadCheckBoothStartable(packet).Should().BeTrue();
+    }
+
+    [Test]
+    public void TryReadCheckBoothStartable_RejectsAnythingThatIsNotExactlySevenBytes()
+    {
+        var packet = ClientCheckBoothStartableFrame();
+
+        BoothPackets.TryReadCheckBoothStartable(packet.AsSpan(0, 6)).Should().BeFalse(
+            "a truncated frame does not even carry the whole header");
+
+        BoothPackets.TryReadCheckBoothStartable(Array.Empty<byte>()).Should().BeFalse();
+
+        // The receive loop slices exactly the announced length, so a frame declaring more than the
+        // client can build is the negative twin of the truncation: the 7.3 builder writes a literal 7
+        // and never recomputes it from a count, unlike 700.
+        var overlong = new byte[BoothPackets.CheckBoothStartableLength + 1];
+        packet.CopyTo(overlong, 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(overlong.AsSpan(0, 4),
+            (uint)overlong.Length);
+        overlong[6] = Checksum(overlong);
+
+        BoothPackets.TryReadCheckBoothStartable(overlong).Should().BeFalse(
+            "an 8 byte frame is not the 7 byte frame the client builds");
+    }
+
+    [Test]
+    public void Packet_IsDispatchedBeforeTheUnknownPacketThrow()
+    {
+        // GameClient's dispatch is a chain of ifs, so a member added to the enum without a branch reaches
+        // the final switch and its `throw` kills the receive loop. Nothing smaller than a source scan can
+        // check that without a live socket.
+        var source = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "Game", "Network", "Clients", "GameClient.cs"));
+
+        var branch = source.IndexOf(
+            "header.ID == (ushort)GamePackets.TM_CS_CHECK_BOOTH_STARTABLE", StringComparison.Ordinal);
+        var finalSwitch = source.IndexOf("throw new Exception($\"Unknown Packet Type", StringComparison.Ordinal);
+
+        branch.Should().BeGreaterThan(-1, "711 needs a branch of its own in OnDataReceived");
+        finalSwitch.Should().BeGreaterThan(-1, "the final switch is the guard this test is about");
+        branch.Should().BeLessThan(finalSwitch, "711 must be handled before the final switch throws");
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Navislamia.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull("the repository root is needed to check the dispatch chain");
+
+        return directory!.FullName;
+    }
+
+    [Test]
     public void BoothPackets_PinEveryOffsetOfTheLayout()
     {
         // One place that says the layout, so a silent drift of an offset breaks a test rather than a
@@ -216,6 +292,7 @@ public class BoothPacketsTests
         BoothPackets.StartBoothItemSize.Should().Be(16);
         BoothPackets.MaxBoothItemCount.Should().Be(8);
         BoothPackets.StopBoothLength.Should().Be(7);
+        BoothPackets.CheckBoothStartableLength.Should().Be(7);
     }
 
     [Test]
@@ -223,16 +300,38 @@ public class BoothPacketsTests
     {
         ((ushort)GamePackets.TM_CS_START_BOOTH).Should().Be(700);
         ((ushort)GamePackets.TM_CS_STOP_BOOTH).Should().Be(701);
+        ((ushort)GamePackets.TM_CS_CHECK_BOOTH_STARTABLE).Should().Be(711);
 
         Enum.IsDefined(typeof(GamePackets), (ushort)700).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)701).Should().BeTrue();
 
-        // 711 (TM_CS_CHECK_BOOTH_STARTABLE) is absent from the 7.3 client and therefore from the socle;
-        // 702 to 710 stay out of the socle by decision (fiche §1.3 and §5.2).
-        foreach (var id in new ushort[] { 702, 703, 704, 705, 706, 707, 708, 709, 710, 711 })
+        // 711 is declared here since the 7.3 client does build and send that frame (SFrame.exe builder
+        // VA 0x48CFD0, single call site 0x49A176): what stops at 710 is its incoming dispatcher, not its
+        // emission (fiche §2.2, §2.3 and §5.2). 1711 is the 9.6.3 remap of the same id and must not be
+        // declared for a 7.3 server.
+        Enum.IsDefined(typeof(GamePackets), (ushort)711).Should().BeTrue();
+        Enum.IsDefined(typeof(GamePackets), (ushort)1711).Should().BeFalse();
+
+        // 702 to 710 stay out of this socle by decision (fiche §1.1).
+        foreach (var id in new ushort[] { 702, 703, 704, 705, 706, 707, 708, 709, 710 })
         {
             Enum.IsDefined(typeof(GamePackets), id).Should().BeFalse();
         }
+    }
+
+    /// <summary>
+    /// Builds the 7 byte frame <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711) exactly as the 7.3 client does
+    /// (<c>VA 0x48CFD0</c>): length 7, id 711, checksum over the first six bytes, and no payload.
+    /// </summary>
+    private static byte[] ClientCheckBoothStartableFrame()
+    {
+        var packet = new byte[BoothPackets.CheckBoothStartableLength];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4),
+            (uint)BoothPackets.CheckBoothStartableLength);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2),
+            (ushort)GamePackets.TM_CS_CHECK_BOOTH_STARTABLE);
+        packet[6] = Checksum(packet);
+        return packet;
     }
 
     private static byte[] BuildStartBooth(int count, string name = "Boutique", byte type = 1)
