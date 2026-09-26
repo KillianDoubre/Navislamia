@@ -578,9 +578,10 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-ressources.
   toujours (`bIsCountChecked` jamais affecté, `:449-450`).
 - **N'écris jamais de trame 257 sans appelant** : sa spécification est complète dans la fiche, son
   écriture appartient au palier des effets.
-- **Restent à trancher** (détail en fin de fiche) : taux et politique d'échec, les six codes
-  `CHECK_*` inertes, `CHECK_SAME_SUMMON_CODE`, le `local_flag` du serveur, et la donnée 7.3
-  (`data/sqlserver/` absent de ce poste).
+- **Restent à trancher** (détail en fin de fiche) : taux et politique d'échec, l'appariement des
+  matériaux (**position ou permutation**, §9 pt 8 et §10 pt 9), les six codes `CHECK_*` inertes,
+  `CHECK_SAME_SUMMON_CODE`, le `local_flag` du serveur, et la donnée 7.3 (`data/sqlserver/` absent de
+  ce poste).
 ```
 
 ## 12. Commits et binaires épinglés
