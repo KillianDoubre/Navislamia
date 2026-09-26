@@ -36,12 +36,15 @@ internal static class StorageTestHarness
 
     public static GameClient NewGameClient(Connection connection, IStorageService storageService = null,
         IGmCommandService gmCommandService = null,
-        Navislamia.Game.Services.Pets.IPetSummonService petSummonService = null)
+        Navislamia.Game.Services.Pets.IPetSummonService petSummonService = null,
+        ICharacterService characterService = null)
     {
+        characterService ??= A.Fake<ICharacterService>();
+
         var networkService = new NetworkService(
             A.Fake<ILogger<NetworkService>>(),
             Options.Create(new NetworkOptions { CipherKey = "storage-test-key" }),
-            A.Fake<ICharacterService>(),
+            characterService,
             A.Fake<IBannedWordsRepository>(),
             A.Fake<IStatService>(),
             Options.Create(new ServerOptions()),
@@ -64,7 +67,8 @@ internal static class StorageTestHarness
             storageService ?? A.Fake<IStorageService>(),
             A.Fake<IQuestService>(),
             gmCommandService ?? A.Fake<IGmCommandService>(),
-            petSummonService ?? A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>());
+            petSummonService ?? A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
+            new BoothWatchService(characterService));
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
@@ -81,6 +85,19 @@ internal static class StorageTestHarness
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         return (ConnectionInfo)property!.GetValue(client)!;
+    }
+
+    /// <summary>
+    /// The <see cref="NetworkService"/> a game client was built with. Its
+    /// <c>AuthorizedGameClients</c> is how a service reaches the sessions of the other players, and the
+    /// field is private: the booth visibility socle scans it to resolve a booth handle.
+    /// </summary>
+    public static NetworkService Network(GameClient client)
+    {
+        var field = typeof(Client).GetField("_networkService",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        return (NetworkService)field!.GetValue(client)!;
     }
 
     /// <summary>

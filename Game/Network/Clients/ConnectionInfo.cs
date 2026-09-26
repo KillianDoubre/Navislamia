@@ -280,6 +280,50 @@ public class ConnectionInfo
         }
     }
 
+    /// <summary>
+    /// Guards <see cref="WatchedBoothHandle"/>: the receiving thread writes it on a 702 or a 704, and
+    /// the same regime as <see cref="BoothLock"/> applies — no reader may race a writer
+    /// (docs/packet-specs/socle-booths-visibilite.md §5.2 point 6).
+    /// </summary>
+    public readonly object BoothWatchLock = new();
+
+    private uint? _watchedBoothHandle;
+
+    /// <summary>
+    /// The booth handle this session last asked to watch with <c>TM_CS_WATCH_BOOTH</c> (702), or null
+    /// when it watches nothing. It is what <c>TM_CS_STOP_WATCH_BOOTH</c> (704) closes, and it is
+    /// forgotten with the character session. Nothing else in the repository reads it: the booth is not
+    /// broadcast and a 703 is built on demand only
+    /// (docs/packet-specs/socle-booths-visibilite.md §5.2 points 6 and 8).
+    /// </summary>
+    public uint? WatchedBoothHandle
+    {
+        get { lock (BoothWatchLock) { return _watchedBoothHandle; } }
+    }
+
+    /// <summary>
+    /// Records the observed booth, replacing a handle already held: the client sends one 702 per
+    /// observation and the latest one is the truth it expects to be looking at.
+    /// </summary>
+    public void BeginWatchingBooth(uint boothHandle)
+    {
+        lock (BoothWatchLock)
+        {
+            _watchedBoothHandle = boothHandle;
+        }
+    }
+
+    /// <summary>Forgets the observed booth. Returns whether one was being watched.</summary>
+    public bool StopWatchingBooth()
+    {
+        lock (BoothWatchLock)
+        {
+            var wasWatching = _watchedBoothHandle != null;
+            _watchedBoothHandle = null;
+            return wasWatching;
+        }
+    }
+
     public void ClearVisibleObjects()
     {
         lock (NpcVisibilityLock)
@@ -367,8 +411,10 @@ public class ConnectionInfo
 
         SkillCooldowns.Clear();
         NextStateHandle = 0;
-        // A booth belongs to the character session: the next character never inherits it.
+        // A booth belongs to the character session: the next character never inherits it, and neither
+        // does the booth it was watching.
         CloseBooth();
+        StopWatchingBooth();
         ClearVisibleObjects();
     }
 

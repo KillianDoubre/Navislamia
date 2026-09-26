@@ -123,9 +123,15 @@ public enum GamePackets : ushort
 
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
     // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) is deliberately absent —
-    // the 7.3 client neither knows it nor can send it (fiche §1.3).
+    // the 7.3 client neither knows it nor can send it (fiche §1.3). The observation trio (702/703/704)
+    // is declared with the visibility socle (docs/packet-specs/socle-booths-visibilite.md §1, §4.1):
+    // 703 is server to client and still needs a receive arm of its own, because a declared member
+    // without one reaches the throwing switch of the receive loop.
     TM_CS_START_BOOTH = 700,
     TM_CS_STOP_BOOTH = 701,
+    TM_CS_WATCH_BOOTH = 702,
+    TM_SC_WATCH_BOOTH = 703,
+    TM_CS_STOP_WATCH_BOOTH = 704,
 
     TM_SC_STATUS_CHANGE = 500,
     TM_SC_STATE = 505,

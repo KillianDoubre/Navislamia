@@ -23,9 +23,11 @@ public static class BoothRules
     /// <summary>
     /// The actions the client itself announces as refused while its booth is open —
     /// <c>smsg_booth_not_use_item</c>, <c>smsg_booth_not_use_skill</c>, <c>smsg_booth_not_action</c>.
-    /// The list is bounded to the actions the receive loop already handles;
-    /// <c>smsg_booth_not_use_store</c> ("another store") stays without an object because
-    /// <c>TM_CS_WATCH_BOOTH</c> (702) is not part of this socle.
+    /// The list is bounded to the actions the receive loop already handles.
+    /// <c>smsg_booth_not_use_store</c> ("another store") found its object with the visibility socle:
+    /// <c>TM_CS_WATCH_BOOTH</c> (702) is now handled and is guarded here. <c>TM_CS_STOP_WATCH_BOOTH</c>
+    /// (704) stays out, exactly like <c>TM_CS_STOP_BOOTH</c> (701): closing is the way out of the lock
+    /// (docs/packet-specs/socle-booths-visibilite.md §5.2 point 9).
     /// </summary>
     private static readonly HashSet<ushort> GuardedActionIds = new()
     {
@@ -37,7 +39,8 @@ public static class BoothRules
         (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION,
         (ushort)GamePackets.TM_CS_ARRANGE_ITEM,
         (ushort)GamePackets.TM_CS_USE_ITEM,
-        (ushort)GamePackets.TM_CS_SKILL
+        (ushort)GamePackets.TM_CS_SKILL,
+        (ushort)GamePackets.TM_CS_WATCH_BOOTH
     };
 
     /// <summary>Whether a booth lock covers <paramref name="packetId"/> at all.</summary>
