@@ -32,7 +32,8 @@ public class BoothRulesTests
         (ushort)GamePackets.TM_CS_CHANGE_ITEM_POSITION,
         (ushort)GamePackets.TM_CS_ARRANGE_ITEM,
         (ushort)GamePackets.TM_CS_USE_ITEM,
-        (ushort)GamePackets.TM_CS_SKILL
+        (ushort)GamePackets.TM_CS_SKILL,
+        (ushort)GamePackets.TM_CS_WATCH_BOOTH
     };
 
     [Test]
@@ -183,12 +184,17 @@ public class BoothRulesTests
     [Test]
     public void GateAction_CoversTheActionsTheClientAnnouncesAndNoMore()
     {
-        foreach (var id in new ushort[] { 0, 1, 5, 20, 100, 150, 200, 201, 203, 204, 208, 218, 219, 253, 400, 500, 1202 })
+        foreach (var id in new ushort[] { 0, 1, 5, 20, 100, 150, 200, 201, 203, 204, 208, 218, 219, 253, 400, 500, 702, 704, 1202 })
         {
-            var guarded = new[] { 200, 201, 203, 204, 208, 218, 219, 253, 400 }.Contains(id);
+            var guarded = new[] { 200, 201, 203, 204, 208, 218, 219, 253, 400, 702 }.Contains(id);
 
             BoothRules.IsGuardedAction(id).Should().Be(guarded, $"action {id}");
         }
+
+        // 704 is the way out of the observation, exactly like 701 is the way out of the booth: the lock
+        // never covers it (docs/packet-specs/socle-booths-visibilite.md §5.2 point 9).
+        BoothRules.GateAction(isBoothOpen: true, (ushort)GamePackets.TM_CS_STOP_WATCH_BOOTH)
+            .Should().Be(ResultCode.Success);
     }
 
     [Test]

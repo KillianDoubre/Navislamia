@@ -1735,6 +1735,35 @@ public class GameClient : Client
                 continue;
             }
 
+            // The visibility socle of the booth: TM_CS_WATCH_BOOTH (702) is read, resolved against the
+            // owner's inventory and answered with a TM_SC_WATCH_BOOTH (703); TM_CS_STOP_WATCH_BOOTH (704)
+            // just forgets the observation. The 702 handler awaits the database, so it is fired and not
+            // awaited here: the receive loop must not wait on it.
+            // See docs/packet-specs/socle-booths-visibilite.md §5.2.
+            if (header.ID == (ushort)GamePackets.TM_CS_WATCH_BOOTH)
+            {
+                _ = _networkService.BoothWatchService.HandleWatchAsync(this, msgBuffer,
+                    _networkService.AuthorizedGameClients.Values);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_STOP_WATCH_BOOTH)
+            {
+                _networkService.BoothWatchService.HandleStopWatch(this, msgBuffer);
+                continue;
+            }
+
+            // TM_SC_WATCH_BOOTH (703) is a server to client packet: it is the only way the client can see
+            // a booth, so it builds none of it. An incoming one is a protocol anomaly, not a request:
+            // logged and dropped like TM_SC_REGION_ACK above, so that a declared member of GamePackets
+            // never reaches the "Unknown Packet Type" throw below.
+            if (header.ID == (ushort)GamePackets.TM_SC_WATCH_BOOTH)
+            {
+                _logger.Warning("Server to client packet TM_SC_WATCH_BOOTH ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID is (ushort)GamePackets.TM_CS_UPDATE or
                 (ushort)GamePackets.TM_CS_MONSTER_RECOGNIZE or
                 (ushort)GamePackets.TM_CS_QUERY)
