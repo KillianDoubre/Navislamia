@@ -548,3 +548,52 @@ Client 7.3 (aucun SHA, ce ne sont pas des dépôts) : `db_combineres.rdb`,
 `db_mixcategory.rdb`, `db_enhance.rdb` — empreintes au §2. Source de lecture des tables de
 référence : `reference/ngemity/Database/Arcadia.sql`, sha256
 `c05c200ae67f8cd2483a27784a976f8afc2ed6b80ff3729fb4f1734f205214fe` (18 667 572 o).
+
+## 13. État livré (navis-dev, branche `hermes/packet-socle-artisanat-ressources`)
+
+**L1a et L1b sont livrés.** Base mesurée avant tout changement : `master` `b56967a` — build 0, 1 302
+tests verts. Après livraison : build 0, **1 334 tests verts** (32 ajoutés), aucun test retiré.
+
+| commit | contenu |
+|---|---|
+| `3403d1a` | `MixResourceEntity` (109 colonnes utiles + `Id`), `MSSQLMixResource`, `DbSet` et carte AutoMapper |
+| `371d253` | migration `20260926132113_AddMixResource` + `ArcadiaContextModelSnapshot` (+346 lignes, 0 suppression) |
+| `ab88e5e` | dépôts `IMixResourceRepository`/`IEnhanceResourceRepository`, catalogues `IMixResourceCatalog`/`IEnhanceResourceCatalog`, `MixResourceRules`, import `Worker.TransferMixResource`, `TransferTables.MixResource`, enregistrements DevConsole, `Tests/Game/MixResourceModelTests.cs` (8 tests) |
+| `f67a80b` | `MixResourceMatcher` (L1b), `IItemMatchCatalog`/`ItemMatchCatalog`, `GetMatchFields()` sur `IItemResourceRepository`, résolution dans `CraftingSocleService`, `Tests/Game/MixResourceMatcherTests.cs` (24 tests) |
+
+Contrôles exécutés :
+
+- migration générée hors ligne (recette `references/ef-migrations-offline.md`, `dotnet ef` absent) ;
+- contrôle indépendant du miroir : `ArcadiaSchemaPSQL.sql:473-581` (109 noms) contre les colonnes de la
+  migration — **mêmes 109 noms, dans le même ordre**, plus `Id`, `CreatedOn`, `ModifiedOn`, `DeletedOn`
+  (112 au total). Le test `TheMigrationCreatesThe109PayloadColumnsInSchemaOrder` refait ce contrôle dans
+  la suite de tests, via `IMigrationsAssembly` ;
+- `git log --oneline origin/master..master` vide.
+
+### Décisions prises sur les points ouverts de la fiche
+
+1. **Colonnes scalaires, pas de tableaux par groupe.** §8 dit « `SubTypes[9,5]`/`SubValues[9,5]` **ou 45
+   paires** » et la ligne « migration » demande 109 colonnes, avec le contrôle d'ordre du §12 de la
+   recette de migration. Les 109 colonnes sont donc portées une à une, dans l'ordre du schéma. Le
+   magasin `MixValue01..06` reste lu positionnellement (`MixResourceRules.MixValues`).
+2. **Codes `CHECK_*`.** La parenthèse de L1b range 8 et 13/14 parmi les codes « non établis ». La
+   référence les décide pourtant (`MixManager.cpp:390-399` pour 8 et 9, `:434-451` pour 13 et 14) et le
+   code 9 porte **45 lignes** du dump : le refus fermé ne couvre donc que ce qu'aucune référence
+   n'établit — 11 et 12 (corps commenté), 15 à 18 (aucun `case`), 20 (`return false` du
+   post-réordonnancement) et tout code inconnu. 19 est traité dans le post-réordonnancement, comme la
+   référence.
+3. **Quantité consommée.** NGemity compare la quantité de la trame puis la remplace toujours par 1
+   (`bIsCountChecked` n'est jamais affecté, `:449-450`) : le portage garde l'intention documentée — 1
+   sauf si le groupe a contrôlé la quantité par le code 10 — et l'expose dans `ConsumedCounts`. Aucun
+   effet ne la consomme encore : la politique de consommation appartient à L2.
+4. **Fichiers hors liste, justifiés.** `MixResourceRules` (lecture positionnelle + invariant
+   `sub_material_count`, sans quoi le test demandé au §L1a ne peut pas vérifier la cohérence) et
+   `IItemMatchCatalog`/`GetMatchFields()` (les quatre colonnes de ressource que les conditions
+   comparent — sans elles le moteur n'a rien à confronter aux codes 1, 2, 4 et 13/14).
+5. **Drapeaux.** Le champ `ItemFlag` stocké est lu comme le bitset retail (convention déjà documentée
+   dans `GroundItemDropRules`), donc `None` (-1) vaut « tous les bits » : `FLAG_ON` accepte, `FLAG_OFF`
+   refuse.
+
+Ce que le paquet **ne** fait toujours pas : aucun taux, aucun `Random`, aucune suppression d'objet,
+aucune trame 257. La réponse à 256 reste `InvalidArgument` dans les deux cas de résolution ; seul le
+journal les distingue.
