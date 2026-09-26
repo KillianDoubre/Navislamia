@@ -314,7 +314,53 @@ aucun script du client.
 
 ---
 
-## 10. A VERIFIER PAR KILLIAN
+## 10. Implémentation livrée (dev, 2026-09-26)
+
+Le verdict de §5 est appliqué tel quel : `711` est déclaré, routé, journalisé, et rien n'est répondu.
+La trame n'ayant aucun champ, aucun offset n'est deviné — elle n'est que son en-tête.
+
+| fichier | ce qui a été ajouté |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_CHECK_BOOTH_STARTABLE = 711` à côté de `700`/`701` ; le commentaire « deliberately absent » est remplacé par la mesure du constructeur (`VA 0x48CFD0`, appel `0x49A176`) et le rappel que `1711` n'est pas déclaré |
+| `Game/Network/Clients/GameClient.cs` | le bras `if (header.ID == (ushort)GamePackets.TM_CS_CHECK_BOOTH_STARTABLE)` juste après `701`, **avant** le `switch` final, et `HandleCheckBoothStartable` à côté de `HandleStopBooth` |
+| `Game/Network/Packets/Game/BoothPackets.cs` | `CheckBoothStartableLength` (= `HeaderSize`, 7) et `TryReadCheckBoothStartable` |
+| `Tests/Game/BoothPacketsTests.cs` | les offsets de `711`, leurs cas négatifs, le scan du dispatch ; `711` retiré de la liste d'ids interdits et `1711` ajouté à cette liste |
+
+Décisions d'implémentation à connaître :
+
+1. **`TryReadCheckBoothStartable` exige la longueur exacte** (`== 7`) là où les autres lecteurs
+   d'en-tête seul du dépôt tolèrent du remplissage (`TryReadStopBooth`, `>=`). C'est §5.2 point 4 : le
+   constructeur `0x48CFD0` écrit le littéral `7` et ne le recalcule jamais à partir d'un `count`, donc
+   une trame plus longue est une anomalie, pas un remplissage. Une longueur annoncée ≠ 7 est
+   journalisée en `Warning` et abandonnée, sans réponse. Le choix est commenté dans le lecteur, pour
+   qu'il ne passe pas pour une étourderie face à `701`.
+2. **Aucune politique de jeu** : ni zone, ni niveau, ni distance, ni état d'étal. Le refus d'un
+   démarrage reste `HandleStartBooth` → `BoothRules` → `TS_SC_RESULT(700, code)` (§5.2 point 5).
+3. **Hors du garde d'étal** : `711` n'appartient pas à `BoothRules.GuardedActionIds`, donc une trame
+   reçue alors qu'un étal est ouvert garde son chemin normal — même conduite que `700`/`701`
+   (`BoothRules.GateAction`).
+4. **Zéro réponse**, conformément à §5.3 ; le bras ne mute rien.
+
+Preuves mesurées sur la branche :
+
+* `dotnet build Navislamia.sln -c Debug` → **0 erreur** (164 avertissements, tous préexistants).
+* `dotnet test Tests/Tests.csproj` → **1305 réussis / 0 échec / 0 ignoré**, contre 1302 sur `master`
+  `b56967a` : +3 tests (les deux lecteurs de `711` et le scan du dispatch ; le test d'ids amendé garde
+  son compte).
+* **Les tests mordent** : muter le lecteur en `>= CheckBoothStartableLength` fait échouer
+  `TryReadCheckBoothStartable_RejectsAnythingThatIsNotExactlySevenBytes` (mesuré, mutation ensuite
+  annulée, arbre revenu propre). La constante est épinglée par `BoothPackets_PinEveryOffsetOfTheLayout`,
+  et `Packet_IsDispatchedBeforeTheUnknownPacketThrow` vérifie que le bras précède le `throw` final.
+* `711` défini / `1711` non défini : `BoothPackets_CarryTheirEpic73IdsAndNothingElseOfTheFamily`.
+* `reference/rzu/op_codes.md` n'est pas touché par ce lot (vérifié : aucun commit de la branche ne le
+  modifie) ; `docs/packet-specs/socle-booths.md` non plus.
+
+Lacunes assumées, telles quelles : les points de §7 restent non établis, et §11 les porte côté
+décision.
+
+---
+
+## 11. A VERIFIER PAR KILLIAN
 
 Réserves du lot. Aucune ne bloque : elles portent sur des décisions NavisLamia et non sur des sources.
 
