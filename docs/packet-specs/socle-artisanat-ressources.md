@@ -644,7 +644,7 @@ trois points documentaires. Le lot corrige la fiche **et** le code :
 | commit | contenu |
 |---|---|
 | `9e45e2b` | `TryArrange` documenté comme **écart choisi** (la boucle exécutée est positionnelle, `getProperMixInfoSub` est morte) ; refus du **code 20 déplacé** dans le post-réordonnancement, là où la référence le porte ; « aucune règle » journalisé en **Debug** ; `Tests/Game/CraftingSocleServiceTests.cs` (11 tests de conduite) ; deux tests du refus du code 20 ; message du test de permutation corrigé |
-| *(ce commit)* | §6.1 pt 4, §7, §8 L1b, §9 pt 8, §10 pt 9 et §11 : comportement exécuté, écarts étiquetés, question ouverte portée |
+| `a7b4646` | §6.1 pt 4, §7, §8 L1b, §9 pt 8, §10 pt 9 et §11 : comportement exécuté, écarts étiquetés, question ouverte portée |
 
 Décisions prises ici (suite de la liste du §13) :
 
