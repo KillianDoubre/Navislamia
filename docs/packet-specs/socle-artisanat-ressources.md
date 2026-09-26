@@ -501,8 +501,10 @@ conflit, pas dans l'énumération. **Ne pas réécrire `GamePackets.cs` ni la bo
 Fiche complète et références : `docs/packet-specs/socle-artisanat-ressources.md`.
 
 - **Le socle structurel de 256 (étape 1) était livré seul** : lecture, bornes, résolution des
-  poignées, refus `InvalidArgument`. Ce lobe ajoute les **ressources** puis la **résolution** ; il
-  n'ajoute aucune politique de jeu et n'émet toujours pas de 257.
+  poignées, refus `InvalidArgument`. Ce lobe ajoute les **ressources** puis la **résolution** —
+  livrées (`MixResourceEntity` + migration `AddMixResource`, `MixResourceCatalog`,
+  `MixResourceMatcher`, branchement dans `CraftingSocleService`) ; il n'ajoute aucune politique de jeu
+  et n'émet toujours pas de 257.
 - **Résolution = mécanique, pas politique** : parcours de `MixResource` dans l'ordre de la table,
   `sub_material_count == N`, contrôle de la cible, puis **appariement des matériaux par permutation**
   (pas par position) et post-arrangement (code 19). Sources : `MixManager.cpp:242-298,300-318,553-582`.
@@ -525,7 +527,11 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-ressources.
   (`MixManager.cpp:459-501`, `MAX_SOCKET_NUMBER = 4`), `max_enhance = 0` sur toute la donnée de
   référence (l'enchantement ne peut pas réussir), `mix_value_02/03 = 0` pour les 154 lignes 101 alors
   que le code en tire `irand(value[1], value[2])`, et `CreateItem` (`:192-240`) qui n'est appelé de
-  nulle part. `default: break` sur les codes 15-18 valide silencieusement : nous refusons.
+  nulle part. Les codes `CHECK_*` sont tranchés : **11, 12, 15-18 et 20 sont refusés** (aucune
+  référence ne les établit ; NGemity les satisfait en silence), **8, 9, 13 et 14 sont implémentés**
+  (`:390-399`, `:434-451`) et 19 est décidé dans le post-réordonnancement. La quantité de la trame est
+  comparée puis remplacée par 1 quand aucun code 10 ne l'a contrôlée — NGemity le fait toujours
+  (`bIsCountChecked` jamais affecté, `:449-450`).
 - **N'écris jamais de trame 257 sans appelant** : sa spécification est complète dans la fiche, son
   écriture appartient au palier des effets.
 - **Restent à trancher** (détail en fin de fiche) : taux et politique d'échec, les six codes
