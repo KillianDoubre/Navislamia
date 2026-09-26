@@ -13,9 +13,12 @@ namespace Tests.Game;
 /// and `:345-452` (the twenty condition codes).
 ///
 /// Two decisions this file makes visible, both documented in the matcher:
-/// the codes the reference leaves inert (11, 12, 15-18, 20) are refused rather than satisfied, and the
+/// the codes the reference leaves inert are refused rather than satisfied — 11, 12 and 15-18 in the
+/// pre-arrangement check, 20 in the post-arrangement where the reference puts it — and the
 /// frame quantity is consumed as 1 unless the group checked it with `CHECK_ITEM_COUNT` — NGemity's
 /// `bIsCountChecked` is never assigned, so its own answer is always 1 (`MixManager.cpp:449-450`).
+/// A third one is assumed rather than established: the materials are paired by permutation, which the
+/// executed reference loop does not do (spec §7, §9 point 5 and §10 point 7).
 /// See docs/packet-specs/socle-artisanat-ressources.md §6.1, §6.2 and §8 (L1b).
 /// </summary>
 [TestFixture]
@@ -286,8 +289,10 @@ public class MixResourceMatcherTests
 
         MixResourceMatcher.TryResolve(new[] { rule }, null,
             new[] { Material(code: 700201, count: 3), Material(code: 700202, count: 9) }, out var resolution)
-            .Should().BeTrue("the reference looks for a stack the group accepts, whatever its slot, " +
-                             "and each group checked the quantity of the stack it was given");
+            .Should().BeTrue("a group takes the first free stack it accepts, whatever its slot — the " +
+                             "permutation reading this port assumed and labelled as a divergence from the " +
+                             "executed reference loop (spec §7), and each group checked the quantity of the " +
+                             "stack it was given");
 
         resolution.ConsumedCounts.Should().Equal(new long[] { 9L, 3L },
             "the quantities follow the arrangement, not the order of the frame");
@@ -333,6 +338,43 @@ public class MixResourceMatcherTests
 
         MixResourceMatcher.TryResolve(new[] { rule }, Material(group: 3), new[] { Material(group: 3) }, out _)
             .Should().BeFalse("slot 5 names no material of this arrangement");
+    }
+
+    [Test]
+    public void TheSameSummonCodeConditionRefusesARowThatItsOtherConditionsAccept()
+    {
+        // CHECK_SAME_SUMMON_CODE (20) is the one code the reference refuses in the post-arrangement
+        // (`MixManager.cpp:574-576`) while its pre-arrangement check leaves it inert (`default: break`,
+        // `:443-444`). The port keeps the refusal at that exact place, so the row is accepted on its other
+        // conditions and refused afterwards — and the line that answers false stays reachable, which is what
+        // makes it lockable. The reference dump carries no occurrence of code 20, so nothing else covers it.
+        var onTheTarget = new[] { new RuleBuilder(1016, 1)
+            .Main((MixResourceMatcher.CheckItemGroup, 3), (MixResourceMatcher.CheckSameSummonCode, 0))
+            .Sub(1, (MixResourceMatcher.CheckItemGroup, 3))
+            .Build() };
+        var onAGroup = new[] { new RuleBuilder(1016, 1)
+            .Main((MixResourceMatcher.CheckItemGroup, 3))
+            .Sub(1, (MixResourceMatcher.CheckItemGroup, 3), (MixResourceMatcher.CheckSameSummonCode, 0))
+            .Build() };
+
+        MixResourceMatcher.TryResolve(onTheTarget, Material(group: 3), new[] { Material(group: 3) }, out _)
+            .Should().BeFalse("the target's group is matched, then code 20 refuses the row");
+        MixResourceMatcher.TryResolve(onAGroup, Material(group: 3), new[] { Material(group: 3) }, out _)
+            .Should().BeFalse("the material group is matched, then code 20 refuses the row");
+    }
+
+    [Test]
+    public void TheSameSummonCodeConditionRefusesEvenWhenNoStackIsArranged()
+    {
+        // The second path to the same refusal: a row whose group carries code 20 but whose frame names no
+        // material at all. The pre-arrangement check has nothing to compare, so the post-arrangement is the
+        // only place the condition can be answered.
+        var rule = new[] { new RuleBuilder(1016, 0)
+            .Main((MixResourceMatcher.CheckItemGroup, 3), (MixResourceMatcher.CheckSameSummonCode, 0))
+            .Build() };
+
+        MixResourceMatcher.TryResolve(rule, Material(group: 3), Array.Empty<MixMaterial>(), out _)
+            .Should().BeFalse("code 20 refuses a row whose other conditions all agree");
     }
 
     [TestCase(MixResourceMatcher.CheckElementalEffectMatch)]

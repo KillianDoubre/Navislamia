@@ -179,7 +179,11 @@ public class CraftingSocleService : ICraftingSocleService
 
         if (!MixResourceMatcher.TryResolve(rules, target, materials, out var resolution))
         {
-            _logger.Warning(
+            // Debug, not Warning: a frame no rule accepts is a routine event of a player experimenting in
+            // the combination window, and the answer is the refusal the socle already sends. Only the rule
+            // that was resolved — the one fact the next lobe will need — is worth a Warning.
+            // See docs/packet-specs/socle-artisanat-ressources.md §8 (L1b).
+            _logger.Debug(
                 "Crafting packet {id} from {clientTag} is not accepted by any of the {rules} mix rules ({target} target, {materials} materials): refused with InvalidArgument",
                 packetId, client.ClientTag, rules.Count, target is null ? "no" : "a named", materials.Count);
             client.SendResult(packetId, (ushort)ResultCode.InvalidArgument);

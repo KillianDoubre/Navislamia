@@ -43,6 +43,10 @@ public readonly record struct MixResolution(MixResourceEntity Rule, IReadOnlyLis
 /// <c>:345-452</c>, pinned in the fiche): the first rule of the table whose declared <c>sub_material_count</c>
 /// matches the frame, whose target group and material groups all accept the stacks the frame names, wins.
 ///
+/// The materials are paired <em>by permutation</em> — a group takes any free stack it accepts — which is
+/// <b>not</b> what the executed reference loop does: see <see cref="TryArrange"/> and the fiche §7, §9 and
+/// §10. The choice is assumed and labelled, not presented as a fact of the reference.
+///
 /// It decides <em>match or no match</em> and nothing else: no rate is rolled, no item is removed, no
 /// <c>TM_SC_MIX_RESULT</c> (257) is written. What a matched type does is the next lobe
 /// (docs/packet-specs/socle-artisanat-ressources.md §8, L2).
@@ -133,10 +137,23 @@ public static class MixResourceMatcher
     }
 
     /// <summary>
-    /// Assigns one material group of the rule to each stack of the frame. The reference tries the groups in
-    /// order and takes the first stack left free that the group accepts, without backtracking
-    /// (<c>MixManager.cpp:261-287</c>) — a frame that only a different arrangement would satisfy is refused
-    /// there too, and this port walks the same path in the same order rather than finding a better one.
+    /// Assigns one material group of the rule to each stack of the frame, by <b>permutation</b>: the groups
+    /// are walked in order and each takes the first stack left free that it accepts, without backtracking
+    /// (<c>getProperMixInfoSub</c>, <c>MixManager.cpp:300-318</c>).
+    ///
+    /// This is <b>not</b> what the reference executes. The loop that runs (<c>:257-276</c>) calls
+    /// <c>check_material_info((*it).sub_material[idx], pSubItem[idx], pCountList[idx])</c> with the
+    /// <em>same</em> index on both sides — it therefore requires every group <c>j</c> to accept the stack
+    /// <c>j</c>, produces the identity arrangement, and refuses a frame that only a different arrangement
+    /// would satisfy. The permuting function it names, <c>getProperMixInfoSub</c>
+    /// (<c>MixManager.h:162</c>, <c>MixManager.cpp:300</c>), has no caller: it is dead code, like
+    /// <c>CreateItem</c> (<c>:192-240</c>).
+    ///
+    /// The choice is kept because it is the more permissive of the two readings, but it is <b>not
+    /// established</b> for 7.3: it is assumed as a labelled divergence from the executed reference
+    /// (fiche §7) and carried as an open question in §9 and §10, where the client test of §4 (step 7 —
+    /// the same frame with its materials in reverse order) is what decides between the two. Today the two
+    /// readings differ only in which frames the log reports as resolved: the answer is the same refusal.
     /// </summary>
     private static bool TryArrange(MixResourceEntity rule, IReadOnlyList<MixMaterial> subMaterials,
         out MixMaterial[] arranged, out long[] counts)
@@ -190,12 +207,13 @@ public static class MixResourceMatcher
     /// there is refused.
     /// </summary>
     /// <remarks>
-    /// Codes 11, 12, 15-18 and 20 are refused rather than satisfied: the reference leaves them inert (the
-    /// body of 11 and 12 is commented out, 15-18 have no case at all and fall into <c>default: break</c>,
-    /// 20 answers <c>false</c> in the post-arrangement). A silent <c>default</c> would let a condition
-    /// nobody established validate a recipe, so the port closes instead — an unmatched frame is refused
-    /// with <c>InvalidArgument</c>, the answer NGemity sends for a frame no rule accepts
-    /// (<c>WorldSession.cpp:1463-1466</c>). Code 19 is decided in the post-arrangement, as in the reference.
+    /// Codes 11, 12 and 15-18 are refused rather than satisfied: the reference leaves them inert (the body
+    /// of 11 and 12 is commented out, 15-18 have no case at all and fall into <c>default: break</c>). A
+    /// silent <c>default</c> would let a condition nobody established validate a recipe, so the port closes
+    /// instead — an unmatched frame is refused with <c>InvalidArgument</c>, the answer NGemity sends for a
+    /// frame no rule accepts (<c>WorldSession.cpp:1463-1466</c>). Codes 19 and 20 are decided in the
+    /// post-arrangement, as in the reference: the reference's <c>default: break</c> makes them inert here
+    /// too (<c>MixManager.cpp:443-444</c>), and code 20 answers <c>false</c> there (<c>:574-576</c>).
     /// </remarks>
     private static bool CheckMaterialInfo(MixMaterialInfo info, MixMaterial? material,
         long declaredCount, out long consumedCount)
@@ -325,11 +343,16 @@ public static class MixResourceMatcher
                     break;
 
                 case CheckSameItemId:
-                    // Decided on the arranged stacks, not here (MixManager.cpp:558-570).
+                case CheckSameSummonCode:
+                    // Both are decided on the arranged stacks, not here: 19 by the post-arrangement
+                    // (MixManager.cpp:558-570), 20 by the same function answering false (:574-576). The
+                    // reference's `default: break` (:443-444) leaves them inert at this stage, so the
+                    // refusal stays where the reference puts it — and stays reachable, which is what makes
+                    // it testable.
                     break;
 
                 default:
-                    // 11, 12, 15-18, 20 and anything outside the table: refused, never satisfied.
+                    // 11, 12, 15-18 and anything outside the table: refused, never satisfied.
                     return false;
             }
         }
