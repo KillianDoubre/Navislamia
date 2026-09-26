@@ -518,3 +518,88 @@ objdump -s --start-address=0x67f020 --stop-address=0x67f0a0 SFrame.exe
 objdump -d -M intel --start-address=0x67e3c0 --stop-address=0x67e430 SFrame.exe
 objdump -s --start-address=0x67f310 --stop-address=0x67f430 SFrame.exe
 ```
+
+---
+
+## 9. Mise en œuvre (lot dev)
+
+État livré, à la suite de la fiche : implémenté, testé, commité sur
+`hermes/packet-socle-booths-visibilite` (`49a4f06`, puis le présent document). Aucun commit sur
+`master`.
+
+| fichier | ce qu'il porte |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_WATCH_BOOTH` (702), `TM_SC_WATCH_BOOTH` (703), `TM_CS_STOP_WATCH_BOOTH` (704) |
+| `Game/Network/Packets/Game/BoothPackets.cs` | `WatchBoothLength`/`WatchBoothTargetOffset` (11, +7), `WatchBoothHeaderLength`/`WatchBoothTypeOffset`/`WatchBoothCountOffset`/`WatchBoothItemsOffset` (14, +11, +12, +14), `WatchBoothItemSize`/`WatchBoothItemGoldOffset` (83, +75), `TryReadWatchBooth`, `TryReadStopWatchBooth`, `BuildWatchBooth`, `BoothWatchItem` |
+| `Game/Services/BoothWatchService.cs`, `Game/Services/Interfaces/IBoothWatchService.cs` | le traitement de 702/704 et l'écriture de 703 ; la primitive `TryFindBoothOwner` |
+| `Game/Network/Clients/ConnectionInfo.cs` | `WatchedBoothHandle`, `BeginWatchingBooth`, `StopWatchingBooth`, purge dans `ClearCharacterSession` |
+| `Game/Network/Clients/GameClient.cs` | les trois bras de dispatch, avant le `switch` qui lève « Unknown Packet Type » |
+| `Game/Network/NetworkService.cs`, `DevConsole/Program.cs` | injection du service |
+| `Game/Services/BoothRules.cs` | 702 dans `GuardedActionIds` |
+| `Tests/Game/BoothVisibilityPacketsTests.cs`, `Tests/Game/BoothWatchTests.cs` | offsets et comportement (24 tests) |
+
+Décisions tranchées, en plus des trois du §7 (§7.2, §7.6, §7.9) :
+
+1. **Le code de refus d'un 702 non servable est `NotExist` (1)**, avec le handle demandé en `Value` —
+   le code que le dépôt emploie déjà quand un handle ne résout rien (socle artisanat §9.2, 203 §5.3).
+   Une trame plus courte que 11 octets est refusée avec `InvalidArgument` (28), `Value` à 0, comme le
+   §5.2 point 2. Une erreur de lecture en base rend `DBError` (8) avec le handle, sur le modèle du
+   socle artisanat. Trop loin n'a pas de code : le serveur ne juge pas la distance (§2.2).
+2. **Un handle d'étal est l'identité du personnage propriétaire** (`ConnectionInfo.CharacterHandle`),
+   et la résolution balaye `AuthorizedGameClients.Values` (§5.2 point 7, option « parcourir » plutôt
+   qu'un registre). `TryFindBoothOwner` exige à la fois `CharacterHandle == target` et un étal ouvert ;
+   `target == 0` ne résout rien.
+3. **Aucune diffusion** : rien n'est envoyé à un autre client sur 700, 702 ou 704, et un 703 n'est
+   écrit qu'au demandeur (§5.2 point 8).
+4. **703 a un bras de dispatch**, contrairement à la lettre du §5.3 (« pas de bras entrant : c'est une
+   sortie ») : tout membre déclaré de `GamePackets` doit avoir un bras avant le `switch` final, sinon
+   une trame entrante tue la boucle de réception (critère 4 des critères d'acceptation, et le patron
+   `TM_SC_REGION_ACK` déjà appliqué à tous les autres ids S→C). Le bras journalise et ignore.
+5. **Le service suit le patron « dans le monde »** du socle artisanat : un 702 dont la session
+   `CharacterHandle == 0` est journalisé et abandonné sans réponse. Un 704, lui, répond `Success` même
+   dans ce cas : il ne fait qu'oublier un état, et le §5.2 point 5 le veut idempotent.
+
+Ce qui n'est **pas** fait, volontairement : 705/706/707 (fenêtre d'achat et noms d'étal) et 710
+(`TM_SC_BOOTH_TRADE_INFO`) restent hors socle (§7.11) ; aucune persistance d'étal ; aucun contrôle de
+portée serveur ; aucun `703` périodique (le client ne le réclame qu'à l'ouverture de la fenêtre).
+
+Vérifications exécutées : `dotnet build Navislamia.sln -c Debug` → 0 erreur ; `dotnet test
+Tests/Tests.csproj` → 1326 tests, 0 échec (base `master` : 1302) ; `git log --oneline
+origin/master..master` → vide.
+
+---
+
+## A VERIFIER PAR KILLIAN
+
+Réserves assumées du lot dev : les points ci-dessous sont applicables en l'état (rien ne bloque), mais
+ils reposent sur une décision Navislamia et non sur une source. Le serveur d'origine n'est pas
+disponible dans cet environnement, et aucun exécutable du client n'a été lancé (§8).
+
+1. **Le code de refus d'un 702 non servable** (`NotExist` = 1, handle en `Value`) : tranché par
+   analogie avec les autres refus du dépôt, aucune source (§7.2). À figer dans `CLAUDE.md` si Killian
+   retient un autre code (`NotActable` = 5 ou un code générique) — un seul endroit à changer
+   (`BoothWatchService.HandleWatchAsync`), et le test `WatchBooth_OnAHandleNoOpenBoothServes...`.
+2. **L'identification de l'étal par `CharacterHandle` du propriétaire** : le client envoie
+   `[objet+0x5E8]` (§2.1) dont la nature n'est pas nommée (§7.4) ; la fiche sanctionne `CharacterHandle`
+   comme identification côté serveur (§5.2 point 4). Si l'étal avait un handle propre, seule
+   `TryFindBoothOwner` serait à ajuster.
+3. **Un handle déclaré qui ne se résout plus est sauté**, `count` diminuant d'autant (§7.6) : la
+   fenêtre reste cohérente mais le client voit un étal plus court que ce que son propriétaire a
+   déclaré. Aucune source ne tranche entre sauter et refuser tout le 703.
+4. **Quand l'observation est purgée** : sur 704 et à la fin de la session du personnage, et nulle part
+   ailleurs (§7.9). Rien n'est fait quand le propriétaire ferme son étal (701), se déconnecte ou
+   change de zone : le serveur n'a aucun canal pour prévenir l'observateur, et le prochain 702 est ce
+   qui rafraîchit la fenêtre. Décision à confirmer.
+5. **Le client de référence n'émet jamais 704** (§7.1) : la trame est implémentée et testée contre le
+   serveur (11 octets, idempotence du `TS_SC_RESULT(704, Success)`), mais aucun test ne peut s'appuyer
+   sur un 704 réel. Un client modifié ou un script local la produirait.
+6. **Aucun contrôle de distance côté serveur** : la règle des 100 unités est celle du client (§2.2) et
+   le serveur ne la reproduit pas. Un client modifié peut donc observer un étal à l'autre bout de la
+   carte ; la fiche ne demande aucune règle de portée (§7.3, dont la trame système de refus reste non
+   identifiée).
+7. **Un 704 hors session de personnage répond `Success`** (pas de garde « dans le monde », contrairement
+   à 702) : c'est la lecture idempotente du §5.2 point 5, aucune source ne dit si le serveur d'origine
+   filtrait ces trames.
+8. **`gold` déclaré, sans conversion** (§7.7) : le 703 transporte la valeur du 700 telle quelle. Que ce
+   prix soit unitaire ou total n'est pas établi, et le serveur ne le décide pas ici.
+
