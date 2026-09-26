@@ -27,8 +27,8 @@ pour un id client sans politique de jeu établie (`304`, `452`, `57`, `59`).
 | 711 | `TS_CS_CHECK_BOOTH_STARTABLE` | client → serveur | `reference/ngemity/shared/Server/ClientPackets.h:192` |
 
 `op_codes.md:180` est la table Lua livrée avec le dépôt ; elle liste `711` et **ce dépôt ne la
-modifie pas** — c'est la convention déjà suivie par `socle-booths.md` (§6 point 5) et par
-`711` lui-même (§7 point 6).
+modifie pas** — c'est la convention déjà suivie par `socle-booths.md` (§6 point 5), qui avait elle
+aussi laissé `711` dans cette table (§7 point 6).
 
 Place dans la famille (source : `socle-booths.md` §1.1, `op_codes.md:169-180`) :
 
