@@ -54,6 +54,15 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<ItemMatchFields> GetMatchFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemMatchFields((int)item.Id, item.Group, item.ItemType, item.Rank,
+                item.WearType))
+            .ToList();
+    }
+
     public IReadOnlyList<ItemUseFields> GetUseFields()
     {
         return _context.ItemResources

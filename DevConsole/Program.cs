@@ -308,6 +308,11 @@ public class Program
         services.AddSingleton<ISkillService, SkillService>();
         services.AddSingleton<IEquipmentService, EquipmentService>();
         services.AddSingleton<IItemResourceRepository, ItemResourceRepository>();
+        services.AddSingleton<IMixResourceRepository, MixResourceRepository>();
+        services.AddSingleton<IEnhanceResourceRepository, EnhanceResourceRepository>();
+        services.AddSingleton<IMixResourceCatalog, MixResourceCatalog>();
+        services.AddSingleton<IEnhanceResourceCatalog, EnhanceResourceCatalog>();
+        services.AddSingleton<IItemMatchCatalog, ItemMatchCatalog>();
         services.AddSingleton<IItemGroupCatalog, ItemGroupCatalog>();
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
