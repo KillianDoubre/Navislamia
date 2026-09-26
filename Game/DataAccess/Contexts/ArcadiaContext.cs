@@ -16,6 +16,7 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<SetItemEffectResourceEntity> SetItemEffectResources { get; set; }
     public DbSet<SummonResourceEntity> SummonResources { get; set; }
     public DbSet<EnhanceResourceEntity> EnhanceResources { get; set; }
+    public DbSet<MixResourceEntity> MixResources { get; set; }
     public DbSet<EffectResourceEntity> EffectResources { get; set; }
     public DbSet<LevelResourceEntity> LevelResources { get; set; }
     public DbSet<SkillResourceEntity> SkillResources { get; set; }
@@ -41,6 +42,7 @@ public class ArcadiaContext : SoftDeletionContext
         ConfigureSkillResources(modelBuilder);
         ConfigureEffectResources(modelBuilder);
         ConfigureEnhanceResource(modelBuilder);
+        ConfigureMixResource(modelBuilder);
         ConfigureLevelResource(modelBuilder);
         ConfigureModelEffectResource(modelBuilder);
         ConfigureBannedWordsResource(modelBuilder);
@@ -202,6 +204,17 @@ public class ArcadiaContext : SoftDeletionContext
                     $"cardinality(\"{nameof(EnhanceResourceEntity.Percentage)}\") <= 20"))
             .Property(enhance => enhance.Percentage)
             .HasPrecision(10, 3);
+    }
+
+    /// <summary>
+    /// <c>MixResource</c> has no key at all in the reference schema (<c>ArcadiaSchemaPSQL.sql:471</c>);
+    /// the 754 measured rows all have a distinct <c>id</c>, so <c>Id</c> is the primary key. No
+    /// navigational property, no check constraint: the 109 columns are plain ints.
+    /// </summary>
+    private static void ConfigureMixResource(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MixResourceEntity>()
+            .HasKey(mix => mix.Id);
     }
 
     private static void ConfigureSetItemEffectResources(ModelBuilder modelBuilder)
