@@ -349,6 +349,62 @@ complémentaires : 4000 d'un côté, 4003 de l'autre) et en fusionnant les comme
 est de mettre le lecteur de 4000 dans `GameActionPackets.cs` (fichier du 452) : **le lot ne doit pas
 dépendre du choix de #38 pour compiler.**
 
+### 5.7 Implémentation livrée (branche `hermes/packet-4000-huntaholic-instance-list`)
+
+Écrite d'après §5.5, sans écart de périmètre : **déclarer, router, lire, journaliser, ne rien
+répondre**. Quatre fichiers touchés.
+
+| Fichier | Ce qui y est écrit |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs:202-207` | `TM_CS_HUNTAHOLIC_INSTANCE_LIST = 4000`, bloc de commentaire de renvoi à cette fiche, **inséré avant** le bloc `TM_CS/SC_INSTANCE_GAME_* = 4250-4253` (ordre croissant d'id, §5.5 point 1) |
+| `Game/Network/Clients/GameClient.cs:1172-1203` | `HandleHuntaholicInstanceList(byte[])` : `Warning` + `ClientTag` + `Length` si `Length` ≠ 11, sinon `Debug` gardé par `IsEnabled(LogEventLevel.Debug)` avec la valeur **brute** de `page` ; aucune réponse, aucun état, aucune commande DevConsole |
+| `Game/Network/Clients/GameClient.cs:1463-1474` | le bras de routage, **avant le `switch` final** (critère transversal 4) |
+| `Game/Network/Packets/Game/GameHuntaholicPackets.cs` (nouveau, 65 lignes) | classe `public static class GameHuntaholicPackets`, `private const int HeaderSize = 7`, `PageOffset = 7`, `PageFieldLength = 4`, `PayloadLength = 4`, `InstanceListLength = 11`, et `TryReadHuntaholicInstanceList(ReadOnlySpan<byte>, out int page)` |
+| `Tests/Game/HuntaholicInstanceListPacketsTests.cs` (nouveau) | **19 cas** (§5.5 point 5) |
+
+**Choix d'implémentation à connaître pour la fusion :**
+
+1. **`page` est lu signé et brut** : `BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(PageOffset,
+   PageFieldLength))`, `out int` — pas de `uint`, pas d'écrêtage, pas de plancher à 1, pas de refus
+   d'une valeur hors bornes (§7c laisse la règle ouverte : le lecteur ne l'invente pas).
+2. **Seule la longueur exacte de 11 est acceptée** (`packet.Length != InstanceListLength` → `false`
+   **et `page = 0`**, aucune lecture partielle). Un refus laisse donc `out page` à zéro : le test
+   négatif vérifie les deux à la fois.
+3. **Le bras de routage est placé juste avant le bras `TM_CS_INSTANCE_GAME_ENTER`** (ligne 1468),
+   c'est-à-dire dans le voisinage thématique de la famille « instances de jeu », et **pas** après le
+   bras du 452 : c'est un choix de **fusion**, pour ne pas atterrir sur l'ancre que d'autres branches
+   ouvertes utilisent déjà à l'entrée du `switch` (§5.6).
+4. **Résolution de l'`add/add` de `GameHuntaholicPackets.cs`** (si #38 atterrit avant ou après) :
+   garder **une** déclaration `public static class GameHuntaholicPackets`, **un** `using`/namespace,
+   **un** `private const int HeaderSize = 7` (les deux corps le déclarent), puis l'**union** des
+   membres (`NameOffset`…`TryReadCreateInstance` pour le 4003, `PageOffset`…`TryReadHuntaholicInstanceList`
+   pour le 4000) et la fusion des deux résumés de classe. Les deux lecteurs sont indépendants : aucun
+   n'appelle l'autre.
+5. **Ordre de l'enum après fusion avec #38** : #38 a inséré `TM_CS_HUNTAHOLIC_CREATE_INSTANCE = 4003`
+   **après** `TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253` ; la résolution doit remettre **`4000`, puis
+   `4003`, puis `4250`-`4253`** dans l'ordre croissant et fusionner les deux blocs de commentaires
+   (§5.5 point 1).
+
+**Commandes et relevés de cette branche** (`NUGET_PACKAGES=/srv/navislamia/.nuget-cache`) :
+
+- `dotnet build Navislamia.sln -c Debug` → **code 0** (0 erreur, 164 avertissements préexistants) ;
+- `dotnet test Tests/Tests.csproj` → **code 0**, **1321 réussis, 0 échec, 0 ignoré** = les 1302 de
+  `master` (§5.5) **+ 19** nouveaux cas. Le compte ne baisse pas.
+
+**Preuve que les tests mordent** (mutation temporaire du lecteur, rejouée sur cette branche) :
+
+- lire le champ à l'offset **6** au lieu de 7 (`PageOffset - 1`) fait **échouer 4 cas**
+  (`ReadsPageAtOffsetSeven`, `ReadsTheValueLittleEndian`, `ReadsPageAsSignedInt32`,
+  `ReadsTheRawPageWithoutClampingOrDefaulting`) → c'est bien la **position** qui est mesurée, et un
+  décalage d'un seul octet est détecté ;
+- relâcher le contrôle de longueur (`< HeaderSize + 1` au lieu de `!= InstanceListLength`) fait
+  **échouer 2 cas** de plus (`RejectsATruncatedFrame`, `RejectsAPaddedFrame`) → les cas négatifs
+  mesurent la **taille** et pas seulement l'absence d'exception.
+
+**Aucun champ `NON ÉTABLI` n'a été deviné** : ni `huntaholic_id`, ni pagination, ni contenu de liste,
+ni règle de refus pour un `page` hors bornes — les points (a) à (d) de §7 et les points 1 à 4 de la
+section `A VERIFIER PAR KILLIAN` restent ouverts et sont à l'arbitrage de Killian.
+
 ---
 
 ## 6. Écarts assumés avec NGemity, et pourquoi

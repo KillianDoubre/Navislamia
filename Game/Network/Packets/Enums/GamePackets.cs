@@ -199,6 +199,13 @@ public enum GamePackets : ushort
 
     TM_CS_CHECK_CHARACTER_NAME = 2006,
 
+    // TM_CS_HUNTAHOLIC_INSTANCE_LIST : the page request of the HuntaHolic lobby room list, X(4000, true) in rzu,
+    // so no version gating and no gated payload field. Only this id of the 4000-4012 family is declared here:
+    // its siblings (4001/4002 lobby list and info, 4003 create, 4004 join, and the rest) join with their own
+    // lots, and no server to client id of the family is emitted yet. See
+    // docs/packet-specs/4000-huntaholic-instance-list.md.
+    TM_CS_HUNTAHOLIC_INSTANCE_LIST = 4000,
+
     // TM_CS/SC_INSTANCE_GAME_* : instance game socle, X(<id>, true) in rzu (EPIC_6_3 and later, hence valid
     // for EPIC_7_3). See docs/packet-specs/socle-instances-jeu.md.
     TM_CS_INSTANCE_GAME_ENTER = 4250,
