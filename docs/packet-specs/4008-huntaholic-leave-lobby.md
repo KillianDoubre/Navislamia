@@ -26,6 +26,12 @@ script client n'a été exécuté, aucun serveur n'a été démarré.
    (§5.2).
 5. **Aucun gating de version à trancher** : `X(4008, true)` dans rzu, aucun champ (§4).
 6. **Taille du paquet : 7 octets**, en-tête seul, aucun champ (§3).
+7. **Le relevé exhaustif des trames sans charge utile du client 7.3 donne sept ids** — `23`, `27`,
+   `1100`, `4005`, `4011`, `6000`, `6008` — et `4008` n'en fait pas partie (§2.2 bis).
+8. **Le geste « retour au lobby » du client passe par `TM_CS_RETURN_LOBBY (23)`**, pas par `4005`, pas
+   par `TM_CS_CHANGE_LOCATION`, pas par `4008` : commande locale `returnlobby` → gestionnaire
+   `0x4a10c0` → trame de 7 octets d'id `0x17` (§2.5). `23` est déjà déclaré et routé dans NavisLamia
+   (`GamePackets.cs:164`, `GameClient.cs:1753-1756`) : le §7d du socle est clos de ce côté.
 
 ## 1. Identité
 
@@ -96,6 +102,29 @@ Les longueurs ci-dessus recoupent indépendamment `CLAUDE.md:1967-1968` (11 / 56
 qui valide l'attribution des constructeurs, et confirme que la famille client → serveur n'a que
 cinq producteurs en 7.3, aucun n'étant `4008`.
 
+### 2.2 bis Relevé exhaustif des trames « en-tête seul » du client — `4008` n'y est pas
+
+Toutes les trames client → serveur sans charge utile s'écrivent dans le client avec le même idiome :
+`mov <reg>,<id>` puis `mov WORD PTR [ebp-0xM],<reg16>` (id, offsets 4-5) et
+`mov DWORD PTR [ebp-0x(M+4)],0x7` (longueur, offsets 0-3), suivis de la boucle de somme de contrôle.
+Le balayage de cet idiome sur tout le `.text` donne la liste **complète** des trames de 7 octets
+émises par le client 7.3 :
+
+| Id | Nom (`op_codes.md`) | Site du constructeur | Émetteur relevé |
+| --- | --- | --- | --- |
+| `23` | `TM_CS_RETURN_LOBBY` (`:24`) | `0x48d352` | commande locale `returnlobby` (§2.5) |
+| `27` | `TM_CS_LOGOUT` (`:28`) | `0x48d302` | fonction voisine du même bloc |
+| `1100` | `TM_CS_GAME_TIME` (`:196`) | `0x493340` | — |
+| `4005` | `TM_CS_HUNTAHOLIC_LEAVE_INSTANCE` | `0x4c9392` | `0x5641f2`, `0x567453` |
+| `4011` | `TM_CS_HUNTAHOLIC_BEGIN_HUNTING` | `0x4c93e2` | `0x564238` |
+| `6000` | `TM_CS_REQUEST_FARM_INFO` (`:256`) | `0x610a02` | — |
+| `6008` | `TM_CS_REQUEST_FARM_MARKET` (`:264`) | `0x610aa2` | — |
+
+**Sept ids, et `4008` n'en fait pas partie.** Ce second relevé, indépendant du §2.1 par sa méthode,
+confirme `4005` et `4011` comme trames en-tête seul (il recoupe donc la fiche 4005) et donne la
+frontière exacte de la famille : sur les six paquets client → serveur de la famille HuntaHolic, seuls
+`4005` et `4011` sont en-tête seul, et `4000`/`4003`/`4004` portent une charge utile.
+
 ### 2.3 Le répartiteur entrant du client route `4008` vers « message non traité »
 
 Le répartiteur des messages serveur → client (`0x67e1d9`, arbre de décision) atteint le bloc
@@ -162,8 +191,32 @@ prouvent.
 | autres fenêtres de la famille | `SUIHuntaHolicInstanceWnd` (`0x636690`), `SUIHuntaHolicCreateInstanceWnd` (`0x636572`), `SUIHuntaHolicScoreBoardWnd` (fiche 4005 §2.3) |
 
 Le joueur peut donc ouvrir un lobby HuntaHolic ; les gestes de cette famille émettent `4000`,
-`4003`, `4004`, `4005` ou `4011` selon la fenêtre (§2.2). **Aucun geste n'émet `4008`.** Ce que fait
-réellement le « quitter le lobby » du client reste non établi — voir `NON ÉTABLI` (a), §7.
+`4003`, `4004`, `4005` ou `4011` selon la fenêtre (§2.2). **Aucun geste n'émet `4008`.**
+
+Le client porte en revanche une **commande locale `returnlobby`** — un nom qui dit exactement
+« retour au lobby ». On la trouve à la fois dans `db_localcommand.rdb`
+(`strings -a db_localcommand.rdb | grep -i lobby` → ` returnlobby`) et dans le pool de noms du
+binaire (`.rdata 0xa1f27c`). Ce nom est visé par **une seule** entrée d'une table de commandes en
+`.data` (structure de 20 octets par entrée, champ 0 = `char*` nom, champ 1 = gestionnaire `.text`) :
+
+| Entrée `.data` | `char*` nom | Gestionnaire `.text` |
+| --- | --- | --- |
+| `0xc122d4` | `0xa1f288` = `"help"` | `0x4a1070` |
+| `0xc122e8` | `0xa1f27c` = **`"returnlobby"`** | **`0x4a10c0`** |
+| `0xc122fc` | `0xa1f270` = `"rpcreate"` | `0x4a1100` |
+
+Le gestionnaire `0x4a10c0` appelle `0x48d340` (`0x4a10cc`), qui **construit une trame de 7 octets** :
+`mov eax,0x17` (`0x48d352`), id écrit aux offsets 4-5 (`0x48d35a`), longueur `0x7` aux offsets 0-3
+(`0x48d35e`), somme de contrôle en offset 6 (`0x48d37a`), puis émission par l'entrée `0x1cc` de la
+table virtuelle de la session (`0x48d38f`). **`0x17` = 23 = `TM_CS_RETURN_LOBBY`** (`op_codes.md:24`),
+que NavisLamia **déclare et route déjà** (`GamePackets.cs:164`, `GameClient.cs:1753-1756`) ; le
+parcours est déjà documenté (`docs/character-bootstrap.md:95-109`).
+
+Autrement dit, le geste « retour au lobby » du client 7.3 passe par **`TM_CS_RETURN_LOBBY (23)`**,
+une trame en-tête seul de 7 octets — **pas par `4005`, pas par `TM_CS_CHANGE_LOCATION`, pas par
+`4008`**, ce qui répond à la question ouverte du §7d du socle. Ce qui reste non établi est plus
+étroit : que le contrôle « quitter » de `SUIHuntaHolicLobbyWnd` appelle précisément cette commande —
+voir `NON ÉTABLI` (a), §7.
 
 Les données du client confirment que le **cycle de vie du lobby est piloté par le serveur**, pas
 demandé par le joueur : `db_string.rdb` porte les gabarits des annonces serveur → client (« In
@@ -174,7 +227,8 @@ adventure to #@huntaholic_dungeon_name@#. ») : le client ne fait que les affich
 nomment `huntaholic_lobby_menu()` et trois points de contact PNJ
 (`NPC_huntaholic_koreagarlic_contact()`, `NPC_huntaholic_sseulgae_contact()`,
 `NPC_huntaholic_woongdam_contact()`) — des scripts, pas des paquets. `leave_lobby` n'apparaît nulle
-part.
+part, et `db_scriptstring.rdb` — le fichier que le §7d du socle proposait d'observer — ne contient ni
+`huntaholic` ni `lobby`.
 
 ### 2.6 Portée du relevé négatif
 
@@ -303,6 +357,10 @@ lobby) → aucun accusé nécessaire », `socle-instances-jeu.md:442`), et ni rz
 de paquet de réponse pour `4008`. Aucun lobby HuntaHolic n'existe côté serveur dans NavisLamia, donc
 il n'y a aucun état à faire évoluer.
 
+**Et la sortie de lobby, elle, est déjà couverte** : le client l'exprime par `TM_CS_RETURN_LOBBY (23)`
+(§2.5), id déclaré et routé dans le même `GameClient`. `4008` n'est donc pas un chaînon manquant : il
+n'a pas de producteur, pas de consommateur, et son rôle supposé est tenu par `23`.
+
 ### 5.3 Contrat d'implémentation pour `navis-dev`
 
 1. **Aucune modification de code de production** : pas de membre dans
@@ -351,19 +409,21 @@ sur l'absence de trace client constatée par le socle. La présente fiche **conv
 conclusion** mais la fonde sur un relevé exhaustif indépendant (§2.1 à §2.3) et sur la règle de
 maison écrite pour `711` (§5.2). Aucun conflit de fichiers entre les deux lots : le lot 4008 ne
 touche ni `GamePackets.cs` ni `GameClient.cs` ni `GameHuntaholicPackets.cs`, que le lot 4005 modifie
-déjà.
+déjà. Le §2.5 renforce la conclusion de la fiche 4005 : la sortie du lobby n'est pas dans la famille
+HuntaHolic du tout, elle passe par `TM_CS_RETURN_LOBBY (23)`, un id déjà en place.
 
 ## 7. `NON ÉTABLI`
 
-**(a) Par quel id passe réellement « quitter le lobby » dans le client 7.3, s'il existe.** La fenêtre
-`SUIHuntaHolicLobbyWnd` existe (RTTI et enregistrement `0x6364e3`, §2.5) et l'objet de jeu
-`huntaholic` est lu en `0x5641e6`, `0x56422c`, `0x5648ae` — mais relier un contrôle de cette fenêtre à
-un id demande les mises en page `.nui`, **absentes du dump** (`reference/client73` ne contient que
-`SFrame.exe`, `data.000`, `extraction-manifest.json` et 50 `.rdb` ; les `.nui` sont dans l'archive
-`data.000` non extraite). Question précise à trancher : *le bouton « quitter » du lobby réutilise-t-il
-`4005` (`TM_CS_HUNTAHOLIC_LEAVE_INSTANCE`), ou la fenêtre ne renvoie-t-elle rien et attend-elle un
-`4001`/`4002` du serveur ?* **Aucune des deux branches n'est prouvée** ; ne rien en déduire pour
-l'implémentation. Ce qui est prouvé et suffit à la décision : ce n'est pas `4008`.
+**(a) Quel contrôle de `SUIHuntaHolicLobbyWnd` déclenche la commande `returnlobby`.** Le fait central
+est désormais établi (§2.5) : le geste « retour au lobby » du client 7.3 est la commande locale
+`returnlobby` (`.rdata 0xa1f27c`, table `.data 0xc122e8`, gestionnaire `0x4a10c0`), qui émet
+`TM_CS_RETURN_LOBBY (23)` — une trame en-tête seul de 7 octets, **pas `4005`, pas `4008`**. Reste
+ouvert : *quel contrôle de la fenêtre `SUIHuntaHolicLobbyWnd` (enregistrement `0x6364e3`) invoque
+cette commande, et le fait-elle même ?* La liaison contrôle → commande demande les mises en page
+`.nui`, **absentes du dump** (`reference/client73` ne contient que `SFrame.exe`, `data.000`,
+`extraction-manifest.json` et 50 `.rdb` ; les `.nui` sont dans l'archive `data.000`, non extraite).
+Ce point n'a **aucun** effet sur la décision du §5.2 : ce qui est prouvé, c'est que la sortie du lobby
+passe par `23` et que `4008` n'est émis par personne.
 
 **(b) Le rôle exact de `huntaholic_scoreboard` (`0xa2cac8`) et l'enchaînement lobby → tableau des
 scores.** Déjà ouvert par la fiche 4005 §7(f) ; inchangé ici.
@@ -432,6 +492,12 @@ Les deux tables du répartiteur se lisent directement par adressage VMA → offs
 (`file_off = 0x400 + (vma - 0x401000)`) : table d'octets `0x67f580` (251 octets), table de sauts
 `0x67f560` (8 `dword`).
 
+Le relevé du §2.2 bis se fait sur le même désassemblage, par motif : une ligne
+`mov <reg>,0x<id>`, suivie dans les 5 instructions d'un `mov WORD PTR [ebp-0xM],<reg16>` (même
+registre, version 16 bits — `eax` s'écrit `ax`) et d'un `mov DWORD PTR [ebp-0x(M+4)],0x7`. Sept ids
+sortent, aucun n'étant `4008`. Les tables de commandes locales se lisent en `.data` (`0xc122e8` →
+`0xa1f27c` → gestionnaire `0x4a10c0`, entrées de 20 octets).
+
 ## 10. Brouillon pour la description de la MR (`navis-dev`)
 
 Bloc proposé pour `CLAUDE.md` — **le dev ne l'écrit pas dans `CLAUDE.md`** (Hermes refuse l'écriture
@@ -457,6 +523,13 @@ de ce fichier) : il le colle dans la description de la MR, comme l'exige le crit
   Un 4008 entrant est journalisé `Undefined packet ID` en `Debug` et la boucle survit
   (`GameClient.cs:1269-1273`) : aucun risque si un client non 7.3 en envoie un.
 * **Aucune réponse** (socle `socle-instances-jeu.md:442`), aucun état serveur à modifier.
+* **La sortie du lobby passe par un autre id, déjà en place** : le client a une commande locale
+  `returnlobby` (`.rdata 0xa1f27c`, table `.data 0xc122e8`, gestionnaire `0x4a10c0`) dont le code
+  (`0x48d340`) émet une trame en-tête seul de 7 octets d'id **23 = `TM_CS_RETURN_LOBBY`**, déjà
+  déclarée et routée (`GamePackets.cs:164`, `GameClient.cs:1753-1756`). Ni `4005`, ni
+  `TM_CS_CHANGE_LOCATION`, ni `4008` : la question ouverte du §7d du socle est close de ce côté.
+* **Balayage complet des trames en-tête seul du client 7.3** : sept ids seulement — 23, 27, 1100,
+  4005, 4011, 6000, 6008 — et `4008` n'en fait pas partie.
 * Fiche : `docs/packet-specs/4008-huntaholic-leave-lobby.md`.
 ```
 
@@ -468,14 +541,18 @@ de ce fichier) : il le colle dans la description de la MR, comme l'exige le crit
    ni émettre ni recevoir ne mérite pas de membre d'énum » ne te convient pas, le lot doit au
    contraire déclarer `TM_CS_HUNTAHOLIC_LEAVE_LOBBY = 4008` **et** router l'id (journal `Debug`,
    aucune réponse) pour rester dans la règle du `CLAUDE.md:2224-2227`.
-2. **Point d'arbitrage (a)** — §7(a) : par quel id passe le geste « quitter le lobby » du client 7.3.
-   Il n'est pas tranchable sans les mises en page `.nui`, absentes du dump. Ce point n'a **aucun**
-   effet sur la décision de cette fiche.
+2. **Point d'arbitrage (a)** — §7(a) : le geste « retour au lobby » du client 7.3 est **établi** (commande
+   locale `returnlobby` → `TM_CS_RETURN_LOBBY (23)`, §2.5), et `23` est déjà déclaré et routé côté
+   NavisLamia. Reste à trancher, et seulement si tu le juges utile : quel contrôle de
+   `SUIHuntaHolicLobbyWnd` l'invoque. Cela demande les mises en page `.nui`, absentes du dump. Ce
+   point n'a **aucun** effet sur la décision de cette fiche.
 3. **Report dans la fiche de socle** : `socle-instances-jeu.md` §7(d) (ligne `:550`) pose la question
    « `4008` est-il utilisé par le client 7.3 ? ». Elle est désormais close : **non**, ni en émission
-   ni en réception, avec relevé exhaustif (§2). Le report est un geste de PO sur `master`, pas de ce
-   lot. La ligne `:19` du socle (« 4008 sans preuve client ») et la ligne `:50` (« 7 o (rzu seul) »)
-   restent exactes.
+   ni en réception, avec relevé exhaustif (§2) — et la seconde moitié de la question, « le quitter le
+   lobby passe-t-il par `4005` ou par un `TM_CS_CHANGE_LOCATION` ? », reçoit elle aussi sa réponse :
+   il passe par **`TM_CS_RETURN_LOBBY (23)`** (§2.5). Le report est un geste de PO sur `master`, pas
+   de ce lot. La ligne `:19` du socle (« 4008 sans preuve client ») et la ligne `:50` (« 7 o (rzu
+   seul) ») restent exactes.
 4. **Collision** : aucune. Le lot 4008 ne touche ni `GamePackets.cs`, ni `GameClient.cs`, ni
    `GameHuntaholicPackets.cs`, ni `Tests/Game/HuntaholicLeaveInstancePacketsTests.cs` — c'est-à-dire
    exactement les fichiers que les branches 4000/4003/4004/4005 modifient. L'absence de déclaration
