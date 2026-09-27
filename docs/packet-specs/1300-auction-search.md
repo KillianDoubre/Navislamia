@@ -450,6 +450,15 @@ Ce que le dev ne peut pas trancher et qui est visible dès la première annonce 
    ou comme une simple liste d'affichage ? Aucune donnée serveur n'est disponible sur ce VPS : la
    réponse viendra de la base de Killian.
 
+### Ajouté par le dev (§13)
+
+6. **Une trame de 1300 plus longue que 51 octets est-elle un client légitime ?** La fiche ne tranche
+   que le cas court (§5.1 : refus si `< 51`), et le lecteur livré suit cette lettre : une trame de
+   52 octets ou plus est lue, ce qui suit l'octet 50 étant ignoré. Les lecteurs de 57 et 59, eux,
+   refusent toute longueur autre que l'exacte (`!=`). Resserrer ici serait une ligne
+   (`packet.Length != SearchRequestSize`) ; desserrer là-bas en serait une autre. Tant que Killian
+   n'a pas tranché, la divergence reste telle quelle.
+
 ---
 
 ## 9. Commits et binaires épinglés
@@ -550,3 +559,82 @@ mineurs et tous argumentés, à porter au socle quand Killian le voudra (cette f
    remplissage à zéro » — exact pour le `memset` du constructeur, mais la copie `strncpy` bornée à
    31 octets (`0x48DCB2`) réécrit la totalité des 31 octets si le mot-clé saisi atteint 31 caractères,
    sans NUL final. Le lecteur serveur doit s'arrêter au premier NUL **sans exiger** sa présence.
+
+---
+
+## 13. Implémentation livrée par `navis-dev`
+
+Branche `hermes/packet-1300-auction-search`, poursuivie depuis cette fiche ; commit de code `933ed8a`.
+Les §1 à §12 restent la mesure de `navis-ref` : rien n'y a été réécrit.
+
+| Fichier | Nature du changement |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | membre `TM_CS_AUCTION_SEARCH = 1300`, commenté (trame émise par le client, jamais reçue ; 1304 reste non déclaré) |
+| `Game/Network/Packets/Game/GameAuctionPackets.cs` | `AuctionSearchRequest`, `KeywordSize` (31), les cinq `SearchRequest*Offset`, `SearchRequestSize` (51), `TryReadAuctionSearch`, `ReadFixedAscii` |
+| `Game/Network/Clients/GameClient.cs` | `HandleAuctionSearch` (après `HandleXtrapCheck`) et le bras d'aiguillage, juste avant le `switch` final |
+| `Tests/Game/AuctionSearchPacketsTests.cs` | **nouveau** : 18 tests (offset, borne, arrêt au premier NUL, aiguillage, réponse vide) |
+
+### 13.1 Ce que fait le code
+
+- `TryReadAuctionSearch(ReadOnlySpan<byte> packet, out AuctionSearchRequest request)` : refus si
+  `packet.Length < 51`, puis `category_id` et `sub_category_id` en `Int32` **little endian** aux
+  offsets 7 et 11, `keyword` = les 31 octets de 15 à 45 lus jusqu'au premier NUL, `page_num` en
+  `Int32` LE à 46, `is_equipable` = `packet[50] != 0`. Le mot-clé passe par `ReadFixedAscii`, qui
+  s'arrête au NUL quand il existe et **ne l'exige pas** (§3.2, §12.5) : un mot-clé de 31 caractères,
+  sans terminateur, se lit entier.
+- Le bras lit, journalise les cinq champs (une ligne `Debug` derrière `_logger.IsEnabled(…)`, idiome
+  de `HandleEquipSummon`) puis envoie `BuildAuctionSearch(request.PageNum, 0)` : page vide,
+  5139 octets, `total_page_count` à 0 — la règle de ce dernier n'étant pas établie (§7, point 3).
+- Une trame de moins de 51 octets reçoit
+  `SendResult(TM_CS_AUCTION_SEARCH, ResultCode.InvalidArgument)` ; jamais une trame
+  `TM_SC_AUCTION_*` d'erreur, qui n'existe ni dans les références ni dans le client (§5.1).
+- `BuildAuctionSearch`, le motif de 75 octets, `AuctionInfo` et les trois réponses ne sont pas
+  touchés : ce lot n'ajoute que la moitié « demande ».
+- Aucune lecture de base, aucune requête, aucune écriture : la page est vide parce que rien dans le
+  dépôt n'écrit `TelecasterContext.Auctions` (§5.4), et c'est ce que le test vérifie octet par octet.
+
+### 13.2 Ce qui n'a pas été décidé, et n'a donc pas été inventé
+
+`total_page_count` à 0, `flag` laissé à 0, aucun filtre de catégorie, aucun tri, aucune consommation
+d'`AuctionCateryResourceRepository`, et `is_equipable` lu sans effet : ce sont les huit points `NON
+ÉTABLI` de §7 et les cinq points de §8, repris sans y répondre. Le code n'en tranche aucun.
+
+### 13.3 Réserves du dev
+
+1. **Trame rembourrée acceptée** (§8, point 6 ajouté par le dev) : le lecteur suit §5.1 à la lettre —
+   `< 51` refusé — donc une trame de 52 octets ou plus est lue et ce qui suit l'octet 50 est ignoré.
+   C'est la seule divergence de forme avec l'idiome strict de 57 et 59 (`<` contre `!=`), laissée
+   telle quelle parce que la fiche ne tranche que le cas court.
+2. **`BuildAuctionSearch(pageNum, 0)` sans liste** : appelé avec `null`, comme §5.7 le prescrit.
+   Aucun contenu n'est fabriqué pour rendre le test possible, et le test d'aiguillage vérifie que les
+   40 emplacements sortent effectivement à zéro.
+3. **`keyword` vide et `is_equipable` non nul quelconque** sont acceptés sans distinction : la fiche
+   n'établit aucun refus pour l'un ni borne pour l'autre (§5.6), donc le lecteur ne les invente pas.
+
+### 13.4 Vérifications exécutées (conteneur, sans serveur de jeu ni base)
+
+```
+dotnet build Navislamia.sln -c Debug                  → code 0, 0 Error(s)
+dotnet test  Tests/Tests.csproj                       → code 0, 1320 réussis / 1320, 0 échec
+                                                         (base avant ce lot : code 0, 1302 / 1302)
+dotnet test --filter AuctionSearchPacketsTests        → code 0, 18 / 18
+```
+
+Morsures prouvées par mutation temporaire, puis restauration (`git status --porcelain` vide) :
+
+- **bras d'aiguillage retiré** (membre d'énum conservé) → 4 tests échouent, tous avec
+  `System.Exception: Unknown Packet Type 1300` : le critère transversal n° 4 est bien morsu, et le
+  test ne passe pas par accident ;
+- **`SearchRequestKeywordOffset` décalé de 15 à 14** → 9 tests échouent (offsets, lecture, réponse) :
+  les tests d'offsets portent donc sur les positions écrites à la main, pas sur une relecture de la
+  même constante.
+
+Les trames des tests sont assemblées octet par octet, jamais par `GameAuctionPackets` : l'en-tête est
+littéral (`0x33 00 00 00 | 0x14 0x05`, checksum `0x4C`), chaque champ est relu à sa position en
+little endian **et** en gros-boutiste avec un `NotBe`, et le mot-clé est vérifié avec un NUL suivi
+d'un octet parasite (`"Swo\0"` puis `'d'`) pour prouver l'arrêt au premier NUL.
+
+Aucun code de production n'a été exécuté contre un client : `SFrame.exe` n'est pas lancé, et aucune
+base de données n'est disponible sur ce VPS. Les faits de protocole viennent des mesures de §3 et des
+références épinglées en §9 ; ils ne sont pas re-mesurés ici.
+
