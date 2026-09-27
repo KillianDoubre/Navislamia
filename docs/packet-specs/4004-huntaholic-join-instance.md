@@ -439,6 +439,125 @@ d'un enregistrement, ids et continuité vérifiés.
 
 ---
 
+## 10. Décisions d'implémentation (dev, 2026-09-27)
+
+Cette section est le savoir durable du lot : ce que le code fait, ce qu'il refuse, et ce qui a été
+**re-vérifié dans le conteneur du dev** avant d'écrire.
+
+### 10.1 Ce qui est livré
+
+| Élément | Fichier | Contenu |
+|---|---|---|
+| Déclaration | `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_HUNTAHOLIC_JOIN_INSTANCE = 4004`, entrée unique, sans variante d'id |
+| Dispatch | `Game/Network/Clients/GameClient.cs` | bras `if (header.ID == …TM_CS_HUNTAHOLIC_JOIN_INSTANCE)` **avant** le `switch` final, appelant `HandleHuntaholicJoinInstance(msgBuffer)` ; aucune réponse émise |
+| Lecteur | `Game/Network/Packets/Game/GameHuntaholicPackets.cs` | `JoinInstanceLength` (28), `JoinInstanceNoOffset` (7), `JoinInstancePasswordOffset` (11), `JoinInstancePasswordFieldLength` (17), `TryReadJoinInstance` → `HuntaholicJoinInstanceRequest(InstanceNo, PasswordLength)` avec `HasPassword` |
+| Tests | `Tests/Game/HuntaholicJoinInstancePacketsTests.cs` | 34 cas (§10.4) |
+
+Rien d'autre n'est touché : le socle instances (`GameInstanceGamePackets.cs`, 4250-4253), le socle
+compétition, `op_codes.md` et `CLAUDE.md` sont intacts. Aucun paquet de réponse, aucun état de lobby,
+aucune table, aucune migration.
+
+Le lecteur applique exactement §5.3 : longueur **28** exigée, `instance_no` lu à 7 en `int32` signé
+sans interprétation, `password` lu comme **tampon de 17 octets** dont seul l'index du premier NUL
+sort, et **refus** (journal, aucune réponse) si la longueur diffère ou si le champ mot de passe
+n'a **aucun NUL** dans ses 17 octets (§3.3 : le client ne peut pas produire cette forme). La valeur
+du mot de passe ne quitte jamais le lecteur — ni chaîne, ni tableau : le record ne porte que le
+numéro de salle, une longueur et un booléen, et le test `Request_KeepsNoCopyOfThePassword` fige
+cette surface.
+
+### 10.2 Choix d'emplacement, et pourquoi
+
+- **`GameHuntaholicPackets.cs`** (fichier de la famille 4000-4012, **absent de `master`**, ajouté par
+  les MR ouvertes #38 et #59) plutôt que `GameInstanceGamePackets.cs` : la fiche laisse le choix au
+  dev (§5.4) ; la famille HuntaHolic y est déjà, et chaque branche sœur y écrit **ses propres**
+  constantes et son propre `TryRead…` (`JoinInstance…` ici, `TryReadJoinInstance`), de sorte que la
+  fusion soit une **union** de membres et non un recouvrement.
+- **Enum : bloc inséré entre `TM_SC_RANKING_TOP_RECORD = 5001` et `TM_CS_REPORT = 8000`**, et non
+  dans la zone `4250-4253` : cette zone est revendiquée par les deux branches sœurs (`4000` insère
+  avant `TM_CS_INSTANCE_GAME_ENTER`, `4003` juste après `4253`). L'énumération est groupée par
+  famille et non triée par valeur (`TM_CS_RETURN_LOBBY = 23` siège déjà parmi les 3000) : l'écart de
+  numéro est assumé et commenté dans le fichier.
+- **Dispatch : bras placé après celui de `TM_CS_SUMMON`, à côté du bras isolé `TM_SC_REGION_ACK`**
+  (même motif que la fiche 304), plutôt qu'en fin de chaîne.
+- **Méthode `HandleHuntaholicJoinInstance` placée après `HandleSecurityNo`**, à l'écart des zones
+  d'insertion des branches sœurs. Journal en `Debug` **gardé par `IsEnabled`** (cinq propriétés).
+
+### 10.3 Vérifications refaites dans le conteneur du dev
+
+| Point | Résultat | Méthode |
+|---|---|---|
+| rzu : `X(4004, true)`, `_(simple)(int32_t, instance_no)`, `_(string)(password, 17)`, entrée **unique** | confirmé, à l'identique de §3.1 et §4 | lecture de `reference/rzu/librzu/src/packets/GameClient/TS_CS_HUNTAHOLIC_JOIN_INSTANCE.h` (dépôt rzu à `87c1e83`) |
+| NGemity : déclaration identique, **aucun handler** | confirmé : `shared/Server/Packets/GameClient/TS_CS_HUNTAHOLIC_JOIN_INSTANCE.h:10` (`CREATE_PACKET(..., 4004)`), `ClientPackets.h:237`, `XPacket.h:109` — et **aucune** autre occurrence du nom dans le dépôt (aucun `.cpp`) | `grep -rn "TS_CS_HUNTAHOLIC_JOIN_INSTANCE" reference/ngemity` (dépôt à `38ceb2c`) |
+| Empreintes des fichiers du client | **identiques** à celles épinglées en §8 : `SFrame.exe` `41e0af2e…00e` (9 841 664 o), `db_string.rdb` `4e8e3e06…9e1`, `db_huntaholicresource.rdb` `c66274ac…37b` | `sha256sum` |
+| Taille 28 écrite en dur par le constructeur client | **corroboré** (voir §10.3.1) | recherche d'octets dans `SFrame.exe` |
+
+#### 10.3.1 Correction d'octets sur `SFrame.exe` (et sa limite)
+
+Le conteneur du dev **n'a ni `objdump`, ni `readelf`, ni `llvm-objdump`, ni `python3`** : le
+désassemblage complet de la session de l'archéologue **n'a pas été refait ici**, et aucune ligne de
+désassemblage n'est revendiquée par cette section. Ce qui a été fait est une recherche d'octets,
+indépendante et reproductible :
+
+```bash
+cd /srv/navislamia/reference/client73
+grep -abo -P '\xb9\xa4\x0f\x00\x00' SFrame.exe   # b9 a4 0f 00 00 = mov ecx,0xfa4 (l'ID 4004)
+grep -abo -P '\x66\x89\x48\x04'     SFrame.exe   # 66 89 48 04    = mov word [eax+4],cx
+grep -abo -P '\xc7\x00\x1c\x00\x00\x00' SFrame.exe  # c7 00 1c 00 00 00 = mov dword [eax],0x1c
+```
+
+Résultat : `b9 a4 0f 00 00` apparaît **une seule fois** dans tout le binaire, à l'offset fichier
+`0xc85c1` ; `66 89 48 04` suit immédiatement à `0xc85c6` (+5) et `c7 00 1c 00 00 00` à `0xc85cc`
+(+11). Ces **écarts** (5 puis 11 octets) sont exactement ceux que §3.2 donne en adresses virtuelles
+(`0x4c91c1` → `0x4c91c6` → `0x4c91cc`, delta fichier→VA `0x400c00`), ce qui corrobore à la fois
+l'**unicité** du constructeur de 4004, l'**écriture de l'id** (`mov word [eax+4],cx` juste après le
+chargement de `0xfa4`) et la **longueur 28** écrite en dur. Ce n'est pas une preuve d'adresse : les
+offsets 7 et 11 restent établis par la fiche (§3.1, §3.2, trois preuves indépendantes) et par rzu.
+
+### 10.4 Tests (34 cas, `Tests/Game/HuntaholicJoinInstancePacketsTests.cs`)
+
+Couverture, dans l'ordre de §3.4 : `Length` = 28 et identité d'id (`0x0fa4`), en-tête (offsets
+0/4/6) avec checksum sur les six premiers octets seulement ; **position de chaque champ** figée par
+constantes (`7`, `11`, `4`, `17`, total `7 + 4 + 17 = 28`) ; `instance_no` lu **petit-boutiste** à 7
+(valeurs `0`, `1`, `-1`, `int.MinValue`, `int.MaxValue` et un motif `04 03 02 01` qui échouerait en
+gros-boutiste) et « ne lit pas un autre offset » ; mot de passe : 17 zéros → `PasswordLength = 0` /
+`HasPassword = false`, `"abc"` → 3, 16 caractères → 16, **champ sans NUL → refus** ; refus de
+**toutes** les longueurs ≠ 28 (`0`, `6`, `7`, `11`, `27`, `29`, `55`, `56`) ; surface du record
+(seuls `InstanceNo`, `PasswordLength`, `HasPassword`) ; et au niveau du dispatch : la trame est
+consommée sans exception, **sans aucune réponse**, sans avaler un keepalive coalescé, les trames
+malformées sont consommées proprement, et le **test de source** qui exige que le bras
+`TM_CS_HUNTAHOLIC_JOIN_INSTANCE` précède le `throw` du `switch` final.
+
+Résultats relevés sur cette branche (`016c0b1`, `c7f5216`), conteneur .NET 8, `NUGET_PACKAGES=/srv/navislamia/.nuget-cache` :
+
+- `dotnet build Navislamia.sln -c Debug` → **code 0**, 0 erreur ;
+- `dotnet test Tests/Tests.csproj` → **code 0**, **1336 réussis / 0 échec / 0 ignoré** (base `master` `b56967a` : 1302 ; plancher historique 366).
+
+### 10.5 Zones de recouvrement, mesurées (`git merge-tree --write-tree`, git 2.39.5)
+
+| Fusion | Conflit mesuré |
+|---|---|
+| cette branche ↔ `hermes/packet-4000-huntaholic-instance-list` (#59) | `add/add` sur `Game/Network/Packets/Game/GameHuntaholicPackets.cs` |
+| cette branche ↔ `hermes/packet-4003-huntaholic-create-instance` (#38) | `add/add` sur le même fichier **+** conflit de contenu sur `GameClient.cs` |
+| `master` (`b56967a`) ↔ #59 | **aucun** |
+| `master` (`b56967a`) ↔ #38 | conflit de contenu sur `GameClient.cs` **déjà présent sans cette branche** |
+
+Autrement dit : le conflit `GameClient.cs` de #38 est **antérieur** à ce lot (la branche #38 descend
+d'un `master` plus ancien) ; ce lot **n'ajoute qu'un seul conflit**, l'`add/add` sur le fichier de
+famille, résoluble par union des membres puisque les trois branches y écrivent des noms distincts.
+Le fichier `GameHuntaholicPackets.cs` **n'existe pas sur `master`** : la fusion est à faire par
+Killian, pas par le dev.
+
+### 10.6 Ce que ce lot ne fait pas (les points ouverts restent ouverts)
+
+Aucune réponse n'est émise : le seul instrument de refus identifié (`TM_SC_RESULT`, id **0** en 7.3,
+15 octets, `request_msg_id = 4004`, `result = 0x20`) est laissé à la décision de jeu (point 1 de
+« A VERIFIER »). `instance_no` n'est ni validé ni traduit (point 2), un mot de passe nul sur une
+salle protégée est **accepté** tel quel — indistinguable d'une salle publique, comme le client
+l'envoie (point 3) — et rien n'est créé, ni instance, ni session, ni ligne persistée (point 9). Les
+points 4 à 6 de « A VERIFIER PAR KILLIAN » ne sont pas concernés par le code.
+
+---
+
 ## A VERIFIER PAR KILLIAN
 
 1. **La réponse identifiée doit-elle être émise ?** Cette fiche identifie le seul instrument de refus
