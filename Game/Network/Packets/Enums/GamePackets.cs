@@ -223,6 +223,15 @@ public enum GamePackets : ushort
     // must not be declared here, and account(64)/result/security_no_1/_2 only exist from EPIC_9_6_7.
     TM_CS_SECURITY_NO = 9005,
 
+    // TM_CS_HUNTAHOLIC_LEAVE_INSTANCE (4005): 7 bytes, no payload, X(4005, true) in rzu so no version gating
+    // and no gated field. The 7.3 client sends it from its HuntaHolic instance window (control
+    // button_entrance_02) and from its scoreboard window, and never reads one back (its receive dispatcher
+    // routes 4005 to the "unhandled message" branch), so there is no answer to write. It is declared in this
+    // slot rather than next to the other socle ids so that the insertion point stays out of the region the
+    // sibling HuntaHolic branches already claim; the enum is grouped by family, not sorted by value.
+    // See docs/packet-specs/4005-huntaholic-leave-instance.md.
+    TM_CS_HUNTAHOLIC_LEAVE_INSTANCE = 4005,
+
     TM_SC_COMMERCIAL_STORAGE_INFO = 10003,
     TM_SC_COMMERCIAL_STORAGE_LIST = 10004,
     TM_CS_TAKEOUT_COMMERCIAL_ITEM = 10005,
