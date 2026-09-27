@@ -103,7 +103,7 @@ Les longueurs ci-dessus recoupent indépendamment `CLAUDE.md:1967-1968` (11 / 56
 qui valide l'attribution des constructeurs, et confirme que la famille client → serveur n'a que
 cinq producteurs en 7.3, aucun n'étant `4008`.
 
-### 2.2 bis Relevé exhaustif des trames « en-tête seul » du client — `4008` n'y est pas
+### 2.2 bis Relevé des trames « en-tête seul » à id immédiat — `4008` n'y est pas
 
 Toutes les trames client → serveur sans charge utile s'écrivent dans le client avec le même idiome :
 `mov <reg>,<id>` puis `mov WORD PTR [ebp-0xM],<reg16>` (id, offsets 4-5) et
