@@ -589,8 +589,11 @@ PO sont rectifiées.
 Section ajoutée par `navis-dev` ; l'analyse de l'archéologue (§1 à §13) est laissée intacte, à
 l'exception du renvoi d'une phrase ajouté en fin de §8. Branche
 `hermes/packet-1304-auction-bidded-list`, créée par `navis-ref` depuis `origin/master`
-(`b56967a07430422add88e0e5cdf292b41b18f6c6`) : fiche `9d37e87`, code `287e570` (4 fichiers,
-+430 lignes : 3 fichiers de code et 1 fichier de tests).
+(`b56967a07430422add88e0e5cdf292b41b18f6c6`). Commits du lot : `9d37e87` (fiche de l'archéologue),
+`287e570` (code et tests : 4 fichiers, +430 lignes), `bd5bb34` puis `fd9e518` (fiche §14, puis
+recalcul des mesures de fusion, réserves du dev et mise en cohérence du commentaire `TM_CS_SUMMON`) ;
+`fd9e518` porte donc un fichier de code à côté de la fiche, le commentaire et sa documentation ayant
+été écrits dans le même geste. Aucun commit n'est signé sur `master`.
 
 **Règle tenue par le code : lire les onze octets, écho de `page_num`, réponse 1305 vide de 3899
 octets, aucune requête sur `AuctionEntity`, aucune politique inventée.**
