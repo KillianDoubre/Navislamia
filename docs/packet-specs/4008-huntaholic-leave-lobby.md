@@ -564,8 +564,58 @@ de ce fichier) : il le colle dans la description de la MR, comme l'exige le crit
 * **Balayage des trames en-tête seul du client 7.3** : sept sites à id immédiat — 23, 27, 1100,
   4005, 4011, 6000, 6008 — plus un second idiome (tampon en registre) de douze sites dont les ids
   n'ont pas été relevés. Aucun ne peut porter `4008` : l'immédiat `0xfa8` est absent du `.text`.
+* **Le verrou est un test, pas une déclaration** : `Tests/Game/ReceiveGuardTests.cs` tient les deux
+  bouts du contrat — `Enum.IsDefined(typeof(GamePackets), (ushort)4008)` **faux**, et la trame de
+  7 octets absorbée sans réponse (`connection.Sent` vide) sans lever. Ajouter `4008` à
+  `GamePackets` sans lui donner de bras fait échouer trois de ces tests d'un coup
+  (`Exception: Unknown Packet Type 4008`) : déclarer et router vont par paire.
 * Fiche : `docs/packet-specs/4008-huntaholic-leave-lobby.md`.
 ```
+
+## 11. Exécution du lot `navis-dev` (navis-dev, 27/09/2026)
+
+Branche `hermes/packet-4008-huntaholic-leave-lobby`, base `master` = `b56967a`. Aucun fichier de
+production n'a été touché : `git diff --stat b56967a..HEAD` ne contient que cette fiche et
+`Tests/Game/ReceiveGuardTests.cs`. L'énum `GamePackets`, `GameClient.cs` et
+`GameHuntaholicPackets.cs` sont inchangés (`grep -rn 4008` sur le code de production : aucun site).
+
+Contrat du §5.3 exécuté :
+
+| Point | État |
+| --- | --- |
+| 1. aucune modification de code de production | fait — seuls la fiche et le fichier de tests bougent |
+| 2. verrou de non-régression dans `Tests/Game/ReceiveGuardTests.cs` | fait — 4 tests, voir ci-dessous |
+| 3. build/test | `dotnet build Navislamia.sln -c Debug` → code 0, 0 erreur ; `dotnet test Tests/Tests.csproj` → code 0, **1306** tests passés (base de branche : 1302), 0 échec |
+| 4. `CLAUDE.md` | non écrit (interdit au dev) : le bloc du §10 part dans la description de la MR |
+| 5. fichiers du lot `4005` | non touchés |
+| 6. divergence de cadrage (paires déclarer/router) | résolue dans le sens du §5.2 : rien n'est déclaré, donc rien n'est routé. Le point 4 du critère de la carte n'est pas satisfait à la lettre, et c'est l'arbitrage du §5.3.6 / `A VERIFIER` point 1 qui s'applique |
+
+Les quatre tests ajoutés (`HuntaHolicLeaveLobby_*`) :
+
+* `…IsDeliberatelyAbsentFromThePacketEnum` — `Enum.IsDefined(typeof(GamePackets), (ushort)4008)`
+  est faux (précédents `SummonCardSkillListPacketsTests.cs:62`, `SummonPacketsTests.cs:66-70`) ;
+* `…FrameIsSevenBytesOfHeaderAndNoPayload` — **test d'offsets**, écrit sur des octets littéraux
+  (`{0x07,0x00,0x00,0x00,0xa8,0x0f,<checksum>}`) et non relu depuis un constructeur :
+  total **7 octets**, `Length` offsets 0-3 LE = 7 (et non 7 en gros-boutiste), `ID` offsets 4-5 LE =
+  `0x0FA8` = 4008, `msg_checksum` offset 6, `Marshal.SizeOf<Header>()` = 7, aucun octet de charge
+  utile (longueur déclarée = octets portés), et les mêmes octets relus par le `Header` de production
+  donnent les mêmes champs ;
+* `…FrameIsConsumedWithoutAnAnswerAndWithoutThrowing` — la boucle de réception ne lève pas, `Sent`
+  reste vide (aucune réponse), la trame est consommée (`BytesAvailable == 0`, pas de re-framing) ;
+* `…FrameDeclaringAnotherLengthThanSevenIsStillSurvived` — §5.4 : une trame déclarant 8 octets est
+  absorbée par le garde `DefinedPackets` (consommée, sans réponse) ; une trame déclarant 6 octets est
+  refusée par la validation générale d'en-tête, sans lever.
+
+**Preuve de morsure (mutation).** L'id a été temporairement ajouté à `GamePackets`
+(`TM_CS_HUNTAHOLIC_LEAVE_LOBBY = 4008`) sans bras de dispatch : **3 des 4 tests échouent**, dont
+`Exception: Unknown Packet Type 4008` sur les deux tests qui pilotent `OnDataReceived` — exactement
+le mécanisme du critère transversal 4. La mutation a été annulée (`git checkout --` du fichier
+d'énum), l'arbre est propre, et les 1306 tests repassent. Le quatrième test (offsets seuls, sans
+client) reste vert sous mutation : il verrouille la taille et les positions, pas la déclaration.
+
+L'état de départ et d'arrivée sont mesurés, pas supposés : `1302` tests passés avant l'ajout
+(mesuré sur la branche à `b56967a` + fiche), `1306` après. Aucune vérification client, aucun serveur
+démarré, aucun script du client lancé.
 
 ## A VERIFIER PAR KILLIAN
 
@@ -574,7 +624,9 @@ de ce fichier) : il le colle dans la description de la MR, comme l'exige le crit
    non-régression, pas une implémentation** : si le principe « un paquet que le client 7.3 ne peut
    ni émettre ni recevoir ne mérite pas de membre d'énum » ne te convient pas, le lot doit au
    contraire déclarer `TM_CS_HUNTAHOLIC_LEAVE_LOBBY = 4008` **et** router l'id (journal `Debug`,
-   aucune réponse) pour rester dans la règle du `CLAUDE.md:2224-2227`.
+   router l'id (journal `Debug`, aucune réponse) pour rester dans la règle du `CLAUDE.md:2224-2227`.
+   **Exécuté depuis** : le lot `navis-dev` a suivi le premier terme (aucune déclaration, un verrou de
+   non-régression) — relevé en §11, avec la preuve de morsure.
 2. **Point d'arbitrage (a)** — §7(a) : le geste « retour au lobby » du client 7.3 est **établi** (commande
    locale `returnlobby` → `TM_CS_RETURN_LOBBY (23)`, §2.5), et `23` est déjà déclaré et routé côté
    NavisLamia. Reste à trancher, et seulement si tu le juges utile : quel contrôle de
