@@ -704,11 +704,76 @@ fiche du lot 1 §10.3.
   **ni coût, ni plafond, ni acquittement**. `Confirmed`/`ConfirmedTime` sont lues, jamais écrites.
 - Le producteur est **hors code** : la boutique d'objets est un service web externe (URL
   `http://itemshop.rappelz.com/login.aspx` dans le binaire client ; la 10001 transporte
-  `client_id`/`account_id`/`one_time_password`). Sans boutique ni outil d'administration, le
-  conteneur est vide et la paire émise est celle du lot 1 (11 o à 0/0, puis 9 o).
+  `client_id`/`account_id`/`one_time_password`). Sans boutique ni outil d'administration, la table
+  `PaidItems` reste vide : la paire émise est alors celle du lot 1 (11 o à 0/0, puis 9 o), mais elle
+  est désormais **lue** en base à chaque entrée en jeu, plus constante.
+- La table `PaidItems` et sa migration `Version0010_PaidItems` font partie de la livraison : sans
+  elle, chaque entrée en jeu échoue sur la lecture du conteneur.
+- Ne **jamais** tenir `CharacterGate` autour de l'appel à `ICharacterService.AddItemAsync` pendant un
+  retrait : le gate n'est pas réentrant (`Game/Services/CharacterGate.cs:26-40`) et `AddItemAsync`
+  prend la même clé (`Game/Services/CharacterService.cs:554-561`) — le retrait se bloquerait pour
+  toujours. C'est la raison de la fenêtre d'atomicité de la réserve 7h (fiche §11, écart 1).
 - Les fiches du savoir durable sont `docs/packet-specs/socle-stockage-commercial.md` (protocole) et
   `docs/packet-specs/socle-stockage-commercial-conteneur.md` (conteneur, propriété, retrait).
 ```
+
+## 11. Implémentation — état du lot 2
+
+Livré sur la branche `hermes/packet-socle-stockage-commercial-conteneur` (branche créée par
+l'archéologue, base `master` `b56967a`), en cinq commits :
+
+| Commit | Contenu |
+|---|---|
+| `d75dc03` | `PaidItemEntity`, `DbSet` + index, migration `20260927132211_Version0010_PaidItems` (additive : l'instantané ne fait que des ajouts, 75 lignes, 0 suppression) |
+| `bb3fd4b` | `CommercialStorageRules`, `CommercialTakeoutResult`, `IPaidItemRepository`/`PaidItemRepository`, `ICommercialStorageService`/`CommercialStorageService` |
+| `58f4167` | câblage : `NetworkService`, `DevConsole/Program.cs`, `GameActions`, `GameClient`, `StorageTestHarness` |
+| `92da8d3` | tests des règles et du conteneur |
+| `6b00ff4` | verrou de l'`uid` (§5.2.2), SQL du prédicat de propriété, bras 10005 |
+
+**Preuves** (conteneur de dev, aucun service démarré) : `dotnet build Navislamia.sln -c Debug` → **0
+erreur** (164 avertissements, tous préexistants) ; `dotnet test Tests/Tests.csproj` → **1363 réussis,
+0 échec**. Départ mesuré sur la branche avant le lot : **1302** (§5.9). **61 tests ajoutés**, dans
+`Tests/Game/CommercialStorageRulesTests.cs`, `Tests/Game/CommercialStorageContainerTests.cs`,
+`Tests/DataAccess/TelecasterPaidItemModelTests.cs` et `Tests/DataAccess/PaidItemRepositoryQueryTests.cs`.
+
+**Écarts avec le plan de la fiche — à connaître avant de relire :**
+
+1. **Le gate ne tient pas une section unique de (2) à (6) (§5.6).** `CharacterGate` est un
+   `SemaphoreSlim(1, 1)` **non réentrant** (`Game/Services/CharacterGate.cs:26-40`) et
+   `ICharacterService.AddItemAsync` prend **la même clé** (`Game/Services/CharacterService.cs:554-561`
+   appelée par `:408-434`) : tenir le gate de la résolution à la consommation et appeler `AddItemAsync`
+   dedans **bloque pour toujours** (le bras 10005 est en tâche de fond, donc le blocage serait un
+   retrait qui ne se termine jamais, pas une boucle de réception arrêtée). Chaque étape passe donc par
+   le gate séparément — **la même clé**, l'idiome de `StorageService` — ce qui sérialise bien les
+   écritures en base, mais laisse ouverte la fenêtre entre (5) et (6). Conséquence : deux 10005
+   concurrentes du même personnage peuvent encore livrer deux fois ; c'est exactement l'atomicité
+   assumée de la réserve **7h** (§6, item 6 ci-dessous). La fiche ne peut pas être tenue plus loin sans
+   toucher `CharacterGate` (réentrance) ou déplacer la remise au sac sous le même verrou, l'un et
+   l'autre **hors périmètre** de ce lot.
+2. **`CommercialStorageRules` porte trois membres publics de plus que la liste du §5.3** :
+   `IsAddressable` et `IsRenderable` (les deux refus que la fiche veut journaliser, réutilisés par le
+   service) et `EmittedRows` — parce que `total_item_count` doit compter les lignes **émises** (§5.3) et
+   que les deux trames doivent rester cohérentes. `BuildEntries` choisit exactement les lignes
+   `EmittedRows` sélectionne : un test le verrouille.
+3. **`PaidItemRepository.VisibleRows` est `public`** et non privé : c'est la seule façon d'exercer
+   réellement le prédicat de propriété (§5.2.3) dans un conteneur sans PostgreSQL, en lisant le SQL
+   produit (`ToQueryString`). Le test vérifie les quatre conditions et l'absence de troncature de
+   l'`Id`.
+4. **Un second appelant positionnel de `NetworkService` existait, absent du §5.8** :
+   `Tests/Game/ResurrectionPacketTests.cs:602-630`. Il a reçu le même
+   `A.Fake<ICommercialStorageService>()` en fin de liste.
+
+**Ce que les tests ne prouvent pas** (à dire tel quel en relecture) :
+
+- `ConsumeAsync` **n'est pas exécuté contre une base** : aucun moteur n'est disponible ici (pas de
+  SQLite/InMemory dans `Tests/Tests.csproj`, pas de PostgreSQL dans le conteneur de dev, et il est
+  interdit d'en démarrer un). La décrémentation de `RestItemCount` et l'écriture de
+  `TakenAccountId`/`TakenCharacterId`/`TakenCharacterName`/`TakenTime`
+  (`Game/DataAccess/Repositories/PaidItemRepository.cs:57-89`) sont donc prouvées **par lecture**, pas
+  par exécution ; tout ce qui l'entoure est testé. À confirmer au premier démarrage réel (item 9
+  ci-dessous).
+- La paire émise est mesurée **au plafond** (65 535 lignes, 655 359 octets) et sur deux lignes, mais
+  jamais sur une base réelle : le conteneur reste vide tant que le producteur (§5.10) est hors code.
 
 ## A VERIFIER PAR KILLIAN
 
@@ -726,3 +791,12 @@ fiche du lot 1 §10.3.
 7. **Producteur (§5.10, §7k)** : boutique externe = préalable d'infrastructure ; l'outil
    d'administration (`/paiditem`) n'est **pas** dans ce lot et reste une décision produit.
 8. **10002 (§7n)** : rzu (zéro champ) et le client (branche de réception) se contredisent ; hors lot.
+9. **`ConsumeAsync` non exécuté contre une base (§11)** : la décrémentation de `RestItemCount` et
+   l'écriture des colonnes `taken_*` ne sont pas exercées par les tests — aucun moteur n'est
+   disponible dans le conteneur de dev (pas de PostgreSQL, pas de SQLite/InMemory dans
+   `Tests/Tests.csproj`), et il est interdit d'en démarrer un. À confirmer au premier démarrage réel.
+10. **Gate du retrait (§5.6, §11 écart 1)** : la fenêtre entre la remise au sac (5) et la
+   consommation (6) reste ouverte — `CharacterGate` n'est pas réentrant et `AddItemAsync` de
+   `ICharacterService` prend la même clé, donc le tenir d'un bout à l'autre du retrait le bloquerait.
+   Même conséquence que la réserve **7h** (item 6) ; à fermer plus tard par une réentrance du gate ou
+   un verrou de service, hors périmètre de ce lot.

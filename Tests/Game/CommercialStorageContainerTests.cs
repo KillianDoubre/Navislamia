@@ -224,6 +224,26 @@ public class CommercialStorageContainerTests
     }
 
     [Test]
+    public async Task Send_CapsTheListAtTheTopOfItsCountField()
+    {
+        var harness = Build();
+        A.CallTo(() => harness.Repository.GetVisibleAsync(Character)).Returns(Task.FromResult(
+            Enumerable.Range(1, CommercialStorageRules.MaxEntries + 10)
+                .Select(index => Row(id: index))
+                .ToArray()));
+
+        await harness.Service.SendContainerAsync(harness.Client);
+
+        var list = harness.Connection.Sent[1];
+        list.Length.Should().Be(9 + (10 * CommercialStorageRules.MaxEntries));
+        CountOf(list).Should().Be((ushort)CommercialStorageRules.MaxEntries);
+        CountOf(harness.Connection.Sent[0]).Should().Be((ushort)CommercialStorageRules.MaxEntries,
+            "the counters still describe the lines actually sent");
+        UidOfLine(list, CommercialStorageRules.MaxEntries - 1)
+            .Should().Be((uint)CommercialStorageRules.MaxEntries);
+    }
+
+    [Test]
     public async Task Send_PushesNothingWhenNoCharacterIsInSession()
     {
         var harness = Build(characterName: string.Empty);
