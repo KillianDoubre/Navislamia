@@ -547,8 +547,8 @@ de ce fichier) : il le colle dans la description de la MR, comme l'exige le crit
   `.text`, en `0x67902f`, comme déplacement de pile `[ebp-0xfa8]` — pas comme id. Les cinq
   constructeurs client → serveur de la famille portent 4000, 4003, 4004, 4005, 4011.
 * **Le client 7.3 ne reçoit pas non plus 4008** : la table du répartiteur entrant (`0x67f580`,
-  base 4002, 252 entrées — ids 4002 à 4253) envoie 4008 à la branche « message non traité » (`0x67ef21`) ; seuls
-  4002, 4006, 4007, 4009, 4010, 4012 et 4253 y ont un bras.
+  base 4002, 252 entrées — ids 4002 à 4253) envoie 4008 à la branche « message non traité »
+  (`0x67ef21`) ; seuls 4002, 4006, 4007, 4009, 4010, 4012 et 4253 y ont un bras.
 * **Le client ne nomme même pas l'id** : sa table id → nom (173 entrées `TM_*`) ne contient aucune
   chaîne `TM_CS/SC_HUNTAHOLIC_*`. Indice corroborant, pas preuve.
 * **Décision : 4008 reste absent de `GamePackets`**, sans bras, sans handler, sans réponse — même
