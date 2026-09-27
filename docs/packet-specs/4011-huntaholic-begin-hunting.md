@@ -307,6 +307,21 @@ S5 (suite) et S6 du socle et ne font pas partie de ce paquet.
    4000-4012. L'énumération n'est pas triée par valeur, elle est groupée par famille. La branche
    sœur `-4008-huntaholic-leave-lobby` ne touche ni `GamePackets.cs` ni `GameClient.cs` (livrée sans
    code, cf. §5.6).
+
+   **Correction du 27/09/2026 (lot `navis-dev` 4011), mesurée et non supposée.** L'emplacement
+   indiqué ici (« après `TM_CS_SECURITY_NO = 9005`, comme l'a fait la branche 4005 ») **n'est pas
+   libre** : c'est exactement la ligne d'insertion de `-4005`, qui y place son membre entre le bloc
+   9005 et `TM_SC_COMMERCIAL_STORAGE_INFO = 10003`. S'y ajouter reproduit le conflit que la phrase
+   voulait éviter. Mesure faite sur `git merge-tree --write-tree --name-only` (branche 4011,
+   commit `71e513b`) : les quatre branches sœurs insèrent respectivement après
+   `TM_CS_CHECK_CHARACTER_NAME = 2006` (4000), `TM_SC_INSTANCE_GAME_SCORE_REQUEST = 4253` (4003),
+   `TM_SC_RANKING_TOP_RECORD = 5001` (4004) et `TM_CS_SECURITY_NO = 9005` (4005) ; les plages
+   voisines sont donc toutes revendiquées. Le membre 4011 a été placé **après `TM_CS_REQUEST = 60`**
+   (à côté des autres singletons 50-60), hors de la fenêtre de contexte de tous les relevés
+   ci-dessus : `git merge-tree` contre 4000/4003/4004/4005/4008 montre `GamePackets.cs`
+   **auto-fusionné sans conflit** dans les cinq cas. L'intention de la consigne — rester hors de la
+   zone des branches sœurs — est tenue ; la lettre (« après 9005 ») ne pouvait pas l'être.
+
 2. **`Game/Network/Packets/Game/GameHuntaholicPackets.cs`** — **fichier créé par les mêmes quatre
    branches sœurs** (`git diff --stat master...hermes/packet-4005-huntaholic-leave-instance`), avec
    la classe
@@ -548,6 +563,99 @@ implémentation :
   fusion attendu, à traiter par ajout minimal, jamais par réécriture de la classe.
 ```
 
+## 11. Implémentation livrée (`navis-dev`, 27/09/2026)
+
+Ajoutée par le lot, après implémentation : la fiche reste la référence du paquet, cette section
+n'ajoute que ce que le lot a mesuré.
+
+### 11.1 Surface livrée
+
+| Fichier | Ce qui y a été ajouté |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_HUNTAHOLIC_BEGIN_HUNTING = 4011`, **après `TM_CS_REQUEST = 60`** (déviation assumée de §5.4 point 1, corrigée et mesurée ci-dessus) |
+| `Game/Network/Packets/Game/GameHuntaholicPackets.cs` | fichier **créé de zéro** par ce lot (aucune branche sœur n'était fusionnée sur sa base) : classe `public static class GameHuntaholicPackets`, `private const int HeaderSize = 7`, `public const int BeginHuntingLength = HeaderSize`, `public static bool IsBeginHunting(ReadOnlySpan<byte>)` — longueur **exacte** seulement, aucun `out`, aucun type de requête |
+| `Game/Network/Clients/GameClient.cs` | méthode `HandleHuntaholicBeginHunting(byte[])` (`Warning` si longueur ≠ 7, sinon `Debug`, **rien n'est émis**) et branche `if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_BEGIN_HUNTING)` dans la chaîne de `OnDataReceived`, **avant le `switch` final** |
+| `Tests/Game/HuntaholicBeginHuntingPacketsTests.cs` | 28 cas (offsets, unicité de l'id, refus de longueur, boucle de réception, garde d'énumération) |
+
+Commit du code : `71e513b` (`feat(packet): read and bound TM_CS_HUNTAHOLIC_BEGIN_HUNTING (4011)`).
+
+**Emplacements, et pourquoi ceux-là.** Le contrat §5.4 visait « avant le `switch` final » ; ce créneau
+est celui de `-4005` (et de `-800`/`-801`, `-socle-ferme-creatures`). La branche de 4011 a donc été
+placée **juste après le bras `TM_CS_GET_REGION_INFO`**, avant le commentaire du bras
+`TM_SC_REGION_ACK` — zone qu'aucune branche sœur ne revendique. La méthode de traitement est placée
+**entre `HandleRemoveState` et `HandleLearnSkillAsync`**, pour la même raison. Le fichier de la
+famille (`GameHuntaholicPackets.cs`) est en revanche **en add/add avec les quatre branches sœurs** :
+c'est le hotspot annoncé dans la fiche, il est signalé sur la carte du lot et sur celle du QA.
+
+### 11.2 Mesures de la base et après implémentation
+
+```
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug   # base : code 0 (0 erreur) ; après : code 0 (0 erreur)
+dotnet test  Tests/Tests.csproj        # base : code 0, 1302 réussis, 0 échec, 0 ignoré
+                                       # après : code 0, 1330 réussis, 0 échec, 0 ignoré (+28)
+```
+
+Les 28 cas ajoutés couvrent : taille totale 7 et position de **chaque** champ (`Length` offset 0
+`uint32` LE = 7, `ID` offset 4 `uint16` LE = `0x0FAB`, `Checksum` offset 6 = somme des octets 0-5,
+valeur `0xC1` pour la trame réelle) ; la lecture gros-boutiste du même tableau d'octets assertée
+`NotBe` (0x07000000 et 0xAB0F) ; `Marshal.SizeOf<Header>() == 7` et
+`BeginHuntingLength == Marshal.SizeOf<Header>()` (**aucun champ hors en-tête**) ; le refus de 0, 1, 6,
+8, 9, 11, 15, 28, 48 et 55 octets ; l'unicité de la valeur `4011` et son unicité de nom ; le fait que
+`IsBeginHunting` n'a **aucun paramètre `out`** (par réflexion) ; la traversée de la boucle de
+réception sans exception, sans octet laissé dans le flux, sans réponse émise, et sans désynchroniser
+une trame coalescée derrière ; et un garde sur la chaîne de dispatch (`header.ID == ... 4011` doit
+apparaître **avant** le `throw new Exception("Unknown Packet Type ...")`), seul contrôle possible de
+l'invariant « énumération et dispatch ensemble » sans socket vivant.
+
+### 11.3 Preuves par mutation (un test qui ne peut pas échouer ne prouve rien)
+
+| Mutation | Commande | Résultat |
+|---|---|---|
+| bras de dispatch rendu inatteignable (`TM_CS_HUNTAHOLIC_BEGIN_HUNTING` → `TM_NONE` dans la condition) | `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~HuntaholicBeginHuntingPacketsTests"` | code de sortie 1, **7 échecs sur 28**, dont 6 en `Unknown Packet Type 4011` (`OnDataReceived_ConsumesThePacketWithoutThrowing`, `_AnswersNothing`, `_KeepsTheLoopOnAFrameCoalescedWithAnotherOne`, `_ConsumesAPaddedFrame`, `_ConsumesAFrameWithOneExtraByte`, `_ConsumesAHuntStartAnswerSizedFrame`) et `Packet_IsDispatchedBeforeTheUnknownPacketThrow` |
+| lecteur rendu non strict (`packet.Length == BeginHuntingLength` → `>=`) | idem | code de sortie 1, **7 échecs sur 28** (les sept longueurs > 7 : 8, 9, 11, 15, 28, 48, 55) |
+
+Après chaque mutation le fichier a été restauré (`git checkout --`), et `git status --porcelain` est
+revenu **vide** sur `71e513b`.
+
+### 11.4 Conflits de fusion mesurés (`git merge-tree --write-tree --name-only <sœur> 71e513b`)
+
+| Branche sœur | Fichiers en conflit | Lecture |
+|---|---|---|
+| `-4000-huntaholic-instance-list` | `GameHuntaholicPackets.cs` (add/add) | `GamePackets.cs` et `GameClient.cs` **auto-fusionnés** |
+| `-4003-huntaholic-create-instance` | `GameClient.cs` (contenu), `GameHuntaholicPackets.cs` (add/add) | le conflit `GameClient.cs` est **antérieur** à ce lot : `git merge-tree` entre `-4003` et `-4000`/`-4004`/`-4005` (sans 4011) produit déjà ce conflit ; la zone conflictuelle (`HandleSecurityNo` et ses environs) ne contient **aucune** ligne de 4011 |
+| `-4004-huntaholic-join-instance` | `GameHuntaholicPackets.cs` (add/add) | `GamePackets.cs` et `GameClient.cs` auto-fusionnés |
+| `-4005-huntaholic-leave-instance` | `GameHuntaholicPackets.cs` (add/add) | idem |
+| `-4008-huntaholic-leave-lobby` | **aucun** (code de sortie 0) | cohérent avec §5.6 : 4008 est livré sans code |
+
+Autrement dit : le seul conflit imputable à ce lot est l'add/add sur le fichier de la famille, qui
+disparaît si les lots HuntaHolic fusionnent **en une seule fois** (ou si le premier fusionné devient
+la base des suivants).
+
+### 11.5 Réserves et limites assumées du lot
+
+* **Aucun contrôle de contexte** : le serveur n'a ni lobby, ni instance, ni minuteur HuntaHolic, donc
+  il ne peut pas savoir si l'émetteur est dans une instance. Le code l'écrit comme une réserve
+  (`<para>` de `HandleHuntaholicBeginHunting`) et **ne fabrique aucun refus** (§7c).
+* **Checksum non vérifié** dans le lecteur du paquet (écart de dépôt pour toute la famille, §3) ; la
+  boucle de réception, elle, le vérifie avant tout dispatch — c'est mesuré par
+  `OnDataReceived_StopsOnAFrameWithABadChecksum` (la trame fautive n'est pas consommée).
+* **Rien n'est émis, aucun état n'est modifié** : ni `4012`, ni `4009`, ni `4006`, ni `4007`, ni
+  `4010`, ni accusé, ni table de ressource, ni migration (§5.4 point 5). Le déroulé reste `NON
+  ÉTABLI` (§7b).
+* **Longueurs < 7** : le prédicat les refuse (cas de test 0, 1, 6) mais la boucle de réception ne
+  peut pas en assembler une (l'en-tête fait 7 octets) ; seules les longueurs > 7 sont donc jouées de
+  bout en bout dans les cas `OnDataReceived_*`.
+
+### 11.6 Constat hors lot, mesuré au passage
+
+L'invariant « aucun membre de `GamePackets` n'atteint le `throw` final » a été relevé sur les 140
+membres de l'énumération : 138 sont référencés par la surface de dispatch (`GameClient.cs` ou une
+classe de `Game/Network/Packets/`), **2 ne le sont pas** — `TM_SC_CHAT_RESULT = 24` et
+`TM_SC_ITEM_COOL_TIME = 217`. Les deux sont **antérieurs à ce lot** (présents et non référencés sur
+`master` avant `71e513b`), ne sont pas touchés par 4011, et sont des ids serveur → client que le
+client 7.3 n'émet pas. Relevé pour Killian (§A VERIFIER).
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Le lot 4011 reste-t-il sans effet de jeu ?** La reconnaissance et la validation de longueur
@@ -558,3 +666,18 @@ implémentation :
    journalisé comme inconnu par le client.
 3. **Contrôle de contexte** : faut-il refuser un `4011` hors instance HuntaHolic ? Aucun état
    HuntaHolic n'existe côté serveur et `Chihiro` ne tranche pas (§7c).
+
+*(Ajouts du lot `navis-dev` 4011, `71e513b`.)*
+
+4. **Emplacement du membre d'énumération.** Le lot a placé `TM_CS_HUNTAHOLIC_BEGIN_HUNTING = 4011`
+   **après `TM_CS_REQUEST = 60`** au lieu de l'emplacement demandé par §5.4 point 1 (après
+   `TM_CS_SECURITY_NO = 9005`), parce que ce dernier est exactement la ligne d'insertion de la
+   branche sœur `-4005` (mesure `git merge-tree` en §5.4 et §11.4 : `GamePackets.cs` s'auto-fusionne
+   sans conflit contre les cinq branches sœurs avec ce placement). Confirmer que ce placement
+   convient, ou merger les lots HuntaHolic **en une seule fois** pour éviter tout conflit d'énum.
+5. **Deux membres déclarés sans bras de dispatch** (constat mesuré hors lot, §11.6) :
+   `TM_SC_CHAT_RESULT = 24` et `TM_SC_ITEM_COOL_TIME = 217` ne sont référencés nulle part dans la
+   surface de dispatch et atteindraient donc le `throw` final de `OnDataReceived`. Ils sont
+   antérieurs à ce lot et ne le concernent pas : faut-il ouvrir un lot de garde (bras « paquet
+   serveur → client reçu » comme celui de `TM_SC_REGION_ACK`), ou sont-ils inatteignables parce que
+   le client 7.3 ne les émet jamais ?
