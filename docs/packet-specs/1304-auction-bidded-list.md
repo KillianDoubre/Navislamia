@@ -612,7 +612,7 @@ octets, aucune requête sur `AuctionEntity`, aucune politique inventée.**
 
 | Fichier | Modification |
 |---|---|
-| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_AUCTION_BIDDED_LIST = 1304` (`:158-166`) : la trame, l'émetteur client (constructeur-et-émetteur `0x48DDA0`, appelant unique `0x49E387`), le rappel que 1302/1305 sont autres et que `304` reste l'invocation |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_AUCTION_BIDDED_LIST = 1304` (`:157-166`) : la trame, l'émetteur client (constructeur-et-émetteur `0x48DDA0`, appelant unique `0x49E387`), le rappel que 1302/1305 sont autres et que `304` reste l'invocation. Le commentaire de `TM_CS_SUMMON` (`:74-78`) est rendu **cohérent** : il ne dit plus « 1304 … still to implement » mais renvoie à la déclaration faite sous ce nom dans la bande 13xx (exigence 1 du corps de tâche) ; `Tests/Game/SummonPacketsTests.cs:68-70` admet déjà les deux états (`name1304 is null || == "TM_CS_AUCTION_BIDDED_LIST"`) et n'a donc pas été touché |
 | `Game/Network/Packets/Game/GameAuctionPackets.cs` | `BiddedListRequestPageNumOffset` (`:191`), `BiddedListRequestSize` (`:197`), `TryReadAuctionBiddedList` (`:213-222`) |
 | `Game/Network/Clients/GameClient.cs` | `HandleAuctionBiddedList(byte[])` (`:412-441`) et son bras de dispatch (`:1461-1475`) |
 | `Tests/Game/AuctionBiddedListPacketsTests.cs` | 16 tests (nouveau, 324 lignes) |
@@ -677,12 +677,14 @@ git merge-tree --write-tree origin/hermes/packet-1302-auction-selling-list HEAD 
 # fusion des deux sœurs, puis de ce lot dans le résultat :
 git merge-tree --write-tree origin/hermes/packet-1300-auction-search origin/hermes/packet-1302-auction-selling-list
   → arbre 3c3aab6a6be538ead3d720ec337694241adfec73, code 0
-git commit-tree 3c3aab6a… -p <1302> -p <1300> -m tmp  → cf328d61c6ea6346507b8e509fd7b18b2e799885
-git merge-tree --write-tree --messages cf328d61 HEAD → code 0, seul message d'auto-fusion :
+git commit-tree 3c3aab6a… -p <1302> -p <1300> -m tmp  → 301116059ce03a8f0185d6d43b07477ec5332424
+git merge-tree --write-tree --messages 30111605 HEAD → code 0, seul message d'auto-fusion :
   Auto-merging Game/Network/Clients/GameClient.cs, GamePackets.cs, GameAuctionPackets.cs
 ```
 
-Dans l'arbre fusionné (`d926ac475bbc04b6692c65a5a4a5760e5711d786`), les trois apports coexistent :
+Dans l'arbre fusionné (`6e9f03e99337f5b9845288274be48a7c6c38b2ca`, recalculé après la correction de
+commentaire de §14.2 ; la mesure d'exécution ci-dessous a été refaite sur ce même arbre), les trois
+apports coexistent :
 l'énumération s'ordonne `1300, 1301, 1302, 1303, 1304, 1305` ; les trois lecteurs
 (`TryReadAuctionSearch`, `TryReadAuctionSellingList`, `TryReadAuctionBiddedList`) vivent dans le même
 `GameAuctionPackets.cs` ; les trois bras (`HandleAuctionSearch` en `:1992`, `HandleAuctionSellingList`
@@ -697,10 +699,10 @@ du `switch`), la méthode privée est posée après `HandleCheckIllegalUser` (la
 `AuctionSellingListPacketsTests.cs`.
 
 **Réserve mesurée, et non textuelle : deux assertions des branches sœurs deviennent fausses.** Sur
-l'arbre fusionné exporté (`git archive d926ac47 | tar -x`), `dotnet build` → **0 erreur** (après copie
-de `DevConsole/appsettings.json`, non suivi par Git : artefact de l'export, voir §14.8) et
-`dotnet test Tests/Tests.csproj` → **1349 réussis / 2 échoués / 1351** ; les deux échoués portent le
-**même nom** et sont les deux sœurs :
+l'arbre fusionné exporté (`git archive 6e9f03e9 | tar -x` dans `/tmp/merged-1304-c`), `dotnet build` → **0
+erreur** (après copie de `DevConsole/appsettings.json`, non suivi par Git : artefact de l'export, voir
+§14.8) et `dotnet test Tests/Tests.csproj` → **1349 réussis / 2 échoués / 1351** ; les deux échoués
+portent le **même nom** et sont les deux sœurs :
 
 | fichier | ligne | assertion |
 |---|---|---|
@@ -724,6 +726,18 @@ seulement : le nouveau membre est référencé par son bras. L'autre moitié du 
 dont le bras ne se déclenche jamais — n'est pas visible par ce comptage statique ; c'est le mutant A
 (§14.5) qui la rend opposable, par l'exception `Unknown Packet Type 1304` levée en exécution.
 
+Le script, réutilisable tel quel (il porte sur l'arbre de travail ; pour un autre arbre, lire
+l'énumération par `git show <rev>:$file` et préfixer `git grep` de `<rev>`) :
+
+```bash
+file=Game/Network/Packets/Enums/GamePackets.cs
+for n in $(grep -oE '^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*[0-9]+' "$file" \
+           | sed -E 's/^[[:space:]]+//; s/[[:space:]]*=.*//'); do
+  c=$(git grep -h -w "$n" -- '*.cs' ":!$file" | wc -l)
+  [ "$c" -eq 0 ] && echo "sans reference hors enum : $n"
+done
+```
+
 ### 14.8 Réserves du dev
 
 1. **`Length > 11` est toléré en lecture**, comme pour 1300 et 1302 : c'est la frontière de §7.11
@@ -746,6 +760,14 @@ dont le bras ne se déclenche jamais — n'est pas visible par ce comptage stati
    local non suivi par Git : l'export `git archive` en est dépourvu et `MigrateDatabase.csproj` échoue
    alors sur `MSB3030` (`Could not copy the file … appsettings.json`). Cet échec appartient à l'export,
    pas à l'arbre fusionné ; une fois le fichier copié, l'arbre fusionné compile à 0 erreur.
+7. **L'ordre de fusion des trois lots d'enchères compte, à cause de la sœur et non de ce lot** : les
+   branches 1300 et 1302 ont durci `Tests/Game/SummonPacketsTests.cs:68-70` (qui, sur `master`, admet
+   les deux états : `name1304 is null || == "TM_CS_AUCTION_BIDDED_LIST"`) en
+   `Enum.IsDefined(1304).Should().BeFalse()`. Tant que ces deux assertions existent, tout arbre qui
+   contient à la fois elles et ce lot a 2 tests rouges (§14.6, deux fichiers, une ligne chacun). Elles
+   les relâcher à `BeTrue()` **avant** de fusionner les deux branches, ou corriger la ligne dans le
+   même geste, est un travail de fusion qui n'appartient pas à cette branche : les deux fichiers
+   n'existent pas ici.
 
 ### 14.9 Commandes relevées
 
@@ -758,8 +780,8 @@ dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionBiddedListPac
 git log --oneline origin/master..master    → aucune ligne
 git merge-tree --write-tree origin/hermes/packet-1300-auction-search HEAD    → code 0, 0 conflit
 git merge-tree --write-tree origin/hermes/packet-1302-auction-selling-list HEAD → code 0, 0 conflit
-git merge-tree --write-tree --messages cf328d61 HEAD (cf328d61 = fusion 1300+1302) → code 0, 0 conflit
-# arbre fusionné exporté dans /tmp/merged-1304-a :
+git merge-tree --write-tree --messages 30111605 HEAD (30111605 = fusion 1300+1302) → code 0, 0 conflit
+# arbre fusionné exporté dans /tmp/merged-1304-c (6e9f03e9) :
 dotnet build Navislamia.sln -c Debug       → code 0 après copie de DevConsole/appsettings.json
 dotnet test Tests/Tests.csproj             → code 1, 1349 réussis / 2 échoués (les deux sœurs, §14.6)
 bash /tmp/invariant.sh                     → master 140 membres / 2 non référencés ; branche 141 / 2
