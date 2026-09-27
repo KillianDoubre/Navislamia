@@ -308,11 +308,12 @@ public class GameClient : Client
 
     /// <summary>
     /// TM_CS_TAKEOUT_COMMERCIAL_ITEM (10005): the player pulled an item out of the commercial storage
-    /// window. The frame is read and logged and nothing is sent back — this lot implements no container
-    /// policy at all, because none is established: neither rzu nor NGemity models the container, so no
-    /// cost, no cap and no result code may be invented (spec file, reserves 7b and 7e). Any answer that
-    /// becomes necessary later goes through the ordinary inventory packets (TM_SC_INVENTORY,
-    /// TM_SC_UPDATE_ITEM_COUNT), never through a 10005, which the server must never emit.
+    /// window. The container is the table <c>PaidItems</c>, and this gesture has a real effect now: the row
+    /// is resolved under the ownership conditions, the goods go to the bag through the ordinary inventory
+    /// packets and the line is consumed — no answer carries the takeout itself, since the family has no
+    /// result code (docs/packet-specs/socle-stockage-commercial-conteneur.md §5.6). The frame is read here
+    /// so that a malformed one is logged with its client, and the work runs in the background like the
+    /// storage request (300/212) does.
     /// </summary>
     private void HandleTakeoutCommercialItem(byte[] buffer)
     {
@@ -326,6 +327,20 @@ public class GameClient : Client
         _logger.Debug(
             "TM_CS_TAKEOUT_COMMERCIAL_ITEM ({id}) Length: {length} received from {clientTag}: uid={uid} count={count}",
             (ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM, buffer.Length, ClientTag, request.Uid, request.Count);
+
+        _ = TakeoutCommercialItemAsync(request);
+    }
+
+    private async Task TakeoutCommercialItemAsync(GameActionPackets.TakeoutCommercialItemRequest request)
+    {
+        try
+        {
+            await _networkService.CommercialStorageService.HandleTakeoutAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process commercial item takeout for {clientTag}", ClientTag);
+        }
     }
 
     /// <summary>

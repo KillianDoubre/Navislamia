@@ -282,6 +282,7 @@ public class Program
         services.AddSingleton<CharacterGate>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStorageRepository, StorageRepository>();
+        services.AddSingleton<IPaidItemRepository, PaidItemRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
         services.AddSingleton<IJobResourceRepository, JobResourceRepository>();
         services.AddSingleton<IJobLevelBonusRepository, JobLevelBonusRepository>();
@@ -312,6 +313,7 @@ public class Program
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<IStorageService, StorageService>();
+        services.AddSingleton<ICommercialStorageService, CommercialStorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IPetCatalog, PetCatalog>();
