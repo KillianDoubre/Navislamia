@@ -155,6 +155,16 @@ public enum GamePackets : ushort
 
     TM_SC_AUCTION_SEARCH = 1301,
     TM_SC_AUCTION_SELLING_LIST = 1303,
+
+    // TM_CS_AUCTION_BIDDED_LIST (1304): the request for the announcements the character has bid on, 11
+    // bytes — the same frame as TM_CS_AUCTION_SELLING_LIST (1302), with another Id, built and sent by
+    // the same client code (SFrame.exe constructor-and-sender 0x48DDA0, reached from the single stub
+    // 0x49E387, which is the only caller in the whole .text). 1304 must never be declared as the summon
+    // request either: rzu names 1304 from EPIC_9_6_3 on, but in 7.3 it is this auction request and
+    // TM_CS_SUMMON stays 304 (see the TM_CS_SUMMON comment above and docs/packet-specs/304-summon.md).
+    // See docs/packet-specs/1304-auction-bidded-list.md.
+    TM_CS_AUCTION_BIDDED_LIST = 1304,
+
     TM_SC_AUCTION_BIDDED_LIST = 1305,
 
     TM_SC_DIALOG = 3000,
