@@ -437,7 +437,8 @@ implémentable sans décision** : aucun n'est deviné dans cette fiche.
 | q10 | `appearance_code` (§7.10) | sans objet (page vide) |
 
 Aucune de ces lignes ne bloque le lot : la trame, le lecteur, le bras de dispatch, la réponse vide
-de 3899 octets et les tests d'offsets sont déterministes et vérifiables sans elles.
+de 3899 octets et les tests d'offsets sont déterministes et vérifiables sans elles. L'état livré par
+le dev, et ce qu'il a effectivement fait de chaque ligne, est au §14.
 
 ---
 
@@ -554,3 +555,157 @@ de deux façons.
 - **Reproductibilité** : tous les points d'entrée et toutes les adresses de table cités ici sont
   donnés en VA, tels que `objdump` les affiche pour ce binaire ; l'empreinte du binaire (§9) est
   ce qui rend ces adresses opposables.
+
+---
+
+## 14. Implémentation livrée (dev)
+
+Section ajoutée par `navis-dev` le 27/09/2026 ; l'analyse de l'archéologue (§1 à §13) est laissée
+intacte, à l'exception du renvoi d'une ligne ajouté en §8. Branche
+`hermes/packet-1302-auction-selling-list`, créée par `navis-ref` depuis `master`
+(`b56967a07430422add88e0e5cdf292b41b18f6c6`) : fiche `f53ec51`, code `1fb6773` (3 fichiers,
++87 lignes), tests `e039806` (1 fichier, +300 lignes), puis `2d89f58` (commentaires de code : la
+fusion de §14.6, mesurée après coup, y est consignée).
+
+**Règle tenue par le code : lire les onze octets, écho de `page_num`, réponse 1303 vide de 3899
+octets, aucune requête sur `AuctionEntity`, aucune politique inventée.**
+
+### 14.1 Checklist des critères transversaux, avec les codes de sortie relevés
+
+| # | Critère | État | Mesure |
+|---|---|---|---|
+| 1 | `dotnet build Navislamia.sln -c Debug` code 0 | **OK** | code de sortie **0**, `0 Error(s)`, `164 Warning(s)` (toutes préexistantes : `MigrateDatabase`, nullabilité, fixtures) |
+| 2 | `dotnet test Tests/Tests.csproj` code 0, compte jamais en baisse | **OK** | base avant le lot, mesurée dans ce réveil : code **0**, **1302** réussis / 1302. Après : code **0**, **1317** réussis / 1317, 0 échec, 0 ignoré → **+15** |
+| 3 | Au moins un test d'offsets (taille totale + position de chaque champ) | **OK** | `Tests/Game/AuctionSellingListPacketsTests.cs` : `Request_IsElevenBytesWithTheMeasuredOffsets` (11 octets, `page_num` en 7), `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame` (octets littéraux du client, `NotBe` big-endian sur le seul champ utile), `TryReadAuctionSellingList_ReadsThePageNumAsSigned`, `…_ReadsAPaddedFrameAndLeavesThePaddingAlone` |
+| 4 | Enum et dispatch modifiés ensemble | **OK** | membre `TM_CS_AUCTION_SELLING_LIST = 1302` (`GamePackets.cs:164`, entre 1301 et 1303) **et** bras `GameClient.cs:1450` → `HandleAuctionSellingList` (`:384`), avant le `switch` final dont le `_` lève `Unknown Packet Type`. Tenus par **exécution** (`SellingListRequest_IsConsumedByTheReceiveLoopWithoutThrowing`) et par mutation (§14.5, mutant A) |
+| 5 | Savoir durable dans la fiche commitée + bloc `CLAUDE.md` dans la description de la MR | **OK côté fiche** | présente section + §10 remis à `navis-qa` pour la description de la MR (le dev n'écrit pas `CLAUDE.md`) |
+| 6 | Version tranchée | **OK** | 1302 est l'id 7.3 ; `1304` et `1306` ne sont **pas** déclarés (`Id_IsTheEpic73OneAndTheFamilyStaysOnTheLowBranch` le vérifie par `Enum.IsDefined`), pas de variante 2302 ; aucun champ gated : `page_num` n'a aucun gating par version chez rzu (§4) |
+| 7 | Aucun commit sur `master` locale | **OK** | `git log --oneline origin/master..master` → aucune ligne (§14.9) |
+| 8 | Aucun champ `NON ÉTABLI` deviné | **OK** | aucun `SELECT` sur `AuctionEntity`, `total_page_count = 0`, page écho, `status`/prix/`appearance_code` jamais renseignés : les dix questions de §7 restent ouvertes en §8, et le code ne fait que ce que §5.5/§5.6 autorisent (page vide) |
+
+### 14.2 Fichiers livrés
+
+| Fichier | Modification |
+|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_AUCTION_SELLING_LIST = 1302` (`:158-164`) : la trame, l'émetteur client, le fait que le client 7.3 ne le reçoit jamais, et le rappel que 1300/1304 sont autres |
+| `Game/Network/Packets/Game/GameAuctionPackets.cs` | `SellingListRequestPageNumOffset` (`:136`), `SellingListRequestSize` (`:142`), `TryReadAuctionSellingList` (`:155-166`) |
+| `Game/Network/Clients/GameClient.cs` | `HandleAuctionSellingList(byte[])` (`:384-399`) et son bras de dispatch (`:1445-1454`) |
+| `Tests/Game/AuctionSellingListPacketsTests.cs` | 15 tests (nouveau, 300 lignes) |
+
+Aucun constructeur de trame n'est ajouté : `BuildAuctionSellingList(pageNum, 0)` existe dans le
+socle et est appelé tel quel. `GameAuctionPackets.cs` n'est modifié qu'après les trois constructeurs
+(voir §14.6).
+
+### 14.3 Offsets livrés, et les tests qui les tiennent
+
+| Offset | Taille | Champ | Valeur lue / écrite | Test |
+|---|---|---|---|---|
+| 0 | 4 | `Length` `uint32` LE | **11** (`0xB`) | `Request_IsElevenBytesWithTheMeasuredOffsets`, `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame` |
+| 4 | 2 | `ID` `uint16` LE | **1302** (`0x0516`) | les deux précédents + `Id_IsTheEpic73OneAndTheFamilyStaysOnTheLowBranch` |
+| 6 | 1 | `Checksum` | somme des octets 0-5 (charge exclue, comme la famille 1300) | `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame` (checksum `0x26` reconstruit sur la trame littérale) |
+| 7 | 4 | `page_num` `int32` LE | lu tel quel, écho vers 1303 | `TryReadAuctionSellingList_HandsBackThePageNum` (6), `…_ReadsTheFirstPageTheClientWrites` (1, écrit en dur par le client), `…_ReadsAPaddedFrameAndLeavesThePaddingAlone` (4), `…_ReadsThePageNumAsSigned` (`-1`) |
+| 11 | — | fin de trame | — | `Request_IsElevenBytesWithTheMeasuredOffsets`, `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame`, `…_ReadsAPaddedFrameAndLeavesThePaddingAlone` |
+
+Le lecteur **accepte AVAL** toute longueur `>= 11` et **refuse** en dessous (trois cas : 0, 7, 10).
+C'est la frontière de §7.7 : `> 11` est toléré (le client n'en produit jamais), `< 11` ne peut pas
+être lu sans inventer un alignement. Une trame refusée est consommée en totalité et ne désynchronise
+pas la suivante (test de coalescence). Une trame refusée reçoit `TS_SC_RESULT` id `1302`
+`InvalidArgument` — convention du socle §5.3, appliquée comme 1300.
+
+### 14.4 Réponses émises : une seule, la page vide du socle
+
+`SellingListRequest_AnswersAnEmptyPageEchoingPageNum` exécute la vraie boucle de réception (page 5) et
+vérifie sur l'unique trame émise : **3899 octets** (`7 + 12 + 40 × 97`), `Length = 3899`, `ID = 1303`,
+checksum valide, `page_num` écho de la demande, `total_page_count = 0`, `auction_info_count = 0`,
+**table intégralement nulle**, la dernière entrée finissant exactement sur le dernier octet.
+`SellingListRequest_AnswersThePageTheClientAskedForAndNotAFixedOne` refait le trajet avec
+`page_num = 1` puis `= 3` — et vérifie que les quatre octets de page des deux réponses **diffèrent** —
+pour montrer que la page n'est pas figée dans le code, la trame d'ouverture du client valant 1.
+`SellingListRequest_MalformedFrameIsRefusedWithTheFamilyResult` vérifie qu'une trame de 10 octets
+produit un `TS_SC_RESULT` de 15 octets (`id = 1302`, `InvalidArgument`) et **aucune** trame 1303 —
+aucune variante d'erreur de 1303 n'existe chez rzu, NGemity ou le client (§5.2).
+
+### 14.5 Preuve par mutation (trois mutants, chacun tué par 5 tests sur 15)
+
+| Mutant | Fichier | Effet mesuré |
+|---|---|---|
+| A — le bras devient inatteignable (condition préfixée par `header.ID == (ushort)GamePackets.TM_NONE`) | `GameClient.cs:1450` | **5 échecs**, dont le piège documenté : `System.Exception : Unknown Packet Type 1302` — c'est l'invariant « enum et dispatch ensemble » rendu visible |
+| B — garde du lecteur décalée (`<=` au lieu de `<`) | `GameAuctionPackets.cs:157` | **5 échecs** (`page_num` non écho, réponse de 15 octets au lieu de 3899) |
+| C — endianness inversée (`ReadInt32BigEndian`) | `GameAuctionPackets.cs:163` | **5 échecs** (pages 16777216, 83886080…), ce qui rend la `NotBe` big-endian du test d'offsets opposable |
+
+Après chaque mutant : `git checkout -- <fichier>` puis `git diff --stat` **vide**, et la passe finale
+complète redonne **1317 / 1317**. Les mutants n'ont pas été commités.
+
+### 14.6 Fusion avec la branche sœur `hermes/packet-1300-auction-search` (MR #65) — mesurée sans conflit
+
+```
+git merge-tree --write-tree hermes/packet-1300-auction-search HEAD
+→ code de sortie 0, arbre fusionné de64e2eff686e04d1775b892305651f2f9078f2f, aucun chemin en conflit
+```
+
+Dans l'arbre fusionné, les deux apports coexistent : l'énumération s'ordonne `1300, 1301, 1302,
+1303, 1305` ; `TryReadAuctionSearch` et `TryReadAuctionSellingList` vivent dans le même
+`GameAuctionPackets.cs` ; `HandleAuctionSearch` et `HandleAuctionSellingList` et **les deux bras** sont
+présents dans `GameClient.cs`. Ce résultat vient des ancrages retenus, choisis pour ne toucher aucune
+ligne de la sœur : les constantes et le lecteur 1302 sont après les trois constructeurs (la sœur
+ajoute les siens après `SellerNameSize`), le bras 1302 est posé avec les réponses de la famille et
+**non** juste au-dessus du `switch` final où la sœur pose le sien, et le fichier de test
+(`AuctionSellingListPacketsTests.cs`) est distinct de `AuctionSearchPacketsTests.cs`.
+Si Killian fusionne d'abord la 1300 et rebase la 1302, il n'y a donc rien à résoudre ; dans l'ordre
+inverse non plus.
+
+### 14.7 Invariant « enum et dispatch ensemble », mesuré sur le dépôt, pas seulement sur le lot
+
+Script de comptage (`git grep` de chaque membre de `GamePackets` hors de l'énumération, sur l'arbre
+du commit) : `master` → **140** membres, **2** sans aucune référence (`TM_SC_CHAT_RESULT`,
+`TM_SC_ITEM_COOL_TIME` : dette héritée, paquets S→C). Branche 1302 → **141** membres, **les mêmes 2**
+seulement : le nouveau membre 1302 est référencé par son bras. L'autre moitié du piège — un membre
+déclaré dont le bras ne se déclenche jamais — n'est pas visible par ce comptage statique ; c'est le
+mutant A (§14.5) qui la rend opposable, par l'exception `Unknown Packet Type 1302` levée en exécution.
+
+### 14.8 Réserves du dev
+
+1. **`Length > 11` est toléré en lecture**, comme pour 1300 : c'est la frontière de §7.7 (question q7),
+   pas une décision métier. Un client 7.3 n'en produit jamais.
+2. **Le refus émet `InvalidArgument`** parce que §5.2 et le socle §5.3 le prescrivent (toute demande
+   reçoit un résultat portant l'id de la demande) : ce n'est pas un code choisi par le dev. La
+   réaction du client 7.3 à un `TS_SC_RESULT` id `1302` reste inconnue (q8).
+3. **Signature** : `TryReadAuctionSellingList(ReadOnlySpan<byte>, out int)` suit la convention du
+   dépôt et de la sœur 1300, plutôt que le `byte[]` de §5.2 ; l'appel décrit en §5.2 est inchangé
+   (`byte[]` s'y convertit implicitement). Le paramètre de sortie est le seul champ de la trame.
+4. **`total_page_count = 0`** est passé en argument nommé, pas calculé : si Killian tranche q2, c'est
+   une ligne à changer, pas une requête à écrire. De même, la page vide n'est pas une affirmation sur
+   l'état de `AuctionEntity` : c'est le constat que rien dans ce dépôt n'écrit `Auctions` (§5.5).
+5. **Rien n'a été exécuté côté client** : la trame de 11 octets vient du désassemblage de
+   `SFrame.exe` (§3.1, §9), la vérification en jeu (ouvrir l'onglet « en vente », puis la page
+   suivante) reste la seule qui ferme q2/q3/q7/q8.
+
+### 14.9 Commandes relevées
+
+```
+dotnet build Navislamia.sln -c Debug       → code 0, 0 Error(s), 164 Warning(s) (préexistantes)
+dotnet test Tests/Tests.csproj             → code 0, 1317 réussis / 1317, 0 échec, 0 ignoré
+                                             (base avant le lot : code 0, 1302 / 1302)
+git log --oneline origin/master..master    → aucune ligne
+git merge-tree --write-tree hermes/packet-1300-auction-search HEAD → code 0, 0 conflit
+```
+
+### 14.10 Bloc `CLAUDE.md` : le complément qu'ajoute le dev
+
+Le bloc de §10 est conservé tel quel. Le paragraphe suivant vient s'y ajouter (dernier paragraphe,
+avant la phrase « Fiche : … » ou après elle), pour que `CLAUDE.md` décrive l'état **livré** et pas
+seulement l'état attendu :
+
+```markdown
+Traitement livré : le bras de dispatch lit les 11 octets, journalise `page_num` en `Debug` et répond
+`GameAuctionPackets.BuildAuctionSellingList(page_num, 0)` — page vide de 3899 octets,
+`total_page_count = 0` tant que la règle n'est pas tranchée. Une trame de moins de 11 octets est
+consommée puis refusée par un `TS_SC_RESULT` (`id = 1302`, `InvalidArgument`) ; aucune variante
+d'erreur de 1303 n'existe. Aucune requête n'est faite sur `AuctionEntity` : rien dans le dépôt n'écrit
+`TelecasterContext.Auctions`, donc la page est vide par construction, pas par décision. Une trame plus
+longue que 11 octets est lue sans être refusée (question ouverte §7.7). Rappel du piège : un membre de
+`GamePackets` sans bras atteint le `throw` « Unknown Packet Type » et casse la boucle de réception —
+énumération et dispatch se modifient ensemble.
+```
+
+
