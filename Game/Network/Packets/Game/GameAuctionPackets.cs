@@ -149,8 +149,8 @@ public static class GameAuctionPackets
     /// should answer is not established (spec §7.3, §8 q3).
     /// Its constants and reader sit after the three builders — and not with the size constants above —
     /// so that the sibling branch <c>hermes/packet-1300-auction-search</c> (MR #65), which appends the
-    /// 1300 request constants right after <c>SellerNameSize</c>, merges into this file without a
-    /// conflict beyond the add/add this file cannot avoid.
+    /// 1300 request constants right after <c>SellerNameSize</c>, merges into this file without touching
+    /// its lines: <c>git merge-tree --write-tree</c> against that branch exits 0, no conflicted path.
     /// </summary>
     public static bool TryReadAuctionSellingList(ReadOnlySpan<byte> packet, out int pageNum)
     {
