@@ -402,6 +402,28 @@ public class CommercialStorageContainerTests
     }
 
     [Test]
+    public void OnDataReceived_HandsTheFrameToTheContainerService()
+    {
+        var service = A.Fake<ICommercialStorageService>();
+        var received = false;
+        A.CallTo(() => service.HandleTakeoutAsync(A<GameClient>._, A<GameActionPackets.TakeoutCommercialItemRequest>._))
+            .Invokes(() => received = true);
+
+        var connection = new StorageTestHarness.FrameConnection(TakeoutFrame(Uid, 250));
+        var client = StorageTestHarness.NewGameClient(connection, commercialStorageService: service);
+
+        var receive = () => client.OnDataReceived(TakeoutLength);
+
+        receive.Should().NotThrow("an id defined in GamePackets must not reach the throwing switch");
+        connection.BytesAvailable.Should().Be(0, "the whole frame was consumed");
+
+        StorageTestHarness.WaitFor(() => received);
+        received.Should().BeTrue("the arm hands the frame to the container service");
+        A.CallTo(() => service.HandleTakeoutAsync(client,
+            new GameActionPackets.TakeoutCommercialItemRequest(Uid, 250))).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
     public void OnDataReceived_HandsTheTakeoutToTheRealContainer()
     {
         // Frame level, through the receive loop: the arm must not reach the throwing switch, the frame must

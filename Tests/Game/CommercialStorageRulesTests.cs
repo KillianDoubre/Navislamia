@@ -17,6 +17,7 @@ public class CommercialStorageRulesTests
 {
     private const long Character = 41;
     private const long Account = 7;
+    private const uint Uid = 0x48CE60u;
 
     private static PaidItemEntity Row(long id = 12, int code = 240100, int rest = 5, long? target = Character,
         long account = Account, int confirmed = 0, bool cancelled = false)
@@ -129,6 +130,19 @@ public class CommercialStorageRulesTests
         });
 
         entries.Select(entry => entry.Uid).Should().Equal(1u, 4u);
+    }
+
+    [Test]
+    public void BuildEntries_LocksTheUidAgainstARowThatShadowsIt()
+    {
+        // §5.2.2: (uint)row.Id == uid would give two rows one identity. The row whose id is the uid plus
+        // 2^32 is not addressable, so no line and no takeout can ever name it.
+        var shadow = Row(id: (long)Uid + (1L << 32));
+        CommercialStorageRules.IsAddressable(shadow).Should().BeFalse();
+
+        var entries = CommercialStorageRules.BuildEntries(new[] { Row(id: Uid), shadow });
+
+        entries.Should().ContainSingle().Which.Uid.Should().Be(Uid);
     }
 
     [Test]

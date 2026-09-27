@@ -95,9 +95,10 @@ public class PaidItemRepository : IPaidItemRepository
     /// <summary>
     /// The rows of the container a character may see, in the four conditions of §5.2.3 — the same four
     /// <see cref="CommercialStorageRules.IsVisible"/> decides in memory. A query cannot call that method,
-    /// so the two move together.
+    /// so the two move together. Public so that the shape of the SQL is itself testable offline, without
+    /// a database (<c>ToQueryString</c>): this predicate is the ownership rule of the family.
     /// </summary>
-    private static IQueryable<PaidItemEntity> VisibleRows(TelecasterContext context, CharacterEntity character)
+    public static IQueryable<PaidItemEntity> VisibleRows(TelecasterContext context, CharacterEntity character)
         => context.PaidItems
             .Where(row => row.AccountId == character.AccountId
                           && (row.CharacterId == null || row.CharacterId == character.Id)
