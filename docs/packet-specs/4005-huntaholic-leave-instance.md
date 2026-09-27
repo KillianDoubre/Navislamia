@@ -388,7 +388,7 @@ destiné à `CLAUDE.md` va dans la description de la MR).
 | 7 octets, id 4005 | chemin nominal : `Debug`, aucune écriture, aucune réponse |
 | 6 octets (tronqué) | `Warning` « Malformed … (Length: 6) », retour immédiat, aucun traitement |
 | 8 octets ou plus (rembourré) | `Warning` « Malformed … », retour immédiat : la longueur en dur du client (`0x4c939b`) prouve qu'un 7.3 n'envoie pas ça |
-| id 4005 avec un checksum faux | **accepté** : le checksum n'est vérifié par aucun paquet de la famille (écart assumé, §3). Le signaler dans la MR plutôt que d'inventer une vérification |
+| id 4005 avec un checksum faux | **Corrigé par le lot `navis-dev` (27/09/2026)** : le lecteur `IsLeaveInstance` ne vérifie bien que la longueur (il accepte la trame), mais la **boucle de réception** de `GameClient.OnDataReceived` vérifie le checksum **avant tout dispatch**, journalise « Invalid Message received from … » et arrête la lecture : la trame n'est donc **jamais traitée**, et c'est le comportement de tous les paquets, pas un écart propre à 4005. Le mot « accepté » ne valait que pour le lecteur seul. Épinglé par `OnDataReceived_StopsOnAFrameWithABadChecksum` (§11.7) |
 | rafale de 4005 (double clic) | deux `Debug`, aucun état modifié : pas de limitation de débit, comme le reste du lot |
 
 ## 6. Écarts assumés avec NGemity, et pourquoi
@@ -519,13 +519,122 @@ implémentation :
 * Fiche : `docs/packet-specs/4005-huntaholic-leave-instance.md`.
 ```
 
+## 11. Implémentation livrée (lot `navis-dev`)
+
+Branche `hermes/packet-4005-huntaholic-leave-instance` (base `master` = `b56967a`). Trois commits :
+`2a30811` (fiche, archéologue), `c76d275` (code et tests), puis le commit documentaire qui ajoute la
+présente section. Le contrat du §5.4 a été suivi tel quel : son lecteur (`IsLeaveInstance`), son nom de
+fichier de tests et sa politique de refus sont ceux qui sont livrés.
+
+### 11.1 Checklist des critères transversaux
+
+| Critère | Mesure relevée | Verdict |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` | code de sortie **0** (164 avertissements, 0 erreur ; `NUGET_PACKAGES=/srv/navislamia/.nuget-cache`) | OK |
+| `dotnet test Tests/Tests.csproj` | code de sortie **0**, **1327 réussis / 0 échec** (base relevée avant le lot : **1302 réussis / 0 échec** ; le lot ajoute **25** cas et n'en retire aucun) | OK |
+| Au moins un test d'offsets | `Tests/Game/HuntaholicLeaveInstancePacketsTests.cs` : taille totale 7, `Length` en 0-3, id en 4-5 valant `0x0FA5`, checksum en 6, refus de 0/1/6/8/9/11/28/55, acceptation de 7 | OK |
+| Enum et dispatch modifiés ensemble | membre `TM_CS_HUNTAHOLIC_LEAVE_INSTANCE = 4005` **et** bras `if (header.ID == …)` dans `OnDataReceived`. Mesure : 140 membres dans `GamePackets`, **44** sans référence dans `GameClient.cs`, **0** de ces 44 n'est un `TM_CS_*` (les 44 sont des `TM_SC_*`, émission seule, qui ne peuvent pas atteindre le `switch` final) | OK |
+| Savoir durable dans la fiche + bloc `CLAUDE.md` | présent §11 et §10 ; le bloc `CLAUDE.md` part dans la description de la MR et le compte rendu de la carte. **`CLAUDE.md` n'a pas été modifié** (fichier d'instructions protégé par Hermes) | OK |
+| Version tranchée | `X(4005, true)` — entrée unique et inconditionnelle ; aucun champ, donc aucun gating de champ possible | OK |
+| Aucun commit sur `master` locale | `git log --oneline origin/master..master` → **0** ligne | OK |
+| Aucun `NON ÉTABLI` deviné | §7 (a) (b) (c) (d) (e) (f) laissés intacts ; aucune conduite de retour de personnage, aucun paquet de réponse, rien pour 4008 | OK |
+
+### 11.2 Fichiers livrés (commit `c76d275`)
+
+| Fichier | Nature |
+|---|---|
+| `Game/Network/Packets/Game/GameHuntaholicPackets.cs` | **neuf** : classe `GameHuntaholicPackets` (`HeaderSize = 7` privé), `LeaveInstanceLength = HeaderSize` public, `IsLeaveInstance(ReadOnlySpan<byte>)` |
+| `Game/Network/Packets/Enums/GamePackets.cs` | membre `TM_CS_HUNTAHOLIC_LEAVE_INSTANCE = 4005` |
+| `Game/Network/Clients/GameClient.cs` | `HandleHuntaholicLeaveInstance(byte[])` et son bras de dispatch |
+| `Tests/Game/HuntaholicLeaveInstancePacketsTests.cs` | **neuf** : 25 cas |
+| `docs/packet-specs/4005-huntaholic-leave-instance.md` | la présente section |
+
+### 11.3 Offsets livrés et noms des tests
+
+Aucun offset de champ n'existe (charge nulle) : la seule constante est `LeaveInstanceLength = 7`, et les
+tests des offsets d'en-tête sont `ClientPacket_UsesTheBareHeaderLayout` (`Length` en 0-3, id en 4-5,
+checksum en 6 valant `0xBB` pour une trame bien formée), `ClientPacket_HasNoFieldOutsideTheHeader`
+(`Marshal.SizeOf<Header>() == 7 == LeaveInstanceLength`), `ClientPacket_AnnouncesItsFieldsLittleEndian`
+(octets posés à la main, plus les assertions « pas la valeur big-endienne ») et
+`IsLeaveInstance_TakesNoOutputValue` (réflexion : un seul paramètre `ReadOnlySpan<byte>`, aucun `out`,
+retour `bool` — il n'y a rien à extraire).
+
+Refus par la longueur : `IsLeaveInstance_RejectsAnyLengthOtherThanSeven` (8 cas de 0 à 55, dont 11/28/55 =
+longueurs des trames sœurs 4000/4004/4003). Boucle de réception réelle (harnais `StorageTestHarness`) :
+`OnDataReceived_ConsumesThePacketWithoutThrowing`, `OnDataReceived_AnswersNothing`,
+`OnDataReceived_KeepsTheLoopOnAFrameCoalescedWithAnotherOne`,
+`OnDataReceived_ConsumesAMalformedFrameWithoutThrowing` (3 longueurs),
+`OnDataReceived_StopsOnAFrameWithABadChecksum`, et `Packet_IsDispatchedBeforeTheUnknownPacketThrow`
+(lecture du source : le bras précède le `switch` final, contrôle de repli assumé).
+
+### 11.4 Réponses émises
+
+**Aucune.** Le handler journalise (`Warning` si la longueur n'est pas 7, sinon `Debug`), ne touche à aucun
+état et n'appelle aucun `Connection.Send` : `OnDataReceived_AnswersNothing` et les tests de trame
+coalescée assertent `Sent` vide. C'est exactement ce que prescrit le §5.3, et la raison est mesurée côté
+client au §5.2 (4005 n'a aucun bras de réception).
+
+### 11.5 Preuves par mutation (toutes restaurées, arbre final propre)
+
+| Mutation | Mesure | Interprétation |
+|---|---|---|
+| Bras de dispatch rendu inatteignable (`header.ID == … TM_NONE`, id existant donc compilable) | `dotnet test --filter "FullyQualifiedName~HuntaholicLeaveInstance"` → code **1**, **7 échecs / 18 réussis**, **6** occurrences de `Unknown Packet Type` | le membre atteint bien le `switch` final si le bras disparaît : les 6 tests de boucle échouent sur le `throw`, le 7e est le contrôle de source |
+| Lecteur `== LeaveInstanceLength` → `>= LeaveInstanceLength` | filtre identique → code **1**, **5 échecs / 20 réussis**, exactement les cinq cas de longueur > 7 (`PaddedFrame`, `FrameWithOneExtraByte`, `LobbyListFrameLength`, `JoinFrameLength`, `CreationFrameLength`) | les cas de refus portent la règle « exactement 7 », pas un littéral décoratif |
+| Restauration | `git checkout --` sur chaque fichier, `git status --porcelain` vide, `git rev-parse --short HEAD` = `c76d275`, filtre relancé → **25 / 25** | l'arbre testé est bien la tête commitée |
+
+### 11.6 Mesures de fusionnabilité (`git merge-tree --write-tree --name-only`, aucune écriture)
+
+| Fusion jouée | Code | Chemins en collision |
+|---|---|---|
+| 4005 ↔ `hermes/packet-4000-huntaholic-instance-list` | 1 | `GameHuntaholicPackets.cs` (add/add) |
+| 4005 ↔ `hermes/packet-4004-huntaholic-join-instance` | 1 | `GameHuntaholicPackets.cs` (add/add) |
+| 4005 ↔ `hermes/packet-4003-huntaholic-create-instance` | 1 | `GameHuntaholicPackets.cs` (add/add) **et** `GameClient.cs` |
+| 4000 ↔ 4003, 4000 ↔ 4004, 4003 ↔ 4004 (sans 4005) | 1 | `GameHuntaholicPackets.cs` pour les trois, **et `GameClient.cs` pour les deux paires contenant 4003** |
+
+Lecture : la collision sur `GameHuntaholicPackets.cs` est **add/add par construction** (quatre branches
+créent le fichier de la famille, cf. §5.4) et ne peut pas être évitée ; la collision `GameClient.cs` avec
+4003 est **préexistante** (4003 la produit aussi contre 4000 et 4004, sans 4005 dans le train). Le
+placement retenu tient donc sa promesse : avec 4000 et 4004, seul le fichier de famille entre en
+collision. Les emplacements choisis sont :
+
+* **énum** : après le bloc `TM_CS_SECURITY_NO = 9005`, avant `TM_SC_COMMERCIAL_STORAGE_INFO = 10003`
+  (aucune branche sœur n'écrit là ; 4000 s'ancre près de 2006, 4003 près de 4253, 4004 près de 5001) ;
+* **bras de dispatch** : juste avant le `switch` final, après le bras `TM_CS_XTRAP_CHECK` (4000 s'ancre
+  près du bras 4250, 4004 près du bras 60, 4003 près de `TM_CS_CHANGE_LOCATION`) ;
+* **handler** : juste après `HandleInstanceGameExit` (le voisin nommé par le §5.4).
+
+### 11.7 Écarts relevés dans la présente fiche par le lot
+
+* **§5.5, ligne « id 4005 avec un checksum faux »** : corrigée sur place (datée), le lecteur ne vérifie
+  pas le checksum mais la **boucle de réception le vérifie avant tout dispatch** — la trame n'est donc
+  jamais traitée, contrairement au mot « accepté » du tableau. Comportement général du serveur, pas écart
+  propre à 4005 ; `OnDataReceived_StopsOnAFrameWithABadChecksum` l'épingle.
+* **§5.4** : livré tel quel (aucune divergence de nom, d'offset ou de politique de refus), y compris le
+  nom de fichier de tests annoncé.
+
+### 11.8 Commandes relevées
+
+```
+export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+dotnet build Navislamia.sln -c Debug                  # base : 0 / lot : 0 (164 avert., 0 erreur)
+dotnet test Tests/Tests.csproj                        # base : 0 (1302 réussis) / lot : 0 (1327 réussis)
+dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~HuntaholicLeaveInstance"   # 0 (25 réussis)
+git log --oneline origin/master..master               # 0 ligne
+git merge-tree --write-tree --name-only hermes/packet-4000-huntaholic-instance-list HEAD  # 1 (fichier de famille)
+```
+
 ## A VERIFIER PAR KILLIAN
 
-1. **Cette fiche est un livrable de référence : aucun fichier de code n'est modifié** (ni
-   `GamePackets`, ni `GameClient.cs`, ni `CLAUDE.md`). Le seul fichier du commit est cette fiche.
+1. **Fiche de référence de l'archéologue (commit `2a30811`)** : aucun fichier de code n'y était modifié.
+   **État du code (27/09/2026, lot `navis-dev`, commit `c76d275`)** : le contrat du §5.4 est **livré**
+   (lecteur, membre d'énum `TM_CS_HUNTAHOLIC_LEAVE_INSTANCE = 4005`, bras de dispatch, handler, 25 cas de
+   test, build et tests en code 0) ; `CLAUDE.md` reste **non** modifié (fichier protégé, bloc préparé dans
+   la MR). Mesures et placements au §11.
 2. **Point d'arbitrage (a)** : la conduite serveur d'un 4005 (retour du personnage, paquet de
    téléportation) reste non établie — c'est la seule décision métier qui manque, et elle n'est pas
-   nécessaire pour le lot de lecture (no-op documenté, comme 4251).
+   nécessaire pour le lot de lecture (no-op documenté, comme 4251). **État du code (27/09/2026)** : le
+   handler journalise et ne change **aucun** état, n'émet **aucune** réponse (§11.4) ; le point reste
+   ouvert pour le lot « instance HuntaHolic ».
 3. **Point d'arbitrage (b)** : le bouton `button_entrance_02` émet `LEAVE_INSTANCE` alors que son nom
    dit « entrée ». À confirmer par observation en jeu si un jour le client est lancé.
 4. **Report dans la fiche de socle** : les points (a), (d), (e) et (f) de
@@ -535,4 +644,6 @@ implémentation :
 5. **Collision de fichier annoncée** : quatre branches (4000, 4003, 4004, 4005) créent
    `Game/Network/Packets/Game/GameHuntaholicPackets.cs` avec la même classe. La règle de fusion
    (une seule déclaration, membres fusionnés) est écrite au §5.4 ; elle devra être appliquée au
-   deuxième merge.
+   deuxième merge. **Mesure du lot (27/09/2026, §11.6)** : `git merge-tree` ne montre que cette collision
+   add/add contre 4000 et 4004, plus une collision `GameClient.cs` contre 4003 qui est **préexistante**
+   (4003 la produit aussi contre 4000 et 4004, sans 4005 dans le train) ; l'énum ne collisionne jamais.
