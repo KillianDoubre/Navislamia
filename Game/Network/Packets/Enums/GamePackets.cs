@@ -189,6 +189,18 @@ public enum GamePackets : ushort
     // on), so 1060 must not be declared.
     TM_CS_REQUEST = 60,
 
+    // TM_CS_HUNTAHOLIC_BEGIN_HUNTING (4011): the "start the hunt" gesture of the HuntaHolic instance window,
+    // 7 bytes — a bare header, no payload at all. rzu's DEF(_) is empty and its id is X(4011, true), a single
+    // unconditional entry, so 7.3 keeps 4011 and no field has to be gated; the comment "Since EPIC_6_3" only
+    // dates the family (EPIC_6_3 = 0x060300 < EPIC_7_3). The 7.3 client builds this frame from a single site
+    // (0x564238, control button_entrance_01 of SUIHuntaHolicInstanceWnd) and never reads one back: its receive
+    // dispatcher routes 4011 to the "unhandled message" branch, so there is no answer to write. The member sits
+    // here, next to the other singletons of the 50s-60s, rather than at the end of the enum: the 4000-4012 block
+    // and the insertion slot after TM_CS_SECURITY_NO are already claimed by the sibling HuntaHolic branches, and
+    // GamePackets.cs is grouped by family rather than sorted by value. See
+    // docs/packet-specs/4011-huntaholic-begin-hunting.md.
+    TM_CS_HUNTAHOLIC_BEGIN_HUNTING = 4011,
+
     TM_CS_CHARACTER_LIST = 2001,
 
     TM_CS_CREATE_CHARACTER = 2002,

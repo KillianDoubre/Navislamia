@@ -1041,6 +1041,40 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// TM_CS_HUNTAHOLIC_BEGIN_HUNTING (4011): the "start the hunt" gesture a player triggers from the
+    /// HuntaHolic instance window (the 7.3 client sends it from a single site, control
+    /// <c>button_entrance_01</c> of <c>SUIHuntaHolicInstanceWnd</c>, handler <c>0x5641b0</c>, call
+    /// <c>0x564238</c>). The frame is 7 bytes — a bare header, no field at all — so there is nothing to read
+    /// out of it: only the exact length is checked.
+    /// <para>
+    /// Nothing is answered and nothing changes state. No reference answers a 4011: the client's own receive
+    /// dispatcher routes the id to its "unhandled message" branch, so a server to client 4011 would be logged
+    /// by the client as unknown rather than acted upon, and no other packet of the family carries this answer.
+    /// The play flow the server will eventually emit (4012 then 4009 then 4007/4006, then 4010) has its formats
+    /// established by docs/packet-specs/socle-instances-jeu.md §3.4.6-3.4.8 but its order, its delays and its
+    /// recipient are not established by any source, so none of it is invented here and no hunt state is kept.
+    /// </para>
+    /// <para>
+    /// Reserve, not a check to add: the server has no HuntaHolic lobby or instance state yet, so it cannot tell
+    /// whether the sender is inside an instance at all. No refusal is fabricated for that case; when the lobby
+    /// state lands (lot S2 and the rest of S5) the context check belongs to that lot.
+    /// </para>
+    /// See docs/packet-specs/4011-huntaholic-begin-hunting.md §2.2, §5.2, §5.3, §5.5, §7b, §7c.
+    /// </summary>
+    private void HandleHuntaholicBeginHunting(byte[] buffer)
+    {
+        if (!GameHuntaholicPackets.IsBeginHunting(buffer))
+        {
+            _logger.Warning("Malformed HuntaHolic begin hunting request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug("TM_CS_HUNTAHOLIC_BEGIN_HUNTING ({id}) Length: {length} received from {clientTag}",
+            (ushort)GamePackets.TM_CS_HUNTAHOLIC_BEGIN_HUNTING, buffer.Length, ClientTag);
+    }
+
     private async Task HandleLearnSkillAsync(byte[] packet)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
@@ -1321,6 +1355,20 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_GET_REGION_INFO)
             {
                 HandleGetRegionInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_HUNTAHOLIC_BEGIN_HUNTING (4011): the "start the hunt" gesture of the HuntaHolic instance
+            // window. The frame is a bare 7-byte header, so it is read, bounded and logged, and nothing is
+            // answered — the client has no receive arm for this id, so any answer would be logged by it as an
+            // unknown message, and the server keeps no hunt state. It sits next to the region arms rather than
+            // at the end of the chain, whose insertion zone the rest of the HuntaHolic family and the sibling
+            // branches already share. It must stay before the throwing switch below: a member of GamePackets
+            // that reaches it breaks the receive loop.
+            // See docs/packet-specs/4011-huntaholic-begin-hunting.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_BEGIN_HUNTING)
+            {
+                HandleHuntaholicBeginHunting(msgBuffer);
                 continue;
             }
 
