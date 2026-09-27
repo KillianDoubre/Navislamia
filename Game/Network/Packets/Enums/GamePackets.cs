@@ -215,6 +215,16 @@ public enum GamePackets : ushort
     TM_CS_RANKING_TOP_RECORD = 5000,
     TM_SC_RANKING_TOP_RECORD = 5001,
 
+    // TM_CS_HUNTAHOLIC_JOIN_INSTANCE : entering a HuntaHolic lobby room, X(4004, true) in rzu — a single
+    // unconditional entry, so no version gating, no id variant and no gated payload field. Only this id of
+    // the 4000-4012 family is declared here: its siblings (4000/4001/4002 lobby list and info, 4003 create,
+    // and the rest) join with their own lots, and no server to client id of the family is emitted yet. It is
+    // declared in this slot rather than next to the other socle ids so that the insertion point does not sit
+    // in the region the sibling HuntaHolic branches already claim; the enum is grouped by family, not sorted
+    // by value (TM_CS_RETURN_LOBBY = 23 already sits among the 3000s).
+    // See docs/packet-specs/4004-huntaholic-join-instance.md.
+    TM_CS_HUNTAHOLIC_JOIN_INSTANCE = 4004,
+
     TM_CS_REPORT = 8000,
 
     // TM_CS_SECURITY_NO (9005): the security password the client sends back once the server has asked for

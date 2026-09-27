@@ -1203,6 +1203,46 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// TM_CS_HUNTAHOLIC_JOIN_INSTANCE (4004): the player picked a room in the HuntaHolic lobby list and the
+    /// client asks to enter it. The frame is 28 bytes — a 7-byte header, the signed <c>int32</c>
+    /// <c>instance_no</c> copied out of the 38-byte entry the list answer (4001) carries, and a fixed 17-byte
+    /// password buffer which is all zeroes for a public room.
+    /// <para>
+    /// The frame is read, bounded and logged, and nothing is answered. The only refusal instrument the 7.3
+    /// client understands is a result message whose <c>request_msg_id</c> is 4004 and whose <c>result</c> is
+    /// <c>0x20</c>, and the notice it then prints is the room <i>creation</i> one ("You cannot create the room
+    /// because you have used all of your entries for the day."): with no lobby state the server cannot tell
+    /// whether a quota is exhausted, so emitting it would display a false reason. Entering a room has no other
+    /// observable client effect — it shows up through 4001/4002 (lot S2), which are not integrated yet.
+    /// </para>
+    /// <para>
+    /// The password is never carried out of the reader and never logged; only its presence is, which is what
+    /// tells a public room from an attempt on a locked one.
+    /// </para>
+    /// See docs/packet-specs/4004-huntaholic-join-instance.md §5.2, §5.3.
+    /// </summary>
+    private void HandleHuntaholicJoinInstance(byte[] buffer)
+    {
+        if (!GameHuntaholicPackets.TryReadJoinInstance(buffer, out var request))
+        {
+            _logger.Warning(
+                "Malformed HuntaHolic join instance request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        // Five properties: guarded, or the argument array is built before the level check.
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_HUNTAHOLIC_JOIN_INSTANCE ({id}) Length: {length} received from {clientTag}: " +
+                "instanceNo={instanceNo} hasPassword={hasPassword}",
+                (ushort)GamePackets.TM_CS_HUNTAHOLIC_JOIN_INSTANCE, buffer.Length, ClientTag, request.InstanceNo,
+                request.HasPassword);
+        }
+    }
+
     private static readonly int HeaderLength = Marshal.SizeOf<Header>();
 
     /// <summary>The receive buffer's size: a frame larger than it can never be assembled.</summary>
@@ -1364,6 +1404,20 @@ public class GameClient : Client
                         header.ID, header.Length, ClientTag);
                 }
 
+                continue;
+            }
+
+            // TM_CS_HUNTAHOLIC_JOIN_INSTANCE (4004): the "enter this room" frame of the HuntaHolic lobby. It is
+            // read, bounded and logged, and nothing is answered — the only refusal instrument the client
+            // understands would print the room *creation* notice, and entering a room shows up through
+            // 4001/4002 (lot S2) only. Like the TM_CS_SUMMON arm above, it sits next to the isolated
+            // TM_SC_REGION_ACK arm rather than at the end of the chain, whose insertion zone the rest of the
+            // HuntaHolic family and the sibling branches already share. It must stay before the throwing switch
+            // below: a member of GamePackets that reaches it breaks the receive loop.
+            // See docs/packet-specs/4004-huntaholic-join-instance.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_JOIN_INSTANCE)
+            {
+                HandleHuntaholicJoinInstance(msgBuffer);
                 continue;
             }
 
