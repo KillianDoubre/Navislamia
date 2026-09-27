@@ -610,6 +610,14 @@ d'`AuctionCateryResourceRepository`, et `is_equipable` lu sans effet : ce sont l
    40 emplacements sortent effectivement à zéro.
 3. **`keyword` vide et `is_equipable` non nul quelconque** sont acceptés sans distinction : la fiche
    n'établit aucun refus pour l'un ni borne pour l'autre (§5.6), donc le lecteur ne les invente pas.
+4. **Le `ResultCode.InvalidArgument` du refus n'est pas un choix du dev**, c'est la lettre de §5.1
+   (« Refus : `SendResult((ushort)GamePackets.TM_CS_AUCTION_SEARCH, (ushort)ResultCode.InvalidArgument)`,
+   ligne 213 de cette fiche). Ne pas le confondre avec le point resté ouvert de §7, point 2
+   (catégorie **inconnue** dans une trame bien formée : page vide, `InvalidArgument`, ou refus
+   silencieux ?) : ce cas-là n'est pas tranché ici, et le code ne le tranche pas non plus — une trame
+   valide de 51 octets reçoit la page vide, quelle que soit la catégorie, sans consulter
+   `AuctionCateryResourceRepository`. Le `ResultCode` n'est écrit que sur la trame courte, jamais sur
+   une catégorie.
 
 ### 13.4 Vérifications exécutées (conteneur, sans serveur de jeu ni base)
 
