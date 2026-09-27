@@ -147,13 +147,14 @@ d'intervalle en `0x67e6e6` :
 67e6ed: je   0x67e729         ; 4001 -> call 0x6707f0
 ...
 67e736: sub  eax,0xfa2        ; base 4002
-67e73b: cmp  eax,0xfb         ; 251 ids : 4002..4252
+67e73b: cmp  eax,0xfb         ; index <= 251 : 252 ids, 4002..4253
 67e740: ja   0x67ef21         ; hors intervalle -> défaut
 67e746: movzx eax,BYTE PTR [eax+0x67f580]   ; table d'octets 0x67f580
 67e74d: jmp  DWORD PTR [eax*4+0x67f560]     ; table de sauts 0x67f560 (8 entrées)
 ```
 
-Contenu relevé (lecture directe des deux tables, `n = 251` octets lus depuis `0x67f580`) :
+Contenu relevé (lecture directe des deux tables, **252 octets** lus depuis `0x67f580` : la borne
+`0xfb` de `cmp` laisse passer l'index 251, soit l'id `4253`, d'où des indices 0 à 251) :
 
 | Entrée | Id | Octet | Cible |
 | --- | --- | --- | --- |
@@ -396,6 +397,17 @@ n'a pas de producteur, pas de consommateur, et son rôle supposé est tenu par `
 5. **Ne pas toucher aux fichiers du lot `4005`** (`GamePackets.cs`, `GameClient.cs`,
    `GameHuntaholicPackets.cs`, `Tests/Game/HuntaholicLeaveInstancePacketsTests.cs`) : la décision
    « ne rien déclarer » annule toute surface de collision avec les branches 4000/4003/4004/4005.
+6. **Divergence de cadrage avec la carte `navis-dev` (`t_3215161f`) — tranchée ici.** Le titre de la
+   carte (« … déclaration et réception, selon la fiche ») et son critère transversal 4 prescrivent
+   `TM_CS_HUNTAHOLIC_LEAVE_LOBBY = 4008` dans `GamePackets.cs` **et** son bras dans `GameClient.cs`,
+   alors que le §5.2 conclut qu'aucun des deux n'est légitime. La carte tranche elle-même dans son
+   propre corps : « Si la fiche conclut qu'aucun code n'est légitime pour ce lot (opcode non émis par
+   le client 7.3), **n'invente rien** : une branche légitimement sans code n'est pas un motif de
+   refus, la MR porte alors la fiche et le constat. » Le commentaire laissé sur la carte par
+   `navis-ref` fixe le contrat dans ce sens. **Le dev exécute donc les points 1 à 5 ci-dessus**
+   (aucune déclaration, aucune route, un seul test de non-régression) ; s'il fallait au contraire
+   satisfaire le critère 4 à la lettre, l'arbitrage est écrit en `## A VERIFIER PAR KILLIAN`
+   point 1 — et il se fait par paire : déclarer **et** router, jamais l'un sans l'autre.
 
 ### 5.4 Cas limites
 
@@ -510,7 +522,7 @@ grep -ail "leave_lobby"  reference/client73/*.rdb   # (vide)
 ```
 
 Les deux tables du répartiteur se lisent directement par adressage VMA → offset de fichier
-(`file_off = 0x400 + (vma - 0x401000)`) : table d'octets `0x67f580` (251 octets), table de sauts
+(`file_off = 0x400 + (vma - 0x401000)`) : table d'octets `0x67f580` (252 octets, indices 0-251), table de sauts
 `0x67f560` (8 `dword`).
 
 Le relevé du §2.2 bis se fait sur le même désassemblage, par motif : une ligne
@@ -535,7 +547,7 @@ de ce fichier) : il le colle dans la description de la MR, comme l'exige le crit
   `.text`, en `0x67902f`, comme déplacement de pile `[ebp-0xfa8]` — pas comme id. Les cinq
   constructeurs client → serveur de la famille portent 4000, 4003, 4004, 4005, 4011.
 * **Le client 7.3 ne reçoit pas non plus 4008** : la table du répartiteur entrant (`0x67f580`,
-  base 4002, 251 entrées) envoie 4008 à la branche « message non traité » (`0x67ef21`) ; seuls
+  base 4002, 252 entrées — ids 4002 à 4253) envoie 4008 à la branche « message non traité » (`0x67ef21`) ; seuls
   4002, 4006, 4007, 4009, 4010, 4012 et 4253 y ont un bras.
 * **Le client ne nomme même pas l'id** : sa table id → nom (173 entrées `TM_*`) ne contient aucune
   chaîne `TM_CS/SC_HUNTAHOLIC_*`. Indice corroborant, pas preuve.
