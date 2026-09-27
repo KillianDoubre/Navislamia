@@ -26,8 +26,9 @@ script client n'a été exécuté, aucun serveur n'a été démarré.
    (§5.2).
 5. **Aucun gating de version à trancher** : `X(4008, true)` dans rzu, aucun champ (§4).
 6. **Taille du paquet : 7 octets**, en-tête seul, aucun champ (§3).
-7. **Le relevé exhaustif des trames sans charge utile du client 7.3 donne sept ids** — `23`, `27`,
-   `1100`, `4005`, `4011`, `6000`, `6008` — et `4008` n'en fait pas partie (§2.2 bis).
+7. **Le relevé des trames sans charge utile du client 7.3 donne sept sites à id immédiat** — `23`,
+   `27`, `1100`, `4005`, `4011`, `6000`, `6008` — et `4008` n'en fait pas partie. Un second idiome
+   (douze sites, id non relevé) ne peut pas non plus porter `4008` (§2.2 bis).
 8. **Le geste « retour au lobby » du client passe par `TM_CS_RETURN_LOBBY (23)`**, pas par `4005`, pas
    par `TM_CS_CHANGE_LOCATION`, pas par `4008` : commande locale `returnlobby` → gestionnaire
    `0x4a10c0` → trame de 7 octets d'id `0x17` (§2.5). `23` est déjà déclaré et routé dans NavisLamia
@@ -107,8 +108,8 @@ cinq producteurs en 7.3, aucun n'étant `4008`.
 Toutes les trames client → serveur sans charge utile s'écrivent dans le client avec le même idiome :
 `mov <reg>,<id>` puis `mov WORD PTR [ebp-0xM],<reg16>` (id, offsets 4-5) et
 `mov DWORD PTR [ebp-0x(M+4)],0x7` (longueur, offsets 0-3), suivis de la boucle de somme de contrôle.
-Le balayage de cet idiome sur tout le `.text` donne la liste **complète** des trames de 7 octets
-émises par le client 7.3 :
+Le balayage de cet idiome sur tout le `.text` donne la liste **complète des trames de 7 octets émises
+par le client 7.3 dans cet idiome** (id immédiat dans les 5 instructions qui suivent) :
 
 | Id | Nom (`op_codes.md`) | Site du constructeur | Émetteur relevé |
 | --- | --- | --- | --- |
@@ -124,6 +125,16 @@ Le balayage de cet idiome sur tout le `.text` donne la liste **complète** des t
 confirme `4005` et `4011` comme trames en-tête seul (il recoupe donc la fiche 4005) et donne la
 frontière exacte de la famille : sur les six paquets client → serveur de la famille HuntaHolic, seuls
 `4005` et `4011` sont en-tête seul, et `4000`/`4003`/`4004` portent une charge utile.
+
+**Limite de ce relevé, nommée pour ne pas être surinterprétée.** Il existe un **second idiome** de
+construction de trame de 7 octets, où la longueur est écrite dans un tampon passé en registre
+(`mov DWORD PTR [reg],0x7` puis `mov WORD PTR [reg+0x4],<reg16>`) et où l'id est chargé plus tôt —
+par exemple `0x48c4e8` / `0x48c50d`, avec l'id `0x109b` = `4251` (`TM_CS_INSTANCE_GAME_EXIT`) chargé
+en `0x48c502`. Ce second idiome compte **douze sites** dont **l'id n'a pas été relevé
+exhaustivement** (le balayage automatique n'a résolu les ids que pour l'idiome ci-dessus). Il ne peut
+cependant pas porter `4008` : l'id de ces trames est lui aussi un **immédiat**, et `0xfa8` n'apparaît
+nulle part dans le `.text` (§2.1). La conclusion ne dépend donc pas de l'exhaustivité de ce second
+relevé, et la question laissée ouverte est consignée en `NON ÉTABLI` (g).
 
 ### 2.3 Le répartiteur entrant du client route `4008` vers « message non traité »
 
@@ -453,6 +464,16 @@ un argument ?* Cette réserve **n'a aucun effet sur la décision** du §5.2 — 
 absorbé par le garde `DefinedPackets` quelle qu'en soit l'origine — et elle ne doit **pas** être
 comblée par supposition.
 
+**(g) Ids du second idiome de construction de trames de 7 octets.** Le §2.2 bis a relevé les sept
+sites de l'idiome à id immédiat, mais les **douze sites** de l'idiome « tampon en registre »
+(`mov DWORD PTR [reg],0x7` / `mov WORD PTR [reg+0x4],<reg16>`, id chargé plus tôt) n'ont vu leurs ids
+relevés que par échantillon : `0x48c4e8`/`0x48c50d` → `0x109b` = `4251`
+(`TM_CS_INSTANCE_GAME_EXIT`, chargé en `0x48c502`). Question précise à trancher : *quels ids portent
+les onze autres sites, et existe-t-il un paquet client → serveur en-tête seul encore inconnu du
+dépôt ?* Sans effet sur `4008` (aucun immédiat `0xfa8` dans le `.text`, §2.1) ; utile au socle
+« instances de jeu » et aux lots `4250`-`4253` s'il s'avérait que `4250`/`4252` sont, eux aussi,
+émis sous cette forme.
+
 ## 8. Commits et binaires épinglés
 
 | Référence | Révision | Détail |
@@ -528,8 +549,9 @@ de ce fichier) : il le colle dans la description de la MR, comme l'exige le crit
   (`0x48d340`) émet une trame en-tête seul de 7 octets d'id **23 = `TM_CS_RETURN_LOBBY`**, déjà
   déclarée et routée (`GamePackets.cs:164`, `GameClient.cs:1753-1756`). Ni `4005`, ni
   `TM_CS_CHANGE_LOCATION`, ni `4008` : la question ouverte du §7d du socle est close de ce côté.
-* **Balayage complet des trames en-tête seul du client 7.3** : sept ids seulement — 23, 27, 1100,
-  4005, 4011, 6000, 6008 — et `4008` n'en fait pas partie.
+* **Balayage des trames en-tête seul du client 7.3** : sept sites à id immédiat — 23, 27, 1100,
+  4005, 4011, 6000, 6008 — plus un second idiome (tampon en registre) de douze sites dont les ids
+  n'ont pas été relevés. Aucun ne peut porter `4008` : l'immédiat `0xfa8` est absent du `.text`.
 * Fiche : `docs/packet-specs/4008-huntaholic-leave-lobby.md`.
 ```
 
