@@ -640,8 +640,11 @@ complète redonne **1317 / 1317**. Les mutants n'ont pas été commités.
 
 ```
 git merge-tree --write-tree hermes/packet-1300-auction-search HEAD
-→ code de sortie 0, arbre fusionné de64e2eff686e04d1775b892305651f2f9078f2f, aucun chemin en conflit
+→ code de sortie 0, arbre fusionné 28b260767780d7462298e1c98d5936f4d3a0c949, aucun chemin en conflit
 ```
+
+Mesure faite sur le commit final de la branche (`fbeff4c`) ; le même contrôle sur le commit de code
+seul (`2d89f58`) donnait déjà 0 conflit (arbre `de64e2ef`).
 
 Dans l'arbre fusionné, les deux apports coexistent : l'énumération s'ordonne `1300, 1301, 1302,
 1303, 1305` ; `TryReadAuctionSearch` et `TryReadAuctionSellingList` vivent dans le même
