@@ -130,6 +130,41 @@ public static class GameAuctionPackets
     }
 
     /// <summary>
+    /// Absolute offset of <c>page_num</c> in the <c>TM_CS_AUCTION_SELLING_LIST</c> (1302) request: the
+    /// header is seven bytes, so the payload starts at 7 and the frame is eleven bytes long.
+    /// </summary>
+    public const int SellingListRequestPageNumOffset = HeaderSize;
+
+    /// <summary>
+    /// Total size of <c>TM_CS_AUCTION_SELLING_LIST</c> (1302): 7 header + 4, the literal <c>0xb</c> the
+    /// 7.3 client writes in its constructor-and-sender (spec §3.1). No padding, no other field.
+    /// </summary>
+    public const int SellingListRequestSize = SellingListRequestPageNumOffset + 4;
+
+    /// <summary>
+    /// Reads <c>TM_CS_AUCTION_SELLING_LIST</c> (1302), the eleven-byte page request. A shorter frame is
+    /// refused rather than partially read, and only <c>page_num</c> is read: the frame carries no
+    /// character, category or filter — the server knows whose list it is from the session (spec §3.2).
+    /// The page is one-based and the value is echoed back as it arrived: what an out-of-range page
+    /// should answer is not established (spec §7.3, §8 q3).
+    /// Its constants and reader sit after the three builders — and not with the size constants above —
+    /// so that the sibling branch <c>hermes/packet-1300-auction-search</c> (MR #65), which appends the
+    /// 1300 request constants right after <c>SellerNameSize</c>, merges into this file without a
+    /// conflict beyond the add/add this file cannot avoid.
+    /// </summary>
+    public static bool TryReadAuctionSellingList(ReadOnlySpan<byte> packet, out int pageNum)
+    {
+        if (packet.Length < SellingListRequestSize)
+        {
+            pageNum = 0;
+            return false;
+        }
+
+        pageNum = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(SellingListRequestPageNumOffset, 4));
+        return true;
+    }
+
+    /// <summary>
     /// Writes <c>page_num</c> at 7, <c>total_page_count</c> at 11 and the entry count at 15, clamped to
     /// the forty slots the client reads. The rest of the table is already zero.
     /// </summary>
