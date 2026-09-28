@@ -543,7 +543,9 @@ Branche : `hermes/packet-1306-auction-bid`, créée depuis `origin/master`
 |---|---|
 | `f99f5d1` | `docs(packet-specs): fiche TM_CS_AUCTION_BID (1306), Epic 7.3` — fiche de l'archéologue |
 | `8358507` | `feat(auction): implement TM_CS_AUCTION_BID (1306)` — énumération, lecteur, handler, bras, 15 tests |
-| *(commit de cette section)* | `docs(packet-specs): fiche 1306 — section 13, implémentation livrée et mesures du dev` |
+| `e861218` | `docs(packet-specs): fiche 1306 — section 13, implémentation livrée et mesures du dev` |
+| `8f74176` | `docs(packet-specs): fiche 1306 — fusion rejouee sur le dernier commit de la branche` |
+| *(dernier commit de la branche)* | `docs(packet-specs): fiche 1306 — liste exacte des commits du lot` (la présente liste) |
 
 ### 13.1 Critères transversaux, avec la preuve
 
