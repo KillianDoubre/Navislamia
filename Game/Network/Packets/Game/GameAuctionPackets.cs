@@ -165,6 +165,47 @@ public static class GameAuctionPackets
         bytes.AsSpan(0, Math.Min(bytes.Length, span.Length)).CopyTo(span);
     }
 
+    // The TM_CS_AUCTION_CANCEL (1310) request lives here, between the fixed-ascii writer and the frame
+    // factory, and nowhere else: the six sibling branches of this file each insert in another stretch
+    // (1300 after SellerNameSize, 1302 after the three builders, 1304 at the very end of the class,
+    // 1306 after TableOffset, 1308 between the page-header writer and the record writer, 1309 before
+    // WriteChecksum), so this block is the one a merge of the seven lots leaves untouched. Measured with
+    // `git merge-tree --write-tree --name-only <sibling> HEAD`; sheet 1310 §14.6.
+
+    /// <summary>
+    /// Absolute offset of <c>auction_uid</c> in the <c>TM_CS_AUCTION_CANCEL</c> (1310) request: the
+    /// header is seven bytes, so the payload starts at 7 (spec §3.1).
+    /// </summary>
+    public const int AuctionCancelRequestAuctionUidOffset = HeaderSize;
+
+    /// <summary>
+    /// Total size of <c>TM_CS_AUCTION_CANCEL</c> (1310): 7 header + 4, the literal <c>0xb</c> the 7.3
+    /// client writes in its construction routine (spec §3.1). No padding, no other field — the client
+    /// moves one <c>dword</c> read from <c>message+0x13</c> to <c>frame+7</c> and nothing else, which
+    /// makes this frame identical to 1308's but for the identifier.
+    /// </summary>
+    public const int AuctionCancelRequestSize = AuctionCancelRequestAuctionUidOffset + 4;
+
+    /// <summary>
+    /// Reads <c>TM_CS_AUCTION_CANCEL</c> (1310), the eleven-byte dismissal request. The frame's layout is
+    /// fixed, so the exact eleven-byte form is the only one accepted (spec §5.2): a short or padded frame
+    /// is refused rather than partially read, like <see cref="GameActionPackets.TryReadSummonCardSkillList"/>.
+    /// <c>auction_uid</c> is read <b>unsigned</b>: this is the one frame of the family where rzu and
+    /// NGemity both declare <c>uint32_t</c> (spec §4.3), and no auction identifier is negative.
+    /// </summary>
+    public static bool TryReadAuctionCancel(ReadOnlySpan<byte> packet, out uint auctionUid)
+    {
+        if (packet.Length != AuctionCancelRequestSize)
+        {
+            auctionUid = 0;
+            return false;
+        }
+
+        auctionUid = BinaryPrimitives.ReadUInt32LittleEndian(
+            packet.Slice(AuctionCancelRequestAuctionUidOffset, 4));
+        return true;
+    }
+
     private static byte[] CreatePacket(GamePackets id, int total)
     {
         var packet = new byte[total];

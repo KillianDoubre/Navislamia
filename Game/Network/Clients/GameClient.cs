@@ -446,6 +446,34 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_AUCTION_CANCEL (1310): the player withdraws one of his own announcements, the act the
+    /// register window emits when the <c>deregister</c> confirmation box comes back. The eleven-byte frame
+    /// (spec §3.1) is read and logged, and nothing is executed: no auction service or repository exists
+    /// here, <c>TM_CS_AUCTION_REGISTER</c> (1309) is not declared so nothing has ever been put up for
+    /// auction, and the fate of the returned item and of the registration tax is a game rule Killian has
+    /// not settled (spec §5.4, §5.5, §7 question 4). The client expects no dedicated answer either — no
+    /// <c>TS_SC_AUCTION_*</c> frame exists past 1305 and the emitting window consumes no result for
+    /// 0x51E: it asks for its own selling list (1302) right after sending this frame (spec §3.4, §5.3). A
+    /// frame that is not exactly eleven bytes is refused with the family's <c>InvalidArgument</c>, which is
+    /// the only thing the server can say about it today.
+    /// </summary>
+    private void HandleAuctionCancel(byte[] buffer)
+    {
+        if (!GameAuctionPackets.TryReadAuctionCancel(buffer, out var auctionUid))
+        {
+            SendResult((ushort)GamePackets.TM_CS_AUCTION_CANCEL, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_AUCTION_CANCEL ({id}) Length: {length} received from {clientTag}: auction_uid={auctionUid}",
+                (ushort)GamePackets.TM_CS_AUCTION_CANCEL, buffer.Length, ClientTag, auctionUid);
+        }
+    }
+
+    /// <summary>
     /// TM_EQUIP_SUMMON (303) from the client, 32 bytes: the player validated a creature formation. NGemity
     /// (<c>WorldSession::onEquipSummon</c>) keeps a card only when it is a summon card owned by the player
     /// and carrying <c>ITEM_FLAG_SUMMON</c> (bit 31, a tamed card), within the slot count the Creature
@@ -1830,6 +1858,19 @@ public class GameClient : Client
                 _logger.Debug(
                     "TM_CS_ANTI_HACK ({id}) Length: {length} nLength: {nLength} received from {clientTag}",
                     header.ID, header.Length, declaredAntiHackLength, ClientTag);
+                continue;
+            }
+
+            // TM_CS_AUCTION_CANCEL (1310): the withdrawal request of the auction house, read and logged
+            // only. It must stay before the throwing switch below, like every member of GamePackets the
+            // client can send: reaching it breaks the receive loop.
+            // Placed here, between the anti-hack arm and the illegal-user arm, in a stretch no other open
+            // branch of the family inserts into — each of the six siblings of 1310 chose another arm — so
+            // the seven lots merge without touching one another. See
+            // docs/packet-specs/1310-auction-cancel.md §14.6.
+            if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_CANCEL)
+            {
+                HandleAuctionCancel(msgBuffer);
                 continue;
             }
 
