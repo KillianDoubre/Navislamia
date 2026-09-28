@@ -270,6 +270,29 @@ Comme pour `1306`, l'achat immédiat n'a de sens que sur une annonce **existante
 pas une raison de bloquer : le lot `1306` a livré sans `1309`, avec le même raisonnement (l'acte
 est lu, journalisé et refusé proprement si la trame est illisible).
 
+### 5.7 Ce que le serveur fait d'une trame bien formée — le point que `§5.4.1` et `§7.2` laissaient ouvert
+
+*(sous-section ajoutée par le lot `navis-dev` : elle ne consigne que la forme livrée. Les quatre
+questions du §8 restent ouvertes, et elle ne réécrit rien du §5.4.)*
+
+Le §5.3 renvoie ici pour « journalise sinon », et le §5.4.1 demande une réponse `TM_SC_RESULT` dont
+`result` serait « le code de la décision ». Or le §7.1 établit qu'aucun code n'est établi : la
+décision (« exécuter l'achat ») n'existe pas dans ce lot, il n'y a donc pas de code de décision à
+écrire. Le lot suit le §5.3, le §5.5, le §10 et le précédent explicite de la carte jumelle `1306`
+(« journaliser et ne rien exécuter ») :
+
+* trame **bien formée** (11 octets) : l'`auction_uid` est lu et journalisé en `Debug`, **aucune trame
+  n'est envoyée** — ni `Success`, qui affirmerait un achat qui n'a pas eu lieu, ni un refus dont le
+  code serait inventé (§7.1) ;
+* trame **courte** (moins de 11 octets) : `ResultCode.InvalidArgument` par `SendResult(1308, …)`, ce
+  que le §5.3 prescrit explicitement — c'est le **seul** code de résultat envoyé par ce lot, et il
+  vient de la fiche, pas du code ;
+* dans les deux cas la trame est **entièrement consommée** par la boucle de réception.
+
+Quand Killian aura tranché la table du §8.1, la réponse du §5.4.1 (`TM_SC_RESULT`, id 0, 15 octets,
+`request_msg_id = 1308`, `value = 0`) se branchera dans `HandleAuctionInstantPurchase` sans toucher
+ni à la trame ni au lecteur.
+
 ## 6. Écarts assumés avec NGemity
 
 | # | écart | raison |
@@ -444,6 +467,113 @@ le socle des enchères a porté la barre de la famille par ses quatre lots préc
 
 ## 14. Implémentation livrée (dev)
 
-*(section réservée au lot `navis-dev` : branche, commits, offsets livrés et tests d'offsets,
-invariant « énumération et dispatch ensemble », réserves. Ne pas réécrire les sections 1 à 13 ;
-compléter le §10 si la livraison ajoute une contrainte durable.)*
+Branche `hermes/packet-1308-auction-instant-purchase`, poursuivie depuis la fiche de l'archéologue.
+
+### 14.1 Fichiers et commits
+
+| commit | fichier | contenu |
+|---|---|---|
+| `af2bb56c04c5e6aca79ca47ab64259b523f0a0c7` | `Game/Network/Packets/Enums/GamePackets.cs` | membre `TM_CS_AUCTION_INSTANT_PURCHASE = 1308` + commentaire de piège (`2308` interdit, clé 1159) |
+| idem | `Game/Network/Packets/Game/GameAuctionPackets.cs` | `InstantPurchaseRequestAuctionUidOffset`, `InstantPurchaseRequestSize`, `TryReadAuctionInstantPurchase` |
+| idem | `Game/Network/Clients/GameClient.cs` | `HandleAuctionInstantPurchase` + bras de réception au-dessus du `switch` final |
+| idem | `Tests/Game/AuctionInstantPurchasePacketsTests.cs` | 14 tests d'offsets, de lecture et de boucle de réception |
+| idem | `docs/packet-specs/1308-auction-instant-purchase.md` | cette section et le §5.7 |
+
+### 14.2 Offsets livrés (trame cliente, 11 octets)
+
+| offset | taille | type | champ | constante livrée |
+|---|---|---|---|---|
+| 0-3 | 4 | `uint32` LE | `Length` = 11 | — (en-tête du dépôt) |
+| 4-5 | 2 | `uint16` LE | `Id` = 1308 (`0x51c`) | — |
+| 6 | 1 | `uint8` | `Checksum` (somme des six octets précédents) | — |
+| 7-10 | 4 | `uint32` LE | `auction_uid` | `InstantPurchaseRequestAuctionUidOffset = 7` |
+| — | 11 | — | total | `InstantPurchaseRequestSize = 11` |
+
+Aucun autre champ, aucun remplissage : l'`auction_uid` s'achève exactement sur le dernier octet de la
+trame (`7 + 4 = 11`), ce que les tests asservissent.
+
+### 14.3 Tests d'offsets (14 tests, `Tests/Game/AuctionInstantPurchasePacketsTests.cs`)
+
+Les trames sont écrites **à la main** (`ClientInstantPurchaseFrame`), jamais reconstruites par un
+helper du socle, et chaque champ est asservi à sa position **et** à son endianness (lecture
+gros-boutiste asservie en `NotBe`) :
+
+* `Request_IsElevenBytesWithTheMeasuredOffsets` — 11 octets, `7 + 4 = 11` ;
+* `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame` — chaque octet de `Length` (`0B 00 00 00`),
+  `Id` (`1C 05`), `Checksum` (`0x2C` = 11 + 0x1C + 0x05) et `auction_uid` (`09 00 00 00`) ;
+* `Request_CarriesTheUidInThirtyTwoBits` — `3 000 000 000` passe (`0xB2D05E00` octet par octet), ce
+  qu'une lecture sur 16 bits ou signée manquerait ;
+* `TryReadAuctionInstantPurchase_HandsBackTheUid`, `…_ReadsTheUidUnsigned` (`uint.MaxValue` rendu tel
+  quel, `-1` seulement par conversion explicite en `int32`) ;
+* `…_RejectsAnyLengthBelowEleven` (0, 7, 10 octets : refus, `auction_uid = 0`) et
+  `…_ReadsAPaddedFrameAndLeavesThePaddingAlone` (le lecteur est un seuil, pas une égalité) ;
+* `InstantPurchaseRequest_IsConsumedByTheReceiveLoopWithoutThrowing`,
+  `…_ExecutesNothingAndAnswersNothing`, `…_MalformedFrameIsRefusedWithTheFamilyResult` (15 octets,
+  id 0, `request_msg_id` = 1308, `InvalidArgument`, `value` = 0) et
+  `…_KeepsTheLoopOnAFrameCoalescedWithAnotherOne`.
+
+### 14.4 Invariant « énumération et dispatch ensemble » — prouvé par morsure
+
+Le membre d'énumération et le bras sont livrés dans le **même** commit ; l'id est défini, donc il ne
+peut plus être écarté en amont comme « Undefined packet ID ». Preuve par mutation, après commit :
+le corps du bras a été neutralisé (`if (false && …)`, seul changement), puis
+`dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionInstantPurchasePacketsTests"`
+→ **4 échecs sur 14**, tous avec `System.Exception: Unknown Packet Type 1308` :
+
+```
+Failed InstantPurchaseRequest_ExecutesNothingAndAnswersNothing — Did not expect any exception, but found System.Exception: Unknown Packet Type 1308
+Failed InstantPurchaseRequest_IsConsumedByTheReceiveLoopWithoutThrowing — … must not reach the throwing switch, but found System.Exception: Unknown Packet Type 1308
+Failed InstantPurchaseRequest_KeepsTheLoopOnAFrameCoalescedWithAnotherOne — … Unknown Packet Type 1308
+Failed InstantPurchaseRequest_MalformedFrameIsRefusedWithTheFamilyResult — … Unknown Packet Type 1308
+Failed! - Failed: 4, Passed: 10, Skipped: 0, Total: 14
+```
+
+Restauration : `git checkout -- Game/Network/Clients/GameClient.cs`, `git status --porcelain` vide,
+aucune trace de la mutation. Les quatre tests de boucle de réception mordent : ils ne peuvent pas
+passer sans le bras.
+
+### 14.5 Réserves du dev
+
+1. **Aucune réponse pour une trame bien formée** — le §5.4.1 et le §7.2 (« le lot livre la réponse
+   minimale ») se lisent avec le §5.3 (« journalise sinon »), le §5.5 et le §10 (« n'exécute rien ») ;
+   le §7.1 établit qu'aucun `ResultCode` n'existe pour cet acte. Le lot a suivi §5.3/§5.5/§10 et le
+   précédent `1306` : journalisation seule, **aucun code inventé**. C'est consigné au §5.7 ajouté.
+2. **`uint32` ici, `int32` chez la carte jumelle.** Le lecteur livré rend `out uint` comme le prescrit
+   le §5.2 (décision de socle, socle §3.5), alors que `TryReadAuctionBid` de la branche `1306` rend
+   `out int auctionUid`, et que les réponses du socle (`AuctionInfo.AuctionUid`) sont en `int32`. Le
+   fil est identique et les deux branches fusionnent proprement (mesuré ci-dessous), mais un lecteur
+   de relecture verra cette différence : elle est voulue par chaque fiche, pas subie. À unifier
+   seulement sur décision explicite.
+3. **Placement du bloc `1308` dans `GameAuctionPackets.cs`.** Le §7.6 suggérait l'en-tête de la
+   classe ; le lecteur et ses deux constantes sont posés **entre `WritePageHeader` et
+   `WriteAuctionInfo`**, dans le seul intervalle où aucune des quatre branches sœurs n'insère
+   (§14.6). C'est un détail de forme, que le §7.6 déclare lui-même non remontable. Le `§5.3` de la
+   fiche renvoie à un `§5.7` qui n'existait pas : il existe désormais (§5.7 ajouté ci-dessus).
+4. **`Handler` jamais exécuté.** Comme pour `1306`, aucun test n'exerce l'exécution d'un achat : elle
+   n'existe pas (§7.3 à §7.5, §8.1).
+
+### 14.6 Géométrie de fusion, mesurée
+
+`git merge-tree --write-tree` entre la branche livrée et chacune des quatre branches sœurs :
+
+| branche sœur | code de sortie | conflit |
+|---|---|---|
+| `origin/hermes/packet-1300-auction-search` | 0 | aucun |
+| `origin/hermes/packet-1302-auction-selling-list` | 0 | aucun |
+| `origin/hermes/packet-1304-auction-bidded-list` | 0 | aucun |
+| `origin/hermes/packet-1306-auction-bid` | 1 | **un seul** : `GamePackets.cs` (les deux lots insèrent au même ancrage d'énumération, exactement comme le prévoyait le §5.3 ; résolution = garder les deux lignes, 1306 puis 1308) |
+
+Le reste fusionne sans intervention : l'arbre fusionné avec `1306` contient bien les deux lecteurs
+(`TryReadAuctionBid` en 79, `TryReadAuctionInstantPurchase` en 216) et les deux bras de réception
+(1306 en 1583, 1308 en 1691), et l'arbre fusionné avec `1306` est l'arbre
+`605ff0480a7230839a02783a42754dc03f6bebc8`.
+
+### 14.7 Vérifications exécutées
+
+| commande | code de sortie | résultat relevé |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` | 0 | `0 Error(s)`, 23 avertissements (build incrémental) |
+| `dotnet test Tests/Tests.csproj` | 0 | `Passed! - Failed: 0, Passed: 1316, Skipped: 0, Total: 1316` — 14 de plus que le plancher de 1302 mesuré au §13 |
+| `dotnet test --filter "FullyQualifiedName~AuctionInstantPurchasePacketsTests"` | 0 puis 1 | 14/14 verts sur l'arbre livré ; 10/14 et 4 échecs `Unknown Packet Type 1308` sous mutation (§14.4) |
+| `git log --oneline origin/master..master` | 0 | vide (aucun commit sur `master`) |
+| `git status --porcelain` après restauration de la mutation | 0 | vide |
