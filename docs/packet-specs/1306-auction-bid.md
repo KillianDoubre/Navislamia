@@ -423,6 +423,11 @@ requête d'annonces.
 | 7 | Politique de lecture d'une trame `> 19 octets`, commune à la famille (§7.6) | lecteur des quatre requêtes |
 | 8 | `1350` (objet en garde) : même lot ou carte distincte ? (§7.7) | périmètre du prochain lot |
 | 9 | La famille doit-elle porter les règles d'enchère (montant minimal, réserve) dans une carte dédiée après `1309`, ou dans `1309` lui-même ? (§7.9) | découpage des lots suivants |
+| 10 | **Aucune trame n'est émise pour une enchère bien formée** : le code de l'« accusé » (§5.7 alinéa 4) n'est établi nulle part (§7.1, ligne 1 ci-dessus) et `Success` serait faux puisque rien n'est exécuté. Confirmer « lire et journaliser, ne rien répondre » (livré), ou fournir le code à émettre. | la seule réponse que le client lit pour `1306` (§5.4) |
+| 11 | **Fusion** : `Tests/Game/AuctionSellingListPacketsTests.cs:89` (branche `1302`) affirme `Enum.IsDefined(typeof(GamePackets), (ushort)1306).Should().BeFalse()` et devient rouge sur l'arbre des quatre lots — sous l'assertion `1304` de la ligne 86, elle-même rouge, qui la masque (§13.7). La même ligne existe pour `1304` dans les tests de `1300` (`:82`). Les quatre passeront à `BeTrue()` au moment de la fusion. | la fusion des quatre MR d'enchères sans test rouge |
+
+Les lignes 1 à 9 viennent de l'archéologue (`navis-ref`), les lignes 10 et 11 du dev (`navis-dev`) :
+ce sont les deux seules décisions que la livraison laisse ouvertes.
 
 ---
 
@@ -526,6 +531,237 @@ parce qu'ils partagent le prérequis `1309` — ils restent hors lot.
 
 ## 13. Implémentation livrée
 
-*(Section à remplir par `navis-dev`, sur cette branche, comme dans les fiches sœurs : ce qui est
-livré, les décisions prises, les réserves, et les vérifications exécutées — build, tests, compte de
-tests.)*
+*(Rédigée par `navis-dev` sur cette branche. La carte du lot demande une section « 14 » comme les
+fiches sœurs ; cette fiche-ci, écrite par `navis-ref`, réserve `13.` à ce contenu, et le plan
+ci-dessous suit le patron `14.` des sœurs `1302` et `1304`, article par article. Les sections 1 à 12
+de l'archéologue sont reprises telles quelles.)*
+
+Branche : `hermes/packet-1306-auction-bid`, créée depuis `origin/master`
+`b56967a07430422add88e0e5cdf292b41b18f6c6`, poursuivie sur place (aucune autre branche créée).
+
+| commit | contenu |
+|---|---|
+| `f99f5d1` | `docs(packet-specs): fiche TM_CS_AUCTION_BID (1306), Epic 7.3` — fiche de l'archéologue |
+| `8358507` | `feat(auction): implement TM_CS_AUCTION_BID (1306)` — énumération, lecteur, handler, bras, 15 tests |
+| *(commit de cette section)* | `docs(packet-specs): fiche 1306 — section 13, implémentation livrée et mesures du dev` |
+
+### 13.1 Critères transversaux, avec la preuve
+
+| critère | état | preuve |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` | **code 0**, `0 Error(s)`, 164 avertissements (mêmes qu'avant le lot) | §13.9 |
+| `dotnet test Tests/Tests.csproj` | **code 0**, `Passed: 1317, Failed: 0` ; base relevée avant le premier commit de tests : **1302** | §13.9 |
+| Au moins un test d'offsets | `Tests/Game/AuctionBidPacketsTests.cs` : taille totale et position de chaque champ, sur octets littéraux | §13.3 |
+| Enum et dispatch modifiés ensemble | `TM_CS_AUCTION_BID = 1306` et son bras dans le même commit ; prouvé par mutation | §13.5, mutant A |
+| Savoir durable dans la fiche | cette section ; `CLAUDE.md` **non écrit** (Hermes le protège) ; bloc remis en §13.10 et dans la description de la MR | §13.10 |
+| Version tranchée | `1306` pour 7.3 ; `2306` **non déclaré**, `1307` non déclaré | test `Id_IsTheEpic73OneAndTheFamilyStaysOnTheLowBranch` |
+| Aucun commit sur `master` locale | `git log --oneline origin/master..master` → 0 ligne ; `git status --porcelain` → vide après chaque mutation | §13.5 |
+| Aucun `NON ÉTABLI` deviné | `result`/`value` de l'accusé (§7.1) restent ouverts : rien n'est émis pour une trame bien formée | §13.4, §8 ligne 10 |
+
+### 13.2 Fichiers livrés
+
+| fichier | ce qui est ajouté | lignes (fichier après livraison) |
+|---|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_AUCTION_BID = 1306` et son commentaire, bande `13xx`, juste après `TM_SC_AUCTION_BIDDED_LIST = 1305` | `:160-168` |
+| `Game/Network/Packets/Game/GameAuctionPackets.cs` | `BidRequestAuctionUidOffset`, `BidRequestPriceOffset`, `BidRequestSize`, `TryReadAuctionBid` | `:52-91` |
+| `Game/Network/Clients/GameClient.cs` | `HandleAuctionBid` (`:881`) et le bras de dispatch (`:1555`) | `:873-896`, `:1545-1560` |
+| `Tests/Game/AuctionBidPacketsTests.cs` | 15 tests, dont 7 cas de longueur refusée et un cas de trame coalescée | 306 lignes |
+| `docs/packet-specs/1306-auction-bid.md` | cette section et les deux lignes ajoutées en §8 | — |
+
+Le commentaire d'énumération dit ce que §5.4 mesure (deux fenêtres émettrices, un sender unique,
+aucune trame `TS_SC_AUCTION_*`, cas explicite `0x51a` du handler de `TM_SC_RESULT`) et que `2306` ne
+doit jamais être déclaré. Le commentaire de `GamePackets.cs:74-78` (cas `1304`/invocation) n'a **pas**
+été touché : la déclaration de `1306` ne rend fausse aucune de ses phrases, et §5.3 le prévoyait.
+
+### 13.3 Offsets livrés, et les tests qui les tiennent
+
+| champ | offset | taille | type lu | test |
+|---|---|---|---|---|
+| `Length` | 0 | 2 | `ushort` (lu par le dépôt, `Header.cs`) | `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame` |
+| `Id` | 4 | 2 | `ushort` = `0x051a` | `Id_…` |
+| `checksum` | 6 | 1 | **jamais comparé** (§5.2) | le test recalcule la somme des six premiers octets |
+| `auction_uid` | 7 | 4 | `int32` signé | `Request_PutsEveryField…` + `TryReadAuctionBid_ReadsAuctionUidAsSigned` |
+| `price` | 11 | 8 | `int64` | `Request_CarriesThePriceInSixtyFourBits` |
+| *(fin)* | 19 | — | — | `Request_IsNineteenBytesWithTheMeasuredOffsets` |
+
+Les trames des tests sont écrites **à la main**, octet par octet (`{0x13, 0x1a, 0x05, 0x00, …, 0x32}`,
+`Length = 0x13`, `id = 0x051a`, checksum `0x32`) : rien n'est fabriqué par un helper du serveur, donc
+les offsets sont lus là où le client 7.3 les écrit (§3.1). Chaque champ est aussi relu en gros-boutiste
+et comparé avec `NotBe`, ce qui fixe l'endianness ; `Request_CarriesThePriceInSixtyFourBits` lit en plus
+les quatre premiers octets du prix en `int32` et exige `NotBe`, pour qu'une lecture tronquée à 32 bits
+ne puisse pas passer.
+
+### 13.4 Réponses émises : un refus pour une trame illisible, rien pour une trame valide
+
+| cas | ce qui est émis | source |
+|---|---|---|
+| trame `< 19` octets (illisible) | `SendResult((ushort)GamePackets.TM_CS_AUCTION_BID, (ushort)ResultCode.InvalidArgument)` — `TM_SC_RESULT` (`id 0`), `request_msg_id = 1306`, `value = 0`, 15 octets | §5.2 (`packet.Length < 19` → refus) et §5.7 alinéa 4, qui nomme `InvalidArgument` pour un refus ; même geste que les lots `1300`, `1302` et `1304` |
+| trame `>= 19` octets (lisible) | **rien** : la trame est lue et journalisée (`auction_uid`, `price`), puis la méthode rend la main | décision du dev, voir ci-dessous |
+
+**Pourquoi rien sur une trame bien formée — et pourquoi c'est une réserve, pas un oubli.** §5.5
+alinéa 3 et §5.7 alinéa 4 demandent l'émission de l'« accusé » `TM_SC_RESULT(1306, …)`, mais aucun
+document ne remplit le « … » : §7.1 laisse la `value` non établie et §5.6 q4 en fait une décision de
+Killian (« quels codes de refus, et que met-on dans `value` ? »). Or rien n'est exécuté ici : aucune
+annonce n'existe (aucun écrivain d'`AuctionEntity`, §12 alinéa 4), donc émettre `Success` annoncerait
+une enchère qui n'a pas eu lieu, et émettre un autre code inventerait la table des refus. Émettre
+`InvalidArgument` pour une trame *bien lue* serait également faux : la trame n'a pas d'argument
+invalide. Le choix livré — journaliser sans répondre — est le seul qui n'affirme rien de faux ; il est
+inscrit à la ligne 10 de `## A VERIFIER PAR KILLIAN`, avec la question exacte. C'est une pièce d'une
+ligne : `SendResult((ushort)GamePackets.TM_CS_AUCTION_BID, (ushort)<code retenu>)` après la lecture.
+
+**Signature.** Le lecteur rend deux `out` (`out int auctionUid, out long price`) et prend un
+`ReadOnlySpan<byte>`, comme `GameActionPackets.TryReadStorage` (§5.2, ligne 175) : les deux champs sont
+fixés et il n'y a pas de structure intermédiaire à déclarer. L'appel décrit en §5.2 est inchangé.
+
+**Rien n'est exécuté** : aucune requête `AuctionEntity`, aucun débit d'or, aucun remboursement, aucune
+validation de montant. Le handler ne fait que borné-lire, journaliser et — pour une trame tronquée —
+refuser. Les règles restent en §5.6 et §8.
+
+### 13.5 Preuve par mutation : les deux verrous mordent
+
+*(Chaque mutant est appliqué après le commit du code, puis retiré par `git checkout --` ; la propreté
+est vérifiée par `git status --porcelain` vide.)*
+
+**Mutant A — le bras de dispatch retiré, le membre d'énumération laissé en place.** Le critère « enum
+et dispatch ensemble » étant tenu par le second terme, c'est la seule façon de montrer ce qui arrive
+sans lui : le membre atteint le `switch` final.
+
+- `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionBidPacketsTests"` →
+  `Failed: 4, Passed: 11, Total: 15`, avec `System.Exception: Unknown Packet Type 1306` sur les trois
+  tests qui pilotent `OnDataReceived` (et sur le quatrième qui vérifie l'absence de réponse).
+- Restauration : `git checkout -- Game/Network/Clients/GameClient.cs`, `git status --porcelain` vide,
+  puis `Passed: 15, Failed: 0`.
+
+**Mutant B — le prix lu en `int32`** (`ReadInt32LittleEndian(…Slice(BidRequestPriceOffset, 4))`).
+
+- `dotnet test … --filter "FullyQualifiedName~AuctionBidPacketsTests"` → `Failed: 1, Passed: 14`, le
+  seul rouge étant `Request_CarriesThePriceInSixtyFourBits` : un test d'offsets qui ne peut pas
+  échouer ne prouverait rien.
+- Restauration : `git checkout -- Game/Network/Packets/Game/GameAuctionPackets.cs`, arbre propre,
+  `Passed: 15`.
+
+### 13.6 Invariant « enum et dispatch ensemble », mesuré sur le dépôt
+
+| mesure | valeur |
+|---|---|
+| membres de `GamePackets` | 141 |
+| membres atteints par un bras de `GameClient.cs` | 70 |
+| membres sans bras | 71 |
+| bras référençant un membre inexistant | 0 |
+| `TM_CS_AUCTION_BID` | membre à `GamePackets.cs:168`, bras à `GameClient.cs:1555` |
+
+Les 70 membres atteints par un bras le sont par une ligne `header.ID` du dépôt ; les 71 restants sont
+les identifiants des autres sessions (authentification, liste de personnages : traités hors de
+`GameClient`), les trames serveur → client, et les identifiants appartenant à des lots encore ouverts
+(`TM_CS_SOULSTONE_CRAFT = 260`, branche en cours). Le lot `1306` n'ajoute aucun membre sans bras et
+n'ajoute aucun bras sans membre : le compteur « membres sans bras » est de 71 avant comme après.
+`1306` est couvert dans les deux sens, et le mutant A montre que le lien est vérifié par un test, pas
+seulement par relecture.
+
+### 13.7 Fusion avec les trois branches sœurs, mesurée
+
+**Par paires** (`git merge-tree --write-tree`, aucun working tree touché) : le lot `1306` fusionne
+**sans conflit** avec `hermes/packet-1300-auction-search`, `hermes/packet-1302-auction-selling-list` et
+`hermes/packet-1304-auction-bidded-list`. Mesure étendue aux 28 branches `hermes/*` ouvertes : la
+comparaison `merge-tree(origin/master, branche)` / `merge-tree(1306, branche)` ne montre **aucun
+conflit nouveau** — tous les conflits observés existent déjà contre `master` et ne concernent pas les
+fichiers de ce lot.
+
+**Points d'insertion choisis, pour que les quatre lots ne se marchent pas dessus.** Les trois sœurs
+ajoutent, chacune, au même endroit de chaque fichier ; ce lot prend le quatrième emplacement libre de
+chacun :
+
+| fichier | `1300` insère | `1302` insère | `1304` insère | `1306` insère |
+|---|---|---|---|---|
+| `GamePackets.cs` | après `TM_CS_EMOTION`, avant `1301` | après `1301`, avant `1303` | après `1303`, avant `1305` | **après `1305`**, avant `TM_SC_DIALOG` |
+| `GameAuctionPackets.cs` | après `SellerNameSize` | après les constructeurs | à la fin de la classe | **entre `TableOffset` et les constructeurs** (`:52-91`) |
+| `GameClient.cs` (méthode) | après le handler XTRAP | après le handler météo | après le handler `57` | **entre `HandleDropItemAsync` et `HandleDropQuestAsync`** (`:873`) |
+| `GameClient.cs` (bras) | juste au-dessus du `switch` | après le garde-fou des réponses | avant le bloc `TM_SC_MIX_RESULT` | **après le bras `TM_CS_SKILL`** (`:1545`) |
+
+Chaque emplacement est le milieu d'une plage libre d'au moins 30 lignes dans la chaîne, mesurée sur les
+28 branches ouvertes : le plus proche voisin de chaque insertion est à 20 lignes ou plus.
+
+**Arbre des quatre lots, construit et testé.** `3c3aab6a…` (1300+1302, identique à la mesure de la
+fiche `1304` §14.4), puis `+1304` → `5016f0ab…`, puis `+1306` → `9cf6f892…`, fusion **sans conflit**
+(`Auto-merging` des trois fichiers, aucune marque). Exporté par `git archive`, compilé et testé :
+
+- `dotnet build Navislamia.sln -c Debug` → **0 Error(s)** ;
+- `dotnet test Tests/Tests.csproj` → **1366 tests, 2 rouges**, toutes deux
+  `Id_IsTheEpic73OneAndTheFamilyStaysOnTheLowBranch`, portant sur `Enum.IsDefined(… 1304)` :
+  `Tests/Game/AuctionSearchPacketsTests.cs:82` et `Tests/Game/AuctionSellingListPacketsTests.cs:86`.
+  Ces deux rouges sont **antérieurs à ce lot** (c'est la réserve déjà consignée par la fiche `1304`
+  §14.6) : l'assertion rouge de la ligne 86 masque celle de la ligne 89, qui porte sur `1306`.
+- En relâchant la ligne 86 (`BeFalse()` → `BeTrue()`) dans cet export, la ligne 89 passe au rouge :
+  `Expected Enum.IsDefined(typeof(GamePackets), (ushort)1306) to be false, but found True`. C'est la
+  **seule dette de fusion introduite par ce lot**, et elle se répare en une ligne (ligne 11 de `## A
+  VERIFIER PAR KILLIAN`). Le lot `1306` n'ajoute, lui, aucune assertion sur les identifiants des
+  sœurs : seuls `1307`, `2306` et `TM_CS_SUMMON = 304` y sont contrôlés, ce qui ne crée pas la même
+  dette dans l'autre sens.
+
+### 13.8 Réserves du dev
+
+1. **Aucun accusé pour une trame bien formée** (§13.4) : conséquence directe de §7.1 et §5.6 q4, à
+   confirmer ou corriger par Killian (§8 ligne 10).
+2. **Le refus `InvalidArgument` vient de la fiche**, pas du dev : §5.7 alinéa 4 le nomme, §5.2 en fixe
+   la condition. Il ne couvre que la trame illisible ; aucun code n'est choisi pour une enchère
+   *refusée* (règles absentes, §5.6).
+3. **Trame plus longue que 19 octets** : elle est lue sans être refusée (§7.6, décision de famille non
+   tranchée, §8 ligne 7) ; un test fixe ce comportement pour qu'il ne change pas par accident.
+4. **Aucune borne sur `price`** : le format du client et ses limites ne sont pas établis (§7.2) ; le
+   lecteur ne contraint donc rien et journalise la valeur reçue.
+5. **Emplacement du lecteur** à `:52-91` plutôt qu'« à côté des trois constructeurs » (§5.2 ligne 174) :
+   même fichier, même classe, mais dans la plage libre, pour la raison de fusion du §13.7. C'est le
+   seul écart conscient à une consigne de la fiche.
+6. **Aucune vérification côté client** : `SFrame.exe` n'a pas été lancé, aucun Lua, aucun script client
+   (consigne de poste) ; les offsets viennent de la lecture statique de l'archéologue (§3.1, §9).
+7. **Rien n'a été exécuté côté serveur** : pas de PostgreSQL, pas de serveur de jeu, pas de migration.
+   Les mesures sont celles de `dotnet build` et de `dotnet test`.
+8. **Observation hors lot** : 71 membres de `GamePackets` n'ont aucun bras (§13.6). Ceux qui
+   appartiennent à la session de jeu et que le client 7.3 peut émettre atteindraient le `switch` final
+   et lèveraient `Unknown Packet Type` ; c'est l'état de `master`, mesuré ici et **non modifié** par ce
+   lot. À traiter par des cartes dédiées si Killian le veut.
+
+### 13.9 Commandes relevées, avec leurs codes de sortie
+
+```text
+$ export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+$ dotnet build Navislamia.sln -c Debug
+  … 164 Warning(s) / 0 Error(s)                                   -> exit 0
+$ dotnet test Tests/Tests.csproj            # base avant ce lot : 1302
+  Passed!  - Failed: 0, Passed: 1317, Skipped: 0, Total: 1317     -> exit 0
+$ dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionBidPacketsTests"
+  Passed!  - Failed: 0, Passed: 15, Skipped: 0, Total: 15         -> exit 0
+$ git log --oneline origin/master..master                         -> 0 ligne
+$ git status --porcelain                                          -> vide
+```
+
+Fusion (§13.7) :
+
+```text
+$ git merge-tree --write-tree hermes/packet-1300-auction-search hermes/packet-1302-auction-selling-list
+  3c3aab6a6be538ead3d720ec337694241adfec73                        -> exit 0, aucun conflit
+$ git merge-tree --write-tree <c1> hermes/packet-1304-auction-bidded-list
+  5016f0abc5e88f94a409d4e7872b5361ec761549                        -> exit 0, aucun conflit
+$ git merge-tree --write-tree <c2> hermes/packet-1306-auction-bid
+  9cf6f89212036bc2ac0a412b79cb927977bd90cc                        -> exit 0, aucun conflit
+$ (export de l'arbre) dotnet build Navislamia.sln -c Debug        -> 0 Error(s)
+$ (export de l'arbre) dotnet test Tests/Tests.csproj              -> 1366 tests, 2 rouges (1304, hors lot)
+```
+
+### 13.10 Complément au bloc destiné à `CLAUDE.md`
+
+Le bloc de §10 reste à recopier tel quel dans la description de la MR ; `navis-dev` n'écrit pas
+`CLAUDE.md` (Hermes le protège). Ce qui suit s'y ajoute :
+
+```markdown
+- **Livré par le lot `1306`** (`hermes/packet-1306-auction-bid`) : la déclaration
+  `TM_CS_AUCTION_BID = 1306`, le lecteur `GameAuctionPackets.TryReadAuctionBid` (refus si `< 19`),
+  `GameClient.HandleAuctionBid` et son bras au-dessus du `switch` final.
+- **Le handler lit et journalise, puis n'exécute rien** : aucune annonce n'existe côté serveur, aucun
+  écrivain d'`AuctionEntity` non plus. Une trame de moins de 19 octets est refusée par
+  `SendResult(TM_CS_AUCTION_BID, ResultCode.InvalidArgument)` (fiche §5.7 alinéa 4) ; une trame bien
+  formée ne reçoit **rien**, faute de code établi pour l'accusé (fiche §7.1) — décision ouverte pour
+  Killian.
+- **Un membre ajouté à `GamePackets` sans bras de dispatch casse la boucle de réception**
+  (`Unknown Packet Type 1306`) : les deux se modifient ensemble, et le test le prouve par mutation.
+```
