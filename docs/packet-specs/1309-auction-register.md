@@ -489,7 +489,7 @@ l'écrit pas). Le socle pointe déjà vers `docs/packet-specs/` ; ce bloc ne rem
 
 Fiche : `docs/packet-specs/1309-auction-register.md` (branche `hermes/packet-1309-auction-register`).
 
-- **32 octets**, la trame la plus large de la famille : en-tête 7, `item_handle` `int32` @7,
+- **32 octets**, la trame la plus large de la famille : en-tête 7, `item_handle` `uint32` @7,
   `item_count` `int32` @11, `start_price` `int64` @15, `instant_purchase_price` `int64` @23,
   `duration_type` `uint8` @31. Le message interne du client réserve 4 octets de plus entre
   `item_count` et `start_price` (il renseigne `message+0x1b` et le sender le saute) : ce trou
@@ -602,3 +602,129 @@ Dans `/srv/navislamia/Navislamia`, sur `master` `b56967a074…` non modifié pui
 Ce qui n'a **pas** été exécuté, et ne peut pas l'être ici : `SFrame.exe` (jamais lancé), aucun Lua ni
 script du client, aucun serveur de jeu, aucune base de données. Tout le client de cette fiche vient de
 la lecture statique (`objdump -d`, chaînes `.rdata`, RTTI, références croisées).
+
+## 14. Livraison dev
+
+Branche `hermes/packet-1309-auction-register`, partie de `origin/master = b56967a074…`. Commit de code
+et de tests : `f9a175a` (suivi du commit de documentation qui porte cette section).
+
+### 14.1 Ce qui a été livré
+
+| fichier | apport |
+|---|---|
+| `Game/Network/Packets/Game/GameAuctionPackets.cs` | les cinq constantes d'offsets (`AuctionRegisterRequestItemHandleOffset` = 7, `…ItemCountOffset` = 11, `…StartPriceOffset` = 15, `…InstantPurchasePriceOffset` = 23, `…DurationTypeOffset` = 31), `AuctionRegisterRequestSize` = 32, et `TryReadAuctionRegister(ReadOnlySpan<byte>, out uint itemHandle, out int itemCount, out long startPrice, out long instantPurchasePrice, out byte durationType)` — la signature du §5.2, au caractère près |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_AUCTION_REGISTER = 1309` dans la bande des enchères, avec le commentaire de gating au patron de `TM_CS_SUMMON_CARD_SKILL_LIST` (dont le rappel que `2309` ne doit jamais être déclaré) |
+| `Game/Network/Clients/GameClient.cs` | `HandleAuctionRegister(byte[] buffer)` et son bras `if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_REGISTER) { …; continue; }`, **avant** le `switch` qui jette |
+| `Tests/Game/AuctionRegisterPacketsTests.cs` | 26 cas de test neufs : offsets, endianness, domaines des cinq champs, refus de longueur, consommation par la boucle, refus par `TM_SC_RESULT` |
+
+Le lecteur lit les cinq champs aux offsets du §3.1, tous en **little-endian**, `duration_type` en
+`packet[31]` et rien après. Le bras journalise la trame décodée (les cinq champs) et, sur une trame que
+le lecteur refuse, répond `SendResult(1309, ResultCode.InvalidArgument)`.
+
+### 14.2 Le périmètre du refus, et pourquoi il s'arrête là
+
+Le §5.4 range quatre cas sous `InvalidArgument` : longueur ≠ 32, `duration_type` hors `{1,2,3}`, prix
+négatifs, `item_count ≤ 0`. Le lot n'en applique **qu'un**, la longueur ≠ 32, pour trois raisons :
+
+1. le §5.2 — le contrat du lecteur — ne borne **que** la longueur, et le §5.7 (ce qui est livrable sans
+   décision de Killian) ne nomme que « une trame mal formée » ;
+2. les trois autres cas sont explicitement des **questions ouvertes** du §7a, §7b et §7c, et le §8
+   question 5 demande à Killian de trancher les `ResultCode` correspondants. Les refuser ici déciderait
+   `item_count ≤ 0`, la plage des prix et le sort de `duration_type = 0` **contre** la consigne du §7 ;
+3. un `duration_type` hors `{1,2,3}` n'est pas ignoré pour autant : le bras le **signale** en
+   `Warning` (« outside the measured domain 1..3 of the 7.3 client »), sans rien refuser. Si Killian
+   répond « refus », la modification est d'une ligne dans `HandleAuctionRegister`.
+
+Le prix à payer est nommé : sur une trame forgée portant `duration_type = 0`, `item_count = 0`,
+`item_count < 0` ou un prix négatif, le serveur ne répond **rien** au lieu d'`InvalidArgument`. Le §5.4
+ligne 2 attend l'inverse ; le §7 et le critère transversal 8 (« aucun champ `NON ÉTABLI` deviné »)
+interdisent de le faire maintenant. C'est une décision de lecture, pas un oubli.
+
+### 14.3 Le cas pas-de-code, tel que le §5.7 le borne
+
+Les points 1 à 5 du §5.7 sont livrés ; le point 6 (l'exécution de l'inscription) ne l'est pas. Sur une
+trame bien formée, le serveur **ne répond rien** : c'est la ligne 4 du §5.4 (« aucune inscription
+exécutable → journaliser et ne rien envoyer »), pas un choix du dev. Un `Success` annoncerait une
+inscription qui n'a pas eu lieu, un refus inventerait un code métier (§8 question 5), et le `1303`
+rafraîchi du §5.4 ligne 1 suppose une annonce qui existe. Le verrou de non-régression est porté par les
+tests `RegisterRequest_ExecutesNothingAndAnswersNothing` et
+`RegisterRequest_OutOfDomainDurationStillAnswersNothing`.
+
+### 14.4 Tests d'offsets (critère 3)
+
+Le fichier `Tests/Game/AuctionRegisterPacketsTests.cs` porte les 26 cas neufs ; les offsets sont tenus
+par ceux-ci :
+
+* `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame` écrit la trame **à la main**, en octets
+  littéraux, et affirme chaque octet de chaque champ avec sa position et son endianness (lecture
+  `ReadUInt32BigEndian` / `ReadInt32BigEndian` en contre-épreuve, `NotBe`) ; l'en-tête est vérifié
+  octet par octet (`0x20`, `0x1D 0x05`, somme de contrôle 66) ;
+* `Request_IsThirtyTwoBytesWithTheMeasuredOffsets` et `Request_LeavesNoGapBetweenItsFields` affirment
+  la taille totale (32 = 7 + 4 + 4 + 8 + 8 + 1) et la contiguïté des cinq champs — donc que le `dword`
+  réservé du message interne n'a pas de place sur le fil ;
+* `TryReadAuctionRegister_RejectsAnyLengthOtherThanThirtyTwo` couvre 0, 7, 15, 23, 31, 33 et **36**
+  (la trame qu'un lecteur écrit d'après le message interne, et non d'après le fil, demanderait) et
+  vérifie qu'un refus ne laisse aucun champ partiellement lu derrière lui ;
+* `TryReadAuctionRegister_ReadsTheTwoPricesInSixtyFourBits` prend 3 000 000 000 et 2 500 000 000, qui
+  ne tiennent pas dans un `int32` ; `…ReadsTheItemHandleUnsigned` prend `uint.MaxValue` ;
+  `…ReadsTheCountAsASignedInt32WithoutJudgingIt` et `…HandsTheDurationTypeOverWithoutDecidingItsDomain`
+  (1, 2, 3, **0** et 255) fixent les domaines que le lecteur ne juge pas (§7a, §7b, §7c).
+
+### 14.5 Mesures exécutées ce réveil
+
+| commande (depuis `/srv/navislamia/Navislamia`) | résultat |
+|---|---|
+| `export NUGET_PACKAGES=/srv/navislamia/.nuget-cache` puis `dotnet build Navislamia.sln -c Debug` | **exit 0**, 0 erreur |
+| `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName!~AuctionRegisterPacketsTests"` | **exit 0** — `Passed: 1302, Failed: 0, Skipped: 0` : la base du §13 est reproduite, le lot ne retire rien |
+| `dotnet test Tests/Tests.csproj` | **exit 0** — `Passed: 1328, Failed: 0, Skipped: 0` : **+26** cas, soit la base 1302 + les 26 du lot (seuil transversal 366 : très au-delà) |
+| `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionRegisterPacketsTests.RegisterRequest"` | **exit 1**, `Failed: 5, Passed: 0` — c'est la morsure du §14.6, pas un état livré |
+| `git status --porcelain` après restauration de la mutation | vide |
+| `git log --oneline origin/master..master` | **vide** (aucun commit sur `master`) |
+
+### 14.6 Morsure par mutation : les tests de dispatch mordent vraiment
+
+Membre d'énum **sans** son bras (la faute que le critère 4 interdit), ajouté sur l'arbre commité, puis
+`dotnet test … --filter "…RegisterRequest"` : les **cinq** tests de boucle échouent, chacun avec
+`System.Exception: Unknown Packet Type 1309` — `Unknown Packet Type` est bien le `switch` final de
+`GameClient.cs`, et un membre déclaré sans bras casse la boucle de réception. Restauration par
+`git checkout -- Game/Network/Clients/GameClient.cs`, arbre propre vérifié. Les tests de lecture seuls
+ne prouvent pas le dispatch : cette morsure le prouve.
+
+### 14.7 Géométrie de fusion, mesurée après le lot (`git merge-tree --write-tree`)
+
+| branche sœur | résultat |
+|---|---|
+| `hermes/packet-1300-auction-search` | **fusion propre** |
+| `hermes/packet-1302-auction-selling-list` | **fusion propre** |
+| `hermes/packet-1304-auction-bidded-list` | **fusion propre** |
+| `hermes/packet-1306-auction-bid` | conflit, **un seul fichier** : `GamePackets.cs` |
+| `hermes/packet-1308-auction-instant-purchase` | conflit, **un seul fichier** : `GamePackets.cs` |
+
+Les choix de placement ont été faits pour cela : `GameAuctionPackets.cs` reçoit le bloc `1309` après
+`WriteFixedAscii`, avant `CreatePacket` — un interstice que **aucune** des cinq branches sœurs
+n'utilise (elles écrivent après `SellerNameSize`, après les trois constructeurs, à la fin de la classe,
+après `TableOffset` et entre l'écrivain d'en-tête de page et l'écrivain d'enregistrement) ;
+`GameClient.cs` reçoit le bras entre la trame `TM_CS_EMOTION` et `TM_CS_RANKING_TOP_RECORD`, là où les
+cinq autres lots n'écrivent pas (1300 au-dessus du `switch`, 1302 après le garde de réponse de la
+famille, 1304 avant le bloc `TM_SC_MIX_RESULT`, 1306 après le bras de la carte d'invocation, 1308 avant
+`TM_CS_DROP_QUEST`) ; les deux fichiers fusionnent proprement avec les cinq branches.
+
+Le seul conflit restant est la **bande des enchères de `GamePackets.cs`** (lignes 153-162) : 1306 et
+1308 y insèrent leur membre au même endroit, donc se télescopent déjà entre eux, et le §5.6 impose à
+`1309` de s'écrire dans cette bande. Le conflit est trivial à résoudre (trois déclarations
+indépendantes à garder côte à côte) et n'affecte ni `GameClient.cs` ni `GameAuctionPackets.cs`. La même
+épreuve sur `hermes/packet-1306-auction-bid` contre `hermes/packet-1308-auction-instant-purchase`
+montrerait le même conflit, sans `1309` : ce point chaud **préexiste** au sixième lot.
+
+### 14.8 Ce que le dev n'a pas livré
+
+* **`CLAUDE.md`** : fichier protégé par Hermes, non écrit par le dev (le refus est normal). Le bloc du
+  §10 est repris dans la description de la MR par `navis-dev`, avec la **correction** que le §10 portait
+  `item_handle` `int32` @7 alors que le §4, le §5.2, le §6 et le code implémenté disent `uint32` (rzu :
+  `ar_handle_t`, 4 octets). Le §10 est corrigé ici même : le bloc à recopier dans `CLAUDE.md` porte
+  bien `uint32`.
+* L'exécution de l'inscription (points 6 et suivants du §5.7) : aucune ligne `AuctionEntity`, aucun
+  calcul d'`EndTime`, aucune taxe, aucun déplacement d'objet, aucun `ResultCode` métier (§5.5).
+* Aucun `1303` rafraîchi : il suppose une annonce qui existe (§5.3, §5.4 ligne 1).
+* Aucune vérification côté client : `SFrame.exe` n'a pas été lancé (interdit ici), les cinq valeurs de
+  `duration_type` restent celles de la lecture statique du §3.5.
