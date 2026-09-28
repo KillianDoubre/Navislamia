@@ -173,6 +173,82 @@ public static class GameAuctionPackets
         return packet;
     }
 
+    // The TM_CS_AUCTION_REGISTER (1309) request lives here, after the ASCII writer and before CreatePacket:
+    // the five open sibling branches of this file each insert in another stretch (1300 right after
+    // SellerNameSize, 1302 right after the three builders, 1304 at the very end of the class, 1306 right
+    // after TableOffset, 1308 between the page-header writer and the record writer), so this block is the
+    // one a merge of the six lots leaves untouched (measured with git merge-tree, sheet 1309 §14.6).
+
+    /// <summary>
+    /// Absolute offset of <c>item_handle</c> in the <c>TM_CS_AUCTION_REGISTER</c> (1309) request: the
+    /// header is seven bytes, so the payload starts at 7 (sheet §3.1).
+    /// </summary>
+    public const int AuctionRegisterRequestItemHandleOffset = HeaderSize;
+
+    /// <summary>Absolute offset of <c>item_count</c>, the second 32-bit field of the request.</summary>
+    public const int AuctionRegisterRequestItemCountOffset = AuctionRegisterRequestItemHandleOffset + 4;
+
+    /// <summary>Absolute offset of the 64-bit <c>start_price</c>.</summary>
+    public const int AuctionRegisterRequestStartPriceOffset = AuctionRegisterRequestItemCountOffset + 4;
+
+    /// <summary>Absolute offset of the 64-bit <c>instant_purchase_price</c>.</summary>
+    public const int AuctionRegisterRequestInstantPurchasePriceOffset =
+        AuctionRegisterRequestStartPriceOffset + 8;
+
+    /// <summary>
+    /// Absolute offset of <c>duration_type</c>, the last byte of the frame: nothing follows it, which is
+    /// why the size below is this offset plus one.
+    /// </summary>
+    public const int AuctionRegisterRequestDurationTypeOffset =
+        AuctionRegisterRequestInstantPurchasePriceOffset + 8;
+
+    /// <summary>
+    /// Total size of <c>TM_CS_AUCTION_REGISTER</c> (1309): 7 header + 25, the literal <c>0x20</c> the 7.3
+    /// client writes in its construction routine (sheet §3.1). It is the widest frame of the family, and
+    /// the only one carrying two 64-bit prices. The client's internal message reserves four extra bytes
+    /// between <c>item_count</c> and <c>start_price</c> and its sender skips them, so the wire frame is
+    /// contiguous: do not add a field in that gap (sheet §3.2).
+    /// </summary>
+    public const int AuctionRegisterRequestSize = AuctionRegisterRequestDurationTypeOffset + 1;
+
+    /// <summary>
+    /// Reads <c>TM_CS_AUCTION_REGISTER</c> (1309), the thirty-two byte request that registers an
+    /// announcement in the auction house. Any length other than the exact one is refused — short or
+    /// completed — like <see cref="Game.GameActionPackets.TryReadSummonCardSkillList"/>: the layout is
+    /// fixed and a padded frame is a frame the 7.3 client cannot build (sheet §5.2).
+    /// <para>
+    /// The values are handed over as the client typed them, never judged here: the sheet measures two
+    /// 64-bit prices parsed straight from the two edit controls with no visible bound (§7b), an
+    /// <c>item_count</c> taken from the selected row without a domain check (§7c) and a
+    /// <c>duration_type</c> whose <c>0</c> is never emitted but whose fate is an open decision (§7a).
+    /// Refusing any of those in the reader would invent a rule, so the reader only bounds the frame.
+    /// </para>
+    /// </summary>
+    public static bool TryReadAuctionRegister(ReadOnlySpan<byte> packet, out uint itemHandle,
+        out int itemCount, out long startPrice, out long instantPurchasePrice, out byte durationType)
+    {
+        if (packet.Length != AuctionRegisterRequestSize)
+        {
+            itemHandle = 0;
+            itemCount = 0;
+            startPrice = 0;
+            instantPurchasePrice = 0;
+            durationType = 0;
+            return false;
+        }
+
+        itemHandle = BinaryPrimitives.ReadUInt32LittleEndian(
+            packet.Slice(AuctionRegisterRequestItemHandleOffset, 4));
+        itemCount = BinaryPrimitives.ReadInt32LittleEndian(
+            packet.Slice(AuctionRegisterRequestItemCountOffset, 4));
+        startPrice = BinaryPrimitives.ReadInt64LittleEndian(
+            packet.Slice(AuctionRegisterRequestStartPriceOffset, 8));
+        instantPurchasePrice = BinaryPrimitives.ReadInt64LittleEndian(
+            packet.Slice(AuctionRegisterRequestInstantPurchasePriceOffset, 8));
+        durationType = packet[AuctionRegisterRequestDurationTypeOffset];
+        return true;
+    }
+
     private static void WriteChecksum(byte[] packet)
     {
         byte checksum = 0;

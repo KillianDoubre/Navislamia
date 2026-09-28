@@ -1001,6 +1001,57 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// TM_CS_AUCTION_REGISTER (1309): the player puts an item up for auction, the act the register button
+    /// of SUIAuctionRegisterWnd emits (internal key 1160 = 0x488, sender 0x48DF30). The thirty-two byte
+    /// frame (sheet §3.1) is read and logged, and nothing is executed: no service, repository or loading
+    /// path of this repository can write an announcement — <c>DbSet&lt;AuctionEntity&gt; Auctions</c> is
+    /// never read nor written, there is no AuctionRepository, and nothing computes EndTime from a
+    /// duration_type, levies RegistrationTax or moves the item into the auction storage (sheet §5.5).
+    /// The rules that would make the write legitimate are the open decisions of sheet §8 (durations, tax,
+    /// price bounds, announcement caps, refusal codes, who refreshes the listing), so this lot stops at
+    /// decoding and refusing.
+    /// <para>
+    /// A frame the reader rejects — any length but the exact thirty-two bytes — is answered with
+    /// <c>TM_SC_RESULT</c> carrying the request id, the one frame the client knows for this act: 1309 has
+    /// no dedicated answer in any reference and its result handler logs the case (sheet §5.3, §5.4). A
+    /// well formed frame gets <b>no</b> answer at all: answering <c>Success</c> would claim a registration
+    /// that never happened, and the business refusal vocabulary is not established (sheet §5.4, §8 q5).
+    /// </para>
+    /// </summary>
+    private void HandleAuctionRegister(byte[] buffer)
+    {
+        if (!GameAuctionPackets.TryReadAuctionRegister(buffer, out var itemHandle, out var itemCount,
+                out var startPrice, out var instantPurchasePrice, out var durationType))
+        {
+            SendResult((ushort)GamePackets.TM_CS_AUCTION_REGISTER, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_AUCTION_REGISTER ({id}) Length: {length} received from {clientTag}: " +
+                "item_handle={itemHandle}, item_count={itemCount}, start_price={startPrice}, " +
+                "instant_purchase_price={instantPurchasePrice}, duration_type={durationType}",
+                (ushort)GamePackets.TM_CS_AUCTION_REGISTER, buffer.Length, ClientTag, itemHandle, itemCount,
+                startPrice, instantPurchasePrice, durationType);
+        }
+
+        // The measured domain of duration_type is {1, 2, 3} — three option buttons, index + 1, 1 when the
+        // player leaves the group untouched (sheet §3.5) — so anything else is a frame the 7.3 client
+        // cannot build. It is only reported, never refused here: whether 0 means "unspecified" and may be
+        // accepted, and what each value is worth in time, are decisions of Killian (sheet §7a, §8 q1), and
+        // deciding them in code would invent a rule. Same restraint for item_count <= 0 and for negative
+        // prices, both left unjudged by the reader (sheet §7b, §7c).
+        if (durationType is not (1 or 2 or 3) && _logger.IsEnabled(LogEventLevel.Warning))
+        {
+            _logger.Warning(
+                "TM_CS_AUCTION_REGISTER from {clientTag}: duration_type={durationType} is outside the " +
+                "measured domain 1..3 of the 7.3 client", ClientTag, durationType);
+        }
+    }
+
     private void HandleSkill(byte[] packet)
     {
         if (!GameActionPackets.TryReadSkill(packet, out var request))
@@ -1650,6 +1701,23 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_EMOTION)
             {
                 HandleEmotion(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_AUCTION_REGISTER (1309): the registration request of the auction house, the act whose
+            // answer is not a TS_SC_AUCTION_* frame — no such frame exists for it in any reference, and the
+            // client reads a generic TM_SC_RESULT (0) carrying request_msg_id = 1309. The thirty-two byte
+            // frame is read, bounded and logged, and nothing is executed: the announcement writer, the
+            // durations, the tax and the refusal codes belong to lots that do not exist here. It must stay
+            // before the throwing switch below, like every member of GamePackets the client can send:
+            // reaching it breaks the receive loop.
+            // Placed here, in a stretch of the chain no other branch of the family inserts into, to keep
+            // the six lots apart (1300 goes above the switch, 1302 right after the family's response guard,
+            // 1304 before the TM_SC_MIX_RESULT block, 1306 after the summon-card-skill arm, 1308 before the
+            // TM_CS_DROP_QUEST arm). See docs/packet-specs/1309-auction-register.md §14.6.
+            if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_REGISTER)
+            {
+                HandleAuctionRegister(msgBuffer);
                 continue;
             }
 
