@@ -605,8 +605,8 @@ la lecture statique (`objdump -d`, chaînes `.rdata`, RTTI, références croisé
 
 ## 14. Livraison dev
 
-Branche `hermes/packet-1309-auction-register`, partie de `origin/master = b56967a074…`. Commit de code
-et de tests : `f9a175a` (suivi du commit de documentation qui porte cette section).
+Branche `hermes/packet-1309-auction-register`, partie de `origin/master = b56967a074…`. Commits du lot :
+`f9a175a` (code et tests) puis `03c708c` (cette section de la fiche).
 
 ### 14.1 Ce qui a été livré
 
