@@ -47,6 +47,49 @@ public static class GameAuctionPackets
     private const int PageHeaderSize = 12;
     private const int TableOffset = HeaderSize + PageHeaderSize;
 
+    // The TM_CS_AUCTION_BID (1306) request, sitting here — between the response constants and the
+    // builders — and nowhere else: the three open sibling branches of this file each insert in another
+    // part of it (hermes/packet-1300-auction-search right after SellerNameSize, 1302 right after the
+    // builders, 1304 at the very end of the class), so this blank stretch is the only one a three way
+    // merge of the four lots leaves untouched (measured, sheet 1306 §13.7).
+
+    /// <summary>
+    /// Absolute offset of <c>auction_uid</c> in the <c>TM_CS_AUCTION_BID</c> (1306) request: the header
+    /// is seven bytes, so the payload starts at 7 (spec §3.1).
+    /// </summary>
+    public const int BidRequestAuctionUidOffset = HeaderSize;
+
+    /// <summary>Absolute offset of <c>price</c> in the 1306 request: four bytes of <c>auction_uid</c> follow the header.</summary>
+    public const int BidRequestPriceOffset = BidRequestAuctionUidOffset + 4;
+
+    /// <summary>
+    /// Total size of <c>TM_CS_AUCTION_BID</c> (1306): 7 header + 4 + 8 = 19, the literal <c>0x13</c> the
+    /// 7.3 client writes in its construction routine (spec §3.1). No padding, no other field.
+    /// </summary>
+    public const int BidRequestSize = BidRequestPriceOffset + 8;
+
+    /// <summary>
+    /// Reads <c>TM_CS_AUCTION_BID</c> (1306), the nineteen-byte bid request. A shorter frame is refused
+    /// rather than partially read, like the 1300 and 1302 readers.
+    /// <c>price</c> is read as a <c>long</c>, never an <c>int</c>: it is the only 64-bit field of the
+    /// family's requests (spec §3.1), and the client fills it from a 64-bit integer produced by its input
+    /// control (spec §2). No bound is applied — the client's own scale and limits are not established
+    /// (spec §7.2) — and <c>auction_uid</c> is read signed, exactly as rzu declares it.
+    /// </summary>
+    public static bool TryReadAuctionBid(ReadOnlySpan<byte> packet, out int auctionUid, out long price)
+    {
+        if (packet.Length < BidRequestSize)
+        {
+            auctionUid = 0;
+            price = 0;
+            return false;
+        }
+
+        auctionUid = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(BidRequestAuctionUidOffset, 4));
+        price = BinaryPrimitives.ReadInt64LittleEndian(packet.Slice(BidRequestPriceOffset, 8));
+        return true;
+    }
+
     /// <summary>Number of entry slots in every response, written whether filled or not.</summary>
     public const int AuctionSlots = 40;
 
