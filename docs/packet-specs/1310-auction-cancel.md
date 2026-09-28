@@ -417,6 +417,12 @@ Killian sur le sort de l'objet et de la taxe. C'est la même limite que pour `13
 4. **Le nom de la boîte de confirmation** (§7 question 1) : à confirmer depuis les données
    d'interface si un jour un texte de client doit être cité (aucune exécution de client ici).
    *État du code (28/09/2026) : sans objet dans le code livré — aucun texte de client n'y est cité.*
+5. **Les règles de jeu que ce lot ne tranche pas et qui restent hors de son périmètre** — aucune n'a
+   reçu de valeur dans le code livré, qui n'exécute rien (§14.5) : l'**autorisation d'annuler une
+   annonce déjà enchérie**, le **plafond d'annonces** par personnage, la **règle d'expiration** d'une
+   annonce, et le **contenu des `ResultCode`** d'enchère. Ce sont des décisions de Killian, à prendre
+   avec le lot d'exécution (celui qui portera `1309` et le service d'enchère), pas avec cette porte
+   d'entrée. *État du code (28/09/2026) : aucune constante, aucun seuil, aucun code inventé.*
 
 ## 9. Commits et binaires épinglés
 
@@ -540,7 +546,7 @@ Livré le **28/09/2026** sur cette branche, par le lot `navis-dev`, en un commit
 | 4 | refus `ResultCode.InvalidArgument` sur trame mal formée (§5.2) | **fait** | handler `GameClient.cs:462-467` ; test `CancelRequest_MalformedFrameIsRefusedWithTheFamilyResult` |
 | 5 | aucun paquet de réponse sur trame valide (§5.3) | **fait** | test `CancelRequest_ExecutesNothingAndAnswersNothing` (`Sent` vide) |
 | 6 | aucun service, aucun repository, aucune exécution (§5.4) | **fait par construction** | seul fichier touché côté `Game` : les trois ci-dessus ; `git diff` ne crée aucun service |
-| 7 | tests d'offsets (§5.5d) | **fait** | `Tests/Game/AuctionCancelPacketsTests.cs`, **14 cas** |
+| 7 | tests d'offsets (§5.5d) | **fait** | `Tests/Game/AuctionCancelPacketsTests.cs`, **15 cas** |
 | 8 | rien de nouveau dans `CLAUDE.md` (§10 est le bloc destiné à Hermes, qui n'écrit pas ce fichier) | **fait** | le bloc §10 reste la source ; il est recopié dans la description de la MR par le QA |
 
 ### 14.2 Fichiers livrés
@@ -568,7 +574,9 @@ que mesure le `merge-tree` du §14.6, il n'y a pas de dépendance de compilation
 
 Toutes les trames de test sont écrites **octet par octet à la main** (`0x0B`, `0x1E`, `0x05`), jamais
 reconstruites par un helper de production : le contrôle est bien celui du client, pas un aller-retour
-par le lecteur testé.
+par le lecteur testé. Le refus de taille exigé par la carte (§5.2) est épinglé par **cinq** cas —
+0 octet, 7 (en-tête seul), 10 (**un octet de moins**), 12 (un octet de plus) et 64 (sensiblement plus
+longue) — tous rendant `false` **et** laissant `auctionUid` à `0` (aucune lecture partielle).
 
 Dispatch : `CancelRequest_IsConsumedByTheReceiveLoopWithoutThrowing`,
 `CancelRequest_ExecutesNothingAndAnswersNothing`, `CancelRequest_MalformedFrameIsRefusedWithTheFamilyResult`,
@@ -645,7 +653,7 @@ keepalive est déjà traité plus haut — puis :
 
 ```
 dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionCancelPacketsTests"
-→ exit 1, Failed: 4, Passed: 10, Total: 14
+→ exit 1, Failed: 4, Passed: 11, Total: 15
 → 4 occurrences de « Unknown Packet Type 1310 » dans la sortie
 ```
 
@@ -669,10 +677,10 @@ bras, `1310` tombe bien dans le `switch` final. Restauration par `git checkout -
 |---|---|---|
 | `dotnet build Navislamia.sln -c Debug` (`NUGET_PACKAGES=/srv/navislamia/.nuget-cache`) | **0** | `0 Error(s)`, 164 avertissements préexistants |
 | `dotnet test Tests/Tests.csproj` (base `b56967a`, avant écriture) | **0** | `Passed: 1302` — plancher de la §13 confirmé |
-| `dotnet test Tests/Tests.csproj` (après le lot) | **0** | `Passed: 1316, Failed: 0` — +14, aucun test retiré |
-| `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionCancelPacketsTests"` | **0** | `Passed: 14` |
-| le même filtre, bras muté (§14.7) | 1 | `Failed: 4` (tous `Unknown Packet Type 1310`) |
-| le même filtre, après `git checkout --` | **0** | `Passed: 14`, `git status --porcelain` vide |
+| `dotnet test Tests/Tests.csproj` (après le lot) | **0** | `Passed: 1317, Failed: 0` — +15, aucun test retiré |
+| `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionCancelPacketsTests"` | **0** | `Passed: 15` |
+| le même filtre, bras muté (§14.7) | 1 | `Failed: 4`, `Passed: 11` (tous `Unknown Packet Type 1310`) |
+| le même filtre, après `git checkout --` | **0** | `Passed: 15`, `git status --porcelain` vide |
 | `git merge-tree --write-tree --name-only <sœur> HEAD` × 6 | voir §14.6 | 0, 0, 0, 1, 1, 1 |
 | `git log --oneline origin/master..master` | — | **vide** (aucun commit sur `master` locale) |
 
