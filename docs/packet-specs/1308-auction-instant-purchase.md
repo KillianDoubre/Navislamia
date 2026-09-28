@@ -433,7 +433,8 @@ aucun fichier de `Game/` n'a été modifié.
 | `dotnet build Navislamia.sln -c Debug --no-incremental` | 0 | 164 avertissements, `0 Error(s)` (compte canonique du dépôt) |
 | `dotnet test Tests/Tests.csproj` | 0 | `Passed! - Failed: 0, Passed: 1302, Skipped: 0, Total: 1302` — le plancher de 1302 de la carte est donc bien le compte de `master` |
 | `git log --oneline origin/master..master` | 0 | vide (aucun commit sur `master`) |
-| `git merge-tree --write-tree origin/master hermes/packet-<1300/1302/1304/1306>` | 0 pour les quatre | aucune collision : arbres `ded3186f19a`, `3facd30f98b`, `2e2d8da1657`, `1c08ee7d3c6`. La fiche n'ajoute qu'un fichier neuf ; le conflit d'énumération qui reste possible est celui des insertions de `1306` et `1308` au même ancrage (§5.3) |
+| `git merge-tree --write-tree origin/master hermes/packet-<1300/1302/1304/1306>` | 0 pour les quatre | aucune collision : arbres `ded3186f19a`, `3facd30f98b`, `2e2d8da1657`, `1c08ee7d3c6` |
+| `git merge-tree --write-tree hermes/packet-1308-… hermes/packet-<1300/1302/1304/1306>` | 0 pour les quatre | aucune collision, fiche commise comprise : arbres `6ea4a7963c6`, `b194c569d2e`, `f403067f3e9`, `562512dcb9a`. La fiche n'ajoute qu'un fichier neuf ; le conflit d'énumération qui reste possible est celui des insertions de `1306` et `1308` au même ancrage (§5.3) |
 | `grep -c "header.ID" Game/Network/Clients/GameClient.cs` | 0 | 97 occurrences (bras de réception déjà en place ; `1308` devra en ajouter un) |
 | `grep -E '\$0x51c'` sur le désassemblage complet | 0 | 2 occurrences de code seulement (`0x48deb6`, `0x66e04a`), 6 occurrences de non-code |
 
