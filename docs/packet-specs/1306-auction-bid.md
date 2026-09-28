@@ -682,7 +682,9 @@ Chaque emplacement est le milieu d'une plage libre d'au moins 30 lignes dans la 
 28 branches ouvertes : le plus proche voisin de chaque insertion est à 20 lignes ou plus.
 
 **Arbre des quatre lots, construit et testé.** `3c3aab6a…` (1300+1302, identique à la mesure de la
-fiche `1304` §14.4), puis `+1304` → `5016f0ab…`, puis `+1306` → `9cf6f892…`, fusion **sans conflit**
+fiche `1304` §14.4), puis `+1304` → `5016f0ab…`, puis `+1306` → `9cf6f892…` (mesuré depuis `8358507`,
+code et tests) et `5ab738d5…` (rejoué depuis le dernier commit de la branche, `e861218`, fiche
+comprise) : dans les deux cas la fusion est **sans conflit**
 (`Auto-merging` des trois fichiers, aucune marque). Exporté par `git archive`, compilé et testé :
 
 - `dotnet build Navislamia.sln -c Debug` → **0 Error(s)** ;
@@ -744,6 +746,7 @@ $ git merge-tree --write-tree <c1> hermes/packet-1304-auction-bidded-list
   5016f0abc5e88f94a409d4e7872b5361ec761549                        -> exit 0, aucun conflit
 $ git merge-tree --write-tree <c2> hermes/packet-1306-auction-bid
   9cf6f89212036bc2ac0a412b79cb927977bd90cc                        -> exit 0, aucun conflit
+  (rejoué depuis e861218) 5ab738d5265d597551615d71bc9899c619f6f5b9 -> exit 0, aucun conflit
 $ (export de l'arbre) dotnet build Navislamia.sln -c Debug        -> 0 Error(s)
 $ (export de l'arbre) dotnet test Tests/Tests.csproj              -> 1366 tests, 2 rouges (1304, hors lot)
 ```
