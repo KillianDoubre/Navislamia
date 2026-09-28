@@ -404,13 +404,19 @@ Killian sur le sort de l'objet et de la taxe. C'est la même limite que pour `13
 1. **Le sort de l'objet et de la taxe** (§7 question 4) : entrepôt de comptoir ou `ItemStorageEntity`
    « objets gardés », remboursement de `RegistrationTax` ou non. C'est une règle de jeu, et elle
    conditionne la carte suivante, pas celle-ci.
+   *État du code (28/09/2026) : inchangé, aucune exécution livrée — l'acte reste à trancher (§14.5).*
 2. **La disparition ou le marquage de la ligne d'annonce annulée** : ni le modèle du dépôt ni le
    schéma de NGemity ne portent de colonne d'état ; si le serveur doit conserver l'historique, c'est
    une colonne à ajouter, donc une décision.
+   *État du code (28/09/2026) : inchangé — aucun modèle d'annonce n'existe pour l'instant ; le lot n'a
+   créé ni entité ni migration (`dotnet ef` est absent de ce conteneur).*
 3. **Le `ResultCode` d'un refus** (§7 question 5), si un refus doit sortir autrement qu'en
    journalisation.
+   *État du code (28/09/2026) : le refus livré est `InvalidArgument` sur trame mal formée seulement,
+   comme les cinq autres lots de la famille ; rien n'est envoyé sur trame valide.*
 4. **Le nom de la boîte de confirmation** (§7 question 1) : à confirmer depuis les données
    d'interface si un jour un texte de client doit être cité (aucune exécution de client ici).
+   *État du code (28/09/2026) : sans objet dans le code livré — aucun texte de client n'y est cité.*
 
 ## 9. Commits et binaires épinglés
 
@@ -445,7 +451,7 @@ Killian sur le sort de l'objet et de la taxe. C'est la même limite que pour `13
 > de `1310`.
 >
 > Le lot livre l'énumération + le lecteur borné (11 octets exactement) + le bras de dispatch
-> (journalisation, refus `ResultCode.InvalidArgument` sur trame courte) et **n'exécute rien** :
+> (journalisation, refus `ResultCode.InvalidArgument` sur toute trame qui n'a pas exactement 11 octets) et **n'exécute rien** :
 > aucun service ni repository d'enchère n'existe, et le sort de l'objet et de la taxe est une règle
 > de jeu non tranchée. Détail, sources et questions ouvertes :
 > `docs/packet-specs/1310-auction-cancel.md`.
@@ -520,5 +526,160 @@ ci-dessus : c'est la base sur laquelle le lot de dev (section 14) doit poser son
 
 ## 14. Livraison dev
 
-*(réservée au lot `navis-dev` sur cette branche — sections 1 à 13 non réécrites, comme pour
-`1308` §14.)*
+Livré le **28/09/2026** sur cette branche, par le lot `navis-dev`, en un commit de code et de tests
+(`dab93b6`) après les deux commits documentaires de `navis-ref` (`1712a26`, `a5d6f62`). Les sections 1
+à 13 ne sont pas réécrites.
+
+### 14.1 La checklist de la fiche, point par point
+
+| # | attendu (§) | état | preuve |
+|---|---|---|---|
+| 1 | membre d'énumération `TM_CS_AUCTION_CANCEL = 1310`, `2310` jamais déclaré (§4.1) | **fait** | `Game/Network/Packets/Enums/GamePackets.cs:168` ; test `Id_IsTheEpic73OneAndTheRemapStaysClosed` (`Enum.IsDefined(2310) == false`) |
+| 2 | lecteur borné `TryReadAuctionCancel`, **exactement 11 octets**, `uint32` @7 (§5.2, §4.2, §4.3) | **fait** | `Game/Network/Packets/Game/GameAuctionPackets.cs:196-208`, constantes publiques `:179-187` |
+| 3 | bras de dispatch **avant** le `switch` final, lecture + journalisation, aucune exécution (§5.5) | **fait** | `Game/Network/Clients/GameClient.cs:1864-1875` ; handler `:448-474` |
+| 4 | refus `ResultCode.InvalidArgument` sur trame mal formée (§5.2) | **fait** | handler `GameClient.cs:462-467` ; test `CancelRequest_MalformedFrameIsRefusedWithTheFamilyResult` |
+| 5 | aucun paquet de réponse sur trame valide (§5.3) | **fait** | test `CancelRequest_ExecutesNothingAndAnswersNothing` (`Sent` vide) |
+| 6 | aucun service, aucun repository, aucune exécution (§5.4) | **fait par construction** | seul fichier touché côté `Game` : les trois ci-dessus ; `git diff` ne crée aucun service |
+| 7 | tests d'offsets (§5.5d) | **fait** | `Tests/Game/AuctionCancelPacketsTests.cs`, **14 cas** |
+| 8 | rien de nouveau dans `CLAUDE.md` (§10 est le bloc destiné à Hermes, qui n'écrit pas ce fichier) | **fait** | le bloc §10 reste la source ; il est recopié dans la description de la MR par le QA |
+
+### 14.2 Fichiers livrés
+
+| fichier | nature | repère |
+|---|---|---|
+| `Game/Network/Packets/Enums/GamePackets.cs` | +10 lignes : commentaire daté + `TM_CS_AUCTION_CANCEL = 1310` | après `TM_SC_AUCTION_BIDDED_LIST = 1305` |
+| `Game/Network/Packets/Game/GameAuctionPackets.cs` | +41 lignes : constantes `AuctionCancelRequestAuctionUidOffset` / `AuctionCancelRequestSize` et lecteur `TryReadAuctionCancel` | entre `WriteFixedAscii` et `CreatePacket` |
+| `Game/Network/Clients/GameClient.cs` | +28 lignes de handler `HandleAuctionCancel` (+13 lignes de bras dans `OnDataReceived`) | handler après `HandleGetSummonSetupInfo` ; bras entre l'anti-triche (54) et `TM_CS_CHECK_ILLEGAL_USER` (57) |
+| `Tests/Game/AuctionCancelPacketsTests.cs` | fichier neuf, 14 cas | — |
+
+Aucun fichier des jumelles n'est touché : le lecteur, les constantes et le handler sont **définis sur
+cette branche**, jamais empruntés à `1308` (qui en a des homonymes proches, `TryReadAuctionInstantPurchase`
+et `InstantPurchaseRequest*`). La branche compile donc seule, sur la base `b56967a` : c'est la propriété
+que mesure le `merge-tree` du §14.6, il n'y a pas de dépendance de compilation croisée.
+
+### 14.3 Offsets livrés et noms des tests qui les épinglent
+
+| offset | taille | champ | test |
+|---|---|---|---|
+| 0 | 4 | `Length` = 11 (`0B 00 00 00`) | `Request_PutsEveryFieldAtItsOwnOffsetOnTheClientFrame` (+ `NotBe` gros-boutiste) |
+| 4 | 2 | `Id` = 1310 (`1E 05`) | idem (+ `BinaryPrimitives.ReadUInt16LittleEndian == 1310`) |
+| 6 | 1 | `Checksum` = **`0x2E`** (11 + 0x1E + 0x05) | idem, et `Request_IsElevenBytesWithTheMeasuredOffsets` pour les constantes |
+| 7 | 4 | `auction_uid` `uint32` | idem, `Request_CarriesTheUidInThirtyTwoBits` (3 000 000 000), `TryReadAuctionCancel_ReadsTheUidUnsigned` (`uint.MaxValue`) |
+
+Toutes les trames de test sont écrites **octet par octet à la main** (`0x0B`, `0x1E`, `0x05`), jamais
+reconstruites par un helper de production : le contrôle est bien celui du client, pas un aller-retour
+par le lecteur testé.
+
+Dispatch : `CancelRequest_IsConsumedByTheReceiveLoopWithoutThrowing`,
+`CancelRequest_ExecutesNothingAndAnswersNothing`, `CancelRequest_MalformedFrameIsRefusedWithTheFamilyResult`,
+`CancelRequest_KeepsTheLoopOnAFrameCoalescedWithAnotherOne` passent par la vraie boucle
+(`StorageTestHarness.FrameConnection` + `NewGameClient`) : `BytesAvailable == 0` (trame consommée),
+`Sent` vide sauf pour la trame mal formée (un `TM_SC_RESULT` de 15 octets, `request_msg_id = 1310`,
+`result = InvalidArgument`).
+
+### 14.4 Une divergence assumée avec la jumelle `1308` : le lecteur refuse **toute** taille autre que 11
+
+Le §5.2 prescrit « accepte **exactement 11 octets** (`HeaderSize + 4`) … rend `false` sur toute autre
+taille » et cite le patron `GameActionPackets.TryReadSummonCardSkillList` (`:87-98`), qui teste
+`packet.Length != HeaderSize + 4`. Le lecteur livre donc `packet.Length != AuctionCancelRequestSize`
+(comme `1309`, qui a fait le même choix pour la même raison), là où sa jumelle `1308` a retenu
+`packet.Length < InstantPurchaseRequestSize`. Conséquence mesurée, et elle est testée : une trame de
+**12 octets** est refusée (cas `TryReadAuctionCancel_RejectsAPaddedFrame`) et déclenche le refus
+`InvalidArgument`, alors que `1308` lirait ses quatre octets et l'accepterait. Cette forme n'est pas
+atteignable depuis le réseau — `OnDataReceived` recopie `header.Length` octets, donc le lecteur reçoit
+exactement la longueur déclarée — mais elle est distincte, et un relecteur QA qui compare les deux
+jumelles doit la lire comme un choix de fiche, pas comme une inattention.
+
+### 14.5 Ce qui n'est pas porté, et pourquoi
+
+* **L'acte lui-même** (objet rendu, taxe, ligne d'annonce) : le §5.4 est catégorique — aucun service ni
+  repository d'enchère n'existe, `TM_CS_AUCTION_REGISTER` (1309) n'est pas déclaré, et le devenir des
+  deux flux est une règle de jeu (§7 question 4, §8 rang 1). Aucun `TODO` silencieux : le handler le dit
+  dans son commentaire.
+* **Le rafraîchissement après annulation** : c'est le client qui réémet `1302` lui-même (§3.4) ; le
+  serveur ne pousse rien, et aucun `1303` n'est envoyé ici (la réponse à `1302` est le lot `1302/1303`).
+* **`2310`** : jamais déclaré (§4.1) ; l'id `1310` est par ailleurs réattribué à `TS_SC_TAMING_INFO` à
+  partir de `EPIC_9_6_3`, ce qui est rappelé dans le commentaire de l'énumération et dans un test.
+* **Aucun `ResultCode` d'enchère** : il n'en existe aucun dans le dépôt ; le refus utilise
+  `InvalidArgument`, le patron de la famille (§7 question 5).
+
+### 14.6 Fusionnabilité mesurée (`git merge-tree --write-tree --name-only <sœur> HEAD`)
+
+Relevé le 28/09/2026 sur `HEAD = dab93b6`, git 2.39.5 :
+
+| sœur | code | fichiers en conflit |
+|---|---|---|
+| `hermes/packet-1300-auction-search` | **0** | — |
+| `hermes/packet-1302-auction-selling-list` | **0** | — |
+| `hermes/packet-1304-auction-bidded-list` | **0** | — |
+| `hermes/packet-1306-auction-bid` | 1 | `Game/Network/Packets/Enums/GamePackets.cs` seul |
+| `hermes/packet-1308-auction-instant-purchase` | 1 | idem |
+| `hermes/packet-1309-auction-register` | 1 | idem |
+
+Trois collisions, **toutes dans la bande `13xx` de l'énumération et aucune ailleurs** : `GameClient.cs`
+et `GameAuctionPackets.cs` fusionnent proprement avec les six sœurs, ce qui est le résultat du placement
+choisi (§14.2 : le bras dans un interstice que personne n'occupe — anti-triche / illegal-user — et le
+lecteur entre `WriteFixedAscii` et `CreatePacket`, quand 1300/1302/1304/1306/1308/1309 ont chacune pris
+une autre bande de ces deux fichiers).
+
+Cette collision d'énumération est **préexistante et non imputable à ce lot** : les trois sœurs concernées
+insèrent exactement à la même ancre (après la ligne 159 de base, le blanc qui suit
+`TM_SC_AUCTION_BIDDED_LIST = 1305`) et collisionnent déjà **entre elles sans cette branche** — mesuré :
+`1306 vs 1308`, `1306 vs 1309`, `1308 vs 1309` → code 1 sur `GamePackets.cs`, alors que
+`1304 vs 1306` et `1304 vs 1309` → code 0. Un emplacement alternatif a été essayé (bloc collé à la ligne
+`1305`, sans blanc intercalaire, donc inséré une ligne plus haut) : **même résultat**, les trois mêmes
+sœurs collisent. Il n'existe aucun point d'insertion dans la bande à trois lignes de distance de la
+grappe sans tomber sur l'ancre d'une autre sœur, et déplacer le membre hors de la bande `13xx` (par
+exemple après `TM_CS_CONTACT = 3002`) ferait payer au lot un défaut de rangement visible en relecture.
+
+`hotspot: Game/Network/Packets/Enums/GamePackets.cs` — quatre branches de la famille (1306, 1308, 1309,
+1310) insèrent leur membre à la même ancre (après `TM_SC_AUCTION_BIDDED_LIST = 1305`) ; ce fichier est le
+seul point de collision de la famille, et il collisionne déjà sans le lot 1310.
+
+### 14.7 Morsure du bras de dispatch (mesurée, puis annulée)
+
+Le bras a été rendu inatteignable **sans casser la compilation** — `header.ID == (ushort)GamePackets.TM_CS_AUCTION_CANCEL`
+remplacé par `header.ID == (ushort)GamePackets.TM_NONE`, condition fausse à cet endroit puisque le
+keepalive est déjà traité plus haut — puis :
+
+```
+dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionCancelPacketsTests"
+→ exit 1, Failed: 4, Passed: 10, Total: 14
+→ 4 occurrences de « Unknown Packet Type 1310 » dans la sortie
+```
+
+Les quatre échecs sont les quatre cas de boucle de réception
+(`…IsConsumedByTheReceiveLoopWithoutThrowing`, `…ExecutesNothingAndAnswersNothing`,
+`…MalformedFrameIsRefusedWithTheFamilyResult`, `…KeepsTheLoopOnAFrameCoalescedWithAnotherOne`) : sans le
+bras, `1310` tombe bien dans le `switch` final. Restauration par `git checkout -- Game/Network/Clients/GameClient.cs`,
+`git status --porcelain` **vide**, puis le filtre rejoué rend `Failed: 0, Passed: 14`.
+
+### 14.8 Invariant énumération / dispatch, mesuré avant et après
+
+* Avant (`GamePackets.cs` de `origin/master`, 139 membres) : **44** membres sans bras dans
+  `GameClient.cs`, tous des `TM_SC_*` (émissions serveur → client).
+* Après : **140** membres, **44** sans bras — **la même liste, au nom près d'aucun** (`diff` vide).
+  `TM_CS_AUCTION_CANCEL` est référencé dans `OnDataReceived`, donc aucun membre neuf ne peut atteindre le
+  `throw` final. Le seul membre bidirectionnel de la famille reste `TM_EQUIP_SUMMON` (303), qui a son bras.
+
+### 14.9 Commandes relevées et codes de sortie
+
+| commande | code | résultat |
+|---|---|---|
+| `dotnet build Navislamia.sln -c Debug` (`NUGET_PACKAGES=/srv/navislamia/.nuget-cache`) | **0** | `0 Error(s)`, 164 avertissements préexistants |
+| `dotnet test Tests/Tests.csproj` (base `b56967a`, avant écriture) | **0** | `Passed: 1302` — plancher de la §13 confirmé |
+| `dotnet test Tests/Tests.csproj` (après le lot) | **0** | `Passed: 1316, Failed: 0` — +14, aucun test retiré |
+| `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~AuctionCancelPacketsTests"` | **0** | `Passed: 14` |
+| le même filtre, bras muté (§14.7) | 1 | `Failed: 4` (tous `Unknown Packet Type 1310`) |
+| le même filtre, après `git checkout --` | **0** | `Passed: 14`, `git status --porcelain` vide |
+| `git merge-tree --write-tree --name-only <sœur> HEAD` × 6 | voir §14.6 | 0, 0, 0, 1, 1, 1 |
+| `git log --oneline origin/master..master` | — | **vide** (aucun commit sur `master` locale) |
+
+### 14.10 Réserve qui ne relève pas du code
+
+Comme les lots `1306`, `1308` et `1309`, la validation **côté client** reste hors de portée de ce
+profil : `SFrame.exe` n'est jamais exécuté ici, et ce conteneur n'a ni désassembleur ni `objdump`
+(relevé le 22/09/2026). Les mesures d'adresses du §3 sont celles de `navis-ref`, lues statiquement ; le
+lot les prend telles quelles et les épingle par des tests d'octets, ce qui est le maximum vérifiable
+sans client.
+
