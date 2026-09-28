@@ -196,6 +196,7 @@ public class AuctionCancelPacketsTests
     [TestCase(7, TestName = "TryReadAuctionCancel_RejectsAHeaderOnlyFrame")]
     [TestCase(10, TestName = "TryReadAuctionCancel_RejectsAFrameMissingItsLastByte")]
     [TestCase(12, TestName = "TryReadAuctionCancel_RejectsAPaddedFrame")]
+    [TestCase(64, TestName = "TryReadAuctionCancel_RejectsAFrameFarTooLong")]
     public void TryReadAuctionCancel_RejectsAnyLengthOtherThanEleven(int length)
     {
         var packet = new byte[length];
