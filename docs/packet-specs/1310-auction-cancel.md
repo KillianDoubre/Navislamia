@@ -147,10 +147,10 @@ de `1310` et celle de `1308` sont identiques au bit près **hors l'identifiant**
   sinon l'`Id` de la trame — les confondre reviendrait à vendre un objet au lieu de le retirer.
 * **Chien de garde de lecture** : `0x51e` n'apparaît comme immédiat de code qu'**une seule fois**
   dans tout `SFrame.exe` (`mov $0x51e,%eax` en `0x48dfd6`). Les autres occurrences de `0x51e` sont
-  des constantes de division (`0x51eb851f`) : un `grep '$0x51e'` brut rend une quinzaine de lignes
-  dont une seule est le paquet. La branche `1310` du gestionnaire de résultat (§5.3) ne contient
-  elle-même **aucun** immédiat `0x51e` : elle est atteinte par `sub $0x51c` puis deux `dec %eax`
-  (traitement par « voisinage », §5.3).
+  des constantes de division (`0x51eb851f`) : un `grep '$0x51e'` brut rend **19** lignes, dont 18
+  constantes de division et une seule occurrence du paquet. La branche `1310` du gestionnaire de
+  résultat (§5.3) ne contient elle-même **aucun** immédiat `0x51e` : elle est atteinte par
+  `sub $0x51c` puis deux `dec %eax` (traitement par « voisinage », §5.3).
 
 ### 3.3 Le chemin complet, du geste à la trame (rejouable)
 
@@ -221,6 +221,11 @@ demandé l'annulation : c'est cette demande-là qui lui rend l'état à jour, pa
 | 4.2 | `auction_uid` | aucun (`_(simple)`) | **4 octets** au décalage 7, lu en **`uint32`** | `TS_CS_AUCTION_CANCEL.h:6` ; la boucle du client écrit un `dword` en `frame+7` (`0x48e003`) |
 | 4.3 | **signedness d'`auction_uid`** (largeur signée ou non) | rzu : **`uint32_t`** pour `1310`, quand `1300`/`1302`/`1304`/`1306`/`1308` déclarent `int32_t` | **`uint32` non signé**, comme rzu et comme NGemity (`…CANCEL.h:7`) le déclarent tous deux pour ce paquet. Socle §3.5 : « le dépôt retient `uint32` pour l'identifiant d'annonce ». Ce paquet est donc le seul de la famille où **les deux références s'accordent** sur l'absence de signe | `TS_CS_AUCTION_CANCEL.h:6` ; `reference/ngemity/shared/Server/Packets/GameClient/TS_CS_AUCTION_CANCEL.h:7` |
 | 4.4 | alias tardif | `2310` à partir de `EPIC_9_6_3` | **établi, non déclaré** : le client 7.3 ne le construit pas et son gestionnaire de résultat ne connaît que `0x51e` (§5.3) | `TS_CS_AUCTION_CANCEL.h:10` ; §3.2 |
+
+Contrôle croisé, pour qui relit un `grep 1310` dans rzu : le numéro **1310 est réattribué** à partir de
+`EPIC_9_6_3` — il porte alors `TS_SC_TAMING_INFO` (`reference/rzu/librzu/src/packets/GameClient/TS_SC_TAMING_INFO.h:12`,
+`X(1310, version >= EPIC_9_6_3)`), une trame serveur → client sans rapport avec les enchères. Seul le
+paquet dont le gating est `< EPIC_9_6_3` concerne cette carte : c'est bien `TM_CS_AUCTION_CANCEL`.
 
 **Aucun champ de `1310` n'a de gating non statué** : la trame est entièrement déterminée pour 7.3.
 Le seul reste est un **écart de modèle**, pas de gating : le lecteur rendra un `uint32` alors que le
