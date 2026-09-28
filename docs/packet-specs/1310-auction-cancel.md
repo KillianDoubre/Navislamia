@@ -605,7 +605,8 @@ jumelles doit la lire comme un choix de fiche, pas comme une inattention.
 
 ### 14.6 Fusionnabilité mesurée (`git merge-tree --write-tree --name-only <sœur> HEAD`)
 
-Relevé le 28/09/2026 sur `HEAD = dab93b6`, git 2.39.5 :
+Relevé le 28/09/2026 sur le commit de code `dab93b6` (le `HEAD` final `8061d5c` ne touche que cette
+fiche, aucun fichier fusionné par les sœurs), git 2.39.5 :
 
 | sœur | code | fichiers en conflit |
 |---|---|---|
