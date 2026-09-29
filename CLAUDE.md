@@ -1313,6 +1313,19 @@ tant qu'aucun joueur n'en voit un autre** : il faut voir l'étal pour cliquer de
 - 604 et 605 : le client les émet, le serveur ne les traite pas encore (catalogues et politique de
   récompenses requis).
 - Détail, sources et réserves : `docs/packet-specs/socle-quetes.md`.
+- **Catalogue de quêtes — miroir livré, vide** (`docs/packet-specs/socle-cycle-quete.md`, lot (b2)) :
+  `QuestResourceEntity`, `QuestLinkResourceEntity`, migration Arcadia `20260925222917_AddQuestCatalogue`,
+  `QuestCatalogueRepository` (enregistré, lu par personne). Les deux tables sont **créées vides** ; l'export
+  9.4 local porte pourtant `QuestResource.csv` et `QuestLinkResource.csv`, à importer comme les colonnes
+  de compétences. Colonnes `char` du schéma = `character varying(1)`, jamais repliées en `bool` ;
+  `QuestLinkResource` n'a pas de clé primaire au schéma, le modèle clé sur `(NpcId, QuestId)`. Ne pas
+  reprendre l'ordre positionnel de `ObjectMgr::LoadQuestResource` (liste 4.1.1 : `limit_quest_indication`
+  au lieu de `limit_job_depth`, `nGold` au lieu de `holicpoint` + `ld`).
+- **604/605 ne sont toujours ni déclarés ni lus** (lot (b1) de la fiche, non livré) : 604 = 11 octets,
+  `code` int32 @7, sans réponse (602 n'a pas de handler client) ; 605 = 12 octets, `code` @7,
+  `nOptionalReward` **int8** @11 où `-1` = aucune récompense optionnelle. Le déclencheur (lot (b3)) est un
+  `TM_SC_DIALOG` au texte `QUEST|<code>|<textID>`, menu `	START	start_quest( code, textid )	`, relu
+  comme une grammaire fermée, jamais du Lua.
 
 ## GM commands
 
