@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
@@ -78,10 +79,40 @@ public class CommercialStorageService : ICommercialStorageService
         catch (Exception exception)
         {
             _logger.Error(exception, "Could not read the commercial storage of {characterName}", characterName);
+
+            // The world entry sequence keeps its two frames: empty, exactly what it sent before the container
+            // was read, rather than nothing at all.
+            client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageInfo(0, 0));
+            client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageList(
+                Array.Empty<(uint Uid, int Code, ushort Count)>()));
         }
     }
 
     public async Task HandleTakeoutAsync(GameClient client, GameActionPackets.TakeoutCommercialItemRequest request)
+    {
+        // One takeout at a time per session: resolve, deliver and consume are three steps that cannot share
+        // the character gate (AddItemAsync takes it itself), so a second request arriving meanwhile would
+        // resolve the still-full row and deliver it again. It is dropped instead; the client refreshes from
+        // the 10003/10004 pair the first one sends.
+        var info = client.ConnectionInfo;
+        if (Interlocked.CompareExchange(ref info.CommercialTakeoutInProgress, 1, 0) != 0)
+        {
+            _logger.Debug("Dropped a commercial takeout of row {uid} for {clientTag}: one is already in progress",
+                request.Uid, client.ClientTag);
+            return;
+        }
+
+        try
+        {
+            await TakeoutAsync(client, request);
+        }
+        finally
+        {
+            Volatile.Write(ref info.CommercialTakeoutInProgress, 0);
+        }
+    }
+
+    private async Task TakeoutAsync(GameClient client, GameActionPackets.TakeoutCommercialItemRequest request)
     {
         var characterName = client.ConnectionInfo.CharacterName;
         if (string.IsNullOrEmpty(characterName))

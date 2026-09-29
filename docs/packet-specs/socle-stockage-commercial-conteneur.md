@@ -800,3 +800,21 @@ erreur** (164 avertissements, tous préexistants) ; `dotnet test Tests/Tests.csp
    `ICharacterService` prend la même clé, donc le tenir d'un bout à l'autre du retrait le bloquerait.
    Même conséquence que la réserve **7h** (item 6) ; à fermer plus tard par une réentrance du gate ou
    un verrou de service, hors périmètre de ce lot.
+
+## Revue avant fusion (2026-09-29)
+
+Fusion de `master` : trois conflits (`NetworkService`, `StorageTestHarness`, `ResurrectionPacketTests`), le
+socle de visibilité de l'étal ayant ajouté son service au même constructeur ; les deux services sont
+gardés. Modèle EF Telecaster et migrations cohérents (`dotnet ef migrations has-pending-model-changes`).
+Deux corrections :
+
+- **Duplication d'objet.** Le retrait résout la ligne, livre l'objet, puis consomme la ligne : trois
+  étapes que le verrou de personnage ne peut pas couvrir (§10, non réentrant). `GameClient` lance chaque
+  10005 sans attendre le précédent : deux demandes rapprochées résolvaient toutes deux la ligne pleine et
+  **livraient deux fois** — reproduit par `TwoTakeoutsAtOnce_DeliverTheGoodsOnlyOnce` (`AddItemAsync`
+  appelé deux fois). Un seul retrait par session désormais (`ConnectionInfo.CommercialTakeoutInProgress`,
+  même motif que `ResurrectionInProgress`) ; le second est abandonné et journalisé.
+- **Lecture en échec à l'entrée en jeu.** `SendContainerAsync` n'émettait alors rien ; il émet maintenant
+  la paire vide (0/0 puis 9 o), ce qu'envoyait le lot 1 (`AFailedRead_StillSendsTheEmptyPairAtWorldEntry`).
+
+Construction `Release` et `dotnet test` : 1 449 tests, 0 échec.

@@ -282,6 +282,44 @@ public class CommercialStorageContainerTests
     }
 
     [Test]
+    public async Task TwoTakeoutsAtOnce_DeliverTheGoodsOnlyOnce()
+    {
+        // GameClient fires each 10005 without awaiting the previous one, and this client does send some
+        // frames twice. Resolve, deliver and consume are three steps: without a guard, both requests
+        // resolve the full row and both deliver before either consumes — a free duplicate.
+        var harness = Build();
+        var row = Row(rest: 5);
+        var release = new TaskCompletionSource<ItemEntity>();
+        A.CallTo(() => harness.Repository.ResolveAsync(Character, Uid)).Returns(Task.FromResult(row));
+        A.CallTo(() => harness.Characters.AddItemAsync(Character, ItemCode, 5)).Returns(release.Task);
+        A.CallTo(() => harness.Repository.ConsumeAsync(Character, Uid, 5))
+            .Returns(Task.FromResult(CommercialTakeoutResult.Consumed(row, 0)));
+        A.CallTo(() => harness.Repository.GetVisibleAsync(Character))
+            .Returns(Task.FromResult(Array.Empty<PaidItemEntity>()));
+
+        var first = Takeout(harness);
+        var second = Takeout(harness);
+        release.SetResult(Added());
+        await Task.WhenAll(first, second);
+
+        A.CallTo(() => harness.Characters.AddItemAsync(Character, ItemCode, 5)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task AFailedRead_StillSendsTheEmptyPairAtWorldEntry()
+    {
+        var harness = Build();
+        A.CallTo(() => harness.Repository.GetVisibleAsync(Character))
+            .ThrowsAsync(new InvalidOperationException("database down"));
+
+        await harness.Service.SendContainerAsync(harness.Client);
+
+        harness.Connection.Sent.Select(IdOf).Should().Equal(new ushort[] { 10003, 10004 },
+            "the world entry sequence keeps its two frames, empty, as before the container existed");
+        CountOf(harness.Connection.Sent[1]).Should().Be(0);
+    }
+
+    [Test]
     public async Task Takeout_KeepsTheReadAndTheWriteOnTheSessionCharacter()
     {
         var harness = Build();
