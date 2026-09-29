@@ -18,6 +18,7 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<ItemStorageEntity> ItemStorages { get; set; }
     public DbSet<PartyEntity> Parties { get; set; }
     public DbSet<PetEntity> Pets { get; set; }
+    public DbSet<PaidItemEntity> PaidItems { get; set; }
     public DbSet<SummonEntity> Summons { get; set; }
     public DbSet<StarterItemsEntity> StarterItems { get; set; }
     public DbSet<GlobalVariableEntity> GlobalVariables { get; set; }
@@ -34,6 +35,18 @@ public class TelecasterContext : SoftDeletionContext
         ConfigureGuilds(modelBuilder);
         ConfigurePets(modelBuilder);
         ConfigureSummons(modelBuilder);
+        ConfigurePaidItems(modelBuilder);
+    }
+
+    /// <summary>
+    /// The commercial storage (item shop) container: one table of its own, never the kept/auction
+    /// <c>ItemStorages</c> (docs/packet-specs/socle-stockage-commercial-conteneur.md §5.1). The index is
+    /// the pair the read path filters on at every world entry: the account of the reader and the target
+    /// of the delivery, which is empty for an account-level purchase.
+    /// </summary>
+    private static void ConfigurePaidItems(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<PaidItemEntity>().HasIndex(row => new { row.AccountId, row.CharacterId });
     }
     
     private static void ConfigureItems(ModelBuilder modelBuilder)

@@ -1277,6 +1277,27 @@ L'état d'étal n'est ni persisté ni diffusé : aucun joueur ne le voit, pas m�
 validation des handles contre l'inventaire, le sens du `type` et l'unité du `gold` restent ouverts
 (`docs/packet-specs/socle-booths.md` §7 et §12).
 
+### Étal de joueur — visibilité (702/703/704)
+
+`TM_CS_WATCH_BOOTH` (702), `TM_SC_WATCH_BOOTH` (703) et `TM_CS_STOP_WATCH_BOOTH` (704) sont déclarés dans
+`GamePackets` **et** dans la boucle de réception : `702` et `704` sont des trames de 11 octets (en-tête 7,
+`target uint32` à +7), `703` est la seule réponse et fait `14 + 83 × count` octets (`target` à +7,
+`type uint8` à +11, `count uint16` à +12, enregistrements de 83 à +14 : le motif de 75 octets
+d'`ItemFixedInfoWriter`, `appearance_code` inclus, puis le prix déclaré `int64` à +75). Le contenu de `703`
+est **résolu** contre l'inventaire du propriétaire (`ICharacterService.GetItemByHandleAsync`), jamais les
+triplets bruts du `700`. Le client envoie `702` au clic sur le panneau de nom de l'étal (message interne
+`SMSG_WATCH_BOOTH`, drapeau 1 = 702, 0 = 704), jamais au-delà de 100 unités ; `703` est la seule trame de
+la famille qu'il sait afficher.
+
+`BoothWatchService` retrouve le propriétaire en cherchant la session dont `CharacterHandle` vaut `target`
+et qui tient un étal ouvert (aucun index handle → session n'existe). Choix du lot, faute de référence
+(NGemity ne traite rien de la famille) : un étal inconnu ou fermé répond `TS_SC_RESULT(702, NotExist)` avec
+le handle, un objet déclaré qui n'est plus dans le sac est **omis** (le `count` suit), et `704` répond
+`Success`. Rien n'est envoyé au propriétaire ni à personne d'autre ; l'observation s'oublie sur `704` et
+avec la session. Le verrou d'actions (`BoothRules.GateAction`) couvre désormais `702`. **Pas testable en jeu
+tant qu'aucun joueur n'en voit un autre** : il faut voir l'étal pour cliquer dessus. Voir
+`docs/packet-specs/socle-booths-visibilite.md`.
+
 ## Quêtes — socle 7.3 (600/601/603)
 
 - 603 `TM_CS_DROP_QUEST` : 11 octets, `code` int32 à l'offset 7, signé (refuser < 0). Réponse :
@@ -1292,6 +1313,19 @@ validation des handles contre l'inventaire, le sens du `type` et l'unité du `go
 - 604 et 605 : le client les émet, le serveur ne les traite pas encore (catalogues et politique de
   récompenses requis).
 - Détail, sources et réserves : `docs/packet-specs/socle-quetes.md`.
+- **Catalogue de quêtes — miroir livré, vide** (`docs/packet-specs/socle-cycle-quete.md`, lot (b2)) :
+  `QuestResourceEntity`, `QuestLinkResourceEntity`, migration Arcadia `20260925222917_AddQuestCatalogue`,
+  `QuestCatalogueRepository` (enregistré, lu par personne). Les deux tables sont **créées vides** ; l'export
+  9.4 local porte pourtant `QuestResource.csv` et `QuestLinkResource.csv`, à importer comme les colonnes
+  de compétences. Colonnes `char` du schéma = `character varying(1)`, jamais repliées en `bool` ;
+  `QuestLinkResource` n'a pas de clé primaire au schéma, le modèle clé sur `(NpcId, QuestId)`. Ne pas
+  reprendre l'ordre positionnel de `ObjectMgr::LoadQuestResource` (liste 4.1.1 : `limit_quest_indication`
+  au lieu de `limit_job_depth`, `nGold` au lieu de `holicpoint` + `ld`).
+- **604/605 ne sont toujours ni déclarés ni lus** (lot (b1) de la fiche, non livré) : 604 = 11 octets,
+  `code` int32 @7, sans réponse (602 n'a pas de handler client) ; 605 = 12 octets, `code` @7,
+  `nOptionalReward` **int8** @11 où `-1` = aucune récompense optionnelle. Le déclencheur (lot (b3)) est un
+  `TM_SC_DIALOG` au texte `QUEST|<code>|<textID>`, menu `	START	start_quest( code, textid )	`, relu
+  comme une grammaire fermée, jamais du Lua.
 
 ## GM commands
 
@@ -2085,10 +2119,32 @@ dispatch et `HandleSecurityNo` dans `Game/Network/Clients/GameClient.cs`, tests
   qu'une 10003 constante. Sans boutique, le conteneur est **vide par construction** ; ne rien
   inventer sur le retrait (coût, plafond, code de résultat, acquittement) — décisions ouvertes dans
   la fiche.
-- Aucun service, aucune entité et aucune migration pour ce conteneur : rien dans le dépôt ne peut
-  l'approvisionner, donc sa seule valeur exacte est vide. Les trois bras de dispatch sont posés près
-  de `TM_SC_REGION_ACK` (`GameClient.cs:813-840`), jamais à l'ancre du `switch` final.
+- Les trois bras de dispatch sont posés près de `TM_SC_REGION_ACK`, jamais à l'ancre du `switch` final.
+  Le conteneur lui-même est le lot 2, ci-dessous.
 - Le savoir durable de ce socle est dans `docs/packet-specs/socle-stockage-commercial.md`, pas ici.
+
+### Socle stockage commercial — lot 2 : conteneur persisté (10003/10004) et retrait réel (10005)
+
+- Le contenu vient d'une table **`PaidItems`** (migration Telecaster `Version0010_PaidItems`), calquée sur
+  `Telecaster.PaidItem` du dump officiel (`reference/ngemity/Database/Telecaster.sql:419-439`) :
+  `item_code` → `code`, `rest_item_count` → `count`, `taken_*` horodatés au retrait. Le conteneur « kept »
+  du dépôt (`ItemStorageEntity`, `StorageType` enchères/courrier) **n'est pas** ce conteneur.
+- `commercial_item_uid` est **écrit par le serveur** (`(uint)ligne.Id`) et recopié par le client : la
+  résolution porte **toujours** le propriétaire (`AccountId` + cible `CharacterId` nulle ou égale) et
+  compare l'`Id` sur **64 bits** (`row.Id == uid`), jamais `(uint)row.Id == uid`.
+- À l'entrée en jeu, `CommercialStorageService.SendContainerAsync` **lit** la table puis émet la paire
+  10003/10004. Table vide = la paire du lot 1 (11 o à 0/0, puis 9 o). **Si la lecture échoue, la même paire
+  vide part quand même** : la séquence d'entrée garde ses deux trames.
+- Le retrait (10005) remet l'objet au sac (`ICharacterService.AddItemAsync` + trames d'inventaire),
+  décrémente `rest_item_count`, horodate `taken_*` et réémet la paire. Le serveur **n'émet jamais 10005**,
+  n'envoie **aucun `ResultCode`** et n'invente ni coût, ni plafond, ni acquittement.
+- **Un seul retrait à la fois par session** (`ConnectionInfo.CommercialTakeoutInProgress`) : résolution,
+  livraison et consommation sont trois étapes, et `CharacterGate` ne peut pas les couvrir — il n'est pas
+  réentrant et `AddItemAsync` prend la même clé, donc le tenir autour bloquerait le retrait pour toujours.
+  Sans ce drapeau, deux 10005 envoyés ensemble résolvaient la ligne pleine et **livraient deux fois**
+  (reproduit par test à la revue du 2026-09-29) ; le second est désormais abandonné.
+- Le producteur est **hors code** (boutique web externe, 10001) : sans boutique ni outil d'administration,
+  `PaidItems` reste vide. Fiche : `docs/packet-specs/socle-stockage-commercial-conteneur.md`.
 
 ### Socle compétition entre joueurs — 4500-4506 (`TM_CS/SC_COMPETE_*`)
 
@@ -2185,6 +2241,22 @@ des données est le lot K2, et elle appartient à Killian. Découpage K1…K3 : 
 (≤ 10 est une borne de protocole, pas un choix), valeur du rang et du score d'un joueur non
 classé, source des données, cadence, refus d'une trame mal formée, effet perçu d'une liste vide.
 Aucune de ces valeurs n'est devinée.
+
+### Socle ferme de créatures — 6000-6008
+
+- Les neuf ids sont `X(<id>, true)` chez rzu sous « Since EPIC_7_3 » : 7.3 garde les ids nus, aucun champ
+  n'est gaté. Seuls les six que le serveur lit ou émet sont déclarés ; les trois trames de résultat
+  6003/6005/6007 restent non déclarées tant que les valeurs de leur `result` ne sont pas établies.
+- `TM_CS_REQUEST_FARM_INFO` (6000, **7 octets**, à l'ouverture et à chaque rafraîchissement de la fenêtre)
+  reçoit un `TM_SC_FARM_INFO` (6001, `8 + 120 × N` octets) **vide** : `summons = 0`, 8 octets. Le client le
+  traite proprement (octet nul → pas d'allocation, `SFrame.exe 0x67219c`). C'est un **choix de lot**, pas
+  un fait de référence : la ferme n'existe pas côté serveur.
+- 6002 (`19 + 8 × T + 8 × C`), 6004 et 6006 (11 octets, `card_handle` @7) et 6008 (7 octets) sont lus,
+  bornés, journalisés — **jamais répondus** : aucune référence n'implémente la ferme (NGemity : 0
+  occurrence), et `result`, tickets, crackers, durées et `index` ne sont pas établis. 6001 reçu d'un client
+  est journalisé et abandonné.
+- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Piste de données :
+  `db_creaturefarm.rdb` (72 enregistrements de 4 `int8`), non lue. Fiche : `docs/packet-specs/socle-ferme-creatures.md`.
 
 ## Source data (9.4 SQL Server export)
 

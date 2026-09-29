@@ -282,6 +282,7 @@ public class Program
         services.AddSingleton<CharacterGate>();
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStorageRepository, StorageRepository>();
+        services.AddSingleton<IPaidItemRepository, PaidItemRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
         services.AddSingleton<IJobResourceRepository, JobResourceRepository>();
         services.AddSingleton<IJobLevelBonusRepository, JobLevelBonusRepository>();
@@ -301,6 +302,7 @@ public class Program
         services.AddSingleton<IMonsterResourceRepository, MonsterResourceRepository>();
         services.AddSingleton<ILevelResourceRepository, LevelResourceRepository>();
         services.AddSingleton<IAuctionCateryResourceRepository, AuctionCateryResourceRepository>();
+        services.AddSingleton<IQuestCatalogueRepository, QuestCatalogueRepository>();
         services.AddSingleton<IWorldLocationRepository, WorldLocationRepository>();
         services.AddSingleton<IWorldLocationService, WorldLocationService>();
         services.AddSingleton<ILevelingService, LevelingService>();
@@ -317,6 +319,7 @@ public class Program
         services.AddSingleton<IItemSortCatalog, ItemSortCatalog>();
         services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<IStorageService, StorageService>();
+        services.AddSingleton<ICommercialStorageService, CommercialStorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IPetCatalog, PetCatalog>();
@@ -330,6 +333,7 @@ public class Program
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
         services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
+        services.AddSingleton<IBoothWatchService, BoothWatchService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();
