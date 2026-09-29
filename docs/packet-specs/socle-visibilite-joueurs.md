@@ -657,6 +657,103 @@ plancher du critère : 366. Relever **séparément** le code de sortie du build 
 > `>= EPIC_9_6`), et une entrée hors de la fenêtre du client est **définitivement ignorée** par lui.
 > Détail, sources et réserves : `docs/packet-specs/socle-visibilite-joueurs.md`.
 
+## 11. Livraison du lot dev — L1 à L3, écarts et corrections de fiche
+
+Implémenté sur `hermes/packet-socle-visibilite-joueurs`, en suivant le découpage de §9.1 : **L1, L2 et
+L3 sont livrés, L4 ne l'est pas** (§11.3 point 6). Les trois ids du socle étant déjà déclarés et déjà
+émis, **`Game/Network/Packets/Enums/GamePackets.cs` n'est pas touché** (§5.6) : `git diff
+origin/master -- …/GamePackets.cs` est vide, et il en va de même de `WorldObjectStreamer.cs`,
+`SpatialIndex.cs`, `WorldVisibility.cs` et `TS_SC_ENTER_PLAYER.cs`.
+
+### 11.1 Fichiers livrés
+
+| lot | code | tests |
+|---|---|---|
+| **L1** | `Game/Services/PlayerVisibilityIndex.cs`, `Game/Services/PlayerRegistry.cs`, `Game/Services/PlayerPresence.cs` (la présence **et** `PlayerAppearance`) | `Tests/Game/PlayerVisibilityIndexTests.cs`, `Tests/Game/PlayerRegistryTests.cs` |
+| **L2** | `Game/Services/PlayerVisibilityService.cs`, `Game/Services/Interfaces/IPlayerVisibilityService.cs`, surcharge `GameMovePackets.BuildMove(handle, startTime, layer, speed, ReadOnlySpan<byte> waypoints)` | `Tests/Game/PlayerVisibilityFrameTests.cs`, `Tests/Game/PlayerVisibilitySocleTests.cs` |
+| **L3** | `Actions/GameActions.cs` (déclencheur 1), `GameClient.cs` (2, 3, 5), `WarpService.cs` (4), `ConnectionInfo.cs` (`SpawnedPlayers`, `PlayerVisibilityLock`, `Appearance`), `NetworkService.cs` + `DevConsole/Program.cs` (injection), `Tests/Game/StorageTestHarness.cs` (paramètre optionnel) | les deux fichiers de L2 |
+
+Les deux briques de §5.2 sont **des fichiers neufs et autonomes** : ni l'index ni le registre ne vivent
+dans le service de diffusion. Le service les **possède** (`Index`, `Registry`) et les expose par
+`IPlayerVisibilityService`, donc un autre service — les étals, demain — peut résoudre un handle sans
+passer par la diffusion.
+
+### 11.2 Ce qui est réutilisé tel quel (aucune réécriture)
+
+`GameSpawnPackets.BuildLeave` (11 octets, §3.4), `GameMovePackets.CreateMove`/`WriteChecksum` (la
+surcharge à `N` points ne réécrit que le corps de `BuildMove`), `TS_SC_ENTER_PLAYER` et
+`ActorStatus.ForPlayer` (le statut d'un pair), `GameCharacterPackets.GetFaceId`/`GetHairId` (les mêmes
+que l'entrée locale), `ServerClock` et `ConnectionInfo.ClientClockOffset` (le temps du `MOVE` du
+destinataire), `ConnectionInfo.ClearVisibleObjects` (étendue à la vue des joueurs),
+`WarpService.LeaveEverything` (qui appelle désormais la passe des joueurs), `WorldVisibility.ViewRange`
+(540) comme côté de cellule de la grille neuve.
+
+### 11.3 Écarts assumés, et corrections apportées à cette fiche
+
+1. **`WorldObjectStreamer.Stream` n'est pas réutilisé**, alors que §9.2 le recommandait avec un
+   paramètre optionnel `Func<T, uint> handleFor`. Le paramètre aurait porté la **politique de handle**,
+   mais pas les deux propriétés qui font le socle : la boucle tient **une** carte handles-par-client et
+   envoie **sous le verrou du client courant**, alors qu'un joueur est vu sous un handle **partagé**
+   (§9.2) et que la réconciliation symétrique impose de toucher **deux** sessions sous **deux** verrous
+   distincts, jamais imbriqués (§5.4 règle 1). Le service de diffusion écrit donc sa propre passe, et
+   les trois appelants historiques de la boucle sont **inchangés** : le point 8 de §9.4 tient par
+   construction (aucune assertion à écrire, aucun comportement à préserver n'a bougé).
+2. **`Sync` réindexe la présence — §5.3 déclencheur 3 l'exige et le premier jet ne le faisait pas.**
+   La fiche demande « mise à jour de l'entrée dans l'index + re-synchronisation » pour le
+   franchissement de région. Or `Sync` lisait la position **indexée** : un client qui franchissait une
+   frontière sans envoyer de chemin laissait son entrée à l'ancienne place, la fenêtre se calculait
+   sur une position périmée, et les pairs déjà hors de la **nouvelle** fenêtre n'étaient jamais
+   détachés. `Sync` appelle donc `Index.Move(handle, X, Y)` avant de calculer l'ensemble en portée —
+   c'est la **session** qui fait foi sur la place, l'index n'en est que le reflet. Verrouillé par
+   `RegionBorder_ReIndexesThePresenceAndTellsBothSides` (les deux côtés reçoivent leur `LEAVE`, la
+   présence porte la nouvelle position, aucune trame d'entrée n'est émise).
+3. **Les traits d'un pair viennent d'un instantané de session.** `ConnectionInfo.Appearance`
+   (`PlayerAppearance`) est posé par `GameActions.OnLogin` **depuis l'entité qui construit l'entrée
+   locale** : la session ne garde aucune `CharacterEntity`, et une trame de pair ne peut donc pas être
+   fabriquée sans ce portrait. Tout ce qui change en session (niveau, job, hp/mp, position, états) est
+   relu **en direct** dans `ConnectionInfo` à chaque construction de trame, jamais figé dans
+   l'instantané.
+4. **`max_mp` d'un pair est sa mana courante**, exactement le choix de l'entrée locale
+   (`Actions/GameActions.cs`, `MaxMp = mp`) : la session ne porte pas de mana maximale. Assumé comme
+   tel, pas deviné — c'est la seule valeur que le dépôt ait jamais mise dans ce champ.
+5. **`is_first_enter = 1`** pour un pair, seule valeur que le dépôt ait jamais envoyée (§7.2, réserve
+   `## A VERIFIER` 3).
+6. **L4 (étals) non livré** : `BoothWatchService.TryFindBoothOwner` continue son balayage. Le registre
+   rend le balayage inutile, mais rebrancher les étals dans ce lot élargirait le diff d'un fichier qui
+   appartient à la carte des étals, et la fiche le classe explicitement « recommandé mais détachable »
+   (§9.1). La brique est livrée réutilisable (`IPlayerVisibilityService.Registry`), le branchement est
+   une décision de Killian (réserve `## A VERIFIER` 8).
+7. **Aucune politique de jeu, aucune constante nouvelle** : la portée est `WorldVisibility.ViewRange`
+   (540, comme les trois autres types), la vitesse diffusée est `ConnectionInfo.EchoedMoveSpeed`, la
+   couche est celle du marcheur (`ConnectionInfo.Layer`), et **aucune cadence de re-diffusion** n'est
+   ajoutée : les cinq déclencheurs de §5.3 sont évènementiels, comme `SyncVisibleObjects`.
+   `SpawnedPlayers` est un `Dictionary<long, uint>` **par symétrie avec `SpawnedMonsters`/`SpawnedProps`
+   du même fichier** — la clé y est le handle partagé et la valeur le handle affiché, les deux n'étant
+   égaux que pour un joueur ; les autres types gardent leur carte id → handle.
+
+### 11.4 Tests exigés par §9.4, et où ils sont
+
+| §9.4 | test |
+|---|---|
+| 1 — offsets de l'`ENTER` joueur (118, champ par champ) | `PlayerVisibilityFrameTests.PlayerEnterFrame_IsOneHundredAndEighteenBytesWithEveryFieldAtItsOffset`, `…_ReservesTheNineteenNameBytesWithoutRunningIntoTheJobId` |
+| 2 — offsets du `LEAVE` (11, `handle` @7) | `…LeaveFrame_IsElevenBytesAndCarriesTheHandleAtSeven` |
+| 3 — offsets du `MOVE` (`19 + 8 × N`), cas minimal et à plusieurs points, cas négatif | `…MoveFrame_WithTwoWaypoints_IsThirtyFiveBytesAndKeepsTheReceivedPoints`, `…_WithOneWaypoint_KeepsTheHistoricalLayout`, `…_WithoutAWaypointOrWithAPartialOne_IsRefused` |
+| 4 — handle partagé par tous les observateurs | `PlayerVisibilitySocleTests.Entry_EveryObserverIsGivenTheSameSharedHandle` |
+| 5 — réciprocité (entrée et sortie) | `…Entry_PairsBothSidesWithTheirOwnEnterFrame`, `…WindowExit_TellsBothSidesLeavingTheWindow`, `…RegionBorder_ReIndexesThePresenceAndTellsBothSides` |
+| 6 — filtrage du handle du marcheur (cas négatif) | `…MoveRequest_ClaimingAForeignHandle_IsDroppedWithoutEchoOrDiffusion` |
+| 7 — sortie (registre vidé, `LEAVE` chez les observateurs) | `…Exit_TellsEveryObserverAndKeepsNoPresence` |
+| 8 — non-régression des trois appelants de la boucle partagée | sans objet : `WorldObjectStreamer.cs` n'est pas modifié (§11.3 point 1) |
+| 9 — le socle n'envoie rien à un client sans pair | `…Entry_OutOfTheWindow_ProducesNothingOnEitherSide`, `…Move_AloneInTheWorld_SendsNothing` |
+
+Plus, hors §9.4 : la couche exclut la visibilité (`Entry_OnAnotherLayer_…`), la frontière n'émet aucune
+trame de marche (`RegionUpdate_ReachesTheSocle`, socle appelé avec un faux service), le warp annonce le
+départ et réinscrit à la nouvelle place (`Warp_AnnouncesTheDepartureAndRegistersTheNewPlace`) et un
+`MOVE_REQUEST` bien formé remet ses points au socle (`MoveRequest_WellFormed_HandsTheWaypointsToTheSocle`).
+
+Enfin, un écart de forme connu et non mesuré en jeu : la variante joueur du client 7.3 n'est établie
+que par lecture statique et par l'accord des six tailles déjà vérifiées du handler (§3.6) ; les neuf
+réserves de `## A VERIFIER PAR KILLIAN` restent ouvertes, et **aucune** n'est comblée par ce lot.
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Vérification en jeu, deux clients** (§7.1) : deux personnages à moins de 540 unités doivent se

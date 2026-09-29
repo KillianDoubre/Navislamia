@@ -42,6 +42,7 @@ public class NetworkService : INetworkService
     public readonly IWorldLocationService WorldLocationService;
     public readonly Navislamia.Game.Services.Pets.IPetSummonService PetSummonService;
     public readonly ICommercialStorageService CommercialStorageService;
+    public readonly IPlayerVisibilityService PlayerVisibilityService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -71,8 +72,10 @@ public class NetworkService : INetworkService
         IGmCommandService gmCommandService,
         Navislamia.Game.Services.Pets.IPetSummonService petSummonService,
         IBoothWatchService boothWatchService,
-        ICommercialStorageService commercialStorageService)
+        ICommercialStorageService commercialStorageService,
+        IPlayerVisibilityService playerVisibilityService)
     {
+        PlayerVisibilityService = playerVisibilityService;
         CommercialStorageService = commercialStorageService;
         PetSummonService = petSummonService;
         _logger = logger;
