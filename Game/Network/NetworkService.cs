@@ -34,6 +34,7 @@ public class NetworkService : INetworkService
     public readonly IGmCommandService GmCommandService;
     public readonly IGroundItemService GroundItemService;
     public readonly ICraftingSocleService CraftingSocleService;
+    public readonly IBoothWatchService BoothWatchService;
     public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
     public readonly IEventAreaService EventAreaService;
@@ -67,7 +68,8 @@ public class NetworkService : INetworkService
         IStorageService storageService,
         IQuestService questService,
         IGmCommandService gmCommandService,
-        Navislamia.Game.Services.Pets.IPetSummonService petSummonService)
+        Navislamia.Game.Services.Pets.IPetSummonService petSummonService,
+        IBoothWatchService boothWatchService)
     {
         PetSummonService = petSummonService;
         _logger = logger;
@@ -88,6 +90,7 @@ public class NetworkService : INetworkService
         GmCommandService = gmCommandService;
         GroundItemService = groundItemService;
         CraftingSocleService = craftingSocleService;
+        BoothWatchService = boothWatchService;
         FieldPropService = fieldPropService;
         SkillCastService = buffService;
         EventAreaService = eventAreaService;

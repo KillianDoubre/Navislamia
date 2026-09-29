@@ -1277,6 +1277,27 @@ L'état d'étal n'est ni persisté ni diffusé : aucun joueur ne le voit, pas m�
 validation des handles contre l'inventaire, le sens du `type` et l'unité du `gold` restent ouverts
 (`docs/packet-specs/socle-booths.md` §7 et §12).
 
+### Étal de joueur — visibilité (702/703/704)
+
+`TM_CS_WATCH_BOOTH` (702), `TM_SC_WATCH_BOOTH` (703) et `TM_CS_STOP_WATCH_BOOTH` (704) sont déclarés dans
+`GamePackets` **et** dans la boucle de réception : `702` et `704` sont des trames de 11 octets (en-tête 7,
+`target uint32` à +7), `703` est la seule réponse et fait `14 + 83 × count` octets (`target` à +7,
+`type uint8` à +11, `count uint16` à +12, enregistrements de 83 à +14 : le motif de 75 octets
+d'`ItemFixedInfoWriter`, `appearance_code` inclus, puis le prix déclaré `int64` à +75). Le contenu de `703`
+est **résolu** contre l'inventaire du propriétaire (`ICharacterService.GetItemByHandleAsync`), jamais les
+triplets bruts du `700`. Le client envoie `702` au clic sur le panneau de nom de l'étal (message interne
+`SMSG_WATCH_BOOTH`, drapeau 1 = 702, 0 = 704), jamais au-delà de 100 unités ; `703` est la seule trame de
+la famille qu'il sait afficher.
+
+`BoothWatchService` retrouve le propriétaire en cherchant la session dont `CharacterHandle` vaut `target`
+et qui tient un étal ouvert (aucun index handle → session n'existe). Choix du lot, faute de référence
+(NGemity ne traite rien de la famille) : un étal inconnu ou fermé répond `TS_SC_RESULT(702, NotExist)` avec
+le handle, un objet déclaré qui n'est plus dans le sac est **omis** (le `count` suit), et `704` répond
+`Success`. Rien n'est envoyé au propriétaire ni à personne d'autre ; l'observation s'oublie sur `704` et
+avec la session. Le verrou d'actions (`BoothRules.GateAction`) couvre désormais `702`. **Pas testable en jeu
+tant qu'aucun joueur n'en voit un autre** : il faut voir l'étal pour cliquer dessus. Voir
+`docs/packet-specs/socle-booths-visibilite.md`.
+
 ## Quêtes — socle 7.3 (600/601/603)
 
 - 603 `TM_CS_DROP_QUEST` : 11 octets, `code` int32 à l'offset 7, signé (refuser < 0). Réponse :
@@ -2185,6 +2206,22 @@ des données est le lot K2, et elle appartient à Killian. Découpage K1…K3 : 
 (≤ 10 est une borne de protocole, pas un choix), valeur du rang et du score d'un joueur non
 classé, source des données, cadence, refus d'une trame mal formée, effet perçu d'une liste vide.
 Aucune de ces valeurs n'est devinée.
+
+### Socle ferme de créatures — 6000-6008
+
+- Les neuf ids sont `X(<id>, true)` chez rzu sous « Since EPIC_7_3 » : 7.3 garde les ids nus, aucun champ
+  n'est gaté. Seuls les six que le serveur lit ou émet sont déclarés ; les trois trames de résultat
+  6003/6005/6007 restent non déclarées tant que les valeurs de leur `result` ne sont pas établies.
+- `TM_CS_REQUEST_FARM_INFO` (6000, **7 octets**, à l'ouverture et à chaque rafraîchissement de la fenêtre)
+  reçoit un `TM_SC_FARM_INFO` (6001, `8 + 120 × N` octets) **vide** : `summons = 0`, 8 octets. Le client le
+  traite proprement (octet nul → pas d'allocation, `SFrame.exe 0x67219c`). C'est un **choix de lot**, pas
+  un fait de référence : la ferme n'existe pas côté serveur.
+- 6002 (`19 + 8 × T + 8 × C`), 6004 et 6006 (11 octets, `card_handle` @7) et 6008 (7 octets) sont lus,
+  bornés, journalisés — **jamais répondus** : aucune référence n'implémente la ferme (NGemity : 0
+  occurrence), et `result`, tickets, crackers, durées et `index` ne sont pas établis. 6001 reçu d'un client
+  est journalisé et abandonné.
+- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Piste de données :
+  `db_creaturefarm.rdb` (72 enregistrements de 4 `int8`), non lue. Fiche : `docs/packet-specs/socle-ferme-creatures.md`.
 
 ## Source data (9.4 SQL Server export)
 
