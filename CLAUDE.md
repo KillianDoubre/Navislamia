@@ -2186,6 +2186,22 @@ des données est le lot K2, et elle appartient à Killian. Découpage K1…K3 : 
 classé, source des données, cadence, refus d'une trame mal formée, effet perçu d'une liste vide.
 Aucune de ces valeurs n'est devinée.
 
+### Socle ferme de créatures — 6000-6008
+
+- Les neuf ids sont `X(<id>, true)` chez rzu sous « Since EPIC_7_3 » : 7.3 garde les ids nus, aucun champ
+  n'est gaté. Seuls les six que le serveur lit ou émet sont déclarés ; les trois trames de résultat
+  6003/6005/6007 restent non déclarées tant que les valeurs de leur `result` ne sont pas établies.
+- `TM_CS_REQUEST_FARM_INFO` (6000, **7 octets**, à l'ouverture et à chaque rafraîchissement de la fenêtre)
+  reçoit un `TM_SC_FARM_INFO` (6001, `8 + 120 × N` octets) **vide** : `summons = 0`, 8 octets. Le client le
+  traite proprement (octet nul → pas d'allocation, `SFrame.exe 0x67219c`). C'est un **choix de lot**, pas
+  un fait de référence : la ferme n'existe pas côté serveur.
+- 6002 (`19 + 8 × T + 8 × C`), 6004 et 6006 (11 octets, `card_handle` @7) et 6008 (7 octets) sont lus,
+  bornés, journalisés — **jamais répondus** : aucune référence n'implémente la ferme (NGemity : 0
+  occurrence), et `result`, tickets, crackers, durées et `index` ne sont pas établis. 6001 reçu d'un client
+  est journalisé et abandonné.
+- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Piste de données :
+  `db_creaturefarm.rdb` (72 enregistrements de 4 `int8`), non lue. Fiche : `docs/packet-specs/socle-ferme-creatures.md`.
+
 ## Source data (9.4 SQL Server export)
 
 The 9.4 resource database lives in a local SQL Server (`localhost\SQLEXPRESS`, database `Arcadia`) that

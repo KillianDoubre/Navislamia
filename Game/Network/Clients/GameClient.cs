@@ -593,6 +593,122 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_RANKING_TOP_RECORD, buffer.Length, ClientTag, request.RankingType);
     }
 
+    /// <summary>
+    /// TM_CS_REQUEST_FARM_INFO (6000), the creature farm window asking for its content — the client sends it on
+    /// open and on every refresh (SFrame.exe 0x6109f0). The answer is a TM_SC_FARM_INFO (6001) with
+    /// <c>summons = 0</c>: NavisLamia stores no farm at all, so no entry could be filled with anything but
+    /// invented values, and the 7.3 client handles the empty farm cleanly.
+    ///
+    /// A frame whose length is not 7 is malformed, not a request: the client writes the length in hard and no
+    /// reference establishes an answer for it, so it is only logged. See
+    /// docs/packet-specs/socle-ferme-creatures.md §5.2, §5.3.
+    /// </summary>
+    private void HandleRequestFarmInfo(byte[] buffer)
+    {
+        if (!GameFarmPackets.HasNoPayload(buffer))
+        {
+            _logger.Warning("Malformed TM_CS_REQUEST_FARM_INFO ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO, buffer.Length, ClientTag);
+            return;
+        }
+
+        Connection.Send(GameFarmPackets.BuildEmptyFarmInfo());
+
+        _logger.Debug("TM_CS_REQUEST_FARM_INFO ({id}) Length: {length} received from {clientTag}",
+            (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO, buffer.Length, ClientTag);
+    }
+
+    /// <summary>
+    /// TM_CS_FOSTER_CREATURE (6002), the farm's "assign" button: the card to leave in the farm and the ticket
+    /// and cracker stacks it consumes. The frame is read and bounded, and nothing is answered: the result frame
+    /// 6003 carries a <c>result</c> byte whose values no reference establishes, and this server can neither
+    /// validate nor consume the stacks (which item is a ticket is not established either). See
+    /// docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5, §7.6.
+    /// </summary>
+    private void HandleFosterCreature(byte[] buffer)
+    {
+        if (!GameFarmPackets.TryReadFosterCreature(buffer, out var request))
+        {
+            _logger.Warning("Malformed TM_CS_FOSTER_CREATURE ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_FOSTER_CREATURE, buffer.Length, ClientTag);
+            return;
+        }
+
+        // Six properties: guarded, or the argument array is built before the level check.
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_FOSTER_CREATURE ({id}) Length: {length} received from {clientTag}: card_handle={cardHandle} " +
+                "tickets={tickets} crackers={crackers}",
+                (ushort)GamePackets.TM_CS_FOSTER_CREATURE, buffer.Length, ClientTag, request.CreatureCardHandle,
+                request.Tickets.Length, request.Crackers.Length);
+        }
+    }
+
+    /// <summary>
+    /// TM_CS_RETRIEVE_CREATURE (6004), the farm's "regain" button: the card the player takes back. Read and
+    /// logged, never answered — 6005's <c>result</c> values are not established and the server holds no farm
+    /// state to act on. See docs/packet-specs/socle-ferme-creatures.md §5.2, §5.3.
+    /// </summary>
+    private void HandleRetrieveCreature(byte[] buffer)
+    {
+        if (!GameFarmPackets.TryReadRetrieveCreature(buffer, out var creatureCardHandle))
+        {
+            _logger.Warning("Malformed TM_CS_RETRIEVE_CREATURE ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE, buffer.Length, ClientTag);
+            return;
+        }
+
+        // Four properties: guarded, or the argument array is built before the level check.
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_RETRIEVE_CREATURE ({id}) Length: {length} received from {clientTag}: card_handle={cardHandle}",
+                (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE, buffer.Length, ClientTag, creatureCardHandle);
+        }
+    }
+
+    /// <summary>
+    /// TM_CS_NURSE_CREATURE (6006), the farm's "ministration" buttons (one per slot in the client): the same
+    /// 11-byte frame as 6004. Read and logged, never answered, for the same reasons as 6004.
+    /// See docs/packet-specs/socle-ferme-creatures.md §5.2, §5.3.
+    /// </summary>
+    private void HandleNurseCreature(byte[] buffer)
+    {
+        if (!GameFarmPackets.TryReadNurseCreature(buffer, out var creatureCardHandle))
+        {
+            _logger.Warning("Malformed TM_CS_NURSE_CREATURE ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_NURSE_CREATURE, buffer.Length, ClientTag);
+            return;
+        }
+
+        // Four properties: guarded, or the argument array is built before the level check.
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_NURSE_CREATURE ({id}) Length: {length} received from {clientTag}: card_handle={cardHandle}",
+                (ushort)GamePackets.TM_CS_NURSE_CREATURE, buffer.Length, ClientTag, creatureCardHandle);
+        }
+    }
+
+    /// <summary>
+    /// TM_CS_REQUEST_FARM_MARKET (6008), the farm's ticket-buy button. Read and bounded, never answered: rzu and
+    /// NGemity declare no answer to 6008 and the 7.3 client routes no incoming frame for it, so what this
+    /// request expects is not established. See docs/packet-specs/socle-ferme-creatures.md §5.2, §7.7.
+    /// </summary>
+    private void HandleRequestFarmMarket(byte[] buffer)
+    {
+        if (!GameFarmPackets.HasNoPayload(buffer))
+        {
+            _logger.Warning("Malformed TM_CS_REQUEST_FARM_MARKET ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET, buffer.Length, ClientTag);
+            return;
+        }
+
+        _logger.Debug("TM_CS_REQUEST_FARM_MARKET ({id}) Length: {length} received from {clientTag}",
+            (ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET, buffer.Length, ClientTag);
+    }
+
     private void HandleAttackRequest(byte[] buffer)
     {
         var target = GameAttackPackets.ReadAttackTarget(buffer);
@@ -1848,6 +1964,54 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_XTRAP_CHECK)
             {
                 HandleXtrapCheck(msgBuffer);
+                continue;
+            }
+
+            // The creature farm (ferme de créatures) socle: TM_CS_REQUEST_FARM_INFO (6000),
+            // TM_CS_FOSTER_CREATURE (6002), TM_CS_RETRIEVE_CREATURE (6004), TM_CS_NURSE_CREATURE (6006) and
+            // TM_CS_REQUEST_FARM_MARKET (6008). The five frames are read and bounded and only 6000 is answered
+            // (with an empty TM_SC_FARM_INFO, 6001): NavisLamia stores no farm, and the result frames
+            // 6003/6005/6007 carry a `result` byte whose values no reference establishes. The arms must stay
+            // before the throwing switch below — a member of GamePackets that reaches it breaks the receive
+            // loop. See docs/packet-specs/socle-ferme-creatures.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO)
+            {
+                HandleRequestFarmInfo(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_FOSTER_CREATURE)
+            {
+                HandleFosterCreature(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE)
+            {
+                HandleRetrieveCreature(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_NURSE_CREATURE)
+            {
+                HandleNurseCreature(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET)
+            {
+                HandleRequestFarmMarket(msgBuffer);
+                continue;
+            }
+
+            // TM_SC_FARM_INFO (6001) is a server to client packet: the 7.3 client routes it on entry and builds
+            // none. An incoming one is a protocol anomaly, not a request, so it is logged and dropped instead of
+            // reaching the "Unknown Packet Type" throw below. See
+            // docs/packet-specs/socle-ferme-creatures.md §5.3.
+            if (header.ID == (ushort)GamePackets.TM_SC_FARM_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_FARM_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
                 continue;
             }
 

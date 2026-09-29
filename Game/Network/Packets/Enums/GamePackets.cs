@@ -215,6 +215,18 @@ public enum GamePackets : ushort
     TM_CS_RANKING_TOP_RECORD = 5000,
     TM_SC_RANKING_TOP_RECORD = 5001,
 
+    // TM_CS/SC_*FARM* / FOSTER / RETRIEVE / NURSE / 6000-6008 : the creature farm socle. All nine ids are
+    // X(<id>, true) in rzu under a "// Since EPIC_7_3" marker, so 7.3 keeps the plain ids and no field of the
+    // family is version gated. Only the six ids the server reads or emits are declared; the three result frames
+    // 6003/6005/6007 stay undeclared until a lot emits them (their `result` values are not established).
+    // See docs/packet-specs/socle-ferme-creatures.md.
+    TM_CS_REQUEST_FARM_INFO = 6000,
+    TM_SC_FARM_INFO = 6001,
+    TM_CS_FOSTER_CREATURE = 6002,
+    TM_CS_RETRIEVE_CREATURE = 6004,
+    TM_CS_NURSE_CREATURE = 6006,
+    TM_CS_REQUEST_FARM_MARKET = 6008,
+
     TM_CS_REPORT = 8000,
 
     // TM_CS_SECURITY_NO (9005): the security password the client sends back once the server has asked for
