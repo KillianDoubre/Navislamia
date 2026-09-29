@@ -1638,10 +1638,10 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
 
 Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 
-- **N'a été livré que le socle structurel** : `CraftingSocleService` lit la trame à sa taille 7.3,
-  la borne, résout chaque handle non nul contre l'inventaire du personnage, puis **refuse**
-  (`InvalidArgument`, valeur 0) — le moteur d'artisanat n'existe pas. Aucune table `MixResource` /
-  `EnhanceResource` n'est chargée, aucun taux n'est tiré, aucun châssis n'est touché.
+- **Socle structurel** : `CraftingSocleService` lit la trame à sa taille 7.3, la borne, résout chaque
+  handle non nul contre l'inventaire du personnage, puis **refuse** (`InvalidArgument`, valeur 0) — le
+  moteur d'artisanat n'existe pas. Aucun taux n'est tiré, aucun châssis n'est touché. Depuis le lobe
+  ressources (section suivante), 256 est **résolu** contre `MixResource` avant ce même refus.
 - **Tailles 7.3** : 256 = `15 + 6N` (`N <= 9`) · 260 = 27 · 262 = 31 · 263 = 11 · 264 = **11**.
   Le champ `target` de 264 et le champ `type` de 257 sont gatés `EPIC_8_1` : la trame 8.1 de 264
   fait 12 octets et **doit rester refusée**.
@@ -1660,6 +1660,38 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - **Restent à trancher avant tout moteur** (détail en fin de fiche) : taux de réussite, sort des
   châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
   `mix_type` 801/802/803 ↔ 263/264.
+
+### Socle artisanat — ressources et résolution (lobe A) — `MixResource` / `EnhanceResource`, 256 et 257
+
+- Livré : `MixResourceEntity` + migration Arcadia `20260926132113_AddMixResource`, `MixResourceCatalog`,
+  `EnhanceResourceCatalog` (table `EnhanceResources`, présente depuis `Version0001`), `ItemMatchCatalog`,
+  `MixResourceMatcher`, branchés dans `CraftingSocleService`. Un 256 est **résolu** contre la table puis
+  **refusé comme avant** (`InvalidArgument`) : une règle trouvée est journalisée en `Warning` (« resolves to
+  mix rule N … effects not implemented »), une trame sans règle en `Debug`. **Aucune trame 257 n'est émise**
+  tant que les effets n'existent pas. Les catalogues sont chargés au démarrage, après les migrations.
+- **Les deux tables sont vides tant qu'on ne les importe pas** : l'import livré passe par `MigrateDatabase`
+  (SQL Server), mais l'export CSV local porte `MixResource.csv` et `EnhanceResource.csv`, importables comme
+  les colonnes de compétences. Sans données, tout 256 finit en « aucune règle ».
+- **Résolution = mécanique, pas politique** : parcours de `MixResource` dans l'ordre de la table,
+  `sub_material_count == N`, contrôle de la cible, appariement des matériaux et post-arrangement (code 19).
+  **Piège** : la référence apparie **par position** (`MixManager.cpp:263`, même index) ; l'appariement
+  **par permutation** du port vient de `getProperMixInfoSub` (`:300-318`), **jamais appelé** — code mort,
+  comme `CreateItem`. Position ou permutation n'est **pas établi** en 7.3 : à trancher par un essai client.
+- **109 colonnes de `MixResource` lues en position**, jamais par nom isolé (`ArcadiaSchemaPSQL.sql:471-582`,
+  `ObjectMgr.cpp:1108-1146`) ; `sub_material_count` est exactement le nombre de groupes non nuls. Clés :
+  `MixResource.id` unique (754/754, sans clé au schéma de référence) ; `EnhanceResource` en clé composite
+  `(enhance_id, local_flag)`, l'index unique du dump sur `enhance_id` seul étant contredit par son contenu.
+  Noms de table **au pluriel** (les migrations EF font foi, `ArcadiaSchemaPSQL.sql` n'est qu'une référence).
+- **257 en 7.3 = 11 + 4M octets** (count `u32` @7, poignées @11+4j) ; `type` est gaté `>= EPIC_8_1`.
+- **Pièges de la référence, à ne pas porter** : la boucle infinie de `procEnhanceFail`
+  (`MixManager.cpp:459-501`), `max_enhance = 0` sur toute la donnée (l'enchantement ne peut pas réussir),
+  `mix_value_02/03 = 0` pour les 154 lignes 101 alors que le code en tire `irand(value[1], value[2])`. Codes
+  `CHECK_*` : **11, 12 et 15-18 refusés**, **8, 9, 13, 14 implémentés**, **19 et 20 décidés au
+  post-réordonnancement** (20 par un `false` constant, comme la référence) ; la quantité de la trame est
+  remplacée par 1 quand aucun code 10 ne l'a contrôlée, comme NGemity.
+- **Restent à trancher** : taux et politique d'échec, position ou permutation, les six codes `CHECK_*`
+  inertes, `CHECK_SAME_SUMMON_CODE`, le `local_flag` du serveur. Fiche :
+  `docs/packet-specs/socle-artisanat-ressources.md`.
 
 ### Paquet 304 — `TM_CS_SUMMON` (demande d'invocation par carte)
 
