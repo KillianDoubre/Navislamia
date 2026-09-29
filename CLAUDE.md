@@ -2119,10 +2119,32 @@ dispatch et `HandleSecurityNo` dans `Game/Network/Clients/GameClient.cs`, tests
   qu'une 10003 constante. Sans boutique, le conteneur est **vide par construction** ; ne rien
   inventer sur le retrait (coût, plafond, code de résultat, acquittement) — décisions ouvertes dans
   la fiche.
-- Aucun service, aucune entité et aucune migration pour ce conteneur : rien dans le dépôt ne peut
-  l'approvisionner, donc sa seule valeur exacte est vide. Les trois bras de dispatch sont posés près
-  de `TM_SC_REGION_ACK` (`GameClient.cs:813-840`), jamais à l'ancre du `switch` final.
+- Les trois bras de dispatch sont posés près de `TM_SC_REGION_ACK`, jamais à l'ancre du `switch` final.
+  Le conteneur lui-même est le lot 2, ci-dessous.
 - Le savoir durable de ce socle est dans `docs/packet-specs/socle-stockage-commercial.md`, pas ici.
+
+### Socle stockage commercial — lot 2 : conteneur persisté (10003/10004) et retrait réel (10005)
+
+- Le contenu vient d'une table **`PaidItems`** (migration Telecaster `Version0010_PaidItems`), calquée sur
+  `Telecaster.PaidItem` du dump officiel (`reference/ngemity/Database/Telecaster.sql:419-439`) :
+  `item_code` → `code`, `rest_item_count` → `count`, `taken_*` horodatés au retrait. Le conteneur « kept »
+  du dépôt (`ItemStorageEntity`, `StorageType` enchères/courrier) **n'est pas** ce conteneur.
+- `commercial_item_uid` est **écrit par le serveur** (`(uint)ligne.Id`) et recopié par le client : la
+  résolution porte **toujours** le propriétaire (`AccountId` + cible `CharacterId` nulle ou égale) et
+  compare l'`Id` sur **64 bits** (`row.Id == uid`), jamais `(uint)row.Id == uid`.
+- À l'entrée en jeu, `CommercialStorageService.SendContainerAsync` **lit** la table puis émet la paire
+  10003/10004. Table vide = la paire du lot 1 (11 o à 0/0, puis 9 o). **Si la lecture échoue, la même paire
+  vide part quand même** : la séquence d'entrée garde ses deux trames.
+- Le retrait (10005) remet l'objet au sac (`ICharacterService.AddItemAsync` + trames d'inventaire),
+  décrémente `rest_item_count`, horodate `taken_*` et réémet la paire. Le serveur **n'émet jamais 10005**,
+  n'envoie **aucun `ResultCode`** et n'invente ni coût, ni plafond, ni acquittement.
+- **Un seul retrait à la fois par session** (`ConnectionInfo.CommercialTakeoutInProgress`) : résolution,
+  livraison et consommation sont trois étapes, et `CharacterGate` ne peut pas les couvrir — il n'est pas
+  réentrant et `AddItemAsync` prend la même clé, donc le tenir autour bloquerait le retrait pour toujours.
+  Sans ce drapeau, deux 10005 envoyés ensemble résolvaient la ligne pleine et **livraient deux fois**
+  (reproduit par test à la revue du 2026-09-29) ; le second est désormais abandonné.
+- Le producteur est **hors code** (boutique web externe, 10001) : sans boutique ni outil d'administration,
+  `PaidItems` reste vide. Fiche : `docs/packet-specs/socle-stockage-commercial-conteneur.md`.
 
 ### Socle compétition entre joueurs — 4500-4506 (`TM_CS/SC_COMPETE_*`)
 

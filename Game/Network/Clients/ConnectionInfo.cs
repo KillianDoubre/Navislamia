@@ -133,6 +133,13 @@ public class ConnectionInfo
     /// </summary>
     public int ResurrectionInProgress;
 
+    /// <summary>
+    /// 1 while a commercial storage takeout (10005) is between resolving its row and consuming it. The goods
+    /// are delivered in between, and the requests are fired without awaiting each other: without this, two
+    /// takeouts sent together would both resolve the full row and both deliver it.
+    /// </summary>
+    public int CommercialTakeoutInProgress;
+
     public uint ClientClockOffset { get; set; }
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
