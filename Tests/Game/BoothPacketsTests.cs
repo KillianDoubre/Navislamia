@@ -228,8 +228,9 @@ public class BoothPacketsTests
         Enum.IsDefined(typeof(GamePackets), (ushort)701).Should().BeTrue();
 
         // 711 (TM_CS_CHECK_BOOTH_STARTABLE) is absent from the 7.3 client and therefore from the socle;
-        // 702 to 710 stay out of the socle by decision (fiche §1.3 and §5.2).
-        foreach (var id in new ushort[] { 702, 703, 704, 705, 706, 707, 708, 709, 710, 711 })
+        // 705 to 710 stay out until their own socle declares them (fiche §1.3 and §5.2). 702, 703 and
+        // 704 are declared by the visibility socle and are pinned in BoothVisibilityPacketsTests.
+        foreach (var id in new ushort[] { 705, 706, 707, 708, 709, 710, 711 })
         {
             Enum.IsDefined(typeof(GamePackets), id).Should().BeFalse();
         }
