@@ -605,6 +605,50 @@ du schéma ne sont pas reproduits.
    migrée ; **aucune ligne** n'y est importée. L'alimentation du catalogue (même question que le point
    4, et même dispositif : import outillé + catalogue versionné) reste entière.
 
+## 10. Décisions de Killian — 2026-09-29
+
+Réponses aux huit points ci-dessus. Règle générale : **les défauts de NGemity**, sauf là où la donnée 9.4
+les contredit. La donnée existe désormais : l'export CSV complet de la base de ressources 9.4 est sur le
+VPS (`/srv/navislamia/reference/sqlserver/Arcadia/`, lié dans le clone comme `data/sqlserver`, voir
+`reference/README.md`) — **« aucune donnée disponible » n'est plus un motif de blocage**. Mesures faites
+sur `QuestResource.csv` (993 lignes) et `QuestLinkResource.csv` (1 298 lignes).
+
+1. **Réponse à 604** : on garde la décision de la fiche, aucune réponse et jamais 602. Si l'essai en jeu
+   montre une fenêtre vide, on enverra 601.
+2. **Forme du déclencheur** : celle de NGemity (`QUEST|<code>|<textID>` dans le **texte**, menu
+   `START`/`REJECT`/`REWARD`/`OK` littéral). Le **titre** reprend celui du dialogue du PNJ déjà servi par
+   `NpcDialogService`, pas la constante `"Guide Arocel"`. À valider en jeu, pas à rediscuter avant.
+3. **`nOptionalReward`** : la donnée 9.4 a **six** emplacements (`optional_reward_id1..6`). `-1` = aucune
+   récompense optionnelle ; `0..5` désigne un emplacement ; un index hors `0..5` répond `InvalidArgument`,
+   un emplacement dont l'`id` vaut 0 répond `NotActable`.
+4. **Provenance du catalogue** : **l'export 9.4**, comme les monstres, compétences, états et objets. On
+   l'importe dans les tables miroirs du lot (b2) par un script `tools/Import-QuestResources.ps1` modelé sur
+   `Import-SkillResourceColumns.ps1` (CSV → table temporaire `text` → colonnes mappées), testé sur
+   fixtures. Pas de filtrage 7.3 tant que `db_quest.rdb` (réécrit par un outil tiers, §7.7) n'est pas
+   lu : une quête que le client ne connaît pas est simplement ignorée par lui.
+5. **Conditions d'acceptation, de progression et de fin** : on porte NGemity — plafond de **20** quêtes
+   actives, `repeatable`, `forequest1..3` avec `or_flag`, `limit_level`/`limit_max_level`,
+   `limit_job_level`/`limit_max_job_level`, `limit_job` + `job_depth`, `limit_deva/asura/gaia` et
+   `limit_fighter/hunter/magician/summoner`, `cool_time`/`accept_cool_time`, `time_limit_type`/`time_limit`.
+   La progression suit `Player::updateQuestStatus` par `type`. La donnée compte 14 types : 102 (305),
+   401 (187), 901 (174), 106 (102), 103 (82), 101 (65), 701 (58), puis 201, 107, 109, 301, 302, 501 et
+   601 (22 quêtes à eux tous). On porte les types que NGemity traite ; une quête d'un type non porté
+   **n'est pas proposée** par le déclencheur, jamais acceptée sans règle. Récompenses : `exp`, `jp`, **`gold`** (colonne présente en 9.4, contrairement au schéma
+   7.3), `default_reward_*` et l'optionnelle choisie ; `holicpoint` crédite `HuntaholicPoint`. Les
+   `favor_*` et `drop_group_id` ne sont pas portés (aucun système de faveur). **`is_auto_quest` et `ld`
+   n'existent pas en 9.4** : ne pas les lire.
+6. **Colonnes `char`** : le domaine mesuré est `'0'`/`'1'` pour tous les drapeaux (`limit_*`,
+   `repeatable`, `or_flag`, `flag_start/progress/end`). Lecture : `== '1'`. Le type `character varying(1)`
+   du miroir est conservé.
+7. **Clé de `QuestLinkResource`** : **3 paires `(npc_id, quest_id)` sont en double** (11120/10173,
+   11368/3020, 11479/3262), chaque fois une ligne de début et une ligne de fin. L'import les **fusionne**
+   : drapeaux en OU, `text_id_*` non nuls retenus. La clé `(NpcId, QuestId)` est conservée.
+8. **Tables vides** : réglé par le point 4.
+
+Découpage qui en découle : **(b1)** réception 604/605 (sans décision, peut partir seul) ; **(b1')**
+import du catalogue ; **(b3)** déclencheur par dialogue PNJ ; **(b4)** exécution (acceptation,
+progression, fin et récompenses) selon les points 3 et 5.
+
 ## Annexe — bloc destiné à `CLAUDE.md` (proposition)
 
 Ce bloc est à porter par la **description de la MR** : `CLAUDE.md` est un fichier d'instructions

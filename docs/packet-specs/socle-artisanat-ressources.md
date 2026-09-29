@@ -695,3 +695,42 @@ Deux points du lot ne touchent que la fiche :
 Reste hors de ce lot, porté aux réserves de la QA : la convention `ItemFlag.None` (-1) lue comme « tous
 les bits » par le matcher alors que `GroundItemDropRules` la traite comme « aucun drapeau » (arbitrage lié
 à la donnée 7.3), et l'ordre de fusion avec #55 sur `ArcadiaContextModelSnapshot.cs`.
+
+## 14. Décisions de Killian — 2026-09-29
+
+Réponses au §10. Règle générale : **les défauts de NGemity**, sauf là où la donnée 9.4 les contredit.
+La fiche mesurait `reference/ngemity/Database/Arcadia.sql` (dump 4.1.1 : 754 règles de mix, 240 lignes
+d'enchantement, `max_enhance = 0` partout) ; **la source retenue est l'export 9.4**, comme pour tous les
+autres catalogues, désormais sur le VPS (`/srv/navislamia/reference/sqlserver/Arcadia/`, lié dans le
+clone comme `data/sqlserver`, voir `reference/README.md`). Mesures faites sur `MixResource.csv`
+(4 155 lignes) et `EnhanceResource.csv` (291 lignes, 111 `enhance_id`).
+
+1. **Politique d'échec** : `fail_result` de la ligne, **plus de forçage à 1** — la donnée 9.4 porte de
+   vraies valeurs (1 : 209 lignes, 3 : 55, 4 : 13, 2 : 10, 0 : 4). On porte `procEnhanceFail` :
+   - `1` (`RESULT_FAIL`) : drapeau `ITEM_FLAG_FAILED` posé ; **les châsses sont conservées** (la boucle
+     de NGemity est un `@todo` infini, rien ne dit qu'il faut les vider, et les garder ne détruit rien) ;
+   - `2` (`RESULT_SKILL_CARD_FAIL`) : enchantement ≤ 3 → l'objet est détruit, sinon enchantement − 3 ;
+   - `3` (`RESULT_ACCESSORY_FAIL`) : enchantement − 3, plancher 0 ;
+   - `0` → traité comme `1` (règle de NGemity) ; **`4` n'a aucune sémantique connue → traité comme `1`**,
+     le choix le moins destructif.
+2. **Taux** : ceux de la donnée 9.4, qui sont réels (`max_enhance` 10/20/25, `percentage_1..25`
+   renseignés). Tirage de NGemity : `percentage_{enhance+1} × 100000` comparé à `urand(0, 100000)`.
+   L'enchantement est refusé au-delà de `max_enhance`.
+3. **Codes `CHECK_*` inertes** (11, 12, 15-18) : **refusés**, comme la fiche l'avait choisi.
+   `CHECK_SAME_SUMMON_CODE` (20) reste un `false` constant, comme la référence.
+4. **`local_flag`** : option serveur `Crafting:LocalFlag`, **défaut `1`**. Mesure : avec le bit 1, chacun
+   des 111 `enhance_id` a **exactement une** ligne (aucun manquant, aucun doublon) ; tous les autres bits
+   en laissent 6 ou 18 sans ligne. Filtre de NGemity : `(LocalFlag & local_flag) != 0`
+   (`ObjectMgr.cpp:1099`). NGemity met 4 par défaut dans le code et 8 dans `chihiro.conf.dist`, deux
+   valeurs qui perdent des lignes sur cette donnée.
+5. **Nom de table** : pluriel confirmé (`MixResources`, `EnhanceResources`).
+6. **Pièges du chemin de données** : oui, les corriger. L'import se fait depuis le CSV par un script
+   `tools/Import-CraftingResources.ps1` modelé sur `Import-SkillResourceColumns.ps1` (plus de
+   `MigrateDatabase` ni de SQL Server), qui ne force pas `fail_result` et ne met pas `RequiredItemId` à
+   `null` quand l'objet manque.
+7. **Émission de 257** : à **chaque** mix traité, réussite comme échec, comme NGemity ; l'asymétrie du
+   cas 102 est **corrigée** (même émission que les autres cas).
+8. **Déclencheur de fenêtre** : hors de ce lobe, inchangé.
+9. **Position ou permutation** : **position**, le comportement que NGemity exécute réellement
+   (`MixManager.cpp:263`). L2 aligne le moteur et les tests. L'étape 7 du protocole client reste le
+   moyen d'infirmer ce choix : si le client accepte les deux ordres, on repasse en permutation.
