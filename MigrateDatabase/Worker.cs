@@ -10,6 +10,7 @@ using Navislamia.Game.DataAccess.Entities;
 using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.Services;
 using Serilog;
 
 namespace MigrateDatabase;
@@ -640,6 +641,7 @@ public class Worker : BackgroundService
         await TransferItemResource(token, true);
         await TransferItemEffectResource(token);
         await TransferEnhanceResource(token);
+        await TransferMixResource(token);
     }
 
     private async Task TransferItemResource(CancellationToken token, bool updateRelations)
@@ -1239,7 +1241,71 @@ public class Worker : BackgroundService
         _finishedTransfers.Add(nameof(MSSQLEnhanceResource));
         UpdateConsole();
     }
-    
+
+    /// <summary>
+    /// Mirrors <see cref="TransferEnhanceResource"/> for the 109-column <c>MixResource</c> table. Two
+    /// differences: there is no <c>fail_result</c>-style guard (the reference has no such column here) and
+    /// a row whose <c>sub_material_count</c> disagrees with the groups it fills is reported — NGemity
+    /// never sees it, since it ignores any rule whose count differs from the request
+    /// (docs/packet-specs/socle-artisanat-ressources.md §5.1).
+    /// </summary>
+    private async Task TransferMixResource(CancellationToken token)
+    {
+        await using var mssqlContext = new MssqlArcadiaContext(_mssqlOptions);
+
+        var items = mssqlContext.MixResource.ToList();
+        var processed = 1;
+        var inconsistent = 0;
+
+        Log.Logger.Information("Transferring {type}: {amount} entities", nameof(MSSQLMixResource), items.Count);
+
+        foreach (var item in items)
+        {
+            if (token.IsCancellationRequested)
+            {
+                Log.Logger.Warning("Stopping...");
+                return;
+            }
+            Log.Information("Processing... {processed}/{amount}", processed, items.Count);
+
+            var mappedItem = _mapper.Map<MixResourceEntity>(item);
+
+            if (!MixResourceRules.IsSubMaterialCountConsistent(mappedItem))
+            {
+                inconsistent++;
+                Log.Logger.Warning(
+                    "MixResource {id}: sub_material_count {declared} disagrees with the {filled} sub groups the row fills",
+                    mappedItem.Id, mappedItem.SubMaterialCount, MixResourceRules.DeclaredSubMaterialGroups(mappedItem));
+            }
+
+            await using (var psqlContext = new ArcadiaContext(_psqlArcadiaContext))
+            {
+                var existingEntity = psqlContext.MixResources.FirstOrDefault(mix => mix.Id == item.id);
+                if (existingEntity != null)
+                {
+                    psqlContext.MixResources.Update(mappedItem);
+                }
+                else
+                {
+                    psqlContext.MixResources.Add(mappedItem);
+                }
+
+                await psqlContext.SaveChangesAsync(token);
+            }
+
+            processed++;
+            ClearCurrentConsoleLine();
+        }
+
+        if (inconsistent != 0)
+        {
+            Log.Logger.Warning("MixResource: {count} rows carry a sub_material_count that disagrees with their groups", inconsistent);
+        }
+
+        _finishedTransfers.Add(nameof(MSSQLMixResource));
+        UpdateConsole();
+    }
+
     private async Task TransferSkillResource(CancellationToken token)
     {
         await using var mssqlContext = new MssqlArcadiaContext(_mssqlOptions);

@@ -20,4 +20,5 @@ public enum TransferTables : int
     SkillResource = 8192,
     StateResource = 16384,
     NpcResource = 32768,
+    MixResource = 65536,
 }
