@@ -102,4 +102,73 @@ public static class GameHuntaholicPackets
     {
         return packet.Length == LeaveInstanceLength;
     }
+
+    /// <summary>Offset of <c>instance_no</c> (<c>int32_t</c>): right after the 7-byte header.</summary>
+    public const int JoinInstanceNoOffset = HeaderSize;
+
+    /// <summary>Width of <c>instance_no</c>: rzu's <c>_(simple)(int32_t, instance_no)</c>.</summary>
+    public const int JoinInstanceNoFieldLength = 4;
+
+    /// <summary>Offset of the fixed password buffer: 7 + 4.</summary>
+    public const int JoinInstancePasswordOffset = JoinInstanceNoOffset + JoinInstanceNoFieldLength;
+
+    /// <summary>
+    /// Width of the password field: 16 usable characters plus the NUL. rzu writes it with
+    /// <c>_(string)(password, 17)</c>, that is at most 16 characters zero padded up to 17 bytes, and the client's
+    /// bounded copy is capped at 17 bytes too, so the field is always part of the frame and its last byte is
+    /// always the frame's last byte. An empty password — the public-room path — leaves all 17 bytes at zero,
+    /// which is what <see cref="HuntaholicJoinInstanceRequest.HasPassword"/> reads.
+    /// </summary>
+    public const int JoinInstancePasswordFieldLength = 17;
+
+    /// <summary>Total size of TM_CS_HUNTAHOLIC_JOIN_INSTANCE (4004): 7 + 4 + 17 = 28.</summary>
+    public const int JoinInstanceLength = JoinInstancePasswordOffset + JoinInstancePasswordFieldLength;
+
+    /// <summary>
+    /// A well formed TM_CS_HUNTAHOLIC_JOIN_INSTANCE (4004). <c>instance_no</c> is read as the signed
+    /// <c>int32_t</c> rzu declares — it is the first <c>dword</c> of the 38-byte room entry the list answer
+    /// (4001) carries, so its domain belongs to the answer that assigns it, and the reader neither validates
+    /// nor translates it.
+    ///
+    /// The password itself is deliberately <b>not</b> carried out of the reader: a room password is a secret
+    /// that does not belong in a log line, and nothing in this lot authenticates against it. Only its length is
+    /// kept, which is what the log needs to state whether a password was supplied.
+    /// </summary>
+    public readonly record struct HuntaholicJoinInstanceRequest(int InstanceNo, int PasswordLength)
+    {
+        /// <summary>True when the frame carried a non-empty password, i.e. an attempt to enter a locked room.</summary>
+        public bool HasPassword => PasswordLength > 0;
+    }
+
+    /// <summary>
+    /// Reads TM_CS_HUNTAHOLIC_JOIN_INSTANCE (4004). Only the exact 28-byte form is accepted: the 7.3 client
+    /// writes that length in hard, so a shorter or padded frame is malformed rather than a shorter request.
+    ///
+    /// The password field must be terminated by a NUL <b>inside</b> its own 17 bytes. The 7.3 client cannot
+    /// produce the opposite — both of its send paths leave the frame's 17-byte field at zero or copy into it
+    /// with a bound of 17, NUL included — so a field with no NUL means the sender is not the 7.3 client, and
+    /// refusing it keeps the reader from ever looking past the field. Same rule as the sibling readers of the
+    /// 4000-4012 family (<c>TryReadHuntaholicInstanceList</c>, <c>TryReadCreateInstance</c>) and of the player
+    /// competition socle (<c>GameCompetePackets.TryReadRequest</c>).
+    /// </summary>
+    public static bool TryReadJoinInstance(ReadOnlySpan<byte> packet, out HuntaholicJoinInstanceRequest request)
+    {
+        request = default;
+        if (packet.Length != JoinInstanceLength)
+        {
+            return false;
+        }
+
+        var passwordField = packet.Slice(JoinInstancePasswordOffset, JoinInstancePasswordFieldLength);
+        var passwordLength = passwordField.IndexOf((byte)0);
+        if (passwordLength < 0)
+        {
+            return false;
+        }
+
+        request = new HuntaholicJoinInstanceRequest(
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(JoinInstanceNoOffset, JoinInstanceNoFieldLength)),
+            passwordLength);
+        return true;
+    }
 }
