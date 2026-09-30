@@ -29,6 +29,7 @@ public class NetworkService : INetworkService
     public readonly IEquipmentService EquipmentService;
     public readonly IInventoryService InventoryService;
     public readonly IItemUseService ItemUseService;
+    public readonly IItemDonateService ItemDonateService;
     public readonly IMarketSellService MarketSellService;
     public readonly IStorageService StorageService;
     public readonly IQuestService QuestService;
@@ -81,7 +82,8 @@ public class NetworkService : INetworkService
         IPlayerVisibilityService playerVisibilityService,
         IBoothTradeService boothTradeService,
         IMarketTradeService marketTradeService,
-        ISoulstoneCraftService soulstoneCraftService)
+        ISoulstoneCraftService soulstoneCraftService,
+        IItemDonateService itemDonateService)
     {
         PlayerVisibilityService = playerVisibilityService;
         BoothTradeService = boothTradeService;
@@ -102,6 +104,7 @@ public class NetworkService : INetworkService
         EquipmentService = equipmentService;
         InventoryService = inventoryService;
         ItemUseService = itemUseService;
+        ItemDonateService = itemDonateService;
         StorageService = storageService;
         QuestService = questService;
         GmCommandService = gmCommandService;

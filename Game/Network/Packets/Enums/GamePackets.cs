@@ -45,6 +45,7 @@ public enum GamePackets : ushort
     TM_CS_CHANGE_ITEM_POSITION = 218,
     TM_CS_ARRANGE_ITEM = 219,
     TM_CS_USE_ITEM = 253,
+    TM_CS_DONATE_ITEM = 258,
     TM_SC_DESTROY_ITEM = 254,
     TM_SC_UPDATE_ITEM_COUNT = 255,
     // The sell gesture (252), declared with the other item ids rather than in the trade block

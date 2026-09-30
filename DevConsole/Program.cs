@@ -325,6 +325,7 @@ public class Program
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IEtherealSacrificeCatalog, EtherealSacrificeCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
+        services.AddSingleton<IItemDonateService, ItemDonateService>();
         services.AddSingleton<IItemSellCatalog, ItemSellCatalog>();
         services.AddSingleton<IMarketSellService, MarketSellService>();
         services.AddSingleton<IPetCatalog, PetCatalog>();

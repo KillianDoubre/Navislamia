@@ -633,7 +633,7 @@ public class ResurrectionPacketTests
                 A.Fake<ICommercialStorageService>(),
             A.Fake<IPlayerVisibilityService>(), A.Fake<IBoothTradeService>(),
             A.Fake<IMarketTradeService>(),
-                A.Fake<ISoulstoneCraftService>());
+                A.Fake<ISoulstoneCraftService>(), A.Fake<IItemDonateService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
