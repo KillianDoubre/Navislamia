@@ -456,6 +456,49 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_AUCTION_BIDDED_LIST (1304): the player opened, or paged, the "my bids" tab of the auction
+    /// house. The eleven-byte request — the very same frame as TM_CS_AUCTION_SELLING_LIST (1302), with
+    /// another Id — is read and its page logged; the answer is a TM_SC_AUCTION_BIDDED_LIST (1305) built
+    /// by the socle, 3899 bytes with its forty slots always written, because nothing in this repository
+    /// ever writes <c>TelecasterContext.Auctions</c>: no code adds, updates or removes an
+    /// <c>AuctionEntity</c>, so the page is necessarily empty and that is demonstrable (spec §5.5).
+    /// The request's <c>page_num</c> is echoed back and <c>total_page_count</c> stays 0: its rule, which
+    /// announcements stay listed once the character has been outbid, the meaning of <c>status</c>, the
+    /// order of the entries and <c>IsHiddenVillageOnly</c> are open decisions, so no query and no filter
+    /// is invented here (spec §5.5, §5.6, §7).
+    /// The two candidate predicates of "an announcement I bid on" are named where the query would go and
+    /// neither is chosen: <c>AuctionEntity.BiddersIds.Contains(handle)</c> ("I bid at least once", a
+    /// nullable <c>bigint[]</c> with no writer) and <c>AuctionEntity.HighestBidderId == handle</c> ("I am
+    /// the current highest bidder", a not-null indexed column) do not select the same set (spec §5.5,
+    /// §8 q1/q2).
+    /// A frame the client could not have built gets the family's result, never an auction frame: no
+    /// error variant of 1305 exists in the references or in the client (spec §5.2).
+    /// See docs/packet-specs/1304-auction-bidded-list.md.
+    /// </summary>
+    private void HandleAuctionBiddedList(byte[] buffer)
+    {
+        if (!GameAuctionPackets.TryReadAuctionBiddedList(buffer, out var pageNum))
+        {
+            SendResult((ushort)GamePackets.TM_CS_AUCTION_BIDDED_LIST, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_AUCTION_BIDDED_LIST ({id}) Length: {length} received from {clientTag}: page_num={pageNum}",
+                (ushort)GamePackets.TM_CS_AUCTION_BIDDED_LIST, buffer.Length, ClientTag, pageNum);
+        }
+
+        // No query on TelecasterContext.Auctions: an announcement the character bid on would be selected
+        // either by BiddersIds (the character appears in it, outbid included) or by HighestBidderId (the
+        // character is still the highest bidder). The two sets differ and no source settles which one the
+        // window displays (spec §5.5, §8 q1), so the query is not written. The empty page is also the only
+        // page this repository can serve: nothing writes Auctions.
+        Connection.Send(GameAuctionPackets.BuildAuctionBiddedList(pageNum, 0));
+    }
+
+    /// <summary>
     /// TM_CS_XTRAP_CHECK (59): the XTrap integrity check, 135 bytes of header plus a fixed 128 byte
     /// payload. No reference server implements it and the 7.3 client never emits it — no constructor
     /// writing id 59 exists in SFrame.exe — so there is no logic to port. The frame is read for its
@@ -1698,6 +1741,21 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM)
             {
                 HandleTakeoutCommercialItem(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_AUCTION_BIDDED_LIST (1304) is the request of the same family as the 1302 one above,
+            // eleven bytes and the same client code with another Id. It must stay before the throwing
+            // switch below in any case: an id declared in GamePackets with no arm reaches "Unknown Packet
+            // Type" and kills the receive loop. Its anchor here — between two unrelated arms rather than
+            // right after the family's response guard — is deliberate: the sibling lots 1300
+            // (immediately above the switch) and 1302 (right after the response guard) each take one of
+            // those two places, so this one keeps the three-way merge of the three lots free of
+            // conflicts (measured, sheet §14.6).
+            // See docs/packet-specs/1304-auction-bidded-list.md §5.3.
+            if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_BIDDED_LIST)
+            {
+                HandleAuctionBiddedList(msgBuffer);
                 continue;
             }
 

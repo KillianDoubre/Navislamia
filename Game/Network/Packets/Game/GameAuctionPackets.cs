@@ -287,4 +287,42 @@ public static class GameAuctionPackets
 
         packet[6] = checksum;
     }
+
+    /// <summary>
+    /// Absolute offset of <c>page_num</c> in the <c>TM_CS_AUCTION_BIDDED_LIST</c> (1304) request: the
+    /// header is seven bytes, so the payload starts at 7 and the frame is eleven bytes long.
+    /// </summary>
+    public const int BiddedListRequestPageNumOffset = HeaderSize;
+
+    /// <summary>
+    /// Total size of <c>TM_CS_AUCTION_BIDDED_LIST</c> (1304): 7 header + 4, the literal <c>0xb</c> the
+    /// 7.3 client writes in its constructor-and-sender (spec §3.1). No padding, no other field.
+    /// </summary>
+    public const int BiddedListRequestSize = BiddedListRequestPageNumOffset + 4;
+
+    /// <summary>
+    /// Reads <c>TM_CS_AUCTION_BIDDED_LIST</c> (1304), the eleven-byte page request. A shorter frame is
+    /// refused rather than partially read, and only <c>page_num</c> is read: the frame carries no
+    /// character, no category and no filter — the list is the requester's own by construction, its entry
+    /// carrying neither a seller nor a bidder name (spec §5.5). The page is one-based and the value is
+    /// echoed back as it arrived: what an out-of-range page should answer is not established
+    /// (spec §7.6, §8 q7).
+    /// Its constants and reader sit at the end of the class, after the shared private helpers, and not
+    /// with the size constants above or after the three builders: the sibling branches
+    /// <c>hermes/packet-1300-auction-search</c> (MR #65, right after <c>SellerNameSize</c>) and
+    /// <c>hermes/packet-1302-auction-selling-list</c> (MR #66, right after the builders) each insert in
+    /// the upper half of this file, so an insertion point they do not touch keeps the three-way merge of
+    /// the three lots free of conflicts (measured, sheet §14.6).
+    /// </summary>
+    public static bool TryReadAuctionBiddedList(ReadOnlySpan<byte> packet, out int pageNum)
+    {
+        if (packet.Length < BiddedListRequestSize)
+        {
+            pageNum = 0;
+            return false;
+        }
+
+        pageNum = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(BiddedListRequestPageNumOffset, 4));
+        return true;
+    }
 }
