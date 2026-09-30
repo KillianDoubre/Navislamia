@@ -121,6 +121,7 @@ public static class BoothPackets
 
     /// <summary>Offset of the declared price inside a 703 record, right after the motif.</summary>
     public const int WatchBoothItemGoldOffset = ItemFixedInfoWriter.Size;
+    /// <summary>
     /// Length of <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711): the header and nothing else, like 701.
     /// Both references declare the frame's field list empty (rzu
     /// <c>TS_CS_CHECK_BOOTH_STARTABLE.h:5-6</c>) and the 7.3 builder (<c>VA 0x48CFD0</c>) writes a
@@ -446,6 +447,7 @@ public static class BoothPackets
         return packet;
     }
 
+    /// <summary>
     /// Reads <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711), the client's "can a booth be started here?"
     /// frame (docs/packet-specs/711-check-booth-startable.md §3 and §5.2). The frame has no field at
     /// all, so 711 is the one reader of this family that requires the header <b>and its declared
