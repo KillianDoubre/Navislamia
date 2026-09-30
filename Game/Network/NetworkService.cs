@@ -44,6 +44,7 @@ public class NetworkService : INetworkService
     public readonly ICommercialStorageService CommercialStorageService;
     public readonly IPlayerVisibilityService PlayerVisibilityService;
     public readonly IBoothTradeService BoothTradeService;
+    public readonly IMarketTradeService MarketTradeService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -75,12 +76,14 @@ public class NetworkService : INetworkService
         IBoothWatchService boothWatchService,
         ICommercialStorageService commercialStorageService,
         IPlayerVisibilityService playerVisibilityService,
-        IBoothTradeService boothTradeService)
+        IBoothTradeService boothTradeService,
+        IMarketTradeService marketTradeService)
     {
         PlayerVisibilityService = playerVisibilityService;
         BoothTradeService = boothTradeService;
         CommercialStorageService = commercialStorageService;
         PetSummonService = petSummonService;
+        MarketTradeService = marketTradeService;
         _logger = logger;
         CharacterService = characterService;
         BannedWordsRepository = bannedWordsRepository;

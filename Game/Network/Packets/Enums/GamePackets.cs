@@ -66,6 +66,13 @@ public enum GamePackets : ushort
     TM_SC_SKIN_INFO = 224,
     TM_SC_NPC_TRADE_INFO = 240,
     TM_SC_MARKET = 250,
+
+    // TM_CS_BUY_ITEM (251): the client sends one frame per catalogue line the player validated, so the
+    // open market, the gold and the item have to be judged frame by frame. rzu remaps the id to 1251 from
+    // EPIC_9_6_3 on (TS_CS_BUY_ITEM.h:14-15), which is above EPIC_7_3: 1251 must never be declared here,
+    // and 7.3 carries the uint16 buy_count (the uint8 variant died at EPIC_4_1).
+    // See docs/packet-specs/251-buy-item.md.
+    TM_CS_BUY_ITEM = 251,
     TM_SC_USE_ITEM_RESULT = 283,
     TM_SC_ADD_SUMMON_INFO = 301,
     TM_SC_REMOVE_SUMMON_INFO = 302,

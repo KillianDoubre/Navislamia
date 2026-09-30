@@ -133,7 +133,14 @@ public class NpcDialogService : INpcDialogService
         // selection. The packet carries this dialog's NPC handle, not a market name.
         if (action.Kind == PropActionKind.OpenMarket)
         {
-            _marketService.Open(client, npcHandle, action.Name);
+            // The window is additive: the dialog stays current, and the market it announced is remembered
+            // for as long as the dialog lives, because TM_CS_BUY_ITEM (251) carries no market name. Only a
+            // window that really opened is remembered: Open reports whether 250 was sent.
+            if (_marketService.Open(client, npcHandle, action.Name))
+            {
+                info.OpenMarketName = action.Name;
+            }
+
             return;
         }
 
