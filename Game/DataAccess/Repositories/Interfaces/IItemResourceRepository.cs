@@ -63,6 +63,13 @@ public readonly record struct ItemSoulstoneCraftFields(
     short[] OptTypes,
     decimal[] OptVar1);
 
+/// <summary>
+/// The wear slot an item resource belongs to (<c>wear_type</c> column of the <c>ItemResource</c>
+/// table), the only way to know where <c>TM_CS_PUTON_ITEM_SET</c> (281) must place a handle: that
+/// request carries no position.
+/// </summary>
+public readonly record struct ItemWearFields(int Id, ItemWearType WearType);
+
 public readonly record struct ItemSocketFields(int Id, int SocketCount, ItemBaseType BaseType, ItemType ItemType,
     ItemGroup Group);
 
@@ -88,6 +95,8 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemMatchFields> GetMatchFields();
 
     IReadOnlyList<ItemUseFields> GetUseFields();
+
+    IReadOnlyList<ItemWearFields> GetWearFields();
 
     IReadOnlyList<ItemSocketFields> GetSocketFields();
 

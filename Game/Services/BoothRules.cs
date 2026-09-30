@@ -27,12 +27,16 @@ public static class BoothRules
     /// <c>smsg_booth_not_use_store</c> ("another store") found its object with the visibility socle:
     /// <c>TM_CS_WATCH_BOOTH</c> (702) is now handled and is guarded here. <c>TM_CS_STOP_WATCH_BOOTH</c>
     /// (704) stays out, exactly like <c>TM_CS_STOP_BOOTH</c> (701): closing is the way out of the lock
-    /// (docs/packet-specs/socle-booths-visibilite.md §5.2 point 9).
+    /// (docs/packet-specs/socle-booths-visibilite.md §5.2 point 9). The equipment set (281) is the same
+    /// gesture as 200 over several items, and the merchant's buy and sell (251/252) are "another store".
     /// </summary>
     private static readonly HashSet<ushort> GuardedActionIds = new()
     {
         (ushort)GamePackets.TM_CS_PUTON_ITEM,
+        (ushort)GamePackets.TM_CS_PUTON_ITEM_SET,
         (ushort)GamePackets.TM_CS_PUTOFF_ITEM,
+        (ushort)GamePackets.TM_CS_BUY_ITEM,
+        (ushort)GamePackets.TM_CS_SELL_ITEM,
         (ushort)GamePackets.TM_CS_DROP_ITEM,
         (ushort)GamePackets.TM_CS_TAKE_ITEM,
         (ushort)GamePackets.TM_CS_ERASE_ITEM,

@@ -10,6 +10,12 @@ public static class GameActionPackets
     private const int HeaderSize = 7;
 
     /// <summary>
+    /// The number of positional item handles carried by <c>TM_CS_PUTON_ITEM_SET</c> (281) at Epic 7.3,
+    /// the same 24 wear slots as <c>TM_SC_WEAR_INFO</c> (202).
+    /// </summary>
+    public const int PutonItemSetHandles = 24;
+
+    /// <summary>
     /// The maximum number of material slots of <c>TM_CS_MIX</c> (256), i.e. the size of the reference
     /// material table (NGemity <c>MAX_SUB_MATERIAL_COUNT</c>, MixManager.h:24) and of the reference
     /// guard. The 7.3 client itself has not been observed: 9 is the best established bound, not a
@@ -380,6 +386,29 @@ public static class GameActionPackets
             (sbyte)packet[HeaderSize],
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 1, 4)),
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 5, 4)));
+        return true;
+    }
+
+    /// <summary>
+    /// <c>TM_CS_PUTON_ITEM_SET</c> (281): 24 positional item handles with no position and no target.
+    /// The Epic 7.3 client builds a 119-byte frame (28 handles) while rzu and NGemity only describe
+    /// the first 24; the trailing bytes are ignored rather than refused (sheet §3 and §7.1).
+    /// </summary>
+    public static bool TryReadPutonItemSet(ReadOnlySpan<byte> packet, out uint[] handles)
+    {
+        const int packetLength = HeaderSize + PutonItemSetHandles * 4;
+        if (packet.Length < packetLength)
+        {
+            handles = null;
+            return false;
+        }
+
+        handles = new uint[PutonItemSetHandles];
+        for (var i = 0; i < PutonItemSetHandles; i++)
+        {
+            handles[i] = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + i * 4, 4));
+        }
+
         return true;
     }
 

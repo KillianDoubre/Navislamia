@@ -25,7 +25,10 @@ public class BoothRulesTests
     private static readonly ushort[] GuardedActions =
     {
         (ushort)GamePackets.TM_CS_PUTON_ITEM,
+        (ushort)GamePackets.TM_CS_PUTON_ITEM_SET,
         (ushort)GamePackets.TM_CS_PUTOFF_ITEM,
+        (ushort)GamePackets.TM_CS_BUY_ITEM,
+        (ushort)GamePackets.TM_CS_SELL_ITEM,
         (ushort)GamePackets.TM_CS_DROP_ITEM,
         (ushort)GamePackets.TM_CS_TAKE_ITEM,
         (ushort)GamePackets.TM_CS_ERASE_ITEM,
@@ -184,9 +187,9 @@ public class BoothRulesTests
     [Test]
     public void GateAction_CoversTheActionsTheClientAnnouncesAndNoMore()
     {
-        foreach (var id in new ushort[] { 0, 1, 5, 20, 100, 150, 200, 201, 203, 204, 208, 218, 219, 253, 400, 500, 702, 704, 1202 })
+        foreach (var id in new ushort[] { 0, 1, 5, 20, 100, 150, 200, 201, 203, 204, 208, 218, 219, 251, 252, 253, 281, 400, 500, 702, 704, 1202 })
         {
-            var guarded = new[] { 200, 201, 203, 204, 208, 218, 219, 253, 400, 702 }.Contains(id);
+            var guarded = new[] { 200, 201, 203, 204, 208, 218, 219, 251, 252, 253, 281, 400, 702 }.Contains(id);
 
             BoothRules.IsGuardedAction(id).Should().Be(guarded, $"action {id}");
         }

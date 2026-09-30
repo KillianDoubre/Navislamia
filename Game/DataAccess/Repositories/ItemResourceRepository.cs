@@ -108,4 +108,12 @@ public class ItemResourceRepository : IItemResourceRepository
                 item.ItemType, item.Group))
             .ToList();
     }
+
+    public IReadOnlyList<ItemWearFields> GetWearFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemWearFields((int)item.Id, item.WearType))
+            .ToList();
+    }
 }

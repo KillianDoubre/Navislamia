@@ -1300,7 +1300,8 @@ accepté ne reçoit **aucune** réponse et un `701` répond `Success`, idempoten
 
 Tant qu'un étal est ouvert, **un seul garde** en tête de la chaîne de dispatch (`BoothRules.GateAction`)
 répond `55` (`ResultCode.NotActableWhileUsingBooth`) aux actions que le client annonce lui-même comme
-refusées : 200, 201, 203, 204, 208, 218, 219, 253, 400. `700` et `701` sont hors de cette liste. Le
+refusées : 200, 201, 203, 204, 208, 218, 219, 253, 400, puis 281 (panoplie, le geste de 200) et
+251/252 (marchand, « un autre magasin »). `700` et `701` sont hors de cette liste. Le
 garde n'est pas une protection générique : toute action ajoutée plus tard doit être pesée contre elle.
 
 Le garde `DefinedPackets[header.ID]` (`GameClient.OnDataReceived`, une table construite une fois depuis
