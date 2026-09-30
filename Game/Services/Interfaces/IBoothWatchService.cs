@@ -26,4 +26,11 @@ public interface IBoothWatchService
     /// Closing with nothing observed stays idempotent and answers <c>Success</c> (§5.2 point 5).
     /// </summary>
     void HandleStopWatch(GameClient client, byte[] packet);
+
+    /// <summary>
+    /// The <c>TM_SC_WATCH_BOOTH</c> (703) a watcher of <paramref name="owner"/>'s booth should see now,
+    /// resolved against the owner's bag, or null when no booth is open. A trade uses it to refresh every
+    /// open window of the booth (docs/packet-specs/705-buy-from-booth.md §5).
+    /// </summary>
+    Task<byte[]> BuildWatchFrameAsync(ConnectionInfo owner);
 }

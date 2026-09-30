@@ -89,6 +89,13 @@ public interface ICharacterService
 
     Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);
 
+    /// <summary>
+    /// Moves items from one character's bag to another's and writes both gold balances, in one save under
+    /// both characters' gates: every line applies or none does. A whole stack keeps its row (and so its
+    /// enhance, sockets and pet); part of a stack becomes a new row with the same attributes.
+    /// </summary>
+    Task<ItemTransferResult> TransferItemsAsync(ItemTransfer transfer);
+
     Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests);
 

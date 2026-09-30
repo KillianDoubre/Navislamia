@@ -199,7 +199,11 @@ public class GmCommandService : IGmCommandService
                     break;
                 }
 
-                info.CharacterGold = GmCommandRules.ApplyGold(info.CharacterGold, delta);
+                lock (info.GoldLock)
+                {
+                    info.CharacterGold = GmCommandRules.ApplyGold(info.CharacterGold, delta);
+                }
+
                 client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
                 Reply(client, $"Gold: {info.CharacterGold}.");
                 break;
@@ -633,7 +637,7 @@ public class GmCommandService : IGmCommandService
     {
         var info = client.ConnectionInfo;
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(info.CharacterHandle,
-            ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking)));
+            ActorStatus.ForPlayer(info)));
     }
 
     private static bool IsAlive(ConnectionInfo info) => MonsterAiRules.IsAlive(info.CharacterHp);

@@ -141,6 +141,15 @@ public enum GamePackets : ushort
     TM_SC_WATCH_BOOTH = 703,
     TM_CS_STOP_WATCH_BOOTH = 704,
 
+    // The booth trade (docs/packet-specs/705-buy-from-booth.md): 705/706/707 come from the client and
+    // are dispatched; 708/709/710 only go to it, and share one log-and-drop receive arm.
+    TM_CS_BUY_FROM_BOOTH = 705,
+    TM_CS_SELL_TO_BOOTH = 706,
+    TM_CS_GET_BOOTHS_NAME = 707,
+    TM_SC_GET_BOOTHS_NAME = 708,
+    TM_SC_BOOTH_CLOSED = 709,
+    TM_SC_BOOTH_TRADE_INFO = 710,
+
     TM_SC_STATUS_CHANGE = 500,
     TM_SC_STATE = 505,
     TM_CS_UPDATE = 503,

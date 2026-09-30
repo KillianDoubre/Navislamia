@@ -302,6 +302,65 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
         }
     }
 
+    public IReadOnlyList<GameClient> Observers(GameClient subject)
+    {
+        var handle = subject.ConnectionInfo.CharacterHandle;
+        var observers = new List<GameClient>();
+        if (handle == 0 || !_index.TryGet(handle, out _))
+        {
+            return observers;
+        }
+
+        foreach (var peer in _index.PeersInViewOf(handle))
+        {
+            if (!_registry.TryResolve(peer.Handle, out var peerClient))
+            {
+                continue;
+            }
+
+            lock (peerClient.ConnectionInfo.PlayerVisibilityLock)
+            {
+                if (peerClient.ConnectionInfo.SpawnedPlayers.ContainsKey(handle))
+                {
+                    observers.Add(peerClient);
+                }
+            }
+        }
+
+        return observers;
+    }
+
+    public void SendToObservers(GameClient subject, byte[] frame, bool includeSelf = false)
+    {
+        var handle = subject.ConnectionInfo.CharacterHandle;
+        if (includeSelf)
+        {
+            Send(subject, frame);
+        }
+
+        if (handle == 0 || !_index.TryGet(handle, out _))
+        {
+            return;
+        }
+
+        foreach (var peer in _index.PeersInViewOf(handle))
+        {
+            if (!_registry.TryResolve(peer.Handle, out var peerClient))
+            {
+                continue;
+            }
+
+            var peerInfo = peerClient.ConnectionInfo;
+            lock (peerInfo.PlayerVisibilityLock)
+            {
+                if (peerInfo.SpawnedPlayers.ContainsKey(handle))
+                {
+                    Send(peerClient, frame);
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// The <c>TS_SC_ENTER</c> of a player, as the 7.3 client reads it: the fixed physical traits come
     /// from the presence snapshot the session captured at login, everything that changes during the
@@ -321,7 +380,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             Z = presence.Z,
             Layer = presence.Layer,
             ObjType = 0,
-            Status = ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking),
+            Status = ActorStatus.ForPlayer(info),
             FaceDirection = 0,
             Hp = info.CharacterHp,
             MaxHp = info.CharacterMaxHp,

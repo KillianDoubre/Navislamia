@@ -252,7 +252,7 @@ public class CombatService : ICombatService
         var gold = _rates.Scale(baseGold, RateType.Gold);
         info.CharacterExp += exp;
         info.CharacterJp += jp;
-        info.CharacterGold += gold;
+        info.AddGold(gold);
 
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
         client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));

@@ -227,13 +227,9 @@ public class BoothPacketsTests
         Enum.IsDefined(typeof(GamePackets), (ushort)700).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)701).Should().BeTrue();
 
-        // 711 (TM_CS_CHECK_BOOTH_STARTABLE) is absent from the 7.3 client and therefore from the socle;
-        // 705 to 710 stay out until their own socle declares them (fiche §1.3 and §5.2). 702, 703 and
-        // 704 are declared by the visibility socle and are pinned in BoothVisibilityPacketsTests.
-        foreach (var id in new ushort[] { 705, 706, 707, 708, 709, 710, 711 })
-        {
-            Enum.IsDefined(typeof(GamePackets), id).Should().BeFalse();
-        }
+        // 711 (TM_CS_CHECK_BOOTH_STARTABLE) is absent from the 7.3 client and therefore from the socle.
+        // 702 to 704 are pinned in BoothVisibilityPacketsTests, 705 to 710 in BoothTradePacketsTests.
+        Enum.IsDefined(typeof(GamePackets), (ushort)711).Should().BeFalse();
     }
 
     private static byte[] BuildStartBooth(int count, string name = "Boutique", byte type = 1)

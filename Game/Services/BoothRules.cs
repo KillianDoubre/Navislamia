@@ -40,7 +40,9 @@ public static class BoothRules
         (ushort)GamePackets.TM_CS_ARRANGE_ITEM,
         (ushort)GamePackets.TM_CS_USE_ITEM,
         (ushort)GamePackets.TM_CS_SKILL,
-        (ushort)GamePackets.TM_CS_WATCH_BOOTH
+        (ushort)GamePackets.TM_CS_WATCH_BOOTH,
+        (ushort)GamePackets.TM_CS_BUY_FROM_BOOTH,
+        (ushort)GamePackets.TM_CS_SELL_TO_BOOTH
     };
 
     /// <summary>Whether a booth lock covers <paramref name="packetId"/> at all.</summary>

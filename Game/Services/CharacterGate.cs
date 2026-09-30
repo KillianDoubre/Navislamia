@@ -53,6 +53,48 @@ public sealed class CharacterGate
         }
     }
 
+    /// <summary>
+    /// Runs <paramref name="operation"/> holding the gates of two characters — a trade between them. The
+    /// stripes are taken in index order, so two trades between the same pair can never hold one each and
+    /// wait for the other; two names sharing a stripe take it once, since a stripe is not reentrant.
+    /// </summary>
+    public async Task<T> RunPairAsync<T>(string first, string second, Func<Task<T>> operation)
+    {
+        var a = StripeIndexOf(first);
+        var b = StripeIndexOf(second);
+        if (a == b)
+        {
+            return await RunOnStripeAsync(_stripes[a], operation);
+        }
+
+        var (low, high) = a < b ? (a, b) : (b, a);
+        await _stripes[low].WaitAsync();
+        try
+        {
+            return await RunOnStripeAsync(_stripes[high], operation);
+        }
+        finally
+        {
+            _stripes[low].Release();
+        }
+    }
+
+    private static async Task<T> RunOnStripeAsync<T>(SemaphoreSlim stripe, Func<Task<T>> operation)
+    {
+        await stripe.WaitAsync();
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            stripe.Release();
+        }
+    }
+
+    private static uint StripeIndexOf(string key) =>
+        (uint)StringComparer.Ordinal.GetHashCode(key ?? string.Empty) % StripeCount;
+
     private SemaphoreSlim StripeOf(string key)
     {
         var hash = (uint)StringComparer.Ordinal.GetHashCode(key ?? string.Empty);
