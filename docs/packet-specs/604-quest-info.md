@@ -367,6 +367,81 @@ Fiches du dépôt utilisées (à leur dernier commit sur `master`) : `docs/packe
 (600-605, état du personnage, tables de dispatch client) et `docs/packet-specs/socle-cycle-quete.md`
 (geste, gating, découpage, réponse à 604).
 
+## 9. Implémentation livrée (navis-dev)
+
+Branche `hermes/packet-604-quest-info` ; le code et les tests sont dans le commit `094a390`, la présente
+section dans le commit de fiche qui la porte (`1aed911` est le commit de la fiche archéologue).
+
+| Fichier | Ce qui y a été fait |
+| --- | --- |
+| `Game/Network/Packets/Enums/GamePackets.cs` | `TM_CS_QUEST_INFO = 604`, juste après `TM_CS_DROP_QUEST = 603` (famille quête groupée). |
+| `Game/Network/Packets/Game/GameActionPackets.cs` | `QuestInfoRequest(int Code)`, `public const int QuestInfoRequestSize = HeaderSize + 4` (= 11) et `TryReadQuestInfo`, placés à côté de leur frère 603 : c'est là que vivent les lecteurs C→S de la famille (`GameQuestPackets` ne porte que les constructeurs S→C). |
+| `Game/Network/Clients/GameClient.cs` | Bras de dispatch `TM_CS_QUEST_INFO` juste après celui de 603 (donc avant le `switch` final) et `HandleQuestInfo(byte[])` **synchrone**. |
+| `Tests/Game/QuestPacketsTests.cs` | 8 tests neufs, dont 4 cas de taille : le total de la suite passe de **1494** à **1502**. Le verrou d'énumération est passé à `BeTrue()` pour 604, 602 et 605 restant à `BeFalse()`. |
+
+### 9.1 Le lecteur, et le seul choix qui restait ouvert
+
+`TryReadQuestInfo` refuse toute trame dont la taille n'est **pas exactement 11 octets**, puis lit `code`
+en **`int32` signé** à l'offset 7 (`packet.Slice(HeaderSize, 4)`), et rien d'autre.
+
+Le §5.3 laissait le choix entre `Length != 11` et `packet.Length < 11`, et le §7.3 dit que « le serveur
+doit exiger 11 » : c'est le **refus exact** qui a été retenu.
+
+- Le constructeur client (`0x0048d1b0`) est linéaire et n'écrit que les offsets 0-10 : 604 n'a ni champ
+  caché ni queue variable (§3.1), donc une trame plus longue est une anomalie de protocole, pas une
+  variante à lire partiellement.
+- C'est le patron déjà écrit deux fois dans ce dépôt pour des trames fixes : `TryReadCheckIllegalUser`
+  (57) et `TryReadXtrapCheck` (59, « a short or padded frame is refused »), tous deux à 11 octets.
+- La boucle de réception ne peut de toute façon lire que `header.Length` octets, donc refuser les deux
+  bords ne coûte rien à un client honnête et documente le verdict.
+
+### 9.2 Ce que le serveur ne fait pas — décision, pas oubli
+
+- **Aucune réponse** n'est émise : ni 602 (aucun handler client, §5.2), ni 601 (rien ne montre que la
+  fenêtre d'information la lise plutôt que la liste, §7.1), ni `TM_SC_RESULT`. Une trame refusée est
+  journalisée en `Warning` et **rien** n'est envoyé.
+- **Aucune validation du `code`** contre `CharacterQuests` ni contre un domaine : c'est la portée du
+  §5.5, et elle est appliquée telle quelle. L'intervalle du §7.4 n'est donc pas jugé — aucune borne
+  n'étant établie, trancher serait inventer une politique, et aucun verdict n'aurait de consommateur
+  puisque rien ne répond.
+- Le handler est **synchrone**, sans accès base ni écriture d'état : il lit et journalise en `Debug`.
+  C'est la confirmation attendue par le §7.6, et la raison pour laquelle une réception réussie laisse
+  `Connection.Sent` vide.
+- **Aucune limitation de débit** n'est ajoutée : le §7.5 constate qu'aucune cadence n'est établie, et
+  une garde inventée serait une politique de jeu non sourcée.
+
+### 9.3 Preuve par mutation
+
+Chaque mutant a été construit sur `094a390`, exécuté, puis retiré (`git checkout --`).
+
+| # | Mutant | Résultat observé |
+| --- | --- | --- |
+| 1 | garde de taille `!= QuestInfoRequestSize` → `< QuestInfoRequestSize` | `TryReadQuestInfo_RejectsAPaddedFrame` et `_RejectsAQuestStatusSizedFrame` échouent (2 sur 4 cas) : la borne haute est bien tenue par le code. |
+| 2 | bras de dispatch 604 retiré de `GameClient.cs` | `OnDataReceived_ConsumesQuestInfoWithoutThrowingOrAnswering` et `…CoalescedWithTheNextOne` échouent sur `System.Exception: Unknown Packet Type 604` : un id déclaré sans bras tue la boucle de réception, exactement le piège du critère « enum et dispatch ensemble ». |
+| 3 | offset de lecture `HeaderSize` → `HeaderSize - 1` | `TryReadQuestInfo_ReadsTheSignedCodeAtSeven` et `_KeepsANegativeCodeSigned` échouent : les deux tests d'offset sont porteurs. |
+
+La lecture **signée** n'a pas de mutant exécutable : le champ du `record struct` est un `int`, donc
+remplacer la lecture par `ReadUInt32LittleEndian` ne compile qu'avec un cast `unchecked` explicite, qui
+rend de nouveau -1. Le test `_KeepsANegativeCodeSigned` fige donc l'interprétation `int32_t` des deux
+références (§3.1) plutôt qu'un piège de cast — c'est le même partage que pour 603, où le refus du code
+négatif vit dans `QuestDropRules`, pas dans la lecture.
+
+### 9.4 État mesuré
+
+- `dotnet build Navislamia.sln -c Debug` : code de sortie **0**, 0 erreur, 190 avertissements
+  (préexistants).
+- `dotnet test Tests/Tests.csproj` : code de sortie **0**, **1502 passés, 0 échec** (1494 mesurés sur
+  `1aed911` avant le lot).
+- `git log --oneline origin/master..master` : **vide** — aucun commit sur `master` locale.
+
+### 9.5 Collisions d'ancrage assumées
+
+`GamePackets.cs` (ligne de `TM_CS_DROP_QUEST`), la chaîne de dispatch de `GameClient.cs` et
+`Tests/Game/QuestPacketsTests.cs` sont les trois fichiers que le lot 605 touchera aux mêmes endroits
+(§5.4) : les conflits d'énumération et de verrou `Enum.IsDefined` sont attendus à la fusion des deux
+branches et se résolvent sur trois lignes (604 et 605 côte à côte, verrou passé à `BeTrue()` pour l'un
+comme pour l'autre). Le reste du diff est isolé : un lecteur neuf, un handler neuf, huit tests neufs.
+
 ## A VERIFIER PAR KILLIAN
 
 Ce que la lecture seule ne tranche pas, et qui demande une vérification **avec le client 7.3 réel**
@@ -405,14 +480,15 @@ sources.
 - Le client 7.3 **n'a pas de handler pour 602** (`0x0067f35c` → défaut `0x0067ef21`) : ne jamais
   émettre 602 en réponse. La seule trame consommable si un rafraîchissement s'avère nécessaire est
   **601** ; 600 remet le conteneur à zéro et ne sert pas de réponse ciblée.
-- Décision du lot : recevoir 604 bornée à 11 octets, journaliser, **ne rien répondre**. Aucune
-  validation du `code` contre `CharacterQuests` : le verdict ne serait lu par personne (603, lui, agit
-  et répond). Handler synchrone suffisant.
-- **604 est livrable seul** : le lot (b1) du socle groupe 604+605 pour ne toucher qu'une fois
-  `GamePackets.cs`, la chaîne de dispatch de `GameClient.cs` et `Tests/Game/QuestPacketsTests.cs` —
-  pas parce que 604 dépendrait de 605. 605 exige plus (état du personnage + réponse `NotActable`).
-  Déclarer 604 **casse** `Tests/Game/QuestPacketsTests.cs:239` (`Enum.IsDefined(604).Should().BeFalse()`) :
-  le passer à `BeTrue()` dans le même commit, en laissant 602 et 605 à `BeFalse()`.
+- Décision du lot : recevoir 604 bornée à **exactement** 11 octets, journaliser, **ne rien répondre**.
+  Aucune validation du `code` contre `CharacterQuests` : le verdict ne serait lu par personne (603, lui,
+  agit et répond). Handler synchrone, sans accès base : `GameClient.HandleQuestInfo`.
+- **604 a été livré seul** : `GamePackets.TM_CS_QUEST_INFO = 604`, bras de dispatch dans `GameClient.cs`,
+  `GameActionPackets.TryReadQuestInfo` et `QuestInfoRequestSize = 11`, tests dans
+  `Tests/Game/QuestPacketsTests.cs`, détail et preuves par mutation dans
+  `docs/packet-specs/604-quest-info.md` §9. La ligne `Enum.IsDefined(604).Should().BeFalse()` de
+  `QuestPacketsTests` est passée à `BeTrue()`, 602 et 605 restent à `BeFalse()`. 605 exige plus (état du
+  personnage + réponse `NotActable`) et garde sa propre branche.
 - Le savoir durable de ce paquet est dans `docs/packet-specs/604-quest-info.md` (lu avec
   `socle-cycle-quete.md` et `socle-quetes.md`).
 ```
