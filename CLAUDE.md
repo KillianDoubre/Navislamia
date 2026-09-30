@@ -1271,8 +1271,10 @@ nom de 49 octets terminé par un nul, `type` 1 ou 2, `count` `uint16`, puis des 
 `item_handle`/`cnt`/`gold int64`) et `TM_CS_STOP_BOOTH` (`701`, 7 octets). Les deux constructeurs de
 trame sont dans `SFrame.exe` (`0x48CBD0` et `0x48CC20`) et donnent la taille directement.
 
-`TM_CS_CHECK_BOOTH_STARTABLE` (`711`) **n'existe pas dans le client de 7.3** : ni nom, ni créneau de
-dispatch. `op_codes.md:180` le liste pourtant — ne pas s'en servir pour déduire un comportement client.
+`TM_CS_CHECK_BOOTH_STARTABLE` (`711`, 7 octets, en-tête seul) **n'a pas de créneau dans le dispatch
+entrant** du client de 7.3, mais le client **construit et émet** la trame (`SFrame.exe 0x48CFD0`, un seul
+site d'appel `0x49A176`) : elle est déclarée, lue, journalisée et laissée sans réponse
+(`docs/packet-specs/711-check-booth-startable.md`). Aucune règle n'en découle.
 
 Pendant qu'un étal est ouvert, le client annonce lui-même que l'équipement/usage d'objets, l'usage de
 compétences et l'accès à un autre magasin sont refusés (`smsg_booth_not_*` dans `db_string.rdb`), ce qui

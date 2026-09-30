@@ -54,12 +54,14 @@ public readonly record struct SellToBoothRequest(uint Target, uint ItemHandle, i
 public readonly record struct BoothName(uint Handle, byte[] Name);
 
 /// <summary>
-/// The Epic 7.3 layout of the two client packets of the player booth family
-/// (docs/packet-specs/socle-booths.md §3). Both sizes are measured in the 7.3 client itself
-/// (<c>SFrame.exe</c>, frame builders <c>VA 0x48CBD0</c> for 700 and <c>VA 0x48CC20</c> for 701):
-/// <c>TM_CS_START_BOOTH</c> is <c>59 + 16×N</c> bytes, <c>TM_CS_STOP_BOOTH</c> is 7 bytes and carries
-/// no field at all. Nothing here judges the values — a frame the client can build is read as it is;
-/// the game rules that accept or refuse it live in <c>BoothRules</c>.
+/// The Epic 7.3 layout of the client packets of the player booth family
+/// (docs/packet-specs/socle-booths.md §3, docs/packet-specs/711-check-booth-startable.md §3). All
+/// three sizes are measured in the 7.3 client itself (<c>SFrame.exe</c>, frame builders
+/// <c>VA 0x48CBD0</c> for 700, <c>VA 0x48CC20</c> for 701 and <c>VA 0x48CFD0</c> for 711):
+/// <c>TM_CS_START_BOOTH</c> is <c>59 + 16×N</c> bytes, <c>TM_CS_STOP_BOOTH</c> and
+/// <c>TM_CS_CHECK_BOOTH_STARTABLE</c> are 7 bytes and carry no field at all. Nothing here judges the
+/// values — a frame the client can build is read as it is; the game rules that accept or refuse it
+/// live in <c>BoothRules</c>, and 711 decides nothing at all (no rule is established for it).
 /// </summary>
 public static class BoothPackets
 {
@@ -119,6 +121,13 @@ public static class BoothPackets
 
     /// <summary>Offset of the declared price inside a 703 record, right after the motif.</summary>
     public const int WatchBoothItemGoldOffset = ItemFixedInfoWriter.Size;
+    /// Length of <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711): the header and nothing else, like 701.
+    /// Both references declare the frame's field list empty (rzu
+    /// <c>TS_CS_CHECK_BOOTH_STARTABLE.h:5-6</c>) and the 7.3 builder (<c>VA 0x48CFD0</c>) writes a
+    /// literal <c>7</c>, never recomputed from a count — unlike 700 (<c>BoothPackets.cs</c>,
+    /// <c>59 + 16×N</c>).
+    /// </summary>
+    public const int CheckBoothStartableLength = HeaderSize;
 
     public const int NameOffset = HeaderSize;
     public const int TypeOffset = 56;
@@ -435,6 +444,19 @@ public static class BoothPackets
 
         WriteChecksum(packet);
         return packet;
+    }
+
+    /// Reads <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711), the client's "can a booth be started here?"
+    /// frame (docs/packet-specs/711-check-booth-startable.md §3 and §5.2). The frame has no field at
+    /// all, so 711 is the one reader of this family that requires the header <b>and its declared
+    /// length exactly</b>: the 7.3 builder writes the literal <c>7</c> and never recomputes it, so a
+    /// longer frame is an anomaly, not the padded frame the <c>&gt;=</c> readers of this repository
+    /// tolerate. Nothing is decided from the frame — no zone, level, distance or booth-state rule is
+    /// established for this packet, so the caller only logs it.
+    /// </summary>
+    public static bool TryReadCheckBoothStartable(ReadOnlySpan<byte> packet)
+    {
+        return packet.Length == CheckBoothStartableLength;
     }
 
     /// <summary>The 49 byte name field, cut at the first nul byte — what the client's strncpy wrote.</summary>

@@ -1326,6 +1326,34 @@ public class GameClient : Client
         SendResult((ushort)GamePackets.TM_CS_STOP_BOOTH, (ushort)ResultCode.Success);
     }
 
+    /// <summary>
+    /// <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711), the client's "can a booth be started here?" frame.
+    /// It is 7 bytes — the header and nothing else — and the 7.3 client <b>does</b> send it (frame
+    /// builder <c>VA 0x48CFD0</c>, one call site <c>0x49A176</c>), even though its incoming
+    /// dispatcher stops at 710 and no reference holds an answer. The frame is therefore read and
+    /// bounded and <b>nothing is answered</b>: refusing a booth start stays
+    /// <c>HandleStartBooth</c> → <c>BoothRules</c> → <c>TS_SC_RESULT(700, code)</c>, and no zone,
+    /// level, distance or booth-state rule is established for this packet. A frame whose declared
+    /// length is not 7 is logged and dropped rather than refused.
+    /// See docs/packet-specs/711-check-booth-startable.md §5.2 and §5.3.
+    /// </summary>
+    private void HandleCheckBoothStartable(byte[] packet)
+    {
+        if (!BoothPackets.TryReadCheckBoothStartable(packet))
+        {
+            _logger.Warning(
+                "Malformed TM_CS_CHECK_BOOTH_STARTABLE ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_CHECK_BOOTH_STARTABLE, packet.Length, ClientTag);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug("TM_CS_CHECK_BOOTH_STARTABLE ({id}) Length: {length} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_CHECK_BOOTH_STARTABLE, packet.Length, ClientTag);
+        }
+    }
+
     private async Task HandleChangeItemPositionAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadChangeItemPosition(packet, out var request))
@@ -2560,6 +2588,19 @@ public class GameClient : Client
             {
                 _logger.Warning("Server to client packet TM_SC_WATCH_BOOTH ({id}) received from {clientTag}",
                     header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_CHECK_BOOTH_STARTABLE (711): the 7.3 client does build and send this 7 byte frame
+            // (SFrame.exe builder VA 0x48CFD0, one call site 0x49A176) even though its incoming
+            // dispatcher stops at 710, so the id must be both declared and routed here. The frame is
+            // read and logged and nothing is answered — no reference holds an answer and the client
+            // has no slot for one. It must stay before the throwing switch below: a member of
+            // GamePackets that reaches it breaks the receive loop.
+            // See docs/packet-specs/711-check-booth-startable.md §2.2 and §5.2.
+            if (header.ID == (ushort)GamePackets.TM_CS_CHECK_BOOTH_STARTABLE)
+            {
+                HandleCheckBoothStartable(msgBuffer);
                 continue;
             }
 

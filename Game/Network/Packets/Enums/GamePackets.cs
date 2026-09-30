@@ -131,8 +131,11 @@ public enum GamePackets : ushort
     TM_CS_SUMMON_CARD_SKILL_LIST = 452,
 
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)
-    // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) is deliberately absent —
-    // the 7.3 client neither knows it nor can send it (fiche §1.3). The observation trio (702/703/704)
+    // does not concern this repository. TM_CS_CHECK_BOOTH_STARTABLE (711) used to be called absent
+    // here; it is declared since the 7.3 client does build and send that 7 byte frame (SFrame.exe
+    // builder VA 0x48CFD0, one call site 0x49A176) — what stops at 710 is its *incoming* dispatcher,
+    // not its emission. rzu gates the id to 1711 from EPIC_9_6_3 on, so 1711 must not be declared.
+    // See docs/packet-specs/711-check-booth-startable.md. The observation trio (702/703/704)
     // is declared with the visibility socle (docs/packet-specs/socle-booths-visibilite.md §1, §4.1):
     // 703 is server to client and still needs a receive arm of its own, because a declared member
     // without one reaches the throwing switch of the receive loop.
@@ -150,6 +153,7 @@ public enum GamePackets : ushort
     TM_SC_GET_BOOTHS_NAME = 708,
     TM_SC_BOOTH_CLOSED = 709,
     TM_SC_BOOTH_TRADE_INFO = 710,
+    TM_CS_CHECK_BOOTH_STARTABLE = 711,
 
     TM_SC_STATUS_CHANGE = 500,
     TM_SC_STATE = 505,
