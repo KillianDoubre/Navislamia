@@ -2348,8 +2348,13 @@ Aucune de ces valeurs n'est devinée.
   bornés, journalisés — **jamais répondus** : aucune référence n'implémente la ferme (NGemity : 0
   occurrence), et `result`, tickets, crackers, durées et `index` ne sont pas établis. 6001 reçu d'un client
   est journalisé et abandonné.
-- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Piste de données :
-  `db_creaturefarm.rdb` (72 enregistrements de 4 `int8`), non lue. Fiche : `docs/packet-specs/socle-ferme-creatures.md`.
+- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Fiche :
+  `docs/packet-specs/socle-ferme-creatures.md`.
+- **Décision (2026-09-30) : la ferme n'est pas implémentée**, seuls ses paquets sont pris en charge. La fenêtre
+  ne s'ouvre que par le déclencheur `show_creature_farm_window()` du PNJ Sonya, **volontairement non exécuté** :
+  sans fenêtre, le client n'émet ni 6002 ni 6004 ni 6006 ni 6008, et on n'a pas à répondre 6003/6005/6007 avec un
+  `result` inconnu. Ce que l'on sait du système retail (Epic 7.2, sources web) et le tableau décodé de
+  `db_creaturefarm.rdb` (rareté, forme, renforcement → nombre de tickets) sont au §8 de la fiche.
 
 ## Source data (9.4 SQL Server export)
 
