@@ -345,14 +345,12 @@ public class QuestPacketsTests
 
         Enum.IsDefined(typeof(GamePackets), (ushort)603).Should().BeTrue();
 
-        // 604 is declared and armed: its arm reads the 11-byte frame and answers nothing, so the frame
-        // never reaches the final "Unknown Packet Type" throw of GameClient. 602 (quest information, no
-        // client handler) and 605 (accept, its own card and branch) are still deliberately absent: a
-        // member the receive chain does not handle would kill the receive loop. Enum and dispatch move
-        // together (fiche §5.3, §5.4).
+        // 604 and 605 are declared and armed (605 is pinned in EndQuestTests), so neither frame reaches the
+        // final "Unknown Packet Type" throw of GameClient. 602 (quest information, no client handler) is
+        // still deliberately absent: a member the receive chain does not handle would kill the receive loop.
         Enum.IsDefined(typeof(GamePackets), (ushort)604).Should().BeTrue();
+        Enum.IsDefined(typeof(GamePackets), (ushort)605).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)602).Should().BeFalse();
-        Enum.IsDefined(typeof(GamePackets), (ushort)605).Should().BeFalse();
     }
 
     [Test]

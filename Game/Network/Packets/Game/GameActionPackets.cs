@@ -221,6 +221,37 @@ public static class GameActionPackets
         return true;
     }
 
+    /// <summary>The whole <c>TM_CS_END_QUEST</c> frame: header (7) + <c>code</c> (4) + <c>nOptionalReward</c> (1).</summary>
+    public const int EndQuestRequestSize = HeaderSize + 5;
+
+    /// <summary>
+    /// <c>TM_CS_END_QUEST</c> (605): the quest the player finishes, and the optional reward slot chosen —
+    /// <c>-1</c> when none is, the value the 7.3 client writes itself (<c>mov BYTE PTR [eax+0x17],0xff</c>,
+    /// <c>SFrame.exe 0x0061aeae</c>; docs/packet-specs/605-end-quest.md §3).
+    /// </summary>
+    public readonly record struct EndQuestRequest(int Code, sbyte OptionalReward);
+
+    /// <summary>
+    /// Reads <c>TM_CS_END_QUEST</c> (605). The client writes <c>length = 0xc</c> (<c>SFrame.exe 0x0048d6da</c>),
+    /// so only the exact 12-byte form is accepted. The code is read signed like 603's, and
+    /// <c>nOptionalReward</c> as an <b><c>int8</c></b>: read as a byte, the <c>-1</c> the client sends would
+    /// become a slot index of 255.
+    /// </summary>
+    public static bool TryReadEndQuest(ReadOnlySpan<byte> packet, out EndQuestRequest request)
+    {
+        request = default;
+
+        if (packet.Length != EndQuestRequestSize)
+        {
+            return false;
+        }
+
+        request = new EndQuestRequest(
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            unchecked((sbyte)packet[HeaderSize + 4]));
+        return true;
+    }
+
     public static bool TryReadEraseItem(ReadOnlySpan<byte> packet, out EraseItemRequest[] requests)
     {
         const int recordSize = 12;

@@ -22,4 +22,12 @@ public interface IQuestService
     /// answer and resynchronise the list.
     /// </summary>
     Task DropQuestAsync(GameClient client, GameActionPackets.DropQuestRequest request);
+
+    /// <summary>
+    /// Handles <c>TM_CS_END_QUEST</c> (605): judge the frame, then the character's state, and answer a
+    /// <c>TS_SC_RESULT</c> tagged 605. Finishing a quest — rewards, collected items, the finished mark —
+    /// is lot (b4) of docs/packet-specs/socle-cycle-quete.md and is not carried out: every verdict is a
+    /// refusal (docs/packet-specs/605-end-quest.md §5).
+    /// </summary>
+    Task EndQuestAsync(GameClient client, GameActionPackets.EndQuestRequest request);
 }
