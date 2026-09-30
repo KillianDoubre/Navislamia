@@ -82,11 +82,9 @@ public class AuctionSellingListPacketsTests
         Enum.IsDefined(typeof(GamePackets), (ushort)2302).Should().BeFalse();
 
         // 1304 is TM_CS_AUCTION_BIDDED_LIST in 7.3 — never the 9.6.3 summon request
-        // (GamePackets.cs:74-77) — and it is not this lot.
-        Enum.IsDefined(typeof(GamePackets), (ushort)1304).Should().BeFalse();
-
-        // 1306/1308/1309/1310 are the rest of the family and stay out of this lot.
-        Enum.IsDefined(typeof(GamePackets), (ushort)1306).Should().BeFalse();
+        // (GamePackets.cs:74-77). The rest of the family may be declared, under its auction names only.
+        Enum.GetName(typeof(GamePackets), (ushort)1304).Should().BeOneOf(new string[] { null, "TM_CS_AUCTION_BIDDED_LIST" });
+        Enum.GetName(typeof(GamePackets), (ushort)1306).Should().BeOneOf(new string[] { null, "TM_CS_AUCTION_BID" });
     }
 
     [Test]

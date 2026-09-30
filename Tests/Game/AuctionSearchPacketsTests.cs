@@ -79,7 +79,7 @@ public class AuctionSearchPacketsTests
         Enum.IsDefined(typeof(GamePackets), (ushort)2300).Should().BeFalse();
 
         // 1304 is TM_CS_AUCTION_BIDDED_LIST in 7.3 — never the 9.6.3 summon request (GamePackets.cs:74-78).
-        Enum.IsDefined(typeof(GamePackets), (ushort)1304).Should().BeFalse();
+        Enum.GetName(typeof(GamePackets), (ushort)1304).Should().BeOneOf(new string[] { null, "TM_CS_AUCTION_BIDDED_LIST" });
     }
 
     [Test]
