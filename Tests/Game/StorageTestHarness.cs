@@ -47,7 +47,8 @@ internal static class StorageTestHarness
         IItemDonateService itemDonateService = null,
         ISkillCardService skillCardService = null,
         ICardSocketService cardSocketService = null,
-        Navislamia.Game.Services.Party.IPartyService partyService = null)
+        Navislamia.Game.Services.Party.IPartyService partyService = null,
+        Navislamia.Game.Services.Trade.IPlayerTradeService playerTradeService = null)
     {
         characterService ??= A.Fake<ICharacterService>();
         playerVisibilityService ??= new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>());
@@ -92,7 +93,9 @@ internal static class StorageTestHarness
             skillCardService ?? A.Fake<ISkillCardService>(),
             cardSocketService ?? A.Fake<ICardSocketService>(),
             partyService ?? new Navislamia.Game.Services.Party.PartyService(playerVisibilityService,
-                A.Fake<IStatService>(), A.Fake<IBannedWordsRepository>()));
+                A.Fake<IStatService>(), A.Fake<IBannedWordsRepository>()),
+            playerTradeService ?? new Navislamia.Game.Services.Trade.PlayerTradeService(characterService,
+                playerVisibilityService));
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

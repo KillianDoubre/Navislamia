@@ -18,7 +18,7 @@ public static class GameCharacterPackets
 {
     private const int HeaderSize = 7;
     public const int WearSlots = 24;
-    private const int InventoryItemSize = ItemFixedInfoWriter.Size + 10;
+    internal const int InventoryItemSize = ItemFixedInfoWriter.Size + 10;
     private const int MaxInventoryItemsPerPacket = 45;
 
     public static byte[] BuildItemCoolTime(IReadOnlyDictionary<int, uint> cooldowns, uint now)
@@ -385,7 +385,7 @@ public static class GameCharacterPackets
     /// client; the 75-byte motif must come from <see cref="ItemFixedInfoWriter"/> so both families stay
     /// aligned on <c>appearance_code</c>.
     /// </summary>
-    private static void WriteInventoryItem(Span<byte> span, ItemEntity item)
+    internal static void WriteInventoryItem(Span<byte> span, ItemEntity item)
     {
         ItemFixedInfoWriter.Write(span.Slice(0, ItemFixedInfoWriter.Size), ItemFixedInfo.FromItem(item));
 

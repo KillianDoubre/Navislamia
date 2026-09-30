@@ -41,6 +41,26 @@ public enum ItemTransferOutcome
 /// </summary>
 public readonly record struct ItemTransferred(uint GiverHandle, long GiverRemaining, ItemEntity Received);
 
+/// <summary>
+/// A two-way trade (<c>TS_TRADE</c>, 280): each side's offered stacks go to the other, and both balances
+/// are written with them. The balances are the sessions' own, already moved under their gold locks.
+/// </summary>
+public sealed record ItemExchange(
+    string FirstName,
+    string SecondName,
+    IReadOnlyList<ItemTransferLine> FirstGives,
+    IReadOnlyList<ItemTransferLine> SecondGives,
+    long FirstGold,
+    long SecondGold);
+
+/// <summary>What each side gave: <see cref="FirstGave"/> went to the second character, and back.</summary>
+public sealed record ItemExchangeResult(ItemTransferOutcome Outcome, IReadOnlyList<ItemTransferred> FirstGave,
+    IReadOnlyList<ItemTransferred> SecondGave)
+{
+    public static ItemExchangeResult Failed(ItemTransferOutcome outcome) =>
+        new(outcome, System.Array.Empty<ItemTransferred>(), System.Array.Empty<ItemTransferred>());
+}
+
 public sealed record ItemTransferResult(ItemTransferOutcome Outcome, IReadOnlyList<ItemTransferred> Moved)
 {
     public static ItemTransferResult Failed(ItemTransferOutcome outcome) =>

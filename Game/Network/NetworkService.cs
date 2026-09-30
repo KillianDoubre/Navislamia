@@ -50,6 +50,7 @@ public class NetworkService : INetworkService
     public readonly IBoothTradeService BoothTradeService;
     public readonly IMarketTradeService MarketTradeService;
     public readonly Navislamia.Game.Services.Party.IPartyService PartyService;
+    public readonly Navislamia.Game.Services.Trade.IPlayerTradeService PlayerTradeService;
     public readonly ISoulstoneCraftService SoulstoneCraftService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
@@ -89,9 +90,11 @@ public class NetworkService : INetworkService
         IItemDonateService itemDonateService,
         ISkillCardService skillCardService,
         ICardSocketService cardSocketService,
-        Navislamia.Game.Services.Party.IPartyService partyService)
+        Navislamia.Game.Services.Party.IPartyService partyService,
+        Navislamia.Game.Services.Trade.IPlayerTradeService playerTradeService)
     {
         PartyService = partyService;
+        PlayerTradeService = playerTradeService;
         PlayerVisibilityService = playerVisibilityService;
         BoothTradeService = boothTradeService;
         CommercialStorageService = commercialStorageService;

@@ -27,6 +27,8 @@ public enum GamePackets : ushort
     TM_CS_CANCEL_ACTION = 150,
     TM_CS_PUTON_ITEM = 200,
     TM_CS_PUTOFF_ITEM = 201,
+    /// <summary><c>TS_TRADE</c>: the player trade, the same 97-byte frame in both directions.</summary>
+    TM_TRADE = 280,
     TM_CS_PUTON_ITEM_SET = 281,
     TM_SC_WEAR_INFO = 202,
     TM_CS_DROP_ITEM = 203,

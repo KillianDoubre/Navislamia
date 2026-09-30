@@ -635,7 +635,8 @@ public class ResurrectionPacketTests
             A.Fake<IMarketTradeService>(),
                 A.Fake<ISoulstoneCraftService>(), A.Fake<IItemDonateService>(),
             A.Fake<ISkillCardService>(), A.Fake<ICardSocketService>(),
-            A.Fake<Navislamia.Game.Services.Party.IPartyService>());
+            A.Fake<Navislamia.Game.Services.Party.IPartyService>(),
+            A.Fake<Navislamia.Game.Services.Trade.IPlayerTradeService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

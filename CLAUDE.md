@@ -1662,6 +1662,22 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   d'expérience et de butin non modélisé.
 - Fiche, adresses des fonctions officielles, écarts et `NON ÉTABLI` : `docs/packet-specs/socle-groupe.md`.
 
+### Paquet 280 — `TS_TRADE` (échange entre joueurs)
+
+- **Une seule trame de 97 octets dans les deux sens** (`TM_TRADE`) : `target_player` @7, `mode` @11, puis
+  l'enregistrement d'inventaire de 85 octets @12 — l'objet est **nommé par son `uid` @20**, le compte (et
+  l'or) est @28. Modes 0-11 confirmés par la table de saut d'`onTrade` du serveur officiel ; 2 (`BEGIN`) et
+  9 (`PROCESS`) sont des réponses, ignorées en entrée ; 11 (`MODIFY_COUNT`) n'existe pas chez NGemity.
+- Règles de l'officiel (`CaptainHerlockServer.exe`, §3 de la fiche) : cible à `g_nRegionSize` (ici
+  `WorldVisibility.RegionSize`, 180) sinon `TooFar`, absente → `NotExist`, déjà en échange → `AccessDenied` ;
+  offre et or bornés par la pile et le solde ; confirmation à deux fenêtres verrouillées ; plafond d'or →
+  `TooMuchMoney` (53). **L'écho d'une offre porte le compte offert**, pas celui de la pile (défaut NGemity).
+- Exécution : l'or sous le verrou d'or de chaque session, puis **`CharacterService.ExchangeItemsAsync`, les
+  deux sens jugés avant tout déplacement et appliqués avec les deux soldes en une sauvegarde** ; tout échec
+  rend l'or. **Écart** : une acceptation doit répondre à une demande (l'officiel ouvre la fenêtre de
+  n'importe qui). Poids, règle PK et entrepôt ouvert non modélisés. Lobby et déconnexion ferment l'échange.
+- Fiche : `docs/packet-specs/280-trade.md`.
+
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
 - **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`

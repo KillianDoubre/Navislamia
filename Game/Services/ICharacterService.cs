@@ -146,6 +146,12 @@ public interface ICharacterService
     /// </summary>
     Task<ItemTransferResult> TransferItemsAsync(ItemTransfer transfer);
 
+    /// <summary>
+    /// A two-way <see cref="TransferItemsAsync"/>: both sides' lines are judged before anything moves, then
+    /// applied with both balances in one save under both characters' gates.
+    /// </summary>
+    Task<ItemExchangeResult> ExchangeItemsAsync(ItemExchange exchange);
+
     Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests);
 

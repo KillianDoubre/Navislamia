@@ -49,6 +49,42 @@ public class ItemTransferTests
         _service.TransferItemsAsync(new ItemTransfer("Giver", "Receiver", lines, GiverGold: 110, ReceiverGold: 0));
 
     [Test]
+    public async Task AnExchange_MovesBothWaysAndWritesBothBalancesInOneSave()
+    {
+        var sword = new ItemEntity { Id = 5, ItemResourceId = 101221, Amount = 1, Idx = 1, CharacterId = 1, WearInfo = ItemWearType.None };
+        _giver.Items.Add(sword);
+        var shield = _receiver.Items.Single();
+        shield.WearInfo = ItemWearType.None;
+
+        var result = await _service.ExchangeItemsAsync(new ItemExchange("Giver", "Receiver",
+            new[] { new ItemTransferLine(5, 1) }, new[] { new ItemTransferLine(900, 1) }, 15, 25));
+
+        result.Outcome.Should().Be(ItemTransferOutcome.Success);
+        result.FirstGave.Should().ContainSingle().Which.Received.Should().BeSameAs(sword);
+        result.SecondGave.Should().ContainSingle().Which.Received.Should().BeSameAs(shield);
+        _giver.Items.Should().Equal(shield);
+        _receiver.Items.Should().Equal(sword);
+        _giver.Gold.Should().Be(15);
+        _receiver.Gold.Should().Be(25);
+        A.CallTo(() => _repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task AnExchange_ThatOneSideCannotHonour_MovesNothing()
+    {
+        var sword = new ItemEntity { Id = 5, ItemResourceId = 101221, Amount = 1, Idx = 1, CharacterId = 1, WearInfo = ItemWearType.None };
+        _giver.Items.Add(sword);
+
+        var result = await _service.ExchangeItemsAsync(new ItemExchange("Giver", "Receiver",
+            new[] { new ItemTransferLine(5, 1) }, new[] { new ItemTransferLine(901, 1) }, 15, 25));
+
+        result.Outcome.Should().Be(ItemTransferOutcome.ItemMissing);
+        _giver.Items.Should().Equal(sword);
+        _giver.Gold.Should().Be(10);
+        A.CallTo(() => _repository.SaveChangesAsync()).MustNotHaveHappened();
+    }
+
+    [Test]
     public async Task AWholeStack_MovesAsTheSameRowToTheEndOfTheReceiversBag()
     {
         var sword = new ItemEntity { Id = 5, ItemResourceId = 101221, Amount = 1, Enhance = 7, Idx = 1, CharacterId = 1, WearInfo = ItemWearType.None };

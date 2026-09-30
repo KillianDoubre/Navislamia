@@ -774,6 +774,116 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<ItemExchangeResult> ExchangeItemsAsync(ItemExchange exchange)
+    {
+        return _gate.RunPairAsync(exchange.FirstName, exchange.SecondName, async () =>
+        {
+            using var repository = _repositories.Create();
+            var first = await repository.GetCharacterByNameWithItemsAsync(exchange.FirstName);
+            var second = await repository.GetCharacterByNameWithItemsAsync(exchange.SecondName);
+            if (first is null || second is null)
+            {
+                return ItemExchangeResult.Failed(ItemTransferOutcome.CharacterMissing);
+            }
+
+            first.Items ??= new List<ItemEntity>();
+            second.Items ??= new List<ItemEntity>();
+
+            // Both directions are judged before either moves: the trade applies whole or not at all.
+            var firstOutcome = JudgeLines(first.Items, exchange.FirstGives, out var firstAsked);
+            if (firstOutcome != ItemTransferOutcome.Success)
+            {
+                return ItemExchangeResult.Failed(firstOutcome);
+            }
+
+            var secondOutcome = JudgeLines(second.Items, exchange.SecondGives, out var secondAsked);
+            if (secondOutcome != ItemTransferOutcome.Success)
+            {
+                return ItemExchangeResult.Failed(secondOutcome);
+            }
+
+            var firstGave = MoveLines(first, second, firstAsked);
+            var secondGave = MoveLines(second, first, secondAsked);
+
+            first.Gold = exchange.FirstGold;
+            second.Gold = exchange.SecondGold;
+            InventoryArrange.EnsureContiguousIndices(first.Items.ToArray());
+            InventoryArrange.EnsureContiguousIndices(second.Items.ToArray());
+            await repository.SaveChangesAsync();
+            return new ItemExchangeResult(ItemTransferOutcome.Success, firstGave, secondGave);
+        });
+    }
+
+    /// <summary>The checks of <see cref="TransferItemsAsync"/> for one giver: in the bag, not worn, enough units.</summary>
+    private static ItemTransferOutcome JudgeLines(ICollection<ItemEntity> items, IReadOnlyList<ItemTransferLine> lines,
+        out Dictionary<uint, long> asked)
+    {
+        asked = new Dictionary<uint, long>();
+        foreach (var line in lines)
+        {
+            asked[line.ItemHandle] = asked.GetValueOrDefault(line.ItemHandle) + line.Count;
+        }
+
+        foreach (var (handle, count) in asked)
+        {
+            var item = FindByHandle(items, handle);
+            if (item is null)
+            {
+                return ItemTransferOutcome.ItemMissing;
+            }
+
+            if (item.WearInfo != ItemWearType.None)
+            {
+                return ItemTransferOutcome.Worn;
+            }
+
+            if (count <= 0 || count > item.Amount)
+            {
+                return ItemTransferOutcome.NotEnough;
+            }
+        }
+
+        return ItemTransferOutcome.Success;
+    }
+
+    /// <summary>
+    /// Moves judged lines from <paramref name="giver"/> to <paramref name="receiver"/>: a whole stack keeps
+    /// its row, part of one becomes a new row with the same attributes, at the end of the receiver's bag.
+    /// </summary>
+    private static List<ItemTransferred> MoveLines(CharacterEntity giver, CharacterEntity receiver,
+        Dictionary<uint, long> asked)
+    {
+        var nextIndex = receiver.Items.Count == 0
+            ? InventoryArrange.FirstIndex
+            : receiver.Items.Max(item => item.Idx) + 1;
+        var moved = new List<ItemTransferred>(asked.Count);
+
+        foreach (var (handle, count) in asked)
+        {
+            var item = FindByHandle(giver.Items, handle);
+            var remaining = item.Amount - count;
+            ItemEntity received;
+            if (remaining == 0)
+            {
+                giver.Items.Remove(item);
+                item.CharacterId = receiver.Id;
+                item.Idx = nextIndex++;
+                receiver.Items.Add(item);
+                received = item;
+            }
+            else
+            {
+                item.Amount = remaining;
+                received = SplitOff(item, count, nextIndex++);
+                receiver.Items.Add(received);
+            }
+
+            moved.Add(new ItemTransferred(handle, remaining, received));
+        }
+
+        return moved;
+    }
+
     /// <summary>
     /// A new stack of <paramref name="count"/> units carrying every attribute of <paramref name="source"/>:
     /// part of a stack changes hands with the enhance, level, sockets and effects it had.

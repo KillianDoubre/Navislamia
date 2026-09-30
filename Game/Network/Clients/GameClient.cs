@@ -1227,6 +1227,25 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleTradeAsync(byte[] buffer)
+    {
+        if (!PlayerTradePackets.TryRead(buffer, out var request))
+        {
+            _logger.Warning("TS_TRADE ({id}) of {length} bytes from {clientTag} refused: {size} expected",
+                (ushort)GamePackets.TM_TRADE, buffer.Length, ClientTag, PlayerTradePackets.Size);
+            return;
+        }
+
+        try
+        {
+            await _networkService.PlayerTradeService.HandleAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Trade step {mode} of {clientTag} failed", request.Mode, ClientTag);
+        }
+    }
+
     public override async void OnDisconnect()
     {
         try
@@ -1239,6 +1258,7 @@ public class GameClient : Client
             // socket cleanup (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 5). An open
             // booth closes before, so its watchers receive their 709.
             _networkService.BoothTradeService.CloseBooth(this);
+            _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
 
@@ -1267,6 +1287,7 @@ public class GameClient : Client
             _logger.Debug("{clientTag} returning to character selection", ClientTag);
             _networkService.CombatService.StopAttack(this);
             _networkService.BoothTradeService.CloseBooth(this);
+            _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
             await SaveProgressSafelyAsync("before returning to character selection");
@@ -2856,6 +2877,13 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            // TS_TRADE (280): the player trade, every step in one 97-byte frame (docs/packet-specs/280-trade.md).
+            if (header.ID == (ushort)GamePackets.TM_TRADE)
+            {
+                _ = HandleTradeAsync(msgBuffer);
                 continue;
             }
 
