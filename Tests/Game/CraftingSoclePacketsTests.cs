@@ -47,11 +47,14 @@ public class CraftingSoclePacketsTests
     }
 
     [Test]
-    public void SoulstoneCraftWindow_HasNoEstablishedId()
+    public void SoulstoneCraftWindow_IsNotDeclaredOn259()
     {
-        // rzu and NGemity both declare TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW on 259, where op_codes.md:86
-        // declares TM_CS_DONATE_REWARD: no 7.3 id is established, so 259 must stay out of the enum.
-        Enum.IsDefined(typeof(GamePackets), (ushort)259).Should().BeFalse();
+        // rzu and NGemity declare TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW on 259, server to client; op_codes.md:86
+        // and NGemity's ClientPackets.h declare TM_CS_DONATE_REWARD on 259, client to server. The two
+        // directions are distinct spaces (docs/packet-specs/260-soulstone-craft.md §7): 259 is declared as the
+        // donation reward the client sends, never as a window the server would open.
+        Enum.GetName(typeof(GamePackets), (ushort)259).Should().BeOneOf(
+            new string[] { null, "TM_CS_DONATE_REWARD" });
     }
 
     // ---------------------------------------------------------------- 256, TM_CS_MIX

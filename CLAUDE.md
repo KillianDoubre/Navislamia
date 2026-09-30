@@ -1721,10 +1721,11 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   journalise et les jette. Un membre de `GamePackets` sans bras atteint le `throw
   Unknown Packet Type` final de `GameClient.Receive`, qui **casse la boucle de réception** :
   énumération et dispatch se modifient ensemble.
-- **259 n'est pas établi** : rzu et NGemity y déclarent `TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW`,
-  `op_codes.md:86` y met `TM_CS_DONATE_REWARD`. La fenêtre de sertissage ne peut pas être émise
-  tant que l'id n'est pas tranché, et 260 n'est pas testable de bout en bout sans le
-  déclencheur de contact PNJ.
+- **259 a deux sens** : rzu et NGemity y déclarent `TS_SC_SHOW_SOULSTONE_CRAFT_WINDOW` (serveur → client),
+  `op_codes.md:86` et `ClientPackets.h` y mettent `TM_CS_DONATE_REWARD` (client → serveur). Seul le second
+  est déclaré (`docs/packet-specs/259-donate-reward.md`) ; la fenêtre de sertissage n'est pas émise, et 260
+  (`SoulstoneCraftService`, `docs/packet-specs/260-soulstone-craft.md`) n'est pas testable de bout en bout
+  sans le déclencheur de contact PNJ.
 - **Restent à trancher avant tout moteur** (détail en fin de fiche) : taux de réussite, sort des
   châsses en cas d'échec, coût `price / 10`, unité du `rate` de 264, articulation
   `mix_type` 801/802/803 ↔ 263/264.
