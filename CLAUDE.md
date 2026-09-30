@@ -1755,9 +1755,15 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   `CHECK_*` : **11, 12 et 15-18 refusés**, **8, 9, 13, 14 implémentés**, **19 et 20 décidés au
   post-réordonnancement** (20 par un `false` constant, comme la référence) ; la quantité de la trame est
   remplacée par 1 quand aucun code 10 ne l'a contrôlée, comme NGemity.
-- **Restent à trancher** : taux et politique d'échec, position ou permutation, les six codes `CHECK_*`
-  inertes, `CHECK_SAME_SUMMON_CODE`, le `local_flag` du serveur. Fiche :
-  `docs/packet-specs/socle-artisanat-ressources.md`.
+- **Moteur (lot L2, §14-15 de la fiche)** : `CraftingEngine` (pur) exécute 101 (cube, gain tiré dans
+  `[mix_value_02, mix_value_03]`, chance `percentage[enhance]`, échec par `fail_result` : 1/0/4 → bit `FAILED`
+  et châsses gardées, 2 → détruit à +3 ou moins sinon −3, 3 → −3 plancher 0), 103 (cube + poudre, +1, échec −1),
+  311 (bit 0 := `mix_value_03`) et 501 (efface le bit `mix_value_01`, 3 = `FAILED`) ; 102 ne se résout pas
+  (codes de condition 24/25 inconnus), les autres types sont refusés. `ApplyCraftAsync` applique tout en une
+  sauvegarde, **seulement si la cible est encore dans l'état où le craft a été décidé**. Réponse : 255/254 par pile,
+  207 pour la cible, puis 257 (cible si réussite, vide si échec). Appariement **par position**.
+  `Crafting:LocalFlag` = 1 ; données par `tools/Import-CraftingResources.ps1` (CSV 9.4), `Percentage` jusqu'à 25.
+  Fiche : `docs/packet-specs/socle-artisanat-ressources.md`.
 
 ### Paquet 304 — `TM_CS_SUMMON` (demande d'invocation par carte)
 

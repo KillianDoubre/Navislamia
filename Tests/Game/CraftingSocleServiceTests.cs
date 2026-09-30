@@ -105,7 +105,8 @@ public class CraftingSocleServiceTests
     private static Harness Build(IReadOnlyList<MixResourceEntity> rules,
         IReadOnlyDictionary<uint, ItemEntity> items,
         IReadOnlyDictionary<long, ItemMatchFields> fields,
-        ushort characterHandle = 42)
+        ushort characterHandle = 42,
+        IEnhanceResourceCatalog enhanceCatalog = null)
     {
         var characterService = A.Fake<ICharacterService>();
         A.CallTo(() => characterService.GetItemByHandleAsync(Character, A<uint>._))
@@ -119,7 +120,7 @@ public class CraftingSocleServiceTests
         session.CharacterHandle = characterHandle;
 
         var service = new CraftingSocleService(characterService, new FakeMixCatalog(rules),
-            new FakeItemCatalog(fields));
+            new FakeItemCatalog(fields), enhanceCatalog);
 
         return new Harness(service, characterService, client, connection);
     }
@@ -243,6 +244,57 @@ public class CraftingSocleServiceTests
     }
 
     // ------------------------------------------------------------------ the resolution of 256
+
+    [Test]
+    public async Task Mix_EnhanceRule_AppliesTheCraftAndReportsTheTargetIn257()
+    {
+        // The fixture's rule becomes an enhancement whose cube is the fixture's material (§14, §15).
+        var rule = MaterialRule();
+        rule.MixValue01 = 5007;
+        rule.MixValue02 = 1;
+        rule.MixValue03 = 1;
+        var enhance = new EnhanceResourceEntity
+        {
+            Id = 5007, MaxEnhance = 10, FailResult = FailResultType.Fail, RequiredItemId = MaterialResource,
+            Percentage = Enumerable.Repeat(1m, 25).ToArray()
+        };
+        var enhanceCatalog = A.Fake<IEnhanceResourceCatalog>();
+        A.CallTo(() => enhanceCatalog.TryGetForServer(5007, 1, out enhance)).Returns(true)
+            .AssignsOutAndRefParameters(enhance);
+
+        var harness = Build(new[] { rule },
+            new Dictionary<uint, ItemEntity>
+            {
+                [TargetHandle] = Item(TargetResource),
+                [MaterialHandle] = Item(MaterialResource, amount: 2)
+            },
+            new Dictionary<long, ItemMatchFields>
+            {
+                [TargetResource] = Fields(TargetResource),
+                [MaterialResource] = Fields(MaterialResource)
+            },
+            enhanceCatalog: enhanceCatalog);
+        harness.Service.Roll = (min, max) => min;
+
+        var raised = new ItemEntity { Id = TargetHandle, ItemResourceId = TargetResource, Amount = 1, Enhance = 1 };
+        A.CallTo(() => harness.CharacterService.ApplyCraftAsync(Character, A<IReadOnlyList<CraftConsumption>>._,
+                A<CraftTargetChange?>._))
+            .Returns(new CraftCommitResult(CraftCommitOutcome.Success, new[] { (MaterialHandle, 1L) }, raised));
+
+        await harness.Service.HandleAsync(harness.Client, (ushort)GamePackets.TM_CS_MIX,
+            MixFrame(TargetHandle, 1, (MaterialHandle, 1)));
+
+        A.CallTo(() => harness.CharacterService.ApplyCraftAsync(Character,
+                A<IReadOnlyList<CraftConsumption>>.That.Matches(lines => lines.Single() == new CraftConsumption(MaterialHandle, 1)),
+                A<CraftTargetChange?>.That.Matches(change => change!.Value.NewEnhance == 1 && change.Value.Handle == TargetHandle)))
+            .MustHaveHappenedOnceExactly();
+
+        var ids = harness.Connection.Sent.Select(frame => BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4, 2))).ToList();
+        ids.Should().Equal(new ushort[] { 255, 207, 257 }, "the cube stack, the raised item, then the mix result");
+        var mixResult = harness.Connection.Sent.Last();
+        BinaryPrimitives.ReadUInt32LittleEndian(mixResult.AsSpan(7, 4)).Should().Be(1);
+        BinaryPrimitives.ReadUInt32LittleEndian(mixResult.AsSpan(11, 4)).Should().Be(TargetHandle);
+    }
 
     [Test]
     public async Task Mix_ResolvesTheRuleAndRefusesWithInvalidArgument()

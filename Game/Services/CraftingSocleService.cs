@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
+using Navislamia.Configuration.Options;
+using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
@@ -45,14 +48,25 @@ public class CraftingSocleService : ICraftingSocleService
     private readonly ICharacterService _characterService;
     private readonly IMixResourceCatalog _mixCatalog;
     private readonly IItemMatchCatalog _itemCatalog;
+    private readonly IEnhanceResourceCatalog _enhanceCatalog;
+    private readonly int _localFlag;
 
     public CraftingSocleService(ICharacterService characterService, IMixResourceCatalog mixCatalog,
-        IItemMatchCatalog itemCatalog)
+        IItemMatchCatalog itemCatalog, IEnhanceResourceCatalog enhanceCatalog = null,
+        IOptions<CraftingOptions> craftingOptions = null)
     {
         _characterService = characterService;
         _mixCatalog = mixCatalog;
         _itemCatalog = itemCatalog;
+        _enhanceCatalog = enhanceCatalog;
+        _localFlag = craftingOptions?.Value.LocalFlag ?? new CraftingOptions().LocalFlag;
     }
+
+    /// <summary>
+    /// The craft's dice: an integer in <c>[min, max]</c>, both inclusive, like NGemity's <c>irand</c> and
+    /// <c>urand</c>. Replaceable so a test can decide a success or a failure.
+    /// </summary>
+    public Func<int, int, int> Roll { get; set; } = (min, max) => Random.Shared.Next(min, max + 1);
 
     public async Task HandleAsync(GameClient client, ushort packetId, byte[] packet)
     {
@@ -190,10 +204,69 @@ public class CraftingSocleService : ICraftingSocleService
             return;
         }
 
-        _logger.Warning(
-            "Crafting packet {id} from {clientTag} resolves to mix rule {ruleId} of type {mixType} and would consume {stacks} material stacks, but the effects of that type are not implemented: refused with InvalidArgument",
-            packetId, client.ClientTag, resolution.Rule.Id, resolution.Rule.MixType, resolution.ConsumedCounts.Count);
-        client.SendResult(packetId, (ushort)ResultCode.InvalidArgument);
+        EnhanceResourceEntity enhance = null;
+        if (resolution.Rule.MixType is CraftingEngine.MixEnhance or CraftingEngine.MixEnhanceWithoutFail)
+        {
+            _enhanceCatalog?.TryGetForServer(resolution.Rule.MixValue01, _localFlag, out enhance);
+        }
+
+        var plan = CraftingEngine.Plan(resolution, target, enhance, Roll);
+        if (plan.Refusal != ResultCode.Success)
+        {
+            _logger.Warning(
+                "Crafting packet {id} from {clientTag} resolves to mix rule {ruleId} of type {mixType}, which cannot be carried out ({refusal}): refused",
+                packetId, client.ClientTag, resolution.Rule.Id, resolution.Rule.MixType, plan.Refusal);
+            client.SendResult(packetId, (ushort)plan.Refusal);
+            return;
+        }
+
+        CraftCommitResult commit;
+        try
+        {
+            commit = await _characterService.ApplyCraftAsync(client.ConnectionInfo.CharacterName, plan.Consumed,
+                plan.Change);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not apply mix rule {ruleId} for {clientTag}", resolution.Rule.Id,
+                client.ClientTag);
+            client.SendResult(packetId, (ushort)ResultCode.DBError);
+            return;
+        }
+
+        if (commit.Outcome != CraftCommitOutcome.Success)
+        {
+            // A stack went away or the target changed between the frame and the save (the client resends,
+            // another craft ran): nothing was applied.
+            client.SendResult(packetId, (ushort)ResultCode.NotExist);
+            return;
+        }
+
+        foreach (var (handle, remaining) in commit.Consumed)
+        {
+            client.Connection.Send(remaining == 0
+                ? GameCharacterPackets.BuildDestroyItem(handle)
+                : GameCharacterPackets.BuildUpdateItemCount(handle, remaining));
+        }
+
+        if (plan.Change is { } change)
+        {
+            if (commit.Target is null)
+            {
+                client.Connection.Send(GameCharacterPackets.BuildDestroyItem(change.Handle));
+            }
+            else
+            {
+                foreach (var frame in GameCharacterPackets.BuildInventory(new[] { commit.Target }))
+                {
+                    client.Connection.Send(frame);
+                }
+            }
+        }
+
+        client.Connection.Send(GameCraftingPackets.BuildMixResult(plan.ResultHandles));
+        _logger.Information("Mix rule {ruleId} (type {mixType}) for {clientTag}: {outcome}", resolution.Rule.Id,
+            resolution.Rule.MixType, client.ClientTag, plan.ResultHandles.Count > 0 ? "success" : "failure");
     }
 
     /// <summary>
@@ -246,7 +319,8 @@ public class CraftingSocleService : ICraftingSocleService
             item.Level,
             item.Enhance,
             (int)item.Flag,
-            count);
+            count,
+            handle);
     }
 
     /// <summary>

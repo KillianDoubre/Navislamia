@@ -734,3 +734,50 @@ clone comme `data/sqlserver`, voir `reference/README.md`). Mesures faites sur `M
 9. **Position ou permutation** : **position**, le comportement que NGemity exécute réellement
    (`MixManager.cpp:263`). L2 aligne le moteur et les tests. L'étape 7 du protocole client reste le
    moyen d'infirmer ce choix : si le client accepte les deux ordres, on repasse en permutation.
+
+## 15. Lot L2 livré — le moteur (2026-09-30, branche `claude/crafting-engine`)
+
+Les décisions du §14 appliquées, avec ce que la donnée 9.4 a tranché en chemin.
+
+**Types exécutés** (`CraftingEngine`, pur, dés injectés ; `CraftingSocleService` l'appelle après la résolution) :
+
+| type | effet | tiré de |
+|---|---|---|
+| 101 `MIX_ENHANCE` | cube (`need_item`) consommé ; gain dans `[mix_value_02, mix_value_03]` (9.4 : 1 à 1, 3 ou 5), plafonné à `max_enhance` (au plafond : refus, rien consommé) ; chance `percentage[enhance]` contre un tirage `0..100000` ; échec selon `fail_result` (§14 pt 1) | `MixManager.cpp:47-121` |
+| 103 `MIX_ENHANCE_WITHOUT_FAIL` | cube **et** poudre consommés ; gain 1 ; échec = −1, plancher 0 — la poudre protège de `fail_result` ; le cube est reconnu à son code, qu'il soit au premier ou au second rang | `:61-68`, `:108-111` |
+| 311 `MIX_ADD_LEVEL_SET_FLAG` | matériaux consommés ; **le bit 0 prend la valeur de `mix_value_03`** | la donnée : les 9 règles à 1 exigent le bit 0 éteint (`CHECK_FLAG_OFF 0`), les 9 à 0 l'exigent allumé (`CHECK_FLAG_ON 0`) — ce n'est pas le `SetFlag(valeur)` qui écrase tout de NGemity (`:180`) |
+| 501 `MIX_RESTORE_ENHANCE_SET_FLAG` | matériaux consommés ; **le bit `mix_value_01` est effacé** (7 règles : 3 = `FAILED`, bit que chaque règle exige allumé) : la réparation | `:533-552` + la donnée ; `mix_value_03` (5 000 / 10 000, un coût probable) **n'est pas prélevé** |
+| 102 | **ne peut pas être résolu** : ses deux règles portent les codes de condition 24 et 25, qu'aucune référence ne définit — le matcher les refuse | la donnée |
+| autres (601 : 2 367 règles, 202, 402…) | refus `InvalidArgument` comme avant : NGemity n'en exécute aucun (`CreateItem` est du code mort) | — |
+
+**Réponse** : 255 ou 254 par pile consommée, 207 pour la cible modifiée (254 si détruite), puis `TM_SC_MIX_RESULT`
+(257, `GameCraftingPackets.BuildMixResult`, 11 + 4 × M) avec la cible en cas de réussite, vide en cas d'échec.
+Refus (rien consommé) : `TS_SC_RESULT(256, …)` comme la référence.
+
+**Atomicité** : `ICharacterService.ApplyCraftAsync` prend le verrou du personnage, vérifie chaque pile et la cible
+**dans l'état où le craft a été décidé** (même enchantement, même drapeau — sinon rien ne s'applique), puis consomme,
+modifie ou détruit en une seule sauvegarde.
+
+**Appariement** : par **position** désormais (`MixResourceMatcher.TryArrange`), le test du lobe A qui supposait la
+permutation est réécrit.
+
+**Données** : `tools/Import-CraftingResources.ps1` remplace `MixResources` (4 155) et `EnhanceResources` (291)
+depuis le CSV, dans une transaction, sans forcer `fail_result` ni annuler `need_item` (il refuse si un `need_item`
+manque dans `ItemResources`). La migration Arcadia `AllowTwentyFiveEnhancePercentages` porte le plafond de
+`Percentage` de 20 à 25 (12 lignes vont jusqu'à +25). `Crafting:LocalFlag` (défaut 1) choisit la ligne
+d'enchantement (`IEnhanceResourceCatalog.TryGetForServer`).
+
+**Toujours ouvert** : l'ordre des matériaux que le client 7.3 envoie pour 103 (cube puis poudre ?) — avec
+l'appariement positionnel, l'ordre inverse est refusé ; le coût `mix_value_03` de 501 ; ce que 102 attend ; les
+types de création (601…).
+
+### Protocole de test en jeu
+
+Préalable : `.\tools\Import-CraftingResources.ps1` (PostgreSQL démarré, migration appliquée par le serveur).
+
+1. Enchanter une arme avec un cube : l'enchantement monte (ou l'échec pose l'état « échoué »), le cube disparaît.
+2. Enchanter avec cube + poudre (103) : +1, ou −1 à l'échec, jamais d'état échoué.
+3. Réparer un objet échoué (501) : l'état échoué disparaît, le matériau est consommé.
+4. Transformer un objet en carte puis l'en sortir (311).
+5. Envoyer la même combinaison avec les matériaux dans l'autre ordre : si le client l'accepte chez lui mais que le
+   serveur refuse, l'appariement doit redevenir permutant (§14 pt 9).

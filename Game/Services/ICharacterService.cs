@@ -85,6 +85,14 @@ public interface ICharacterService
     /// </summary>
     Task<ItemRemoval> RemoveItemAsync(string characterName, uint itemHandle, Func<ItemEntity, long> resolveCount);
 
+    /// <summary>
+    /// Applies a decided craft in one save under the character's gate: every consumed stack is checked and
+    /// taken, and the target — still in the state the craft was decided on — gets its new enhance and flag
+    /// or is destroyed. Nothing applies unless everything does.
+    /// </summary>
+    Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
+        CraftTargetChange? change);
+
     Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2);
 
     Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);

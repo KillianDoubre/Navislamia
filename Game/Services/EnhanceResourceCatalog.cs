@@ -30,4 +30,21 @@ public class EnhanceResourceCatalog : IEnhanceResourceCatalog
     {
         return _rows.TryGetValue((enhanceId, localFlag), out row);
     }
+
+    public bool TryGetForServer(long enhanceId, int serverLocalFlag, out EnhanceResourceEntity row)
+    {
+        // With the default server flag each id has exactly one matching row; should a flag match several,
+        // the narrowest local_flag wins, so the answer never depends on the dictionary's order.
+        row = null;
+        foreach (var candidate in _rows.Values)
+        {
+            if (candidate.Id == enhanceId && ((int)candidate.LocalFlag & serverLocalFlag) != 0
+                && (row is null || (int)candidate.LocalFlag < (int)row.LocalFlag))
+            {
+                row = candidate;
+            }
+        }
+
+        return row is not null;
+    }
 }

@@ -16,4 +16,11 @@ public interface IEnhanceResourceCatalog
     /// row for that flag, nothing else.
     /// </summary>
     bool TryGetRow(long enhanceId, LocalFlag localFlag, out EnhanceResourceEntity row);
+
+    /// <summary>
+    /// The row of <paramref name="enhanceId"/> that applies to a server whose country bits are
+    /// <paramref name="serverLocalFlag"/>: the first whose <c>local_flag</c> shares a bit with it, NGemity's
+    /// filter (<c>ObjectMgr.cpp:1099</c>) applied at lookup rather than at load.
+    /// </summary>
+    bool TryGetForServer(long enhanceId, int serverLocalFlag, out EnhanceResourceEntity row);
 }

@@ -135,6 +135,7 @@ public class Program
     {
         var contentRoot = context.HostingEnvironment.ContentRootPath;
         services.Configure<RatesOptions>(context.Configuration.GetSection("Rates"));
+        services.Configure<CraftingOptions>(context.Configuration.GetSection("Crafting"));
         services.PostConfigure<RatesOptions>(options =>
         {
             if (!string.IsNullOrWhiteSpace(options.EventStatePath) && !Path.IsPathRooted(options.EventStatePath))
