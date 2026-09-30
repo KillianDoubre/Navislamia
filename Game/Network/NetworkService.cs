@@ -39,6 +39,7 @@ public class NetworkService : INetworkService
     public readonly IBoothWatchService BoothWatchService;
     public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
+    public readonly ISkillCardService SkillCardService;
     public readonly IEventAreaService EventAreaService;
     public readonly IResurrectionService ResurrectionService;
     public readonly IWorldLocationService WorldLocationService;
@@ -83,7 +84,8 @@ public class NetworkService : INetworkService
         IBoothTradeService boothTradeService,
         IMarketTradeService marketTradeService,
         ISoulstoneCraftService soulstoneCraftService,
-        IItemDonateService itemDonateService)
+        IItemDonateService itemDonateService,
+        ISkillCardService skillCardService)
     {
         PlayerVisibilityService = playerVisibilityService;
         BoothTradeService = boothTradeService;
@@ -113,6 +115,7 @@ public class NetworkService : INetworkService
         BoothWatchService = boothWatchService;
         FieldPropService = fieldPropService;
         SkillCastService = buffService;
+        SkillCardService = skillCardService;
         EventAreaService = eventAreaService;
         ResurrectionService = resurrectionService;
         WorldLocationService = worldLocationService;

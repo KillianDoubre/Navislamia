@@ -44,7 +44,8 @@ internal static class StorageTestHarness
         IMarketTradeService marketTradeService = null,
         IMarketSellService marketSellService = null,
         ICraftingSocleService craftingSocleService = null,
-        IItemDonateService itemDonateService = null)
+        IItemDonateService itemDonateService = null,
+        ISkillCardService skillCardService = null)
     {
         characterService ??= A.Fake<ICharacterService>();
         playerVisibilityService ??= new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>());
@@ -85,7 +86,8 @@ internal static class StorageTestHarness
                 ?? new BoothTradeService(characterService, playerVisibilityService, boothWatchService),
             marketTradeService ?? A.Fake<IMarketTradeService>(),
             A.Fake<ISoulstoneCraftService>(),
-            itemDonateService ?? A.Fake<IItemDonateService>());
+            itemDonateService ?? A.Fake<IItemDonateService>(),
+            skillCardService ?? A.Fake<ISkillCardService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

@@ -80,6 +80,8 @@ public enum GamePackets : ushort
     // See docs/packet-specs/251-buy-item.md.
     TM_CS_BUY_ITEM = 251,
     TM_SC_USE_ITEM_RESULT = 283,
+    TM_CS_UNBIND_SKILLCARD = 285,
+    TM_SC_SKILLCARD_INFO = 286,
     TM_SC_ADD_SUMMON_INFO = 301,
     TM_SC_REMOVE_SUMMON_INFO = 302,
     TM_EQUIP_SUMMON = 303,
