@@ -793,3 +793,20 @@ réserves de `## A VERIFIER PAR KILLIAN` restent ouvertes, et **aucune** n'est c
    rester au journal ?
 
 
+
+## 12. Revue du 2026-09-30 (Killian / Claude Code)
+
+- **Envois sous le verrou du destinataire, pas après.** §5.4 règle 1 et la première version envoyaient
+  toutes les trames une fois les verrous relâchés. Or `Connection.Send` ne fait qu'enfiler dans un canal
+  non borné (`Connection.cs`, `TryWrite`) : il ne bloque jamais, et l'argument « une socket lente tiendrait
+  le verrou » ne s'applique pas. Envoyer après la libération laissait une course : un `Sync` de A enregistre
+  B et bâtit son `ENTER`, un `LeaveWorld` de B retire B de la vue de A et envoie le `LEAVE`, puis le premier
+  thread envoie l'`ENTER` — A garde un fantôme de B jusqu'à sa reconnexion. Chaque trame est désormais
+  enfilée sous le verrou de son destinataire, dans l'ordre exact des changements de sa vue. La règle « jamais
+  deux verrous imbriqués » est inchangée.
+- Handles : un joueur est vu sous `character.Id`, les objets du monde sous `0x40000000+`, donc pas de
+  collision entre acteurs. En revanche, les handles d'objets d'inventaire sont `ItemEntity.Id`, dans le même
+  petit intervalle que `character.Id` : la collision d'un handle d'acteur pair avec un objet du sac n'est pas
+  exclue et n'a pas été observée. À surveiller au test à deux clients.
+- Le filtre du handle de `TM_CS_MOVE_REQUEST` (§7.7) abandonne la marche sans écho : le test en jeu à un seul
+  client suffit à prouver que le client 7.3 envoie bien le handle du personnage (sinon il ne bougerait plus).

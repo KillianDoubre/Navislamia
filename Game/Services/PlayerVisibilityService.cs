@@ -31,8 +31,11 @@ namespace Navislamia.Game.Services;
 /// that is the interlocking the reference avoids and the trap of this lot.
 /// </item>
 /// <item>
-/// <b>Sends outside every lock.</b> Frames are collected while the locks are held and sent once the
-/// last one is released, so a slow socket never holds a lock the world tick waits for.
+/// <b>Each frame is queued under its recipient's lock.</b> <c>Connection.Send</c> only enqueues on an
+/// unbounded channel, so it costs nothing to hold the lock across it, and it is what keeps a recipient's
+/// frames in the order its view changed. Queued after the release, an <c>ENTER</c> built by one thread
+/// could reach the client after the <c>LEAVE</c> another thread built later, and that client would keep a
+/// ghost until it reconnects.
 /// </item>
 /// </list>
 /// <para>
@@ -120,7 +123,6 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             inView.Add(peer.Handle);
         }
 
-        var frames = new List<PendingFrame>();
         var gone = new List<KeyValuePair<long, uint>>();
 
         // (1) My own view, under my own lock only.
@@ -143,7 +145,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
                 }
 
                 info.SpawnedPlayers[peer.Handle] = peer.Handle;
-                frames.Add(new PendingFrame(client, BuildEnterFrame(peer, peerClient.ConnectionInfo)));
+                Send(client, BuildEnterFrame(peer, peerClient.ConnectionInfo));
             }
 
             foreach (var entry in info.SpawnedPlayers)
@@ -157,12 +159,8 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             foreach (var entry in gone)
             {
                 info.SpawnedPlayers.Remove(entry.Key);
+                Send(client, GameSpawnPackets.BuildLeave(entry.Value));
             }
-        }
-
-        foreach (var entry in gone)
-        {
-            frames.Add(new PendingFrame(client, GameSpawnPackets.BuildLeave(entry.Value)));
         }
 
         // (2) The other side of every pair in range, one lock at a time, never nested.
@@ -183,7 +181,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
                 }
 
                 peerInfo.SpawnedPlayers[mine.Handle] = mine.Handle;
-                frames.Add(new PendingFrame(peerClient, BuildEnterFrame(mine, info)));
+                Send(peerClient, BuildEnterFrame(mine, info));
             }
         }
 
@@ -201,12 +199,10 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             {
                 if (peerInfo.SpawnedPlayers.Remove(mine.Handle))
                 {
-                    frames.Add(new PendingFrame(peerClient, GameSpawnPackets.BuildLeave(mine.Handle)));
+                    Send(peerClient, GameSpawnPackets.BuildLeave(mine.Handle));
                 }
             }
         }
-
-        Send(frames);
     }
 
     public void OnMove(GameClient walker, byte[] waypoints)
@@ -227,7 +223,6 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             return;
         }
 
-        var frames = new List<PendingFrame>();
         var now = ServerClock.Now;
 
         foreach (var peer in _index.PeersInViewOf(mine.Handle))
@@ -238,23 +233,17 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             }
 
             var peerInfo = peerClient.ConnectionInfo;
-            var seesTheWalker = false;
 
             lock (peerInfo.PlayerVisibilityLock)
             {
-                seesTheWalker = peerInfo.SpawnedPlayers.ContainsKey(mine.Handle);
+                if (peerInfo.SpawnedPlayers.ContainsKey(mine.Handle))
+                {
+                    Send(peerClient, GameMovePackets.BuildMove(mine.Handle,
+                        unchecked(now + peerInfo.ClientClockOffset), mine.Layer, ConnectionInfo.EchoedMoveSpeed,
+                        waypoints));
+                }
             }
-
-            if (!seesTheWalker)
-            {
-                continue;
-            }
-
-            frames.Add(new PendingFrame(peerClient, GameMovePackets.BuildMove(mine.Handle,
-                unchecked(now + peerInfo.ClientClockOffset), mine.Layer, ConnectionInfo.EchoedMoveSpeed, waypoints)));
         }
-
-        Send(frames);
     }
 
     public void LeaveWorld(GameClient client, bool notifyWalker = false)
@@ -274,8 +263,6 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
         _index.Remove(handle);
         _registry.Unregister(handle, client);
 
-        var frames = new List<PendingFrame>();
-
         if (notifyWalker)
         {
             // The warp case: the client keeps every object it was told about, so it is told the peers
@@ -284,7 +271,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             {
                 foreach (var seen in info.SpawnedPlayers.Values)
                 {
-                    frames.Add(new PendingFrame(client, GameSpawnPackets.BuildLeave(seen)));
+                    Send(client, GameSpawnPackets.BuildLeave(seen));
                 }
 
                 info.SpawnedPlayers.Clear();
@@ -309,12 +296,10 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             {
                 if (observerInfo.SpawnedPlayers.Remove(handle))
                 {
-                    frames.Add(new PendingFrame(observerClient, GameSpawnPackets.BuildLeave(handle)));
+                    Send(observerClient, GameSpawnPackets.BuildLeave(handle));
                 }
             }
         }
-
-        Send(frames);
     }
 
     /// <summary>
@@ -375,35 +360,19 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
     }
 
     /// <summary>
-    /// Every frame is sent outside every lock, and one broken socket never costs the other observers
-    /// theirs.
+    /// Queues one frame, under its recipient's visibility lock (see the class remarks); one broken socket
+    /// never costs the other observers theirs.
     /// </summary>
-    private void Send(List<PendingFrame> frames)
+    private void Send(GameClient recipient, byte[] data)
     {
-        foreach (var frame in frames)
+        try
         {
-            try
-            {
-                frame.Recipient.Connection.Send(frame.Data);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Could not send the player visibility frame to {clientTag}",
-                    frame.Recipient.ClientTag);
-            }
+            recipient.Connection.Send(data);
         }
-    }
-
-    private readonly struct PendingFrame
-    {
-        public PendingFrame(GameClient recipient, byte[] data)
+        catch (Exception exception)
         {
-            Recipient = recipient;
-            Data = data;
+            _logger.LogError(exception, "Could not send the player visibility frame to {clientTag}",
+                recipient.ClientTag);
         }
-
-        public GameClient Recipient { get; }
-
-        public byte[] Data { get; }
     }
 }
