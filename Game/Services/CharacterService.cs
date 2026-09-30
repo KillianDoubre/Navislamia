@@ -157,6 +157,22 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<bool> UpdateHideEquipFlagAsync(string characterName, int hideEquipFlag)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            character.HideEquipFlag = hideEquipFlag;
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
+
     public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp)
     {
         return RunExclusiveAsync(characterName, async repository =>

@@ -29,6 +29,8 @@ public interface ICharacterService
 
     Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo);
 
+    Task<bool> UpdateHideEquipFlagAsync(string characterName, int hideEquipFlag);
+
     Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp);
 
     /// <summary>

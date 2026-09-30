@@ -1086,6 +1086,35 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleHideEquipInfoAsync(byte[] buffer)
+    {
+        if (!GameActionPackets.TryReadHideEquipInfo(buffer, out var hideEquipFlag))
+        {
+            _logger.Warning("Malformed hide-equip update received from {clientTag}", ClientTag);
+            return;
+        }
+
+        var flag = unchecked((int)hideEquipFlag);
+
+        try
+        {
+            // Neither reference server answers 221, and no TS_SC_RESULT is identified for it: the one
+            // established acknowledgement is the 222 echo, which the client already handles at bootstrap.
+            Connection.Send(GameCharacterPackets.BuildHideEquipInfo(ConnectionInfo.CharacterHandle, flag));
+
+            if (!await _networkService.CharacterService.UpdateHideEquipFlagAsync(ConnectionInfo.CharacterName, flag))
+            {
+                _logger.Warning("Could not persist the hide-equip flag for {character} from {clientTag}",
+                    ConnectionInfo.CharacterName, ClientTag);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not handle the hide-equip flag for {character} from {clientTag}",
+                ConnectionInfo.CharacterName, ClientTag);
+        }
+    }
+
     public override async void OnDisconnect()
     {
         try
@@ -2627,6 +2656,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_PUTOFF_ITEM)
             {
                 _ = HandlePutoffItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_HIDE_EQUIP_INFO)
+            {
+                _ = HandleHideEquipInfoAsync(msgBuffer);
                 continue;
             }
 

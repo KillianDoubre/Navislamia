@@ -553,6 +553,23 @@ public static class GameActionPackets
     }
 
     /// <summary>
+    /// TM_CS_HIDE_EQUIP_INFO (221) carries a single raw mask: the client names no bit and the
+    /// reference servers do not decode it, so every bit is kept as sent.
+    /// </summary>
+    public static bool TryReadHideEquipInfo(ReadOnlySpan<byte> packet, out uint hideEquipFlag)
+    {
+        const int packetLength = HeaderSize + 4;
+        if (packet.Length < packetLength)
+        {
+            hideEquipFlag = 0;
+            return false;
+        }
+
+        hideEquipFlag = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
+
+    /// <summary>
     /// One <c>TS_REWARD_INFO</c> record of <c>TM_CS_DONATE_REWARD</c> (259): a signed reward slot followed
     /// by its unsigned quantity. The record is exactly three bytes — rzu declares `int8_t` then `uint16_t`
     /// with no padding, and the 7.3 client advances its write pointer by three per record (§3).
