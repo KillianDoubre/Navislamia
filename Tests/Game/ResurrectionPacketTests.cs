@@ -629,7 +629,8 @@ public class ResurrectionPacketTests
             A.Fake<IGmCommandService>(),
                 A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
             A.Fake<IBoothWatchService>(),
-                A.Fake<ICommercialStorageService>());
+                A.Fake<ICommercialStorageService>(),
+            A.Fake<IPlayerVisibilityService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
@@ -702,7 +703,8 @@ public class ResurrectionPacketTests
 
             WarpService = new WarpService(A.Fake<INpcSpawnService>(), A.Fake<IMonsterSpawnService>(),
                 A.Fake<IFieldPropService>(), A.Fake<ICombatService>(),
-                A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>());
+                A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
+                A.Fake<IPlayerVisibilityService>());
         }
     }
 

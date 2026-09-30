@@ -175,6 +175,23 @@ public class GameActions : IActions
 
         client.Connection.Send(new Packet<TS_SC_LOGIN_RESULT>((ushort)GamePackets.TM_SC_LOGIN_RESULT, result).Data);
 
+        // The visibility socle presents this character to its peers from this snapshot, so a peer reads
+        // the very traits this client reads about itself: a session carries no CharacterEntity, and
+        // nothing else could build a peer's PLAYER_INFO block
+        // (docs/packet-specs/socle-visibilite-joueurs.md §3.3).
+        info.Appearance = new PlayerAppearance
+        {
+            Race = (byte)character.Race,
+            Sex = (byte)character.Sex,
+            SkinColor = (uint)character.SkinColor,
+            FaceId = GameCharacterPackets.GetFaceId(character),
+            FaceTextureId = (uint)character.TextureId,
+            HairId = GameCharacterPackets.GetHairId(character),
+            HairColorIndex = (uint)character.HairColorIndex,
+            HairColorRgb = (uint)character.HairColorRgb,
+            HideEquipFlag = (uint)character.HideEquipFlag,
+        };
+
         var enter = new TS_SC_ENTER_PLAYER
         {
             Type = 0,
@@ -286,6 +303,11 @@ public class GameActions : IActions
 
         _npcSpawnService.Sync(client);
         _monsterSpawnService.Sync(client);
+
+        // The players come last: the new client now knows the world, and every pair exchanges its
+        // ENTER through the visibility socle (docs/packet-specs/socle-visibilite-joueurs.md §5.3,
+        // trigger 1).
+        _networkService.PlayerVisibilityService.EnterWorld(client);
     }
 
     private void OnReport(GameClient client, IPacket packet)

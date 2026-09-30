@@ -157,6 +157,16 @@ public class GameClient : Client
         var count = BinaryPrimitives.ReadUInt16LittleEndian(input.Slice(17, 2));
         var waypoints = input.Slice(19, count * 8);
 
+        // The handle is the client's to claim too (docs/packet-specs/socle-visibilite-joueurs.md §7.7):
+        // relaying a foreign handle would walk another client's actor at every observer. A session that
+        // holds no character yet (handle 0) has no actor to protect and keeps its echo.
+        if (ConnectionInfo.CharacterHandle != 0 && handle != ConnectionInfo.CharacterHandle)
+        {
+            _logger.Warning("{clientTag} claimed handle {handle} instead of {ownHandle} in a move request",
+                ClientTag, handle, ConnectionInfo.CharacterHandle);
+            return;
+        }
+
         const byte speed = ConnectionInfo.EchoedMoveSpeed;
         var total = 7 + 12 + count * 8;
         var packet = new byte[total];
@@ -198,6 +208,11 @@ public class GameClient : Client
 
         SyncVisibleObjects();
         RefreshEventArea();
+
+        // The players: the entry moves in the presence index, the two sides of every pair are put back
+        // in step, and the walk is relayed to whoever sees the walker
+        // (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 2).
+        _networkService.PlayerVisibilityService.OnMove(this, waypoints.ToArray());
     }
 
     private void HandleRegionUpdate(byte[] buffer)
@@ -219,6 +234,10 @@ public class GameClient : Client
         ConnectionInfo.MoveStartTick = ServerClock.Now;
         SyncVisibleObjects();
         RefreshEventArea();
+
+        // A frontier is a move too, but the client sent no path: the neighbours change, nobody walks
+        // (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 3).
+        _networkService.PlayerVisibilityService.Sync(this);
     }
 
     private void HandleChangeLocation(byte[] buffer)
@@ -855,6 +874,11 @@ public class GameClient : Client
             _networkService.CombatService.StopAttack(this);
             _networkService.CombatService.DropAggro(this);
             _networkService.SkillCastService.Unregister(this);
+
+            // The exit goes first: every observer must be told before the asynchronous save and the
+            // socket cleanup (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 5).
+            _networkService.PlayerVisibilityService.LeaveWorld(this);
+
             await SaveProgressSafelyAsync("while disconnecting");
         }
         catch (Exception exception)
@@ -879,6 +903,7 @@ public class GameClient : Client
         {
             _logger.Debug("{clientTag} returning to character selection", ClientTag);
             _networkService.CombatService.StopAttack(this);
+            _networkService.PlayerVisibilityService.LeaveWorld(this);
             await SaveProgressSafelyAsync("before returning to character selection");
             info.ClearCharacterSession();
             SendResult((ushort)GamePackets.TM_CS_RETURN_LOBBY, (ushort)ResultCode.Success);

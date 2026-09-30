@@ -38,11 +38,43 @@ public static class GameMovePackets
 
     public static byte[] BuildMove(uint handle, uint startTime, byte layer, byte speed, float tx, float ty)
     {
-        var packet = CreateMove(handle, startTime, layer, speed, 1);
-        var payload = packet.AsSpan();
+        Span<byte> waypoints = stackalloc byte[WaypointSize];
+        BinaryPrimitives.WriteSingleLittleEndian(waypoints.Slice(0, 4), tx);
+        BinaryPrimitives.WriteSingleLittleEndian(waypoints.Slice(4, 4), ty);
 
-        BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(19, 4), tx);
-        BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(23, 4), ty);
+        return BuildMove(handle, startTime, layer, speed, waypoints);
+    }
+
+    /// <summary>
+    /// The same frame carrying the whole path the walker sent, up to
+    /// <see cref="ushort.MaxValue"/> waypoints. The visibility socle diffuses a walk to the clients
+    /// that see the walker (docs/packet-specs/socle-visibilite-joueurs.md §5.3 trigger 2), and those
+    /// points are the received ones, verbatim: 8 bytes each, <c>x</c> then <c>y</c>.
+    /// </summary>
+    /// <exception cref="ArgumentException">An empty path, or a length that is not a whole number of
+    /// waypoints.</exception>
+    public static byte[] BuildMove(uint handle, uint startTime, byte layer, byte speed,
+        ReadOnlySpan<byte> waypoints)
+    {
+        if (waypoints.Length == 0)
+        {
+            throw new ArgumentException("A move frame carries at least one waypoint.", nameof(waypoints));
+        }
+
+        if (waypoints.Length % WaypointSize != 0)
+        {
+            throw new ArgumentException("A waypoint is 8 bytes long.", nameof(waypoints));
+        }
+
+        var count = waypoints.Length / WaypointSize;
+
+        if (count > ushort.MaxValue)
+        {
+            throw new ArgumentException("The waypoint count does not fit the frame.", nameof(waypoints));
+        }
+
+        var packet = CreateMove(handle, startTime, layer, speed, (ushort)count);
+        waypoints.CopyTo(packet.AsSpan(19));
 
         WriteChecksum(packet);
         return packet;

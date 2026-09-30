@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services;
 using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Stats;
 
@@ -173,6 +174,25 @@ public class ConnectionInfo
     public Dictionary<long, uint> SpawnedProps { get; } = new();
 
     public Dictionary<uint, long> SpawnedPropInstancesByHandle { get; } = new();
+
+    /// <summary>
+    /// The players this client was told about: the object id of the pair to the handle it is presented
+    /// with. For a player the id <b>is</b> the handle — <c>character.Id</c> — and unlike NPCs,
+    /// monsters and props it is the same for every observer, because <c>TS_SC_MOVE</c> and
+    /// <c>TS_SC_LEAVE</c> carry a single handle (docs/packet-specs/socle-visibilite-joueurs.md §9.2).
+    /// Guarded by <see cref="PlayerVisibilityLock"/>; the visibility socle keeps both sides of a pair
+    /// in step.
+    /// </summary>
+    public Dictionary<long, uint> SpawnedPlayers { get; } = new();
+
+    public readonly object PlayerVisibilityLock = new();
+
+    /// <summary>
+    /// The fixed physical traits of this character, captured at world entry from the entity the local
+    /// <c>TS_SC_ENTER</c> is built from: the session has no <c>CharacterEntity</c>, and a peer cannot be
+    /// presented without them. Null until the character enters the world.
+    /// </summary>
+    public PlayerAppearance Appearance { get; set; }
 
     /// <summary>
     /// Resolves a client-visible monster handle back to its instance id, so nothing can act on an object
@@ -349,6 +369,11 @@ public class ConnectionInfo
         {
             SpawnedProps.Clear();
             SpawnedPropInstancesByHandle.Clear();
+        }
+
+        lock (PlayerVisibilityLock)
+        {
+            SpawnedPlayers.Clear();
         }
     }
 

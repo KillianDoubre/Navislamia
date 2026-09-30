@@ -20,15 +20,18 @@ public class WarpService : IWarpService
     private readonly IFieldPropService _fieldPropService;
     private readonly ICombatService _combatService;
     private readonly IPetSummonService _petSummon;
+    private readonly IPlayerVisibilityService _playerVisibility;
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
-        IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon)
+        IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
+        IPlayerVisibilityService playerVisibility)
     {
         _petSummon = petSummon;
         _npcSpawnService = npcSpawnService;
         _monsterSpawnService = monsterSpawnService;
         _fieldPropService = fieldPropService;
         _combatService = combatService;
+        _playerVisibility = playerVisibility;
     }
 
     public void Warp(GameClient client, float x, float y)
@@ -56,6 +59,11 @@ public class WarpService : IWarpService
             _monsterSpawnService.Sync(client);
             _fieldPropService.Sync(client);
 
+            // The new place registers itself in the presence index and the pairs exchange their ENTER:
+            // the players' side of the re-entry (docs/packet-specs/socle-visibilite-joueurs.md §5.3,
+            // trigger 4).
+            _playerVisibility.EnterWorld(client);
+
             // The pet is not in a visible set: it follows its master to the new place explicitly.
             _petSummon.FollowWarp(client);
 
@@ -71,9 +79,13 @@ public class WarpService : IWarpService
     /// The client keeps every object it was told about until it is told otherwise, so a warp that
     /// skips this leaves the old zone's objects floating at the new one.
     /// </summary>
-    private static void LeaveEverything(GameClient client)
+    private void LeaveEverything(GameClient client)
     {
         var info = client.ConnectionInfo;
+
+        // The players' pass: the departure is announced to every observer, and the parting client is
+        // told its peers are gone, exactly as the object sets below are emptied for it.
+        _playerVisibility.LeaveWorld(client, notifyWalker: true);
 
         LeaveAll(client, info.NpcVisibilityLock, info.SpawnedNpcs, info.SpawnedNpcIdsByHandle);
         LeaveAll(client, info.MonsterVisibilityLock, info.SpawnedMonsters);
