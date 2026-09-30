@@ -12,6 +12,7 @@ An .rdu file is a self-describing export of one SQL Server table:
                 then a fixed-size value of `size` bytes for fixed types and decimals; a u16 length
                 then that many bytes for character and binary types.
 
+A datetime is an OLE DATE (8-byte double of days since 1899-12-30), whatever its declared size.
 A decimal is an OLE DECIMAL of 16 bytes: u16 variant type (14 = VT_DECIMAL, 0 = VT_EMPTY for NULL),
 u8 scale, u8 sign (0x80 = negative), u32 high 32 bits, u64 low 64 bits of the unscaled value.
 The reader refuses a file it does not consume exactly, which is what validates the layout.
@@ -21,7 +22,7 @@ Usage:
     python tools/rdu.py FILE.rdu --csv OUT.csv   # PostgreSQL-ready CSV (header, NULL = empty field)
     python tools/rdu.py DIRECTORY --check        # parse every .rdu below a directory
 """
-import csv
+import datetime
 import decimal
 import pathlib
 import struct
@@ -34,6 +35,7 @@ FIXED = {
 VARIABLE = {0xA7: "varchar", 0xAF: "char", 0xE7: "nvarchar", 0xEF: "nchar", 0xA5: "varbinary", 0xAD: "binary"}
 DECIMAL = {0x6A: "decimal", 0x6C: "numeric"}
 DATETIME = {0x3D: "datetime", 0x3A: "smalldatetime"}
+OLE_EPOCH = datetime.datetime(1899, 12, 30)
 
 
 class Column:
@@ -111,7 +113,10 @@ class RduTable:
         if t in FIXED:
             return struct.unpack(FIXED[t][1], self._take(column.size))[0]
         if t in DATETIME:
-            return self._take(column.size).hex()
+            # An OLE DATE: a double counting days since 1899-12-30, the fraction being the time of day.
+            days = struct.unpack("<d", self._take(8))[0]
+            moment = OLE_EPOCH + datetime.timedelta(days=days)
+            return moment.replace(microsecond=0) + datetime.timedelta(seconds=round(moment.microsecond / 1e6))
         if t in DECIMAL:
             vt, scale, sign, high, low = struct.unpack("<HBBIQ", self._take(16))
             if vt == 0:
@@ -128,11 +133,27 @@ class RduTable:
         raise ValueError(f"{self.path}: column {column.name} has unknown type 0x{t:02x}")
 
     def to_csv(self, out):
+        """The shape of the 9.4 export (tools/Export-SqlServerData.ps1), which PostgreSQL's
+        `\\copy ... WITH (FORMAT csv, HEADER)` reads as is: NULL is an empty unquoted field, every string
+        is quoted (an empty string stays distinct from NULL), numbers are invariant and never exponents."""
+
+        def cell(value):
+            if value is None:
+                return ""
+            if isinstance(value, str):
+                return '"' + value.replace('"', '""') + '"'
+            if isinstance(value, decimal.Decimal):
+                return format(value, "f")
+            if isinstance(value, float):
+                return repr(value)
+            if isinstance(value, datetime.datetime):
+                return value.isoformat(sep=" ")
+            return str(value)
+
         with open(out, "w", encoding="utf-8", newline="") as f:
-            w = csv.writer(f, quoting=csv.QUOTE_NONNUMERIC, lineterminator="\n")
-            w.writerow([c.name for c in self.columns])
+            f.write(",".join(c.name for c in self.columns) + "\n")
             for row in self.rows:
-                w.writerow(["" if v is None else (int(v) if isinstance(v, bool) else v) for v in row])
+                f.write(",".join(cell(v) for v in row) + "\n")
 
 
 def main(argv):

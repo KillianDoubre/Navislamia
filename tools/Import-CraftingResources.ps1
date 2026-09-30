@@ -1,11 +1,12 @@
 <#
 .SYNOPSIS
-Loads the crafting tables — Arcadia."MixResources" and Arcadia."EnhanceResources" — from the 9.4 CSV export.
+Loads the crafting tables — Arcadia."MixResources" and Arcadia."EnhanceResources" — from a CSV export.
 
 .DESCRIPTION
 The crafting engine (docs/packet-specs/socle-artisanat-ressources.md §14) reads both tables, which the
 repository creates empty. The source is the CSV export of the 9.4 database (tools/Export-SqlServerData.ps1):
-MixResource.csv (4 155 rules) and EnhanceResource.csv (291 rows, 111 enhance_id).
+MixResource.csv (4 155 rules) and EnhanceResource.csv (291 rows, 111 enhance_id). The Epic 7 tables, closer
+to the 7.3 client, load the same way: -SourceDirectory data\epic7 (3 965 rules, 261 rows).
 
 Each table is replaced whole, in one transaction: a failed load leaves the previous content in place.
 
@@ -91,7 +92,9 @@ if ($unmatched) { throw "MixResources column(s) without a CSV source: $($unmatch
 
 $percentages = 1..25 | ForEach-Object { "percentage_$_" }
 $enhanceHeader = Get-CsvHeader $enhanceCsv
-$missingEnhance = @('enhance_id', 'enhance_type', 'fail_result', 'max_enhance', 'local_flag', 'need_item') + $percentages |
+# The Epic 7 table (data/epic7, tools/rdu.py) stops at percentage_20: the cap was 20 then. The columns it lacks
+# are +21..+25, which it cannot reach, so they load as 0; the first twenty are required.
+$missingEnhance = @('enhance_id', 'enhance_type', 'fail_result', 'max_enhance', 'local_flag', 'need_item') + $percentages[0..19] |
     Where-Object { $enhanceHeader -notcontains $_ }
 if ($missingEnhance) { throw "EnhanceResource.csv lacks: $($missingEnhance -join ', ')" }
 
@@ -112,7 +115,9 @@ $enhanceCopyPath = (Resolve-Path $enhanceCsv).Path -replace '\\', '/'
 
 $mixInsertColumns = ($mixMapping | ForEach-Object { '"' + $_.Pg + '"' }) -join ', '
 $mixSelectColumns = ($mixMapping | ForEach-Object { "NULLIF(""$($_.Src)"", '')::numeric::integer" }) -join ', '
-$percentageArray = ($percentages | ForEach-Object { "COALESCE(NULLIF(""$_"", '')::numeric(10,3), 0)" }) -join ', '
+$percentageArray = ($percentages | ForEach-Object {
+    if ($enhanceHeader -contains $_) { "COALESCE(NULLIF(""$_"", '')::numeric(10,3), 0)" } else { '0' }
+}) -join ', '
 
 $script = @"
 BEGIN;
@@ -120,6 +125,13 @@ $(Get-TempTable 'mix_source' $mixHeader)
 \copy mix_source FROM '$mixCopyPath' WITH (FORMAT csv, HEADER)
 $(Get-TempTable 'enhance_source' $enhanceHeader)
 \copy enhance_source FROM '$enhanceCopyPath' WITH (FORMAT csv, HEADER)
+
+-- enhance_type and fail_result are char(1) at the source: the Epic 7 table holds one test row (enhance_id 100)
+-- whose fail_result is '-'. A row the engine cannot read is left out, not given an invented outcome.
+CREATE TEMP TABLE enhance_rejected ON COMMIT DROP AS
+SELECT enhance_id FROM enhance_source
+WHERE enhance_type !~ '^-?[0-9]+$' OR fail_result !~ '^-?[0-9]+$';
+DELETE FROM enhance_source WHERE enhance_id IN (SELECT enhance_id FROM enhance_rejected);
 
 DO `$`$
 DECLARE missing text;
@@ -144,7 +156,8 @@ SELECT enhance_id::bigint, local_flag::integer, now(), enhance_type::integer, fa
 FROM enhance_source;
 
 SELECT 'MixResources', count(*) FROM "MixResources"
-UNION ALL SELECT 'EnhanceResources', count(*) FROM "EnhanceResources";
+UNION ALL SELECT 'EnhanceResources', count(*) FROM "EnhanceResources"
+UNION ALL SELECT 'EnhanceResource rows left out (non-numeric type or fail_result): ' || coalesce(string_agg(enhance_id, ', '), 'none'), count(*) FROM enhance_rejected;
 COMMIT;
 "@
 

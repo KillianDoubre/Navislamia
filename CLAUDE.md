@@ -367,16 +367,18 @@ Skill learning is server-authoritative. Epic 7.3 sends `TM_CS_LEARN_SKILL` (`402
 character handle, skill id and requested level. `SkillCatalog` validates that the request advances by
 exactly one level, belongs to the current job tree, satisfies character/JLv/skill prerequisites and
 does not exceed the configured maximum. It then derives the JP cost from
-`DevConsole/skill-catalog.73.json`; this immutable runtime index contains 1,339 job/skill definitions
-for the 42 classic jobs and is generated from `JobResource`, `SkillTreeResource` and `SkillJPResource`
-by `tools/Export-SkillCatalog.ps1`.
+`DevConsole/skill-catalog.73.json`; this immutable runtime index contains 1,320 job/skill definitions
+for the 42 classic jobs and is generated from the Epic 7 `SkillTreeResource` (keyed by `job_id` at that
+epic, no `JobResource` join) and `SkillJPResource` by `tools/export_skill_catalog.py`
+(`tools/Export-SkillCatalog.ps1` is the former 9.4 SQL Server path, 1,339 definitions). The 19 lost are
+9.4 additions — mostly Creature Taming (4003) offered to every job, which Epic 7 keeps to the summoner
+lines.
 
 JP and the learned level are committed together in Telecaster (`CharacterSkills`, unique on
 character/skill) before runtime state changes. On success the client receives `TS_SC_EXP_UPDATE`
 (`1003`) with the remaining JP, a one-record `TS_SC_SKILL_LIST` (`403`) and the result for request
 `402`. Login sends the complete learned list through `403`, followed by the existing empty added-skill
-marker `404`. The catalog uses the available 9.4 classic-job tables behind the Epic 7.3 wire format;
-the client only requests skills exposed by its own 7.3 resources. See `docs/skill-learning.md`.
+marker `404`. The client only requests skills exposed by its own 7.3 resources. See `docs/skill-learning.md`.
 
 The death sequence lets the client play its death animation: the killing swing is followed by
 `TS_SC_STATUS_CHANGE` (`500`) with the dead flag (`1 << 8`), and the `TS_SC_LEAVE` that removes the
@@ -388,11 +390,16 @@ rather than sent immediately. Item drops are a later milestone that will hook th
 On death `CombatService` calls `GroundItemService.DropForMonster`, which rolls the monster's table and
 puts each result on the ground near the corpse. Gold stays automatic and is not part of this path.
 
-`DevConsole/monster-drops.73.json` is the runtime catalog (5,395 tables, 5,767 direct entries, 51,643
-group-reference entries, 6,221 drop groups, 6,330 monsters). It is loaded like the spawn catalog — read
+`DevConsole/monster-drops.73.json` is the runtime catalog, from the **Epic 7 tables** (5,289 tables,
+179 direct entries, 56,708 group-reference entries, 5,726 drop groups, 5,672 monsters), filtered against
+the client's `db_item.rdb`: a slot whose item the client does not know is removed (1), and such a group
+member (301) is written `ItemId 0`, **a blank share `MonsterDropCatalog` keeps** so that its weight drops
+nothing instead of inflating the other members. The 9.4 export it replaced had 5,551 of its 5,767 direct
+entries unknown to the client. It is loaded like the spawn catalog — read
 with `System.Text.Json` in `Program.ConfigureMonsterDrops` and frozen by `MonsterDropCatalog` into a
 `FrozenDictionary` keyed by monster id, so a kill never queries the database. Regenerate it with
-`tools/export_monster_drops.py`. Traps, all silent if you get them wrong:
+`tools/export_monster_drops.py --client-items db_item.rdb` (`--source data/sqlserver/Arcadia` for the 9.4
+export). Traps, all silent if you get them wrong:
 
 - **`drop_percentage` is a probability in `[0, 1]`, not a percentage out of 100** (measured max exactly
   `1.00`). `DropRoll.Roll` compares `random.NextDouble()` against it directly.
@@ -721,8 +728,9 @@ passives** (the other 34 have `var1 >= 1000`, a state id — they apply a state 
   character.
 - `IncSkillCoolTimeOnAttack/OnBeingAttacked/OnKill` (10063-10065), 10 skills, are event triggers.
 
-`SkillPassiveCatalog` is frozen at startup like every other catalog and holds **117 skills** (101
-unconditional plus the 16 weapon-gated masteries); an unsupported effect type resolves to nothing.
+`SkillPassiveCatalog` is frozen at startup like every other catalog. **117 skill rows** carry a supported
+effect type (101 unconditional plus the 16 weapon-gated masteries), and it holds the **87** whose vars are
+not all zero; an unsupported effect type resolves to nothing.
 `ConnectionInfo.PassiveEffects` sits next to `ItemEffects` and `EquippedWeapon`, seeded at login, rebuilt
 by `StatService.RefreshPassives` on learn and by `Seed` on equip/unequip, which is why a new passive or a
 newly drawn weapon shows without a relog.
@@ -2453,6 +2461,21 @@ pipeline VPS under `/srv/navislamia/reference/epic7part4` (see its README):
 The 7.3 client's own `db_item.rdb` (on the VPS, `reference/client73/`) is a community rebuild
 ("Written by Archemedes v0.1.0", 2025-12-07): 28 265 items, a 128-byte header, a `u32` count and records
 of 6 256 bytes, item id first. It is what tells an item the client can render from a 9.4-only one.
+
+**The Epic 7 tables are loaded into Arcadia** and win over the 9.4 import. `tools/rdu.py` writes them to
+`data/epic7/*.csv` (git-ignored, like `data/sqlserver/`); `tools/import_epic7.py` (`--plan` prints the
+mapping) overwrites every mapped column of an existing row, inserts the Epic 7 rows a table lacks, and
+**keeps the 9.4-only rows** (nothing the 7.3 client knows points at them). Columns map by name, case and
+underscores aside, plus the overrides the name cannot derive (`vf_*`, `uf_*`/`tf_*`, `str`→`Strength`,
+`form`→`EvolveType`…); an array takes its numbered source columns, a NULL element becoming 0 (Npgsql
+refuses an array holding a NULL). Foreign keys are written last, only when the target row exists. Result:
+`ItemResources` 33 146 (3 499 9.4-only), `SkillResources` 2 721 (619), `StateResources` 1 950 (421),
+`MonsterResources` 7 431 (929), `NpcResources` 1 456 (369), `StatResources` 3 899 (3 016), and from empty:
+`StringResources` 102 256, `SummonResources` 147, `QuestResources` 765, `QuestLinkResources` 908,
+`WorldLocations` 5 937. `MixResources` (3 965) and `EnhanceResources` (260) come from
+`tools/Import-CraftingResources.ps1 -SourceDirectory data\epic7`: 20 percentages at that epic, and the
+test row `enhance_id 100` (`fail_result = '-'`) is left out. Datetimes in an `.rdu` are OLE `DATE`
+doubles. `pg_dump` Arcadia before re-running: the import cannot be undone row by row.
 
 ## Logging
 

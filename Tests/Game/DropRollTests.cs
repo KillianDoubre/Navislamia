@@ -213,4 +213,29 @@ public class DropRollTests
 
         new MonsterDropCatalog(options).GetDrops(1).Should().BeEmpty();
     }
+
+    [Test]
+    public void Catalog_KeepsABlankGroupShareSoItsWeightDropsNothing()
+    {
+        // An item the 7.3 client does not know is exported as ItemId 0: its share must stay in the group,
+        // otherwise its weight would be handed to the other members.
+        var options = new MonsterDropOptions
+        {
+            Groups = new Dictionary<int, List<MonsterDropGroupEntryOptions>>
+            {
+                [-5] = new()
+                {
+                    new MonsterDropGroupEntryOptions { ItemId = 900, Weight = 0.5, MinCount = 1, MaxCount = 1 },
+                    new MonsterDropGroupEntryOptions { ItemId = 0, Weight = 0.5, MinCount = 1, MaxCount = 1 }
+                }
+            }
+        };
+
+        var groups = new MonsterDropCatalog(options).Groups;
+
+        groups[-5].Should().HaveCount(2);
+        DropRoll.TryResolveGroup(-5, groups, new SequenceRandom(0.25), out var itemId).Should().BeTrue();
+        itemId.Should().Be(900);
+        DropRoll.TryResolveGroup(-5, groups, new SequenceRandom(0.75), out _).Should().BeFalse();
+    }
 }

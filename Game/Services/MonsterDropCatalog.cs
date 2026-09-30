@@ -44,10 +44,13 @@ public class MonsterDropCatalog : IMonsterDropCatalog
             .Where(link => tables.ContainsKey(link.Value) && tables[link.Value].Length > 0)
             .ToFrozenDictionary(link => link.Key, link => tables[link.Value]);
 
+        // A group member with ItemId 0 is kept: it is a blank share, an item the 7.3 client does not know,
+        // written as 0 by tools/export_monster_drops.py so that picking it drops nothing instead of
+        // handing its weight to the other members (DropRoll.PickWeighted yields 0 = nothing).
         _groups = options.Groups.ToFrozenDictionary(
             group => group.Key,
             group => group.Value
-                .Where(entry => entry.ItemId != 0 && entry.Weight > 0)
+                .Where(entry => entry.Weight > 0)
                 .Select(entry => new DropGroupEntry(entry.ItemId, entry.Weight,
                     Math.Max(1, entry.MinCount), Math.Max(1, Math.Max(entry.MinCount, entry.MaxCount))))
                 .ToArray());
