@@ -348,6 +348,9 @@ public class Program
         services.AddSingleton<IBoothWatchService, BoothWatchService>();
         services.AddSingleton<IPlayerVisibilityService, PlayerVisibilityService>();
         services.AddSingleton<PlayerRegenerationService>();
+        services.AddSingleton<Navislamia.Game.Services.Weight.IInventoryChangeFeed, Navislamia.Game.Services.Weight.InventoryChangeFeed>();
+        services.AddSingleton<Navislamia.Game.Services.Weight.IItemWeightCatalog, Navislamia.Game.Services.Weight.ItemWeightCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Weight.ICarriedWeightService, Navislamia.Game.Services.Weight.CarriedWeightService>();
         services.AddSingleton<Navislamia.Game.Services.Party.IPartyService, Navislamia.Game.Services.Party.PartyService>();
         services.AddSingleton<Navislamia.Game.Services.Trade.IPlayerTradeService, Navislamia.Game.Services.Trade.PlayerTradeService>();
         services.AddSingleton<IBoothTradeService, BoothTradeService>();

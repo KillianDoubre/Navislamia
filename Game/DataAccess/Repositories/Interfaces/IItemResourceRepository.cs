@@ -17,6 +17,9 @@ public readonly record struct ItemEffectFields(
 
 public readonly record struct ItemGroupFields(int Id, ItemGroup Group);
 
+/// <summary>An item resource's <c>weight</c>, per unit.</summary>
+public readonly record struct ItemWeightFields(int Id, decimal Weight);
+
 /// <summary>
 /// The four template columns the crafting conditions read: <c>group</c>, <c>class</c>, <c>rank</c> and
 /// <c>wear_type</c> (NGemity <c>ObjectMgr.cpp:122-128</c>). <c>Class</c> is the item resource's
@@ -91,6 +94,9 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemEffectFields> GetInstantSkillItems();
 
     IReadOnlyList<ItemGroupFields> GetGroupFields();
+
+    /// <summary>Every item resource's unit weight, for the carried weight.</summary>
+    IReadOnlyList<ItemWeightFields> GetWeightFields();
 
     /// <summary>
     /// The four columns the crafting conditions compare, for every item resource: the

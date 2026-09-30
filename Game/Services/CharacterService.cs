@@ -20,6 +20,7 @@ public class CharacterService : ICharacterService
     private readonly ICharacterRepositoryFactory _repositories;
     private readonly IStarterItemsRepository _starterItemsRepository;
     private readonly CharacterGate _gate;
+    private readonly Weight.IInventoryChangeFeed _inventoryFeed;
 
     /// <summary>
     /// An item carries four chassis at most and the frame names four handles
@@ -32,8 +33,9 @@ public class CharacterService : ICharacterService
     /// character it touches (<see cref="CharacterGate"/>): two players no longer wait on each other.
     /// </summary>
     public CharacterService(IStarterItemsRepository starterItemsRepository, ICharacterRepositoryFactory repositories,
-        CharacterGate gate, ILogger<CharacterService> logger)
+        CharacterGate gate, ILogger<CharacterService> logger, Weight.IInventoryChangeFeed inventoryFeed = null)
     {
+        _inventoryFeed = inventoryFeed;
         _starterItemsRepository = starterItemsRepository;
         _repositories = repositories;
         _gate = gate;
@@ -232,7 +234,7 @@ public class CharacterService : ICharacterService
 
     public Task<ItemEntity> UnequipItemAsync(string characterName, ItemWearType position)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = character?.Items?.FirstOrDefault(entry => entry.WearInfo == position);
@@ -249,7 +251,7 @@ public class CharacterService : ICharacterService
 
     public Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
@@ -284,7 +286,7 @@ public class CharacterService : ICharacterService
     public Task<SkillCardBindAttempt> BindSkillCardAsync(string characterName, uint itemHandle, uint targetHandle,
         IItemGroupCatalog itemGroups)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
@@ -315,7 +317,7 @@ public class CharacterService : ICharacterService
     {
         // The judgement and the write share the character's gate: a bind handled in between could otherwise
         // put the card back on a bearer between the read and the socket write.
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
@@ -337,7 +339,7 @@ public class CharacterService : ICharacterService
     public Task<CardSocketResult> SocketCardAsync(string characterName, ItemWearType position,
         uint cardHandle, ICardSocketCatalog catalog)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var target = character?.Items?.FirstOrDefault(entry => entry.WearInfo == position);
@@ -427,7 +429,7 @@ public class CharacterService : ICharacterService
     public Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests)
     {
-        return RunExclusiveAsync<IReadOnlyList<(uint Handle, long Count)>>(characterName, async repository =>
+        return RunInventoryAsync<IReadOnlyList<(uint Handle, long Count)>>(characterName, async repository =>
         {
             var erased = new List<(uint Handle, long Count)>(requests.Count);
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
@@ -460,7 +462,7 @@ public class CharacterService : ICharacterService
 
     public Task<long?> ConsumeItemAsync(string characterName, uint itemHandle, long count)
     {
-        return RunExclusiveAsync<long?>(characterName, async repository =>
+        return RunInventoryAsync<long?>(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
@@ -479,7 +481,7 @@ public class CharacterService : ICharacterService
     public Task<SoulstoneCraftResult> SocketSoulstonesAsync(string characterName, uint craftItemHandle,
         IReadOnlyList<SoulstoneSlotAssignment> assignments)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, craftItemHandle);
@@ -534,7 +536,7 @@ public class CharacterService : ICharacterService
     public Task<(ItemEntity Item, long Remaining)?> ConsumeFirstAsync(string characterName,
         Func<ItemEntity, bool> match)
     {
-        return RunExclusiveAsync<(ItemEntity Item, long Remaining)?>(characterName, async repository =>
+        return RunInventoryAsync<(ItemEntity Item, long Remaining)?>(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = character?.Items?
@@ -556,7 +558,7 @@ public class CharacterService : ICharacterService
     public Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
         CraftTargetChange? change)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             if (character?.Items is null)
@@ -627,7 +629,7 @@ public class CharacterService : ICharacterService
     public Task<ItemRemoval> RemoveItemAsync(string characterName, uint itemHandle,
         Func<ItemEntity, long> resolveCount)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             var item = FindByHandle(character?.Items, itemHandle);
@@ -673,7 +675,7 @@ public class CharacterService : ICharacterService
 
     public Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count)
     {
-        return RunExclusiveAsync(characterName, async repository =>
+        return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
             if (character is null)
@@ -701,7 +703,7 @@ public class CharacterService : ICharacterService
 
     public Task<ItemTransferResult> TransferItemsAsync(ItemTransfer transfer)
     {
-        return _gate.RunPairAsync(transfer.GiverName, transfer.ReceiverName, async () =>
+        return RunPairInventoryAsync(transfer.GiverName, transfer.ReceiverName, async () =>
         {
             using var repository = _repositories.Create();
             var giver = await repository.GetCharacterByNameWithItemsAsync(transfer.GiverName);
@@ -776,7 +778,7 @@ public class CharacterService : ICharacterService
 
     public Task<ItemExchangeResult> ExchangeItemsAsync(ItemExchange exchange)
     {
-        return _gate.RunPairAsync(exchange.FirstName, exchange.SecondName, async () =>
+        return RunPairInventoryAsync(exchange.FirstName, exchange.SecondName, async () =>
         {
             using var repository = _repositories.Create();
             var first = await repository.GetCharacterByNameWithItemsAsync(exchange.FirstName);
@@ -1081,6 +1083,34 @@ public class CharacterService : ICharacterService
             using var repository = _repositories.Create();
             await operation(repository);
         });
+    }
+
+    /// <summary>
+    /// <see cref="RunExclusiveAsync{T}"/> for an operation that can change what the character carries: the
+    /// change is announced afterwards (<see cref="Weight.IInventoryChangeFeed"/>), which is how the carried
+    /// weight follows every item operation without each service having to say so.
+    /// </summary>
+    private async Task<T> RunInventoryAsync<T>(string characterName, Func<ICharacterRepository, Task<T>> operation)
+    {
+        var result = await RunExclusiveAsync(characterName, operation);
+        _inventoryFeed?.Publish(characterName);
+        return result;
+    }
+
+    /// <summary>The two-character counterpart of <see cref="RunInventoryAsync{T}"/>, under both gates.</summary>
+    private async Task<T> RunPairInventoryAsync<T>(string first, string second, Func<Task<T>> operation)
+    {
+        var result = await _gate.RunPairAsync(first, second, operation);
+        _inventoryFeed?.Publish(first);
+        _inventoryFeed?.Publish(second);
+        return result;
+    }
+
+    public Task<ItemEntity[]> GetCarriedItemsAsync(string characterName)
+    {
+        return ReadAsync(async repository =>
+            (await repository.GetCharacterByNameWithItemsAsync(characterName))?.Items?.ToArray()
+            ?? Array.Empty<ItemEntity>());
     }
 
     /// <summary>A pure read: its own repository, and no gate, since it changes nothing.</summary>

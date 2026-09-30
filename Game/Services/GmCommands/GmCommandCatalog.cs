@@ -32,7 +32,8 @@ public enum GmCommand
     Save,
     Chaos,
     Rate,
-    Rates
+    Rates,
+    GameTime
 }
 
 /// <summary>
@@ -84,7 +85,8 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Chaos, "chaos", true, "/chaos <amount>", FromRepository),
         new GmCommandDefinition(GmCommand.Rate, "rate", true,
             "/rate [<exp|jp|gold|drop|card|all> <multiplier> <duration> | reset [type]]", FromRepository),
-        new GmCommandDefinition(GmCommand.Rates, "rates", false, "/rates", FromRepository)
+        new GmCommandDefinition(GmCommand.Rates, "rates", false, "/rates", FromRepository),
+        new GmCommandDefinition(GmCommand.GameTime, "gametime", true, "/gametime [hours offset|0]", FromRepository)
     };
 
     private static readonly FrozenDictionary<string, GmCommandDefinition> ByName =

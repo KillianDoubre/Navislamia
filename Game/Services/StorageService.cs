@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
@@ -31,8 +32,14 @@ public class StorageService : IStorageService
     /// </summary>
     private readonly CharacterGate _gate;
 
-    public StorageService(IStorageRepository repository, CharacterGate gate)
+    private readonly Weight.ICarriedWeightService _weights;
+    private readonly Weight.IInventoryChangeFeed _inventoryFeed;
+
+    public StorageService(IStorageRepository repository, CharacterGate gate,
+        Weight.ICarriedWeightService weights = null, Weight.IInventoryChangeFeed inventoryFeed = null)
     {
+        _weights = weights;
+        _inventoryFeed = inventoryFeed;
         _repository = repository;
         _gate = gate;
     }
@@ -125,8 +132,30 @@ public class StorageService : IStorageService
 
         try
         {
-            var move = await _gate.RunAsync(info.CharacterName, () => _repository.MoveAsync(info.CharacterName, request.ItemHandle,
-                StorageRules.MovesToStorage(request.Mode), request.Count));
+            var toStorage = StorageRules.MovesToStorage(request.Mode);
+            var checkedMove = await _gate.RunAsync<StorageMoveResult?>(info.CharacterName, async () =>
+            {
+                if (!toStorage && _weights is not null)
+                {
+                    var stored = (await _repository.GetStorageItemsAsync(info.CharacterName))
+                        ?.FirstOrDefault(row => (uint)row.Id == request.ItemHandle);
+                    var units = stored is null ? 0 : StorageRules.MoveCount(request.Count, stored.Amount);
+                    if (units > 0 && !_weights.CanCarry(info, (int)stored.ItemResourceId, units))
+                    {
+                        return null;
+                    }
+                }
+
+                return await _repository.MoveAsync(info.CharacterName, request.ItemHandle, toStorage, request.Count);
+            });
+
+            if (checkedMove is not { } move)
+            {
+                client.SendResult(RequestId, (ushort)ResultCode.TooHeavy, target);
+                return;
+            }
+
+            _inventoryFeed?.Publish(info.CharacterName);
 
             switch (move.Outcome)
             {

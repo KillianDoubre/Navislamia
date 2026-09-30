@@ -29,12 +29,15 @@ public class GroundItemService : IGroundItemService
     private readonly IItemGroupCatalog _itemGroups;
     private readonly IRateService _rates;
     private readonly IPlayerVisibilityService _players;
+    private readonly Weight.ICarriedWeightService _weights;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
-        IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players)
+        IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players,
+        Weight.ICarriedWeightService weights = null)
     {
+        _weights = weights;
         _rates = rates;
         _catalog = catalog;
         _characterService = characterService;
@@ -223,6 +226,12 @@ public class GroundItemService : IGroundItemService
     /// </summary>
     private async Task<ResultCode> TakeAsync(GameClient client, GroundItem item, uint takerHandle)
     {
+        // Player::IsTakeable: the item's weight on top of the load must stay within the maximum.
+        if (_weights is not null && !_weights.CanCarry(client.ConnectionInfo, item.ItemCode, item.Count))
+        {
+            return ResultCode.TooHeavy;
+        }
+
         if (Interlocked.CompareExchange(ref item.TakenBy, 1, 0) != 0)
         {
             return ResultCode.NotExist;

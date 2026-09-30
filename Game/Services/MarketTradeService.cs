@@ -35,8 +35,12 @@ public class MarketTradeService : IMarketTradeService
     private readonly IMarketCatalog _catalog;
     private readonly ICharacterService _characterService;
 
-    public MarketTradeService(IMarketCatalog catalog, ICharacterService characterService)
+    private readonly Weight.ICarriedWeightService _weights;
+
+    public MarketTradeService(IMarketCatalog catalog, ICharacterService characterService,
+        Weight.ICarriedWeightService weights = null)
     {
+        _weights = weights;
         _catalog = catalog;
         _characterService = characterService;
     }
@@ -92,6 +96,19 @@ public class MarketTradeService : IMarketTradeService
         // 251 can change the balance from another thread, and a read-then-write would lose one of them.
         // The reference behaves the same way — its gold is the session's, checked then changed in one go
         // (:771-779).
+        if (info.CharacterGold < total)
+        {
+            client.SendResult(BuyItemId, (ushort)ResultCode.NotEnoughMoney, 0);
+            return;
+        }
+
+        // onBuyItem (NGemity WorldSession.cpp:769-771): what the bag has left must hold the purchase.
+        if (_weights is not null && !_weights.CanCarry(info, itemCode, buyCount))
+        {
+            client.SendResult(BuyItemId, (ushort)ResultCode.TooHeavy, itemCode);
+            return;
+        }
+
         if (!info.TryDebitGold(total))
         {
             client.SendResult(BuyItemId, (ushort)ResultCode.NotEnoughMoney, 0);

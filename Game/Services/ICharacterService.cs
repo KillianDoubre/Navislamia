@@ -152,6 +152,9 @@ public interface ICharacterService
     /// </summary>
     Task<ItemExchangeResult> ExchangeItemsAsync(ItemExchange exchange);
 
+    /// <summary>Every item row of the character's bag, worn ones included: a read, to weigh what it carries.</summary>
+    Task<ItemEntity[]> GetCarriedItemsAsync(string characterName);
+
     Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests);
 

@@ -36,12 +36,15 @@ public sealed class PlayerTradeService : IPlayerTradeService
     private readonly ILogger _logger = Log.ForContext<PlayerTradeService>();
     private readonly ICharacterService _characters;
     private readonly IPlayerVisibilityService _players;
+    private readonly Weight.ICarriedWeightService _weights;
     private readonly object _gate = new();
     private readonly Dictionary<uint, TradeSide> _trades = new();
     private readonly HashSet<(uint From, uint To)> _requests = new();
 
-    public PlayerTradeService(ICharacterService characters, IPlayerVisibilityService players)
+    public PlayerTradeService(ICharacterService characters, IPlayerVisibilityService players,
+        Weight.ICarriedWeightService weights = null)
     {
+        _weights = weights;
         _characters = characters;
         _players = players;
     }
@@ -212,6 +215,7 @@ public sealed class PlayerTradeService : IPlayerTradeService
             }
 
             side.Items[item.Id] = request.Count;
+            side.Codes[item.Id] = (int)item.ItemResourceId;
             Echo(side, request.Mode, item, request.Count);
         }
     }
@@ -320,6 +324,19 @@ public sealed class PlayerTradeService : IPlayerTradeService
         var a = first.Client.ConnectionInfo;
         var b = second.Client.ConnectionInfo;
 
+        // CheckTradeWeight, before the gold: what each side receives must fit in what its bag has left.
+        if (_weights is not null && (!_weights.CanCarry(a, Incoming(second)) || !_weights.CanCarry(b, Incoming(first))))
+        {
+            lock (_gate)
+            {
+                End(first, notify: false);
+            }
+
+            first.Client.SendResult(TradeId, (ushort)ResultCode.TooHeavy);
+            second.Client.SendResult(TradeId, (ushort)ResultCode.TooHeavy);
+            return;
+        }
+
         // TooMuchMoney names the side whose balance would overflow, to both (the official answer).
         var aOver = a.CharacterGold - first.Gold + second.Gold > BoothTradeRules.MaxGold;
         var bOver = b.CharacterGold - second.Gold + first.Gold > BoothTradeRules.MaxGold;
@@ -407,6 +424,10 @@ public sealed class PlayerTradeService : IPlayerTradeService
         b.AddGold(second.Gold - first.Gold);
         return null;
     }
+
+    /// <summary>What a side's offer weighs, for the other side's bag.</summary>
+    private float Incoming(TradeSide giver) =>
+        giver.Items.Sum(pair => _weights.WeightOf(giver.Codes.GetValueOrDefault(pair.Key), pair.Value));
 
     private static IReadOnlyList<ItemTransferLine> Lines(TradeSide side) =>
         side.Items.Select(pair => new ItemTransferLine((uint)pair.Key, pair.Value)).ToArray();
@@ -527,6 +548,9 @@ public sealed class PlayerTradeService : IPlayerTradeService
         public GameClient Client { get; }
         public TradeSide Partner { get; set; }
         public Dictionary<long, long> Items { get; } = new();
+
+        /// <summary>The resource of each offered item, which weighs it.</summary>
+        public Dictionary<long, int> Codes { get; } = new();
         public long Gold { get; set; }
         public bool Frozen { get; set; }
         public bool Confirmed { get; set; }

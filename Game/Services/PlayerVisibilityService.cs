@@ -243,7 +243,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
                 if (peerInfo.SpawnedPlayers.ContainsKey(mine.Handle))
                 {
                     Send(peerClient, GameMovePackets.BuildMove(mine.Handle,
-                        unchecked(now + peerInfo.ClientClockOffset), mine.Layer, ConnectionInfo.EchoedMoveSpeed,
+                        unchecked(now + peerInfo.ClientClockOffset), mine.Layer, info.MoveSpeed,
                         waypoints));
                 }
             }

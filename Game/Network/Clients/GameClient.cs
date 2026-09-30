@@ -113,7 +113,7 @@ public class GameClient : Client
     public void SendGameTime()
     {
         var message = new Packet<TS_SC_GAME_TIME>((ushort)GamePackets.TM_SC_GAME_TIME,
-            new TS_SC_GAME_TIME { T = ClientTick(), GameTime = 0 });
+            new TS_SC_GAME_TIME { T = ClientTick(), GameTime = WorldClock.GameTimeNow });
         Connection.Send(message.Data);
     }
 
@@ -229,7 +229,11 @@ public class GameClient : Client
             return;
         }
 
-        const byte speed = ConnectionInfo.EchoedMoveSpeed;
+        // The load slows the walk (StructPlayer::GetMoveSpeed): the echo, the peers' copy and the position
+        // estimate all use the same speed (docs/packet-specs/socle-poids.md).
+        var speed = _networkService.CarriedWeightService?.MoveSpeed(ConnectionInfo, ConnectionInfo.EchoedMoveSpeed)
+                    ?? ConnectionInfo.EchoedMoveSpeed;
+        ConnectionInfo.MoveSpeed = speed;
         var total = 7 + 12 + count * 8;
         var packet = new byte[total];
         var s = packet.AsSpan();

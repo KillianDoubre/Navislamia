@@ -351,6 +351,30 @@ public class GmCommandService : IGmCommandService
                 ShowRates(client, detailed: false);
                 break;
 
+            case GmCommand.GameTime:
+                // Without an argument: the clock as it stands. With one: shift the in-world clock by that many
+                // hours for everyone (0 puts it back on real time) and resend TS_SC_GAME_TIME to every player.
+                if (line.Args.Length > 0)
+                {
+                    if (!double.TryParse(line.Args[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var hours)
+                        || double.IsNaN(hours) || Math.Abs(hours) > 24 * 365)
+                    {
+                        Usage(client, definition);
+                        break;
+                    }
+
+                    WorldClock.OffsetSeconds = (long)Math.Round(hours * 3600);
+                    foreach (var player in everyone)
+                    {
+                        player.SendGameTime();
+                    }
+                }
+
+                var clock = DateTimeOffset.FromUnixTimeSeconds((long)WorldClock.GameTimeNow);
+                Reply(client, string.Create(CultureInfo.InvariantCulture,
+                    $"Game time {clock:yyyy-MM-dd HH:mm:ss} UTC, offset {WorldClock.OffsetSeconds / 3600.0:0.##} h."));
+                break;
+
             default:
                 _logger.Error("GM command {command} has no handler", definition.Command);
                 break;

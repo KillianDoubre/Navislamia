@@ -60,6 +60,7 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/rate <type> <multiplicateur> <durée>` | oui | Navislamia | événement de rates annoncé à tous, `type` = `exp`, `jp`, `gold`, `drop`, `card` ou `all` |
 | `/rate reset [type]` | oui | Navislamia | fin anticipée, d'un type ou de tous |
 | `/rates` | non | Navislamia | rates effectifs, en lecture seule |
+| `/gametime [heures]` | oui | Navislamia | décale l'heure du monde (`TS_SC_GAME_TIME`) pour tous et la renvoie ; `0` remet l'heure réelle, sans argument affiche l'heure |
 
 Le nom est insensible à la casse (`/Position` marche), contrairement à la comparaison exacte de
 NGemity : rien dans le client ne distingue les deux, et un refus ne ferait que ressembler à une panne.

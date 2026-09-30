@@ -283,13 +283,14 @@ public class MarketTradeTests
     }
 
     private MarketTradeService Buyer(long gold = 20_000, int chaos = 7, uint dialogHandle = MerchantHandle,
-        string marketName = MarketName, long price = 5_000L, int huntaholicPoint = 0)
+        string marketName = MarketName, long price = 5_000L, int huntaholicPoint = 0,
+        Navislamia.Game.Services.Weight.ICarriedWeightService weights = null)
     {
         var service = new MarketTradeService(
             new MarketCatalog(new MarketCatalogOptions
             {
                 Markets = new List<MarketResourceRow> { Row(ItemCode, price, huntaholicPoint) }
-            }), _characters);
+            }), _characters, weights);
 
         _buyer = NewBuyer(service, gold, chaos, dialogHandle, marketName);
         return service;
@@ -321,6 +322,24 @@ public class MarketTradeTests
             {
                 Markets = new List<MarketResourceRow> { Row(ItemCode, 5_000L, 7) }
             })));
+
+    [Test]
+    public async Task Buy_ThatTheBagCannotCarry_IsRefusedTooHeavyBeforeAnyDebit()
+    {
+        var weights = A.Fake<Navislamia.Game.Services.Weight.ICarriedWeightService>();
+        A.CallTo(() => weights.CanCarry(A<ConnectionInfo>._, ItemCode, 2L)).Returns(false);
+        var service = Buyer(gold: 20_000, price: 5_000L, weights: weights);
+        var (client, connection, info) = _buyer;
+
+        await service.BuyAsync(client, ItemCode, 2);
+
+        var result = connection.Sent.Single();
+        BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(9, 2)).Should().Be((ushort)ResultCode.TooHeavy);
+        BinaryPrimitives.ReadInt32LittleEndian(result.AsSpan(11, 4)).Should().Be(ItemCode,
+            "onBuyItem names the item it refused");
+        info.CharacterGold.Should().Be(20_000);
+        A.CallTo(() => _characters.AddItemAsync(A<string>._, A<int>._, A<long>._)).MustNotHaveHappened();
+    }
 
     [Test]
     public async Task Buy_DebitsTheWholePriceAndEchoesTheTransaction()

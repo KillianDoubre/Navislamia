@@ -206,6 +206,25 @@ public class PlayerTradeTests
     }
 
     [Test]
+    public async Task AnOfferTheOtherBagCannotCarryEndsTheTradeTooHeavy()
+    {
+        var weights = A.Fake<Navislamia.Game.Services.Weight.ICarriedWeightService>();
+        A.CallTo(() => weights.CanCarry(A<ConnectionInfo>._, A<float>._)).Returns(false);
+        _trade = new PlayerTradeService(_characters, _visibility, weights);
+        await Open();
+        await Send(_ana, 2, TradeMode.Freeze);
+        await Send(_bo, 1, TradeMode.Freeze);
+
+        await Send(_ana, 2, TradeMode.Confirm);
+        await Send(_bo, 1, TradeMode.Confirm);
+
+        Results(_ana).Should().Contain(ResultCode.TooHeavy);
+        Results(_bo).Should().Contain(ResultCode.TooHeavy);
+        A.CallTo(() => _characters.ExchangeItemsAsync(A<ItemExchange>._)).MustNotHaveHappened();
+        Info(_ana).CharacterGold.Should().Be(1000);
+    }
+
+    [Test]
     public async Task LeavingTheWorldClosesThePartnersWindow()
     {
         await Open();

@@ -1106,7 +1106,10 @@ Without this handshake nothing time-based on the client ever elapses: the invent
 itself for `ITEM_ARRANGE_COOL_TIME` and never came back, survived closing the window, and only cleared
 by returning to character selection, because the countdown had no clock to run against. `TS_SC_GAME_TIME.t`
 used to carry unix seconds, which is the wrong base for an `ar_time_t`; it now carries the client tick
-like every other time field. `game_time` (the in-world day/night clock) is still `0`.
+like every other time field. **`game_time` is Unix time in seconds** (`WorldClock`), what the official
+server writes (`SendGameTime` = `_time64()`) and NGemity too: the client derives its day and night from it.
+It was `0`, so the world had no hour. `/gametime <hours>` shifts it for everyone to test the cycle (0 resets,
+not persisted); see `docs/packet-specs/socle-poids.md` §1.
 
 ## Inventory ordering
 
@@ -1521,8 +1524,8 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   the account storage, but its capacity is unbounded and the two gold modes answer `NotActable` (no
   column holds the stored gold), and the sort order follows the client's tab categories rather than the
   original server's comparator
-- The client clock is synchronized, but `TS_SC_GAME_TIME.game_time` (the in-world day/night clock) is
-  still zero, and movement still applies `ClientClockOffset` by hand rather than trusting the sync
+- The client clock is synchronized and `game_time` carries Unix time, but movement still applies
+  `ClientClockOffset` by hand rather than trusting the sync
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work
@@ -1662,6 +1665,19 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   d'expérience et de butin non modélisé.
 - Fiche, adresses des fonctions officielles, écarts et `NON ÉTABLI` : `docs/packet-specs/socle-groupe.md`.
 
+### Poids porté
+
+- **Un objet pèse `weight` × quantité, un objet porté ne pèse rien** ; le max (`10 × (niveau + force)`, sacs,
+  états) était déjà dans `StatCalculator`. `ConnectionInfo.CarriedWeight` suit le sac : **`CharacterService`
+  publie après chaque opération d'inventaire** (`RunInventoryAsync` / `RunPairInventoryAsync` →
+  `IInventoryChangeFeed`), l'entrepôt aussi, et `CarriedWeightService` relit le sac du joueur en ligne. Une
+  nouvelle opération d'objets dans `CharacterService` doit passer par ces deux méthodes, sinon le poids la
+  manque.
+- Effets, tous ceux du serveur officiel : **marche ×0,5 dès 75 %, ×0,1 à 100 %** (`ConnectionInfo.MoveSpeed`,
+  pour l'écho, les pairs et l'estimation de position — plus la constante `EchoedMoveSpeed` seule) ;
+  **`TooHeavy`** au ramassage, à l'achat (valeur = code), à la sortie d'entrepôt, à l'échange et au retrait du
+  sac. Fiche : `docs/packet-specs/socle-poids.md`.
+
 ### Paquet 280 — `TS_TRADE` (échange entre joueurs)
 
 - **Une seule trame de 97 octets dans les deux sens** (`TM_TRADE`) : `target_player` @7, `mode` @11, puis
@@ -1670,12 +1686,13 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   9 (`PROCESS`) sont des réponses, ignorées en entrée ; 11 (`MODIFY_COUNT`) n'existe pas chez NGemity.
 - Règles de l'officiel (`CaptainHerlockServer.exe`, §3 de la fiche) : cible à `g_nRegionSize` (ici
   `WorldVisibility.RegionSize`, 180) sinon `TooFar`, absente → `NotExist`, déjà en échange → `AccessDenied` ;
-  offre et or bornés par la pile et le solde ; confirmation à deux fenêtres verrouillées ; plafond d'or →
+  offre et or bornés par la pile et le solde ; confirmation à deux fenêtres verrouillées ; poids → `TooHeavy` ;
+  plafond d'or →
   `TooMuchMoney` (53). **L'écho d'une offre porte le compte offert**, pas celui de la pile (défaut NGemity).
 - Exécution : l'or sous le verrou d'or de chaque session, puis **`CharacterService.ExchangeItemsAsync`, les
   deux sens jugés avant tout déplacement et appliqués avec les deux soldes en une sauvegarde** ; tout échec
   rend l'or. **Écart** : une acceptation doit répondre à une demande (l'officiel ouvre la fenêtre de
-  n'importe qui). Poids, règle PK et entrepôt ouvert non modélisés. Lobby et déconnexion ferment l'échange.
+  n'importe qui). Règle PK et entrepôt ouvert non modélisés. Lobby et déconnexion ferment l'échange.
 - Fiche : `docs/packet-specs/280-trade.md`.
 
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)

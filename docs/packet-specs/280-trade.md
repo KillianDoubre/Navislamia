@@ -77,7 +77,8 @@ Un départ du monde (lobby, déconnexion) ferme l'échange ; le partenaire reço
 - **Une acceptation doit répondre à une demande** : l'officiel accepte n'importe quel `ACCEPT` et ouvrirait
   une fenêtre chez quelqu'un qui n'a rien demandé.
 - **Écho au compte offert** : comme l'officiel (il réécrit `count` @28) ; NGemity renvoie le compte de la pile.
-- **Non modélisés** : poids (aucun système de poids), règle PK, entrepôt ouvert (51, 88 : aucun état
+- **Poids** : jugé avant l'or (`CheckTradeWeight`), `TooHeavy` aux deux (voir `socle-poids.md`).
+- **Non modélisés** : règle PK, entrepôt ouvert (51, 88 : aucun état
   d'entrepôt en session), `GameRule::bDisableTrade`, blocage de compte sur « Add Trade Bug ». Échangeable =
   non porté et pas une carte d'invocation liée (`0x8000_0000`) ; les autres règles d'`IsTradable` ne sont
   pas lues.

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
@@ -22,10 +23,13 @@ public class EquipmentService : IEquipmentService
     private readonly IStatService _statService;
     private readonly IItemWearCatalog _wearCatalog;
     private readonly IPlayerVisibilityService _visibility;
+    private readonly Weight.ICarriedWeightService _weights;
 
     public EquipmentService(ICharacterService characterService, IStatService statService,
-        IItemWearCatalog wearCatalog, IPlayerVisibilityService visibility)
+        IItemWearCatalog wearCatalog, IPlayerVisibilityService visibility,
+        Weight.ICarriedWeightService weights = null)
     {
+        _weights = weights;
         _characterService = characterService;
         _statService = statService;
         _wearCatalog = wearCatalog;
@@ -142,6 +146,19 @@ public class EquipmentService : IEquipmentService
 
         try
         {
+            // Unit::putoffItem on WEAR_BAG_SLOT: TooHeavy while overloaded, or if the load would pass the
+            // maximum without the bag's own capacity.
+            if ((ItemWearType)request.Position == ItemWearType.BagSlot && _weights is not null)
+            {
+                var bag = (await _characterService.GetCarriedItemsAsync(info.CharacterName))
+                    .FirstOrDefault(carried => carried.WearInfo == ItemWearType.BagSlot);
+                if (bag is not null && !_weights.CanTakeOffBag(info, (int)bag.ItemResourceId))
+                {
+                    client.SendResult(UnequipRequestId, (ushort)ResultCode.TooHeavy, 0);
+                    return;
+                }
+            }
+
             var item = await _characterService.UnequipItemAsync(info.CharacterName, (ItemWearType)request.Position);
             if (item is null)
             {

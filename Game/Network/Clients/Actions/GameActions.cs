@@ -111,6 +111,7 @@ public class GameActions : IActions
 
         var info = client.ConnectionInfo;
         _statService.Seed(info, character);
+        _networkService.CarriedWeightService?.Seed(info, character.Items);
         info.CharacterHandle = (uint)character.Id;
         info.WearFrame = GameCharacterPackets.BuildWearInfo((uint)character.Id, character);
         info.GuildId = character.GuildId;

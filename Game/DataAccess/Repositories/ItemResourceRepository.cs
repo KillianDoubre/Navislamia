@@ -54,6 +54,14 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<ItemWeightFields> GetWeightFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemWeightFields((int)item.Id, item.Weight))
+            .ToList();
+    }
+
     public IReadOnlyList<ItemMatchFields> GetMatchFields()
     {
         return _context.ItemResources

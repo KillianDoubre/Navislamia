@@ -145,6 +145,22 @@ public class ConnectionInfo
     public const byte EchoedMoveSpeed = 100;
 
     /// <summary>
+    /// The speed of the character's current walk: <see cref="EchoedMoveSpeed"/> slowed by its load
+    /// (<see cref="Navislamia.Game.Services.Weight.WeightRules.MoveSpeed"/>), set at each move request and used
+    /// for the echo, the peers' copy and the position estimate alike.
+    /// </summary>
+    public byte MoveSpeed { get; set; } = EchoedMoveSpeed;
+
+    /// <summary>
+    /// What the bag weighs, worn items excluded. Kept in step by
+    /// <see cref="Navislamia.Game.Services.Weight.CarriedWeightService"/>.
+    /// </summary>
+    public float CarriedWeight { get; set; }
+
+    /// <summary>The weight refresh of this session: 0 idle, 1 running, 2 running and asked again.</summary>
+    public int WeightRefreshState;
+
+    /// <summary>
     /// The server tick at which the character was last known at (<see cref="X"/>, <see cref="Y"/>) while
     /// heading for its destination: a move request, a region update, a world entry or a warp.
     /// </summary>
@@ -158,7 +174,7 @@ public class ConnectionInfo
     public (float X, float Y) PositionAt(uint nowTick)
     {
         var length = MathF.Sqrt((DestinationX - X) * (DestinationX - X) + (DestinationY - Y) * (DestinationY - Y));
-        var endTick = Navislamia.Game.Services.MonsterMovement.EndTick(MoveStartTick, length, EchoedMoveSpeed);
+        var endTick = Navislamia.Game.Services.MonsterMovement.EndTick(MoveStartTick, length, MoveSpeed);
         return Navislamia.Game.Services.MonsterMovement.PositionAt(X, Y, DestinationX, DestinationY, MoveStartTick,
             endTick, nowTick);
     }
@@ -501,6 +517,8 @@ public class ConnectionInfo
         CharacterHandle = 0;
         TargetHandle = 0;
         CharacterHp = 0;
+        CarriedWeight = 0;
+        MoveSpeed = EchoedMoveSpeed;
         WearFrame = null;
         PartyId = null;
         GuildId = null;
