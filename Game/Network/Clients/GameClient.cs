@@ -450,6 +450,37 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_AUCTION_SEARCH (1300): the player launched a search in the auction house. The 51-byte
+    /// request is read and its five fields logged; the answer is a TM_SC_AUCTION_SEARCH (1301) empty
+    /// page, because nothing in this repository ever writes <c>TelecasterContext.Auctions</c> — no code
+    /// adds, updates or removes an <c>AuctionEntity</c> — so the page is necessarily empty and that is
+    /// demonstrable (spec §5.4). The request's <c>page_num</c> is echoed back and <c>total_page_count</c>
+    /// stays 0: its rule, the ordering and page size, the category filter and the meaning of
+    /// <c>is_equipable</c> are open decisions, so no policy is invented here (spec §5.5, §5.6, §7).
+    /// A frame the client could not have built gets the family's result, never an auction frame: no
+    /// error variant of 1301 exists in the references or in the client (spec §5.1).
+    /// See docs/packet-specs/1300-auction-search.md.
+    /// </summary>
+    private void HandleAuctionSearch(byte[] buffer)
+    {
+        if (!GameAuctionPackets.TryReadAuctionSearch(buffer, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_AUCTION_SEARCH, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_AUCTION_SEARCH ({id}) Length: {length} received from {clientTag}: category_id={categoryId}, sub_category_id={subCategoryId}, keyword={keyword}, page_num={pageNum}, is_equipable={isEquipable}",
+                (ushort)GamePackets.TM_CS_AUCTION_SEARCH, buffer.Length, ClientTag, request.CategoryId,
+                request.SubCategoryId, request.Keyword, request.PageNum, request.IsEquipable);
+        }
+
+        Connection.Send(GameAuctionPackets.BuildAuctionSearch(request.PageNum, 0));
+    }
+
+    /// <summary>
     /// TM_CS_GET_SUMMON_SETUP_INFO (324), 8 bytes: the client asks for the creature formation again, most
     /// often with show_dialog set when the player opens the window. The answer is a TM_EQUIP_SUMMON (303)
     /// carrying the same six handles as the frame sent at world entry, with the open_dialog byte replaying
@@ -2199,6 +2230,16 @@ public class GameClient : Client
             {
                 _logger.Warning("Server to client packet TM_SC_FARM_INFO ({id}) received from {clientTag}",
                     header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_AUCTION_SEARCH (1300) is the auction house search request, 51 bytes. It must stay
+            // before the throwing switch below: an id declared in GamePackets with no arm reaches
+            // "Unknown Packet Type" and kills the receive loop. See
+            // docs/packet-specs/1300-auction-search.md §5.2.
+            if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_SEARCH)
+            {
+                HandleAuctionSearch(msgBuffer);
                 continue;
             }
 

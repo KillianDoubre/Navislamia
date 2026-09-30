@@ -36,6 +36,15 @@ public readonly record struct RegisteredAuctionInfo(AuctionInfo Auction, byte St
 public readonly record struct BiddedAuctionInfo(AuctionInfo Auction, byte Status);
 
 /// <summary>
+/// <c>TM_CS_AUCTION_SEARCH</c> (1300): the search the player launched in the auction house. The two
+/// category ids are the first two columns of the client's <c>db_auctioncategoryresource.rdb</c>. The
+/// effect of <paramref name="IsEquipable"/> and the filtering policy itself are not established —
+/// the fields are only read and logged. See docs/packet-specs/1300-auction-search.md §5.5, §5.6.
+/// </summary>
+public readonly record struct AuctionSearchRequest(int CategoryId, int SubCategoryId, string Keyword,
+    int PageNum, bool IsEquipable);
+
+/// <summary>
 /// The three server to client frames of the auction family, Epic 7.3 branch. The 7.3 client copies
 /// every table in one block without ever looking at <c>auction_info_count</c> (5120 bytes for 1301,
 /// 3880 for 1303 and 1305), so all forty slots are always written — a short frame is a silent
@@ -66,6 +75,66 @@ public static class GameAuctionPackets
     public const int ListPacketSize = HeaderSize + PageHeaderSize + AuctionSlots * RegisteredAuctionEntrySize;
 
     private const int SellerNameSize = 31;
+
+    /// <summary>
+    /// Size of the <c>keyword</c> zone of <c>TM_CS_AUCTION_SEARCH</c> (1300): a fixed, not
+    /// length-prefixed, NUL-terminated ASCII area (spec §3.2).
+    /// </summary>
+    public const int KeywordSize = 31;
+
+    /// <summary>Absolute offset of <c>category_id</c> in the 1300 request.</summary>
+    public const int SearchRequestCategoryOffset = HeaderSize;
+
+    /// <summary>Absolute offset of <c>sub_category_id</c> in the 1300 request.</summary>
+    public const int SearchRequestSubCategoryOffset = SearchRequestCategoryOffset + 4;
+
+    /// <summary>Absolute offset of <c>keyword</c> in the 1300 request.</summary>
+    public const int SearchRequestKeywordOffset = SearchRequestSubCategoryOffset + 4;
+
+    /// <summary>Absolute offset of <c>page_num</c> in the 1300 request.</summary>
+    public const int SearchRequestPageNumOffset = SearchRequestKeywordOffset + KeywordSize;
+
+    /// <summary>Absolute offset of <c>is_equipable</c>, the last byte of the 1300 request.</summary>
+    public const int SearchRequestIsEquipableOffset = SearchRequestPageNumOffset + 4;
+
+    /// <summary>
+    /// Total size of <c>TM_CS_AUCTION_SEARCH</c> (1300): 7 header + 4 + 4 + 31 + 4 + 1 = 51, the literal
+    /// the 7.3 client's constructor and sender both write (spec §3.1).
+    /// </summary>
+    public const int SearchRequestSize = SearchRequestIsEquipableOffset + 1;
+
+    /// <summary>
+    /// Reads <c>TM_CS_AUCTION_SEARCH</c> (1300), the 51-byte search request. A shorter frame is refused
+    /// rather than partially read: the layout is fixed, so four unread bytes would silently misalign the
+    /// tail of the frame. Nothing else in the frame carries a player, item or price (spec §5.1).
+    /// </summary>
+    public static bool TryReadAuctionSearch(ReadOnlySpan<byte> packet, out AuctionSearchRequest request)
+    {
+        if (packet.Length < SearchRequestSize)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new AuctionSearchRequest(
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(SearchRequestCategoryOffset, 4)),
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(SearchRequestSubCategoryOffset, 4)),
+            ReadFixedAscii(packet.Slice(SearchRequestKeywordOffset, KeywordSize)),
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(SearchRequestPageNumOffset, 4)),
+            packet[SearchRequestIsEquipableOffset] != 0);
+        return true;
+    }
+
+    /// <summary>
+    /// Reads a fixed ASCII zone: the client's copy is a bounded <c>strncpy</c> of 31 bytes that is not
+    /// guaranteed to leave a terminator when the keyword reaches the zone's size, so the NUL ends the
+    /// string when present and is not required to be (spec §3.2, §12.5).
+    /// </summary>
+    private static string ReadFixedAscii(ReadOnlySpan<byte> span)
+    {
+        var terminator = span.IndexOf((byte)0);
+        return Encoding.ASCII.GetString(terminator < 0 ? span : span.Slice(0, terminator));
+    }
 
     /// <summary>
     /// <c>TM_SC_AUCTION_SEARCH</c> (1301), 5139 bytes. <paramref name="pageNum"/> is echoed back from

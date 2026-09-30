@@ -178,6 +178,12 @@ public enum GamePackets : ushort
     TM_SC_EMOTION = 1201,
     TM_CS_EMOTION = 1202,
 
+    // TM_CS_AUCTION_SEARCH (1300): the auction house search request, 51 bytes. The 7.3 client builds
+    // and sends it (SFrame.exe constructor 0x48CA20, sender 0x48DC80) and never receives it — its
+    // incoming dispatcher leaves 1300 on the "unhandled" path, only 1201/1301/1303/1305 have a
+    // handler. See docs/packet-specs/1300-auction-search.md.
+    TM_CS_AUCTION_SEARCH = 1300,
+
     TM_SC_AUCTION_SEARCH = 1301,
     TM_SC_AUCTION_SELLING_LIST = 1303,
     TM_SC_AUCTION_BIDDED_LIST = 1305,
