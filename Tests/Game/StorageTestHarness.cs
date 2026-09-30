@@ -42,7 +42,8 @@ internal static class StorageTestHarness
         IPlayerVisibilityService playerVisibilityService = null,
         IBoothTradeService boothTradeService = null,
         IMarketTradeService marketTradeService = null,
-        IMarketSellService marketSellService = null)
+        IMarketSellService marketSellService = null,
+        ICraftingSocleService craftingSocleService = null)
     {
         characterService ??= A.Fake<ICharacterService>();
         playerVisibilityService ??= new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>());
@@ -71,7 +72,7 @@ internal static class StorageTestHarness
             A.Fake<IWorldLocationService>(),
             A.Fake<IResurrectionService>(),
             A.Fake<IEventAreaService>(),
-            A.Fake<ICraftingSocleService>(),
+            craftingSocleService ?? A.Fake<ICraftingSocleService>(),
             storageService ?? A.Fake<IStorageService>(),
             A.Fake<IQuestService>(),
             gmCommandService ?? A.Fake<IGmCommandService>(),

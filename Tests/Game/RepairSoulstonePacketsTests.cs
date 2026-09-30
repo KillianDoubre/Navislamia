@@ -218,39 +218,11 @@ public class RepairSoulstonePacketsTests
     private static Harness Build(byte[] frame = null, bool inWorld = true)
     {
         var characters = A.Fake<ICharacterService>();
-        var service = new CraftingSocleService(characters);
+        var service = new CraftingSocleService(characters, A.Fake<IMixResourceCatalog>(),
+            A.Fake<IItemMatchCatalog>());
         var connection = new StorageTestHarness.FrameConnection(frame ?? Array.Empty<byte>());
-
-        var networkService = new NetworkService(
-            A.Fake<ILogger<NetworkService>>(),
-            Options.Create(new NetworkOptions { CipherKey = "repair-soulstone-test-key" }),
-            characters,
-            A.Fake<IBannedWordsRepository>(),
-            A.Fake<IStatService>(),
-            Options.Create(new ServerOptions()),
-            A.Fake<INpcSpawnService>(),
-            A.Fake<INpcDialogService>(),
-            A.Fake<IMonsterSpawnService>(),
-            A.Fake<ICombatService>(),
-            A.Fake<ILevelingService>(),
-            A.Fake<ISkillService>(),
-            A.Fake<IEquipmentService>(),
-            A.Fake<IInventoryService>(),
-            A.Fake<IGroundItemService>(),
-            A.Fake<ISkillCastService>(),
-            A.Fake<IFieldPropService>(),
-            A.Fake<IItemUseService>(),
-            A.Fake<IWorldLocationService>(),
-            A.Fake<IResurrectionService>(),
-            A.Fake<IEventAreaService>(),
-            service,
-            A.Fake<IStorageService>(),
-            A.Fake<IQuestService>(),
-            A.Fake<IGmCommandService>(),
-            A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>());
-
-        var client = new GameClient(new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp),
-            networkService) { Connection = connection };
+        var client = StorageTestHarness.NewGameClient(connection, characterService: characters,
+            craftingSocleService: service);
 
         var session = StorageTestHarness.Session(client);
         session.CharacterName = Character;
