@@ -38,7 +38,8 @@ internal static class StorageTestHarness
         IGmCommandService gmCommandService = null,
         Navislamia.Game.Services.Pets.IPetSummonService petSummonService = null,
         ICharacterService characterService = null,
-        ICommercialStorageService commercialStorageService = null)
+        ICommercialStorageService commercialStorageService = null,
+        IPlayerVisibilityService playerVisibilityService = null)
     {
         characterService ??= A.Fake<ICharacterService>();
 
@@ -70,7 +71,9 @@ internal static class StorageTestHarness
             gmCommandService ?? A.Fake<IGmCommandService>(),
             petSummonService ?? A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
             new BoothWatchService(characterService),
-            commercialStorageService ?? A.Fake<ICommercialStorageService>());
+            commercialStorageService ?? A.Fake<ICommercialStorageService>(),
+            playerVisibilityService
+                ?? new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>()));
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

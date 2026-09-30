@@ -504,3 +504,44 @@ ne bloque le lot du §5.3, qui se borne à la forme des trames. Par ordre d'impa
 
 La branche ne livre donc **aucune** constante de gameplay : ni durée, ni coût, ni plafond, ni sort
 d'une créature à l'expiration, ni formule d'expérience.
+
+## 8. Décision de Killian — 2026-09-30 : paquets pris en charge, système non implémenté
+
+**La ferme de créatures ne sera pas implémentée** : le système était peu utilisé en retail, et il faudrait en
+inventer l'essentiel. Le socle livré reste la prise en charge complète des paquets : 6000 reçoit une 6001 vide,
+6002/6004/6006/6008 sont lus, bornés et journalisés sans réponse, et aucun id déclaré n'atteint le `throw` final.
+
+**La fenêtre ne s'ouvre pas, et c'est voulu.** Le client n'ouvre la ferme que sur le déclencheur de dialogue
+`show_creature_farm_window()` (PNJ `NPC_Creature_Farm_contact`, `DevConsole/npc-dialogs.73.json`) ; la référence
+l'ouvre par `TS_SC_SHOW_WINDOW` (3003, rzu `TS_SC_SHOW_WINDOW.h`), que ce serveur n'émet pas. `NpcDialogService`
+laisse ce déclencheur « not implemented » : sans fenêtre, le client ne peut émettre ni 6002, ni 6004, ni 6006, ni
+6008. L'ouvrir obligerait à répondre 6003/6005/6007, dont l'octet `result` n'est pas établi (le client le passe tel
+quel à son interface, messages internes `0xae`/`0xaf`/`0xb0`, `SFrame.exe 0x672220-0x672335`) : un mauvais octet
+afficherait peut-être une réussite qui n'a pas eu lieu. **Ne pas exécuter `show_creature_farm_window()`** tant que la
+ferme n'existe pas.
+
+### 8.1 Ce qu'on sait du système retail (pour le jour où)
+
+Sources publiques : [Gala Lab, *The Pets – Pet Farm*](https://www.en-galalab.rappelz.com/the-pets-pet-farm) ;
+[*Rappelz, Point of View from a Girl* : Epic 7 Part 2](http://rappelzladyluck.blogspot.com/2010/12/epic-7-part-2.html)
+et [More about Epic 7.2](http://rappelzladyluck.blogspot.com/2011/01/more-about-epic-72.html) ;
+[History of Rappelz, Epic 7.2](https://historyofrappelz.com/en/epic-7-2obsession/).
+
+- Introduite par l'**Epic 7.2 « Obsession »** ; PNJ **Sonya**, au sud de Rondo (porte sud, contre la montagne) ;
+  menu : explication, déposer/reprendre, acheter des tickets.
+- La créature déposée gagne de l'expérience seule, **jamais au-delà du niveau du personnage, au plus 100** ; il faut
+  la laisser au moins un jour.
+- Tickets normaux (boutique de la ferme) et premium (boutique payante) ; les durées citées varient selon les sources
+  (5/10 jours, 1/4 jours, 3/7 jours). 1 créature par ticket normal, jusqu'à 3 avec les premium.
+- « Animal Cracker » : nourriture optionnelle consommée au dépôt, accélère la croissance (taux non publié).
+- Soin quotidien : un cadeau (potions, équipement, cartes de créature vides). Abandon **30 jours** après expiration
+  des tickets : la créature s'enfuit.
+
+### 8.2 Le coût en tickets est dans le client
+
+`db_creaturefarm.rdb` (7.3, daté `20110523`, 420 octets) = en-tête 128 + `count` 72 @`0x80` + 72 enregistrements de
+4 `uint8` : **rareté (0-5), forme d'évolution (1-2), niveau de renforcement (0-5), nombre de tickets**. Formes 1 :
+1 2 2 3 3 4 (raretés 0-2), 2 3 3 4 4 5 (3-4), 3 4 4 5 5 6 (5) ; formes 2 : 3 6 6 9 9 12 (0-2), 6 9 9 12 12 15 (3-4),
+9 12 12 15 15 18 (5). La ligne « Basic » du tableau Gala Lab (3 6 6 9 9 12) est la rareté 0, forme 2 : **le
+nombre de tickets exigé par une 6002 est établi par le client**. Restent inconnus : l'expérience par jour, l'effet
+des crackers, le contenu des cadeaux, le lien ticket ↔ durée et les valeurs de `result`.

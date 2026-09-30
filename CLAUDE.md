@@ -167,8 +167,8 @@ them for a summon. `max_hp` @38 and
 `SummonWorldService.Enter(session, tag, connection, entry)` is their caller: it allocates the handle with
 `WorldObjectHandle.Next()`, emits 301 (it fills the creature window) then 3 (it puts the object in the world) —
 one call because no login-properties emission exists for summons yet — and `Leave` emits `TS_SC_UNSUMMON` (305)
-then `TS_SC_LEAVE` (9) on the master's connection. Only that direct copy is sent: NavisLamia has no
-player-to-player visibility, so the regional broadcast of 305/9 from §5.3 is not ported. A summon's position is
+then `TS_SC_LEAVE` (9) on the master's connection. Only that direct copy is sent: the regional broadcast of 305/9
+from §5.3 is not ported yet (players do see each other now, but summons are not broadcast). A summon's position is
 never persisted: it is the master's (`ConnectionInfo.X/Y`, `Layer`, `master_handle = CharacterHandle`) plus a
 bounded jitter (`AddNoise` in integer arithmetic: `raw % range - range/2`, 70 on summon, 50 on login, 35 on
 warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `z`, never set, is 0 — and the
@@ -216,6 +216,41 @@ packet while the server retains the object as visible.
 NPC and monster services use the shared immutable `SpatialIndex<T>` and per-client visible dictionaries.
 Database queries project only packet fields. Monster queries are restricted to resource IDs referenced
 by the loaded catalog. See `docs/world-spawning.md` for the current architecture and import procedure.
+
+## Visibilité entre joueurs (`TM_SC_ENTER` 3 / `TM_SC_MOVE` 8 / `TM_SC_LEAVE` 9)
+
+Les joueurs se voient. **Aucune trame nouvelle** : la variante joueur de `TS_SC_ENTER` fait **118 octets**
+(`type` @7 = 0, `handle` @8 = `character.Id`, `x/y/z` @12/16/20, **`layer` @24 avant `objType` @25** = 0,
+`PLAYER_INFO` de 92 octets @26, `name` sur **19** octets) et `TS_SC_ENTER_PLAYER` la porte déjà champ pour
+champ ; `TS_SC_LEAVE` fait 11 octets et `TS_SC_MOVE` `19 + 8 × N`. Ce qui manquait était serveur :
+`PlayerVisibilityIndex` (grille **mutable** avec la couche dans la clé de cellule, `Add`/`Move`/`Remove`),
+`PlayerRegistry` (handle → session en O(1)) et `PlayerVisibilityService`, joignable par
+`NetworkService.PlayerVisibilityService` et injecté dans `WarpService`.
+
+- **Réciproque** (A voit B ⟺ B voit A, `SendEnterMessageEachOtherFunctor` de NGemity), sur la fenêtre des
+  autres types (`WorldVisibility.ViewRange`, 540), et **évènementielle** : entrée en jeu (fin de
+  `GameActions.OnLogin`), `TM_CS_MOVE_REQUEST`, `TM_CS_REGION_UPDATE`, warp (`LeaveEverything` puis
+  `EnterWorld`), sortie (lobby **et** déconnexion, **avant** la sauvegarde asynchrone). Aucun minuteur.
+- Le handle d'un joueur est **le même pour tous les observateurs** (`character.Id`), contrairement aux PNJ,
+  monstres et props (un handle par client, à partir de `0x40000000`). `SpawnedPlayers` le garde sous
+  `PlayerVisibilityLock`. La marche diffusée porte `start_time = ServerClock.Now + ClientClockOffset` **du
+  destinataire**, les points reçus tels quels, la vitesse `EchoedMoveSpeed`.
+- **Un `TM_CS_MOVE_REQUEST` dont le `handle` n'est pas celui du personnage est abandonné** (sans écho) :
+  sinon un client ferait marcher l'acteur d'un autre chez tous les observateurs. Une session sans personnage
+  (handle 0) garde son écho.
+- **Verrous** : jamais deux verrous de visibilité imbriqués ; chaque trame est enfilée **sous le verrou de
+  son destinataire**. `Connection.Send` ne fait qu'enfiler dans un canal non borné, donc tenir le verrou ne
+  coûte rien, et c'est ce qui garde l'ordre : la première version envoyait après avoir relâché les verrous,
+  et un `ENTER` bâti par un thread pouvait partir après le `LEAVE` bâti par un autre — un fantôme jusqu'à la
+  reconnexion (corrigé à la revue du 2026-09-30).
+- Les traits fixes d'un pair viennent de `ConnectionInfo.Appearance` (`PlayerAppearance`, posé à l'entrée en
+  jeu : la session ne garde aucune `CharacterEntity`) ; niveau, job, PV/PM, statut sont relus en direct.
+  `max_mp` = PM courants et `is_first_enter = 1`, comme l'entrée locale.
+- **Hors lot** : l'équipement des pairs (`TS_SC_WEAR_INFO`, un pair apparaît en tenue de base), leurs
+  changements d'état après l'entrée (mort, assis, PK), un pair déjà en marche (vu immobile jusqu'à sa
+  prochaine trame), et la diffusion du familier, des invocations, des émotions et des objets au sol.
+  `BoothWatchService` cherche encore le propriétaire d'un étal par balayage : le registre peut le remplacer.
+- Fiche, sources et réserves : `docs/packet-specs/socle-visibilite-joueurs.md`.
 
 ## NPC packets
 
@@ -1757,6 +1792,32 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   `op_codes.md`) : ne pas le déclarer.
 - Détail et réserves : `docs/packet-specs/452-summon-card-skill-list.md`.
 
+### Apprivoisement et invocation des créatures — étape 0 (fiche `docs/packet-specs/socle-apprivoisement-invocation.md`)
+
+- Les trois sorts de créature sont **4001** (invocation, effet 601), **4002** (renvoi, effet 602) et **4003**
+  (apprivoisement, effet 603) : les ids sont tranchés par les *effets* et les *nombres* (l'export 9.4 et la
+  table du client 7.3 donnent les mêmes `cost_mp` 60/5/80 et le client porte sur 4003 les deux coefficients
+  d'apprivoisement 0.06/0.03). **Piège :** les libellés du client 7.3 sont décalés d'un cran
+  (`50004001` = « Recall Creature », `50004002` = « Creature Taming ») et « Summon Creature » y est orphelin
+  (`40065065`) ; ne jamais déduire l'id d'un sort de son nom. `4004` (second sort d'effet 603) n'existe pas
+  dans le client 7.3.
+- `TM_SC_TAMING_INFO` = **310** en 7.3 (`1310` à partir d'`EPIC_9_6_3`, à ne pas déclarer), 16 octets :
+  `mode` @7, `tamer_handle` @8, `target_handle` @12. Modes : 0 début, 1 abandon, 2 réussite, 3 échec. Il est
+  **diffusé à la région du monstre**, pas au seul apprivoiseur.
+- La carte liée est un objet du groupe 13 (`Summoncard`) dont le champ `flag` (@34 du motif d'objet de 75
+  octets) porte **le masque rétail** `0x8000_0000` (`ITEM_FLAG_SUMMON`) ; l'apprivoisement en cours utilise
+  `0x2000_0000` (`ITEM_FLAG_TAMING`). `ItemFlag.Summon` vaut 31 (indice de bit) : écrire le membre au lieu du
+  masque casse la lecture de `GroundItemDropRules` et le client.
+- La ligne `Summons` est créée par la **formation 303** (`Summon::DB_InsertSummon` appelé depuis
+  `onEquipSummon`), pas par l'apprivoisement : l'apprivoisement ne fait que basculer les deux drapeaux de la
+  carte. La créature d'une carte vient d'`ItemResource.summon_id` ; la carte requise par une cible vient de
+  `MonsterResource.taming_id` → `SummonResource.card_id`.
+- `MonsterResourceEntity.TamingId/TamingPercentage/CreatureTamingCode/TamingExpMod` existent mais ne sont lus
+  par personne ; `SkillEffectType` n'a pas de membre pour 603 et `BuffCatalog.CastableEffectTypes` ne charge
+  pas 601/602/603, donc un lancer de 4001/4002/4003 est aujourd'hui refusé en `AccessDenied`.
+- Restent à arbitrer (fiche, `A VERIFIER PAR KILLIAN`) : butin d'un monstre apprivoisé, codes 90-93 ou 5,
+  noms des trois sorts en jeu, contenu de `SummonSlotItemIds`, durée de la fenêtre d'apprivoisement.
+
 ### Familier (pet) — 350-352, entrée dans le monde, filtre 355
 
 - `TS_SC_ADD_PET_INFO` (351) fait **42 octets en 7.3**, alors que rzu et NGemity en déclarent 38 : le
@@ -2287,8 +2348,13 @@ Aucune de ces valeurs n'est devinée.
   bornés, journalisés — **jamais répondus** : aucune référence n'implémente la ferme (NGemity : 0
   occurrence), et `result`, tickets, crackers, durées et `index` ne sont pas établis. 6001 reçu d'un client
   est journalisé et abandonné.
-- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Piste de données :
-  `db_creaturefarm.rdb` (72 enregistrements de 4 `int8`), non lue. Fiche : `docs/packet-specs/socle-ferme-creatures.md`.
+- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Fiche :
+  `docs/packet-specs/socle-ferme-creatures.md`.
+- **Décision (2026-09-30) : la ferme n'est pas implémentée**, seuls ses paquets sont pris en charge. La fenêtre
+  ne s'ouvre que par le déclencheur `show_creature_farm_window()` du PNJ Sonya, **volontairement non exécuté** :
+  sans fenêtre, le client n'émet ni 6002 ni 6004 ni 6006 ni 6008, et on n'a pas à répondre 6003/6005/6007 avec un
+  `result` inconnu. Ce que l'on sait du système retail (Epic 7.2, sources web) et le tableau décodé de
+  `db_creaturefarm.rdb` (rareté, forme, renforcement → nombre de tickets) sont au §8 de la fiche.
 
 ## Source data (9.4 SQL Server export)
 

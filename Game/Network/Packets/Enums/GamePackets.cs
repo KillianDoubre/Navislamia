@@ -81,6 +81,14 @@ public enum GamePackets : ushort
     TM_SC_UNSUMMON = 305,
     TM_SC_UNSUMMON_NOTICE = 306,
     TM_SC_SUMMON_EVOLUTION = 307,
+
+    // TM_SC_TAMING_INFO (310): the taming attempt of a monster, 16 bytes with the 7 byte header — mode
+    // @7, tamer_handle @8, target_handle @12. rzu gates the id: 310 below EPIC_9_6_3, 1310 from there on,
+    // so only 310 is declared here (docs/packet-specs/socle-apprivoisement-invocation.md §3.1, §4.1).
+    // Server to client only: the 7.3 client routes the frame and builds none of it, so an incoming one
+    // is logged and dropped in GameClient.cs like the familier (pet) family below.
+    TM_SC_TAMING_INFO = 310,
+
     TM_SC_MOUNT_SUMMON = 320,
     TM_SC_UNMOUNT_SUMMON = 321,
     TM_CS_GET_SUMMON_SETUP_INFO = 324,
