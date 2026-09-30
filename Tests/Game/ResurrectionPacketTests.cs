@@ -634,7 +634,7 @@ public class ResurrectionPacketTests
             A.Fake<IPlayerVisibilityService>(), A.Fake<IBoothTradeService>(),
             A.Fake<IMarketTradeService>(),
                 A.Fake<ISoulstoneCraftService>(), A.Fake<IItemDonateService>(),
-            A.Fake<ISkillCardService>());
+            A.Fake<ISkillCardService>(), A.Fake<ICardSocketService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

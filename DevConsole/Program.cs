@@ -325,6 +325,8 @@ public class Program
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IEtherealSacrificeCatalog, EtherealSacrificeCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
+        services.AddSingleton<ICardSocketCatalog, CardSocketCatalog>();
+        services.AddSingleton<ICardSocketService, CardSocketService>();
         services.AddSingleton<ISkillCardService, SkillCardService>();
         services.AddSingleton<IItemDonateService, ItemDonateService>();
         services.AddSingleton<IItemSellCatalog, ItemSellCatalog>();

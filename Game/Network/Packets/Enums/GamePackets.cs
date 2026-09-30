@@ -36,6 +36,7 @@ public enum GamePackets : ushort
     TM_CS_TAKE_ITEM = 204,
     TM_SC_DROP_RESULT = 205,
     TM_SC_TAKE_ITEM_RESULT = 210,
+    TM_CS_PUTON_CARD = 214,
     // The storage family, declared with the item ids rather than after TM_CS_VERSION, where the sibling
     // packet branches anchor their own members.
     TM_SC_OPEN_STORAGE = 211,

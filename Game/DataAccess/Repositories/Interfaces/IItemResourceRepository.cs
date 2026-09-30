@@ -63,6 +63,9 @@ public readonly record struct ItemSoulstoneCraftFields(
     short[] OptTypes,
     decimal[] OptVar1);
 
+public readonly record struct ItemSocketFields(int Id, int SocketCount, ItemBaseType BaseType, ItemType ItemType,
+    ItemGroup Group);
+
 public interface IItemResourceRepository
 {
     IReadOnlyList<ItemSortFields> GetSortFields();
@@ -85,6 +88,8 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemMatchFields> GetMatchFields();
 
     IReadOnlyList<ItemUseFields> GetUseFields();
+
+    IReadOnlyList<ItemSocketFields> GetSocketFields();
 
     /// <summary>
     /// The <c>rank</c> and <c>price</c> of every item resource, read once by <c>ItemSellCatalog</c>: the

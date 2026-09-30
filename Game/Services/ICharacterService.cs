@@ -53,6 +53,18 @@ public interface ICharacterService
     Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle);
 
     /// <summary>
+    /// Sockets the card <paramref name="cardHandle"/> into the item worn at <paramref name="position"/>,
+    /// both resolved and written inside the database gate: a socketing judged and applied in one gate
+    /// cannot be invalidated by a packet handled in between (the card erased or dropped, the equipment
+    /// unequipped). The verdict of <paramref name="catalog"/> is applied there too, for the same reason
+    /// as <c>ArrangeInventoryAsync</c>'s own catalog. <see cref="CardSocketResult.Target"/> is
+    /// <c>null</c> when nothing is worn at that position, <see cref="CardSocketResult.Card"/> when the
+    /// handle resolves to no item of the character.
+    /// </summary>
+    Task<CardSocketResult> SocketCardAsync(string characterName, ItemWearType position, uint cardHandle,
+        ICardSocketCatalog catalog);
+
+    /// <summary>
     /// Writes the character's id into the bearer socket of one of its skill cards, judgement and write inside
     /// the character's gate: an unknown handle is <c>NotFound</c>, another target <c>NotActable</c>, and a
     /// card of another group, worn or already bound <c>AccessDenied</c>; a refusal leaves the item untouched.

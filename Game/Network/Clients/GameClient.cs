@@ -1174,6 +1174,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandlePutonCardAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadPutonCard(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_PUTON_CARD, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.CardSocketService.SocketAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process puton card for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleArrangeItemAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadArrangeItem(packet, out var isStorage))
@@ -2579,6 +2597,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_PUTON_ITEM)
             {
                 _ = HandlePutonItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_PUTON_CARD)
+            {
+                _ = HandlePutonCardAsync(msgBuffer);
                 continue;
             }
 

@@ -99,4 +99,13 @@ public class ItemResourceRepository : IItemResourceRepository
                 item.OptVar1))
             .ToList();
     }
+
+    public IReadOnlyList<ItemSocketFields> GetSocketFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemSocketFields((int)item.Id, item.SocketCount, item.ItemBaseType,
+                item.ItemType, item.Group))
+            .ToList();
+    }
 }
