@@ -1224,6 +1224,33 @@ public class GameClient : Client
         }
     }
 
+    /// TM_CS_AUCTION_INSTANT_PURCHASE (1308): the player buys an announcement at its fixed price, the act
+    /// the two auction windows emit right next to the bid — SUIAuctionSearchWnd (slot 6, 0x4FEB60) and
+    /// SUIAuctionTenderWnd (slot 6, 0x501220). The eleven-byte frame (spec §3.1) is read and logged, and
+    /// nothing is executed: the announcement it names, its writer and the rules of the exchange (the
+    /// leading bidder's fate, the item's destination, the registration tax) belong to lots that do not
+    /// exist here, and <c>TM_CS_AUCTION_REGISTER</c> (1309) is not even declared (spec §5.5, §5.6, §12).
+    /// No <c>ResultCode</c> is sent for a well-formed frame either: with nothing executed, <c>Success</c>
+    /// would claim a purchase that never happened and the refusal code is not established (spec §7.1),
+    /// while the client reads a generic TM_SC_RESULT (id 0) naming 1308 — the one frame its result
+    /// handler 0x66DB80 reserves a case for (spec §5.4).
+    /// </summary>
+    private void HandleAuctionInstantPurchase(byte[] buffer)
+    {
+        if (!GameAuctionPackets.TryReadAuctionInstantPurchase(buffer, out var auctionUid))
+        {
+            SendResult((ushort)GamePackets.TM_CS_AUCTION_INSTANT_PURCHASE, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_AUCTION_INSTANT_PURCHASE ({id}) Length: {length} received from {clientTag}: auction_uid={auctionUid}",
+                (ushort)GamePackets.TM_CS_AUCTION_INSTANT_PURCHASE, buffer.Length, ClientTag, auctionUid);
+        }
+    }
+
     /// <summary>
     /// <c>TM_CS_START_BOOTH</c> (700). The frame is read and judged before anything is stored, and a
     /// refusal is answered with <c>TS_SC_RESULT</c> carrying the request id, because the family has no
@@ -1989,6 +2016,23 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_USE_ITEM)
             {
                 _ = HandleUseItemAsync(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_AUCTION_INSTANT_PURCHASE (1308): the buy-now request of the auction house, the act
+            // whose answer is not a TS_SC_AUCTION_* frame — no such frame exists for it in any reference,
+            // and the client reads a generic TM_SC_RESULT (0) carrying request_msg_id = 1308. The
+            // eleven-byte frame is read, bounded and logged, and nothing is executed: the announcement it
+            // names, its writer and the rules of the exchange belong to lots that do not exist here. It
+            // must stay before the throwing switch below, like every member of GamePackets the client can
+            // send: reaching it breaks the receive loop.
+            // Placed here, in a stretch of the chain no other branch of the family inserts into, to keep
+            // the five lots apart (1300 goes above the switch, 1302 right after the family's response
+            // guard, 1304 before the TM_SC_MIX_RESULT block, 1306 after the summon-card-skill arm). See
+            // docs/packet-specs/1308-auction-instant-purchase.md §14.6.
+            if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_INSTANT_PURCHASE)
+            {
+                HandleAuctionInstantPurchase(msgBuffer);
                 continue;
             }
 

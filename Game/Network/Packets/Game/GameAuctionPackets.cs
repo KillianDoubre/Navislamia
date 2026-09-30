@@ -290,6 +290,46 @@ public static class GameAuctionPackets
         return count;
     }
 
+    // The TM_CS_AUCTION_INSTANT_PURCHASE (1308) request lives here, between the page-header writer and the
+    // record writer, and nowhere else: the four open sibling branches of this file each insert in another
+    // stretch (1300 right after SellerNameSize, 1302 right after the three builders, 1304 at the very end
+    // of the class, 1306 right after TableOffset), so this block is the one a merge of the five lots
+    // leaves untouched (measured with git merge-tree, sheet 1308 §14.6).
+
+    /// <summary>
+    /// Absolute offset of <c>auction_uid</c> in the <c>TM_CS_AUCTION_INSTANT_PURCHASE</c> (1308) request:
+    /// the header is seven bytes, so the payload starts at 7 (spec §3.1).
+    /// </summary>
+    public const int InstantPurchaseRequestAuctionUidOffset = HeaderSize;
+
+    /// <summary>
+    /// Total size of <c>TM_CS_AUCTION_INSTANT_PURCHASE</c> (1308): 7 header + 4, the literal <c>0xb</c>
+    /// the 7.3 client writes in its construction routine (spec §3.1). No padding, no other field — the
+    /// client moves one <c>dword</c> read from <c>message+0x13</c> and nothing else.
+    /// </summary>
+    public const int InstantPurchaseRequestSize = InstantPurchaseRequestAuctionUidOffset + 4;
+
+    /// <summary>
+    /// Reads <c>TM_CS_AUCTION_INSTANT_PURCHASE</c> (1308), the eleven-byte buy-now request. A shorter
+    /// frame is refused rather than partially read, like the 1300 and 1306 readers: the layout is fixed,
+    /// so a partial read would only misalign its single field. <c>auction_uid</c> is read **unsigned** —
+    /// the collection's own decision (socle-encheres.md §3.5, spec §4), taken where rzu writes an
+    /// <c>int32_t</c> for this frame and a <c>uint32_t</c> for its twin 1310: no auction identifier is
+    /// negative, and the sign is invisible on the wire.
+    /// </summary>
+    public static bool TryReadAuctionInstantPurchase(ReadOnlySpan<byte> packet, out uint auctionUid)
+    {
+        if (packet.Length < InstantPurchaseRequestSize)
+        {
+            auctionUid = 0;
+            return false;
+        }
+
+        auctionUid = BinaryPrimitives.ReadUInt32LittleEndian(
+            packet.Slice(InstantPurchaseRequestAuctionUidOffset, 4));
+        return true;
+    }
+
     private static void WriteAuctionInfo(Span<byte> span, in AuctionInfo auction)
     {
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(0, 4), auction.AuctionUid);

@@ -217,6 +217,17 @@ public enum GamePackets : ushort
     // id for version < EPIC_9_6_3 and remaps it to 2306 above, so 2306 must never be declared here.
     // See docs/packet-specs/1306-auction-bid.md.
     TM_CS_AUCTION_BID = 1306,
+    // TM_CS_AUCTION_INSTANT_PURCHASE (1308): the "buy this announcement at its fixed price" request of
+    // the auction house, 11 bytes — the 7 byte header plus a single auction_uid, read as a uint32 at
+    // offset 7 (the collection's own choice, socle-encheres.md §3.5). The 7.3 client builds and sends it
+    // (SFrame.exe construction routine 0x48DEA0, whose single caller is the stub 0x49E3A1, reached by the
+    // internal key 1159 = 0x487) and never receives it. It has no dedicated answer: no
+    // TS_SC_AUCTION_INSTANT_PURCHASE exists in any reference, and the client's result handler 0x66DB80
+    // reads a TM_SC_RESULT (id 0) carrying request_msg_id = 1308, with a case of its own for 0x51C and
+    // its own Korean label. rzu declares the id for version < EPIC_9_6_3 and remaps it to 2308 above, so
+    // 2308 must never be declared here.
+    // See docs/packet-specs/1308-auction-instant-purchase.md.
+    TM_CS_AUCTION_INSTANT_PURCHASE = 1308,
 
     TM_SC_DIALOG = 3000,
     TM_CS_DIALOG = 3001,
