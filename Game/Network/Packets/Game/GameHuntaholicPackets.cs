@@ -83,4 +83,23 @@ public static class GameHuntaholicPackets
     {
         return packet.Length == BeginHuntingLength;
     }
+
+    /// <summary>
+    /// Total size of TM_CS_HUNTAHOLIC_LEAVE_INSTANCE (4005): the 7-byte header, no payload at all. The 7.3
+    /// client writes that length in hard at <c>0x4c939b</c> and never writes a byte past offset 6, so the
+    /// header is the entire frame.
+    /// </summary>
+    public const int LeaveInstanceLength = HeaderSize;
+
+    /// <summary>
+    /// TM_CS_HUNTAHOLIC_LEAVE_INSTANCE (4005) is the "leave the instance" gesture of the HuntaHolic family and
+    /// carries no payload: there is nothing to read and no field to extract. Only the exact 7-byte form is
+    /// accepted — a shorter frame is truncated, and a longer one carries bytes no field accounts for, so the
+    /// sender is not the 7.3 client. The frame's checksum byte at offset 6 is not verified, here as in every
+    /// other packet of the family (an assumed gap, stated in the sheet §3 rather than papered over).
+    /// </summary>
+    public static bool IsLeaveInstance(ReadOnlySpan<byte> packet)
+    {
+        return packet.Length == LeaveInstanceLength;
+    }
 }

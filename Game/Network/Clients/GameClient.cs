@@ -1599,6 +1599,35 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_HUNTAHOLIC_LEAVE_INSTANCE (4005): the "leave the instance" gesture of the HuntaHolic family,
+    /// emitted by the 7.3 client from its instance window and from its scoreboard window. The frame is 7 bytes
+    /// — a bare header, no field at all — so there is nothing to read out of it: only the exact length is
+    /// checked.
+    /// <para>
+    /// Nothing is answered and nothing changes state. No reference answers a 4005: the client's own receive
+    /// dispatcher routes the id to its "unhandled message" branch, so a server to client 4005 would be logged
+    /// by the client as unknown rather than acted upon, and no other packet of the family carries this answer.
+    /// The server holds no HuntaHolic lobby or instance state yet, so there is literally nothing to leave —
+    /// the same no-op disposition as <see cref="HandleInstanceGameExit"/>. The packet that will eventually
+    /// bring the character back (a warp? a location change?) is not established and is Killian's call when the
+    /// lobby state lands, so none is invented here.
+    /// </para>
+    /// See docs/packet-specs/4005-huntaholic-leave-instance.md §5.2, §5.3, §7a.
+    /// </summary>
+    private void HandleHuntaholicLeaveInstance(byte[] buffer)
+    {
+        if (!GameHuntaholicPackets.IsLeaveInstance(buffer))
+        {
+            _logger.Warning("Malformed HuntaHolic leave instance request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _logger.Debug("TM_CS_HUNTAHOLIC_LEAVE_INSTANCE ({id}) Length: {length} received from {clientTag}",
+            (ushort)GamePackets.TM_CS_HUNTAHOLIC_LEAVE_INSTANCE, buffer.Length, ClientTag);
+    }
+
+    /// <summary>
     /// TM_CS_INSTANCE_GAME_SCORE_REQUEST (4252) is answered by TM_SC_INSTANCE_GAME_SCORE_REQUEST (4253) and by
     /// nothing else: the 4253 is never sent unsolicited. Only <c>holicpoint</c> has a source in 7.3
     /// (CharacterEntity.HuntaholicPoint, the same value the login sequence publishes as the client property
@@ -2627,6 +2656,19 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_SEARCH)
             {
                 HandleAuctionSearch(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_HUNTAHOLIC_LEAVE_INSTANCE (4005): the leave gesture of the HuntaHolic instance window. The
+            // frame is a bare 7-byte header, so it is read, bounded and logged, and nothing is answered — the
+            // client has no receive arm for this id and the server holds no lobby state to leave. It sits right
+            // before the throwing switch rather than next to the other HuntaHolic arms so that its insertion
+            // point stays out of the zone the sibling branches of the family already claim. It must stay before
+            // the switch below: a member of GamePackets that reaches it breaks the receive loop.
+            // See docs/packet-specs/4005-huntaholic-leave-instance.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_LEAVE_INSTANCE)
+            {
+                HandleHuntaholicLeaveInstance(msgBuffer);
                 continue;
             }
 
