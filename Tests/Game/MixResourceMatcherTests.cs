@@ -279,23 +279,24 @@ public class MixResourceMatcherTests
     }
 
     [Test]
-    public void TheMaterialsAreArrangedInTheOrderOfTheRule()
+    public void TheMaterialsArePairedByPosition()
     {
-        // group 1 wants the 700202 stack, group 2 the 700201 one; the frame names them the other way round.
+        // group 1 wants the 700202 stack, group 2 the 700201 one (fiche §14 point 9: position, as the loop
+        // the reference executes).
         var rule = new RuleBuilder(1154, 2)
             .Sub(1, (MixResourceMatcher.CheckItemId, 700202), (MixResourceMatcher.CheckItemCount, 9))
             .Sub(2, (MixResourceMatcher.CheckItemId, 700201), (MixResourceMatcher.CheckItemCount, 3))
             .Build();
 
         MixResourceMatcher.TryResolve(new[] { rule }, null,
-            new[] { Material(code: 700201, count: 3), Material(code: 700202, count: 9) }, out var resolution)
-            .Should().BeTrue("a group takes the first free stack it accepts, whatever its slot — the " +
-                             "permutation reading this port assumed and labelled as a divergence from the " +
-                             "executed reference loop (spec §7), and each group checked the quantity of the " +
-                             "stack it was given");
+            new[] { Material(code: 700201, count: 3), Material(code: 700202, count: 9) }, out _)
+            .Should().BeFalse("the frame names the stacks the other way round, and group j only looks at stack j");
 
-        resolution.ConsumedCounts.Should().Equal(new long[] { 9L, 3L },
-            "the quantities follow the arrangement, not the order of the frame");
+        MixResourceMatcher.TryResolve(new[] { rule }, null,
+            new[] { Material(code: 700202, count: 9), Material(code: 700201, count: 3) }, out var resolution)
+            .Should().BeTrue();
+        resolution.ConsumedCounts.Should().Equal(9L, 3L);
+        resolution.Arranged.Select(material => material.ItemCode).Should().Equal(700202, 700201);
     }
 
     [Test]

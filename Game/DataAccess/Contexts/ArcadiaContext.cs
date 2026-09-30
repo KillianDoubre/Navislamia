@@ -248,8 +248,8 @@ public class ArcadiaContext : SoftDeletionContext
         
         modelBuilder.Entity<EnhanceResourceEntity>().ToTable(enhance => enhance
                 .HasCheckConstraint(
-                    $"CK_{nameof(EnhanceResourceEntity)}_{nameof(EnhanceResourceEntity.Percentage)}_MaxSize20",
-                    $"cardinality(\"{nameof(EnhanceResourceEntity.Percentage)}\") <= 20"))
+                    $"CK_{nameof(EnhanceResourceEntity)}_{nameof(EnhanceResourceEntity.Percentage)}_MaxSize25",
+                    $"cardinality(\"{nameof(EnhanceResourceEntity.Percentage)}\") <= 25"))
             .Property(enhance => enhance.Percentage)
             .HasPrecision(10, 3);
     }

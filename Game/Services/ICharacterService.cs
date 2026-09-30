@@ -89,6 +89,14 @@ public interface ICharacterService
 
     Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);
 
+    /// <summary>
+    /// Applies a decided craft in one save under the character's gate: every consumed stack is checked and
+    /// taken, and the target — still in the state the craft was decided on — gets its new enhance and flag
+    /// or is destroyed. Nothing applies unless everything does.
+    /// </summary>
+    Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
+        CraftTargetChange? change);
+
     Task<IReadOnlyList<(uint Handle, long Count)>> EraseItemsAsync(string characterName,
         IReadOnlyList<GameActionPackets.EraseItemRequest> requests);
 

@@ -28,14 +28,16 @@ public readonly record struct MixMaterial(
     long Level,
     long Enhance,
     int Flag,
-    long Count);
+    long Count,
+    uint Handle = 0);
 
 /// <summary>
 /// What a <c>TM_CS_MIX</c> frame resolves to: the rule that accepts the combination, and the quantity of
 /// each material the engine would consume, indexed by the group of the rule (the arrangement of the
 /// reference, <c>MixManager.cpp:280-284</c>). Nothing is consumed here: the resolution only reports.
 /// </summary>
-public readonly record struct MixResolution(MixResourceEntity Rule, IReadOnlyList<long> ConsumedCounts);
+public readonly record struct MixResolution(MixResourceEntity Rule, IReadOnlyList<long> ConsumedCounts,
+    IReadOnlyList<MixMaterial> Arranged);
 
 /// <summary>
 /// The resolution of a <c>TM_CS_MIX</c> (256) frame against the <c>MixResource</c> rules, a static and
@@ -43,9 +45,8 @@ public readonly record struct MixResolution(MixResourceEntity Rule, IReadOnlyLis
 /// <c>:345-452</c>, pinned in the fiche): the first rule of the table whose declared <c>sub_material_count</c>
 /// matches the frame, whose target group and material groups all accept the stacks the frame names, wins.
 ///
-/// The materials are paired <em>by permutation</em> — a group takes any free stack it accepts — which is
-/// <b>not</b> what the executed reference loop does: see <see cref="TryArrange"/> and the fiche §7, §9 and
-/// §10. The choice is assumed and labelled, not presented as a fact of the reference.
+/// The materials are paired <em>by position</em>, as the executed reference loop does: see
+/// <see cref="TryArrange"/> and the fiche §14.
 ///
 /// It decides <em>match or no match</em> and nothing else: no rate is rolled, no item is removed, no
 /// <c>TM_SC_MIX_RESULT</c> (257) is written. What a matched type does is the next lobe
@@ -129,7 +130,7 @@ public static class MixResourceMatcher
                 continue;
             }
 
-            resolution = new MixResolution(rule, counts);
+            resolution = new MixResolution(rule, counts, arranged);
             return true;
         }
 
@@ -137,23 +138,12 @@ public static class MixResourceMatcher
     }
 
     /// <summary>
-    /// Assigns one material group of the rule to each stack of the frame, by <b>permutation</b>: the groups
-    /// are walked in order and each takes the first stack left free that it accepts, without backtracking
-    /// (<c>getProperMixInfoSub</c>, <c>MixManager.cpp:300-318</c>).
-    ///
-    /// This is <b>not</b> what the reference executes. The loop that runs (<c>:257-276</c>) calls
-    /// <c>check_material_info((*it).sub_material[idx], pSubItem[idx], pCountList[idx])</c> with the
-    /// <em>same</em> index on both sides — it therefore requires every group <c>j</c> to accept the stack
-    /// <c>j</c>, produces the identity arrangement, and refuses a frame that only a different arrangement
-    /// would satisfy. The permuting function it names, <c>getProperMixInfoSub</c>
-    /// (<c>MixManager.h:162</c>, <c>MixManager.cpp:300</c>), has no caller: it is dead code, like
-    /// <c>CreateItem</c> (<c>:192-240</c>).
-    ///
-    /// The choice is kept because it is the more permissive of the two readings, but it is <b>not
-    /// established</b> for 7.3: it is assumed as a labelled divergence from the executed reference
-    /// (fiche §7) and carried as an open question in §9 and §10, where the client test of §4 (step 7 —
-    /// the same frame with its materials in reverse order) is what decides between the two. Today the two
-    /// readings differ only in which frames the log reports as resolved: the answer is the same refusal.
+    /// Pairs the material groups of the rule with the stacks of the frame <b>by position</b>: group
+    /// <c>j</c> must accept stack <c>j</c>. This is the loop the reference executes (<c>MixManager.cpp:257-276</c>
+    /// calls <c>check_material_info((*it).sub_material[idx], pSubItem[idx], pCountList[idx])</c> with the
+    /// same index on both sides), decided for 7.3 by Killian on 2026-09-30 (fiche §14 point 9). The
+    /// permuting <c>getProperMixInfoSub</c> (<c>:300-318</c>) has no caller and is not ported. The client
+    /// test of the fiche (§10 point 9: the same frame, materials in reverse order) can still overturn it.
     /// </summary>
     private static bool TryArrange(MixResourceEntity rule, IReadOnlyList<MixMaterial> subMaterials,
         out MixMaterial[] arranged, out long[] counts)
@@ -162,40 +152,16 @@ public static class MixResourceMatcher
         arranged = new MixMaterial[count];
         counts = new long[count];
 
-        var consumed = new bool[count];
-        for (var stack = 0; stack < count; stack++)
-        {
-            counts[stack] = subMaterials[stack].Count;
-        }
-
         for (var group = 0; group < count; group++)
         {
-            var found = false;
-
-            for (var stack = 0; stack < count; stack++)
-            {
-                if (consumed[stack])
-                {
-                    continue;
-                }
-
-                if (!CheckMaterialInfo(MixResourceRules.SubMaterial(rule, group), subMaterials[stack],
-                        subMaterials[stack].Count, out var consumedCount))
-                {
-                    continue;
-                }
-
-                consumed[stack] = true;
-                arranged[group] = subMaterials[stack];
-                counts[group] = consumedCount;
-                found = true;
-                break;
-            }
-
-            if (!found)
+            if (!CheckMaterialInfo(MixResourceRules.SubMaterial(rule, group), subMaterials[group],
+                    subMaterials[group].Count, out var consumedCount))
             {
                 return false;
             }
+
+            arranged[group] = subMaterials[group];
+            counts[group] = consumedCount;
         }
 
         return true;

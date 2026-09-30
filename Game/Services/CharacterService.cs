@@ -433,6 +433,77 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
+        CraftTargetChange? change)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            if (character?.Items is null)
+            {
+                return CraftCommitResult.Failed(CraftCommitOutcome.CharacterMissing);
+            }
+
+            // Everything is judged before anything changes: a craft applies whole or not at all.
+            var asked = new Dictionary<uint, long>();
+            foreach (var line in consumed)
+            {
+                asked[line.ItemHandle] = asked.GetValueOrDefault(line.ItemHandle) + line.Count;
+            }
+
+            foreach (var (handle, count) in asked)
+            {
+                var stack = FindByHandle(character.Items, handle);
+                if (stack is null || count <= 0 || count > stack.Amount)
+                {
+                    return CraftCommitResult.Failed(CraftCommitOutcome.ItemMissing);
+                }
+            }
+
+            ItemEntity target = null;
+            if (change is { } planned)
+            {
+                target = FindByHandle(character.Items, planned.Handle);
+                if (target is null || asked.ContainsKey(planned.Handle))
+                {
+                    return CraftCommitResult.Failed(CraftCommitOutcome.ItemMissing);
+                }
+
+                if (target.Enhance != planned.ExpectedEnhance || (int)target.Flag != planned.ExpectedFlag)
+                {
+                    return CraftCommitResult.Failed(CraftCommitOutcome.TargetChanged);
+                }
+            }
+
+            var remaining = new List<(uint Handle, long Remaining)>(asked.Count);
+            foreach (var (handle, count) in asked)
+            {
+                var stack = FindByHandle(character.Items, handle);
+                var before = stack.Amount;
+                remaining.Add((handle, before - RemoveAmount(repository, character, stack, count)));
+            }
+
+            if (change is { } applied)
+            {
+                if (applied.Destroy)
+                {
+                    character.Items.Remove(target);
+                    repository.DeleteItem(target);
+                    target = null;
+                }
+                else
+                {
+                    target.Enhance = (uint)applied.NewEnhance;
+                    target.Flag = (ItemFlag)applied.NewFlag;
+                }
+            }
+
+            InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
+            await repository.SaveChangesAsync();
+            return new CraftCommitResult(CraftCommitOutcome.Success, remaining, target);
+        });
+    }
+
     public Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2)
     {
         return RunExclusiveAsync(characterName, async repository =>
