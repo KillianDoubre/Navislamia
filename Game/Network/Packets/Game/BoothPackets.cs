@@ -121,6 +121,7 @@ public static class BoothPackets
 
     /// <summary>Offset of the declared price inside a 703 record, right after the motif.</summary>
     public const int WatchBoothItemGoldOffset = ItemFixedInfoWriter.Size;
+
     /// <summary>
     /// Length of <c>TM_CS_CHECK_BOOTH_STARTABLE</c> (711): the header and nothing else, like 701.
     /// Both references declare the frame's field list empty (rzu
