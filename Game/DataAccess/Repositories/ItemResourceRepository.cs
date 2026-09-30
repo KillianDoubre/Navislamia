@@ -81,4 +81,12 @@ public class ItemResourceRepository : IItemResourceRepository
             .Select(item => new ItemSellFields((int)item.Id, item.Rank, item.Price))
             .ToList();
     }
+
+    public IReadOnlyList<ItemEtherealFields> GetEtherealFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemEtherealFields((int)item.Id, item.WearType, item.EtherealDurability))
+            .ToList();
+    }
 }

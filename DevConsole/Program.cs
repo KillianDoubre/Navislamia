@@ -323,6 +323,7 @@ public class Program
         services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<ICommercialStorageService, CommercialStorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
+        services.AddSingleton<IEtherealSacrificeCatalog, EtherealSacrificeCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
         services.AddSingleton<IItemSellCatalog, ItemSellCatalog>();
         services.AddSingleton<IMarketSellService, MarketSellService>();
