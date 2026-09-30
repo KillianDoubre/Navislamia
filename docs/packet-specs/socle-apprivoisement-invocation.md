@@ -452,6 +452,9 @@ Cette étape ne fait **aucune** écriture en base, aucun envoi de 310, aucune cr
 toujours pas `SummonWorldService` : elle rend la classification et les refus corrects, ce qui est déjà un gain
 observable (aujourd'hui, lancer 4001/4002/4003 répond une erreur de compétence inconnue).
 
+**Étape 0 livrée** par le lot dev du commit `ddbd1cf` : voir §13, qui note ce qui a été fait différemment et ce
+qui reste ouvert. Les lignes 0.1 à 0.6 ci-dessus restent la spécification de référence.
+
 ### Étape 1 — conditionnée à un arbitrage de Killian
 
 | # | travail | ce qui bloque |
@@ -495,12 +498,169 @@ relecture `t_cbe3c289`) peuvent reprendre **l'étape 0 telle quelle**, et l'éta
 
 ---
 
+## 13. Implémentation livrée — étape 0
+
+Lot dev, branche `hermes/packet-socle-apprivoisement-invocation`, commit `ddbd1cf` (fiche `96890c7` de
+l'archéologue). `dotnet build Navislamia.sln -c Debug` code 0 ; `dotnet test Tests/Tests.csproj` code 0 avec
+**1532 tests** (1494 avant le lot, **+38**). Aucune écriture en base, aucun envoi de 310, aucune invocation
+créée, `SummonWorldService` non appelé : les six lignes 0.1 à 0.6, et rien de plus.
+
+### 13.1 `TM_SC_TAMING_INFO` (310) — 16 octets (0.1)
+
+| élément | où |
+|---|---|
+| `TM_SC_TAMING_INFO = 310` | `GamePackets.cs` (entre 307 et 320) ; `1310` reste **non déclaré** |
+| écrivain 16 octets | `GameSummonPackets.BuildTamingInfo(sbyte mode, uint tamerHandle, uint targetHandle)` |
+| offsets nommés | `TamingInfoPacketSize` 16, `TamingInfoModeOffset` 7, `TamingInfoTamerHandleOffset` 8, `TamingInfoTargetHandleOffset` 12 |
+| modes | `TamingModeStart` 0, `TamingModeAbandon` 1, `TamingModeSuccess` 2, `TamingModeFailed` 3 |
+| tests | `Tests/Game/TamingInfoPacketsTests.cs`, 11 tests |
+
+Offsets confirmés par les tests : `length` @0 = 16, `id` = 310 @4, `checksum` @6, `mode` @7 (octet signé, un
+cas par mode), `tamer_handle` @8-11 et `target_handle` @12-15 écrits en **32 bits non signés** (un handle
+au-dessus de `0x7FFFFFFF` n'est pas étendu en signe, et les deux champs ne se recouvrent pas).
+
+**Écart assumé avec la ligne 0.1 prise au mot** : déclarer le membre dans `GamePackets` ne suffisait pas. Depuis
+le socle familiers, le dépôt arme **tous** les membres S→C d'un bras *log-and-drop* (`GameClient.cs`,
+`TM_SC_UNSUMMON_PET` 350 → `TM_SC_SHOW_SET_PET_NAME` 353) parce que la table `DefinedPackets` laisse un membre
+déclaré atteindre le `switch` final, qui lève `Unknown Packet Type` : c'est le critère « enum et dispatch se
+modifient ensemble ». 310 a donc son bras dans la chaîne de réception, à côté du bloc 350-352, et le test
+`OnDataReceived_DropsTheServerToClientFrameWithoutThrowing` le vérifie **sur la vraie boucle** (pas d'exception,
+frame consommée, aucune réponse), avec la trame coalescée derrière. Le compilateur ne peut pas distinguer
+« membre déclaré sans bras » : la recette de §4.1 (ne pas déclarer un id sans bras) est ici satisfaite par le
+bras, pas par l'absence du membre.
+
+Ce qui reste absent, volontairement : **aucun émetteur**. L'émission (et la diffusion à la région) est 1.3, et
+§5.4 rappelle qu'aucun canal joueur↔joueur n'existe.
+
+### 13.2 Classification des trois sorts de créature (0.2, 0.3)
+
+- `SkillEffectType.Taming = 603` (`SkillEffectType.cs`, entre 602 et 605).
+- `BuffCatalog` : constantes `Summon` 601, `Unsummon` 602, `Taming` 603 ; elles rejoignent
+  `CastableEffectTypes`, donc le filtre SQL de `SkillResourceRepository.GetCastableSkills` **charge** les trois
+  lignes (sans quoi le catalogue les ignorent et le lancer reste `AccessDenied`).
+- `SkillCastKind` gagne `Summon`, `Unsummon`, `Taming` ; la classification est **bornée au couple**
+  (id ∈ {4001, 4002, 4003}) × (effet = 601/602/603), exactement comme §6 le demande : un `4004` d'effet 603 et un
+  `4003` portant un autre effet ne sont pas classés (tests négatifs).
+- Les trois kinds sont exemptés de l'exigence de `state_id` en fin de `TryClassify` : un sort de créature porte
+  son effet lui-même, comme un soin ou une attaque. Sans cela les trois lignes auraient été silencieusement
+  rejetées et la classification n'aurait rien changé.
+- `SkillCastService.TargetsAMonster` couvre désormais `Taming` (0.3) : la cible est un monstre, donc un handle
+  non résolvable répond `NotExist` au lieu de retomber sur le lanceur.
+- **Refus** des trois kinds, ajouté dans `TryValidate` **après** la porte « sort appris » et la résolution de
+  cible : un joueur qui n'a pas appris 4003 reçoit toujours `AccessDenied`, un joueur qui l'a appris reçoit
+  `NOT_ACTABLE` (5). L'effet lui-même étant l'étape 1, ce refus évite que les trois kinds tombent dans le
+  `default` de la bascule d'effet, qui journalise une erreur **après** avoir débité le mana. Le code émis est
+  celui de la référence (`Skill::PrepareTaming` répond `TS_RESULT_NOT_ACTABLE` à tous ses refus sauf les PV).
+
+### 13.3 Règles pures et table des codes (0.4, 0.6)
+
+`Game/Services/TamingRules.cs` (nouveau) : `SummonCardMask` `0x80000000` (repris de
+`GroundItemDropRules.SummonFlagMask`, une seule constante partagée), `TamingCardMask` `0x20000000`,
+`IsTamable` (`taming_id != 0`), `HasFullHp` (égalité, comme `Skill.cpp:1627-1630`), `IsBoundSummonCard`,
+`IsTamingCard`, `Resolve(TamingAttempt)` et `ResultCodeOf(TamingRefusal)`. L'ordre de `Resolve` est celui de
+`Skill::PrepareTaming` : cible vivante → monstre apprivoisable → monstre déjà apprivoisé → PV pleins → carte
+libre → dresseur occupé (le contrôle de la carte **avant** celui du dresseur, comme la référence).
+
+`ResultCodeOf` est la table de correspondance de 0.6 : `NotActable` → 5, `AlreadyTaming` → 70, `NotTamable`
+→ 90, `TargetAlreadyBeingTamed` → 91, `NotEnoughTargetHp` → 92, `NotEnoughSummonCard` → 93, `None` → 0.
+
+**Décision du lot, à confirmer** : ces codes ne sont **pas émis**. Le chemin de lancer répond `NOT_ACTABLE`
+(5), exactement comme NGemity, parce que §7 point 3 reste ouvert (le client 7.3 sait-il afficher 90-93 ?).
+La table est donc prête et testée, mais un seul endroit devra changer pour l'émettre : la ligne
+`error = ResultCode.NotActable` de la porte 13.2, à remplacer par le refus calculé. C'est la question 2 de
+`A VERIFIER PAR KILLIAN`. `TamingRules` **n'a donc aucun appelant** : ses entrées manquantes (état de dresseur
+du monstre et de la connexion, recherche d'une carte par code) sont l'étape 1.4 et §5.4 — le dépôt ne sait pas
+encore chercher une carte par code.
+
+Tests : `Tests/Game/TamingRulesTests.cs` (19 tests) — un test par refus, l'ordre des contrôles, les deux
+masques, le **test négatif du piège** (`ItemFlag.Summon` = 31 et `ItemFlag.Taming` = 29 écrits comme masques ne
+sont reconnus par aucune des deux règles) et l'accord avec `GroundItemDropRules`. Les règles pures touchant le
+même champ `flag` que le chemin de dépôt, les deux ne peuvent plus diverger sans casser un test.
+
+### 13.4 Colonnes d'apprivoisement du monstre (0.5)
+
+`MonsterInstance` (enregistrement positionnel figé au démarrage depuis `tf_monster_resource`) porte désormais
+`TamingId` et `TamingPercentage`, remplis par `MonsterInstanceFactory.AddInstances`. C'est l'accès demandé :
+`MonsterWorldState.TryGetInstance(id, out instance)` → `instance.TamingId` → `TamingRules.IsTamable`, sans
+requête. Deux tests dans `MonsterInstanceTamingColumnsTests` (colonnes recopiées telles quelles, zéro compris ;
+le tout alimente `IsTamable`).
+
+`TamingPercentage` n'est lu par personne : le tirage à la mort du monstre est 1.5. `CreatureTamingCode` et
+`TamingExpMod` ne sont pas recopiés — aucun emploi établi.
+
+### 13.5 Ce que ce lot ne couvre pas, et les points de méthode
+
+1. **Pas de test de bout en bout d'un lancer de 4003.** Le dépôt n'a aucun harnais pour `SkillCastService`
+   (il apparaît partout en `A.Fake<ISkillCastService>()`) ; en construire un sortait du périmètre de l'étape 0.
+   Ce qui est couvert : la classification (une ligne de `tf_skill_resource` devient un kind), le refus par la
+   porte 13.2 (lecture de code), et la décision « monstre non apprivoisable → 90 » dans `TamingRules`
+   (l'assertion de §10.3), c'est-à-dire le code décidé par §6 mais **pas encore émis** (13.3).
+2. **Un handle de carte sur 4001/4002 est refusé en `NotExist`** : la cible d'une invocation est un handle
+   d'objet, que `ConnectionInfo.TryResolveMonster` ne sait pas résoudre, donc la résolution générique traite
+   tout handle étranger comme tel. Ce n'est pas une décision d'apprivoisement : la résolution de la cible d'une
+   invocation appartient à 1.1. Avant le lot, le même lancer répondait `AccessDenied` (« sort inconnu ») : les
+   deux sont des refus sans effet ni mana, mais aucun des deux n'est `NOT_ACTABLE`.
+3. **Le cast `(ItemFlag)0x80000000u` ne compile pas dans un contexte constant** (`CS0221`) : écrire
+   `unchecked((ItemFlag)0x80000000u)`, comme le font les tests de `TamingRules`. Détail de langage de §10.2,
+   sans conséquence sur les octets écrits.
+4. **Zones partagées** : `GamePackets.cs` et `GameClient.cs` sont les deux fichiers que ce lot devait toucher
+   sans pouvoir l'éviter (nouveau membre + bras). Ce sont déjà les points chauds du board ; le diff y est
+   minimal (une entrée d'énumération commentée, un `if` de 5 lignes).
+
+---
+
+## 14. Bloc prêt à coller dans `CLAUDE.md`
+
+Le bloc de §9 reste valable, sauf sa dernière puce qui décrivait le dépôt **avant** ce lot. Version à jour, à
+coller telle quelle à la place de §9 :
+
+```markdown
+## Apprivoisement et invocation des créatures (fiche `docs/packet-specs/socle-apprivoisement-invocation.md`)
+
+- Les trois sorts de créature sont **4001** (invocation, effet 601), **4002** (renvoi, effet 602) et **4003**
+  (apprivoisement, effet 603) : les ids sont tranchés par les *effets* et les *nombres* (l'export 9.4 et la
+  table du client 7.3 donnent les mêmes `cost_mp` 60/5/80 et le client porte sur 4003 les deux coefficients
+  d'apprivoisement 0.06/0.03). **Piège :** les libellés du client 7.3 sont décalés d'un cran
+  (`50004001` = « Recall Creature », `50004002` = « Creature Taming ») et « Summon Creature » y est orphelin
+  (`40065065`) ; ne jamais déduire l'id d'un sort de son nom. `4004` (second sort d'effet 603) n'existe pas
+  dans le client 7.3.
+- `TM_SC_TAMING_INFO` = **310** en 7.3 (`1310` à partir d'`EPIC_9_6_3`, à ne pas déclarer), 16 octets :
+  `mode` @7, `tamer_handle` @8, `target_handle` @12. Modes : 0 début, 1 abandon, 2 réussite, 3 échec. Il est
+  **diffusé à la région du monstre**, pas au seul apprivoiseur.
+- La carte liée est un objet du groupe 13 (`Summoncard`) dont le champ `flag` (@34 du motif d'objet de 75
+  octets) porte **le masque rétail** `0x8000_0000` (`ITEM_FLAG_SUMMON`) ; l'apprivoisement en cours utilise
+  `0x2000_0000` (`ITEM_FLAG_TAMING`). `ItemFlag.Summon` vaut 31 (indice de bit) : écrire le membre au lieu du
+  masque casse la lecture de `GroundItemDropRules` et le client. `TamingRules` porte les deux masques et ses
+  tests refusent explicitement les membres nus ; un contexte constant exige `unchecked(...)`.
+- La ligne `Summons` est créée par la **formation 303** (`Summon::DB_InsertSummon` appelé depuis
+  `onEquipSummon`), pas par l'apprivoisement : l'apprivoisement ne fait que basculer les deux drapeaux de la
+  carte. La créature d'une carte vient d'`ItemResource.summon_id` ; la carte requise par une cible vient de
+  `MonsterResource.taming_id` → `SummonResource.card_id`.
+- Étape 0 livrée (`TamingInfoPacketsTests`, `TamingRulesTests`) : `GameSummonPackets.BuildTamingInfo` écrit le
+  310 (aucun émetteur — l'émission et la diffusion à la région n'ont pas de canal joueur↔joueur), et 310 a un
+  bras *log-and-drop* dans `GameClient` comme les 350-353, parce qu'un membre déclaré sans bras atteint le
+  `switch` final. `SkillEffectType.Taming = 603`, les effets 601/602/603 entrent dans
+  `BuffCatalog.CastableEffectTypes`, et la classification est bornée au couple (id 4001-4003, effet 601-603) ;
+  `TargetsAMonster` couvre `Taming`. **Les trois kinds sont refusés en `NOT_ACTABLE` (5) avant la bascule
+  d'effet** (dont le `default` débiterait le mana avant de journaliser) : l'effet de 4001/4002/4003 est
+  l'étape 1. `TamingRules` (règles pures d'apprivoisement, ordre de `Skill::PrepareTaming`) et sa table
+  `ResultCodeOf` (70/90/91/92/93) sont livrés **sans appelant** et **sans émission** : les codes précis ne
+  sortent pas tant que Killian n'a pas tranché si le client 7.3 les affiche. Les colonnes `taming_id` /
+  `taming_percentage` sont portées par `MonsterInstance` (donc accessibles par
+  `MonsterWorldState.TryGetInstance`), `taming_percentage` n'étant encore lu par personne.
+```
+
+---
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Arbitrer §7 point 5 (butin)** : l'apprivoisement réussit-il sans butin, comme NGemity
    (`Monster.cpp:140`), ou le lot peut-il ignorer la règle dans un premier temps ?
 2. **Arbitrer §7 point 3 (codes de résultat)** : émettre les codes précis 90/91/92/93 (présents dans rzu et
-   dans `ResultCode`) ou rester sur `NOT_ACTABLE` (5) comme NGemity ?
+   dans `ResultCode`) ou rester sur `NOT_ACTABLE` (5) comme NGemity ? **L'étape 0 a tranché provisoirement pour
+   le 5** (fiche §13.3) : la table `TamingRules.ResultCodeOf` est livrée et testée, l'émission ne l'est pas, et
+   la basculer tient en une ligne dans `SkillCastService.TryValidate`. Si Killian garde le 5, la table reste
+   documentaire ; s'il veut les codes précis, il faut aussi dire ce que le client 7.3 en affiche.
 3. **Confirmer en jeu §7 points 1 et 2** : dans la fenêtre de compétences du client 7.3, quels noms portent
    4001/4002/4003, et un lancer de créature émet-il bien `TM_CS_SKILL` avec `skill_id = 4001` ? C'est le seul
    point qui décide *l'appelant* de `SummonWorldService`.
