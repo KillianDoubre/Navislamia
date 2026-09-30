@@ -185,6 +185,15 @@ public enum GamePackets : ushort
     TM_CS_AUCTION_SEARCH = 1300,
 
     TM_SC_AUCTION_SEARCH = 1301,
+
+    // TM_CS_AUCTION_SELLING_LIST (1302): the request for the character's own sale announcements, 11
+    // bytes. The 7.3 client builds and sends it (SFrame.exe constructor-and-sender 0x48DD10, reached
+    // from the single stub 0x49E37D) and never receives it — its incoming dispatcher leaves 1302 on the
+    // "unhandled" path (index 101 of 0x67E67A). 1300 is TM_CS_AUCTION_SEARCH, 1304 in this version is
+    // TM_CS_AUCTION_BIDDED_LIST.
+    // See docs/packet-specs/1302-auction-selling-list.md.
+    TM_CS_AUCTION_SELLING_LIST = 1302,
+
     TM_SC_AUCTION_SELLING_LIST = 1303,
     TM_SC_AUCTION_BIDDED_LIST = 1305,
 

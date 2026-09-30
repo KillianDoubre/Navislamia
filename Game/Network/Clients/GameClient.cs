@@ -402,6 +402,38 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_AUCTION_SELLING_LIST (1302): the player opened, or paged, the sales tab of the auction
+    /// house. The eleven-byte request is read and its page logged; the answer is a
+    /// TM_SC_AUCTION_SELLING_LIST (1303) built by the socle — 3899 bytes, its forty slots always
+    /// written — because nothing in this repository ever writes <c>TelecasterContext.Auctions</c>: no
+    /// code adds, updates or removes an <c>AuctionEntity</c>, so the page is necessarily empty and that
+    /// is demonstrable (spec §5.5). The request's <c>page_num</c> is echoed back and
+    /// <c>total_page_count</c> stays 0: its rule, the ordering, which finished announcements stay
+    /// listed, the meaning of <c>status</c> and <c>IsHiddenVillageOnly</c> are open decisions, so no
+    /// query and no filter is invented here (spec §5.5, §5.6, §7).
+    /// A frame the client could not have built gets the family's result, never an auction frame: no
+    /// error variant of 1303 exists in the references or in the client (spec §5.2).
+    /// See docs/packet-specs/1302-auction-selling-list.md.
+    /// </summary>
+    private void HandleAuctionSellingList(byte[] buffer)
+    {
+        if (!GameAuctionPackets.TryReadAuctionSellingList(buffer, out var pageNum))
+        {
+            SendResult((ushort)GamePackets.TM_CS_AUCTION_SELLING_LIST, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_AUCTION_SELLING_LIST ({id}) Length: {length} received from {clientTag}: page_num={pageNum}",
+                (ushort)GamePackets.TM_CS_AUCTION_SELLING_LIST, buffer.Length, ClientTag, pageNum);
+        }
+
+        Connection.Send(GameAuctionPackets.BuildAuctionSellingList(pageNum, 0));
+    }
+
+    /// <summary>
     /// TM_CS_CHECK_ILLEGAL_USER (57): the client's own security watch reports a suspected illegal program
     /// — never a player action, and the client writes the length in hard at 11, so the frame has no other
     /// form. There is no server to client answer of this family in rzu, NGemity, op_codes.md or the 7.3
@@ -1649,6 +1681,17 @@ public class GameClient : Client
                 or (ushort)GamePackets.TM_SC_AUCTION_BIDDED_LIST)
             {
                 _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_AUCTION_SELLING_LIST (1302) is the request of that same family, eleven bytes: its
+            // arm sits with the responses above rather than with the unrelated handlers near the switch.
+            // It must stay before the throwing switch below in any case: an id declared in GamePackets
+            // with no arm reaches "Unknown Packet Type" and kills the receive loop.
+            // See docs/packet-specs/1302-auction-selling-list.md §5.3.
+            if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_SELLING_LIST)
+            {
+                HandleAuctionSellingList(msgBuffer);
                 continue;
             }
 
