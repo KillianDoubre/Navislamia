@@ -324,6 +324,8 @@ public class Program
         services.AddSingleton<ICommercialStorageService, CommercialStorageService>();
         services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
+        services.AddSingleton<IItemSellCatalog, ItemSellCatalog>();
+        services.AddSingleton<IMarketSellService, MarketSellService>();
         services.AddSingleton<IPetCatalog, PetCatalog>();
         services.AddSingleton<PetWorldService>();
         services.AddSingleton<IPetSummonService, PetSummonService>();

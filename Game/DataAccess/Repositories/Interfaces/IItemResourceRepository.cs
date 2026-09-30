@@ -27,6 +27,12 @@ public readonly record struct ItemGroupFields(int Id, ItemGroup Group);
 public readonly record struct ItemMatchFields(int Id, ItemGroup Group, ItemType Class, int Rank,
     ItemWearType WearType);
 
+/// <summary>
+/// The two columns a sale prices an item from: its <c>rank</c> and its <c>price</c>
+/// (<c>MarketSellPrice</c>, docs/packet-specs/252-sell-item.md §5.3).
+/// </summary>
+public readonly record struct ItemSellFields(int Id, int Rank, int Price);
+
 public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType,
     bool RenamesPet = false);
 
@@ -52,4 +58,10 @@ public interface IItemResourceRepository
     IReadOnlyList<ItemMatchFields> GetMatchFields();
 
     IReadOnlyList<ItemUseFields> GetUseFields();
+
+    /// <summary>
+    /// The <c>rank</c> and <c>price</c> of every item resource, read once by <c>ItemSellCatalog</c>: the
+    /// pair the sell price of <c>TM_CS_SELL_ITEM</c> (252) is computed from.
+    /// </summary>
+    IReadOnlyList<ItemSellFields> GetSellPriceFields();
 }
