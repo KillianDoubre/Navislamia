@@ -8,9 +8,10 @@ namespace Navislamia.Game.Network.Packets.Game;
 
 /// <summary>
 /// The Epic 7.3 summon packets whose wire layout is fully determined by its references: the part of the
-/// summon socle the server emits (S→C), plus the pet rename request it receives (C→S), 354. Every size,
-/// field order and version decision comes from <c>docs/packet-specs/socle-invocations.md</c> and
-/// <c>docs/packet-specs/354-set-pet-name.md</c> — read them before changing anything here.
+/// summon socle the server emits (S→C) — 301, 302, 305, 306, 307, 310, 320, 321 — plus the pet rename
+/// request it receives (C→S), 354. Every size, field order and version decision comes from
+/// <c>docs/packet-specs/socle-invocations.md</c>, <c>docs/packet-specs/354-set-pet-name.md</c> and
+/// <c>docs/packet-specs/socle-apprivoisement-invocation.md</c> — read them before changing anything here.
 /// </summary>
 /// <remarks>
 /// Nothing in this class decides <em>when</em> a packet leaves the server: a summon existing in the
@@ -136,6 +137,71 @@ public static class GameSummonPackets
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(HeaderSize + 4, 4), summonHandle);
         WriteName(span.Slice(HeaderSize + 8, NameSize), name);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(HeaderSize + 27, 4), code);
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>
+    /// Total size of <c>TM_SC_TAMING_INFO</c> (310) on the wire, 7-byte header included: 16 bytes
+    /// (1 + 4 + 4).
+    /// </summary>
+    public const int TamingInfoPacketSize = HeaderSize + 9;
+
+    /// <summary>Offset of the <c>mode</c> field of the 310: 7 (0 seen from the payload).</summary>
+    public const int TamingInfoModeOffset = HeaderSize;
+
+    /// <summary>Offset of the <c>tamer_handle</c> field of the 310: 8.</summary>
+    public const int TamingInfoTamerHandleOffset = TamingInfoModeOffset + 1;
+
+    /// <summary>Offset of the <c>target_handle</c> field of the 310: 12.</summary>
+    public const int TamingInfoTargetHandleOffset = TamingInfoTamerHandleOffset + 4;
+
+    /// <summary>
+    /// <c>mode = 0</c>: the attempt starts, the target monster now has a tamer
+    /// (<c>World::SetTamer</c>, NGemity <c>World.cpp:698-712</c>).
+    /// </summary>
+    public const sbyte TamingModeStart = 0;
+
+    /// <summary>
+    /// <c>mode = 1</c>: the attempt is dropped — the only emitter in the reference is
+    /// <c>World::ClearTamer(monster, true)</c> (NGemity <c>Monster.cpp:1156</c>).
+    /// </summary>
+    public const sbyte TamingModeAbandon = 1;
+
+    /// <summary><c>mode = 2</c>: the card became bound (NGemity <c>World.cpp:654</c>).</summary>
+    public const sbyte TamingModeSuccess = 2;
+
+    /// <summary><c>mode = 3</c>: the card was destroyed (NGemity <c>World.cpp:672</c>).</summary>
+    public const sbyte TamingModeFailed = 3;
+
+    /// <summary>
+    /// <c>TS_SC_TAMING_INFO</c> (310). 9 payload bytes, 16 with the header: <c>mode</c> @0
+    /// (<c>int8_t</c>), <c>tamer_handle</c> @4 (absolute 8) and <c>target_handle</c> @8 (absolute 12),
+    /// both <c>ar_handle_t</c> — 32-bit, no version gate (<c>TS_SC_TAMING_INFO.h:5-8</c>). The id is
+    /// 310 in Epic 7.3; rzu names 1310 from <c>EPIC_9_6_3</c> on (<c>TS_SC_TAMING_INFO.h:10-12</c>).
+    /// <para>
+    /// The frame is <b>broadcast to the region of the monster</b>, not sent to the tamer alone
+    /// (NGemity <c>Messages.cpp:809-810</c>); nothing in this repository can do that yet, and no caller
+    /// emits it either — when an attempt starts, when it is abandoned and the draw at the monster's
+    /// death are étape 1 of the socle (docs/packet-specs/socle-apprivoisement-invocation.md §11), whose
+    /// tamer state and card lookup do not exist here. This builder only encodes what it is given.
+    /// </para>
+    /// </summary>
+    /// <param name="mode">
+    /// One of <see cref="TamingModeStart"/>, <see cref="TamingModeAbandon"/>,
+    /// <see cref="TamingModeSuccess"/>, <see cref="TamingModeFailed"/>. The three other modes make the
+    /// client show its <c>TAMING_START</c> / <c>TAMING_SUCCESS</c> / <c>TAMING_FAILED</c> system message;
+    /// which of them follows which frame is not established (fiche <c>NON ÉTABLI</c> 4).
+    /// </param>
+    public static byte[] BuildTamingInfo(sbyte mode, uint tamerHandle, uint targetHandle)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_TAMING_INFO, TamingInfoPacketSize);
+        var span = packet.AsSpan();
+
+        span[TamingInfoModeOffset] = unchecked((byte)mode);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(TamingInfoTamerHandleOffset, 4), tamerHandle);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(TamingInfoTargetHandleOffset, 4), targetHandle);
 
         WriteChecksum(packet);
         return packet;

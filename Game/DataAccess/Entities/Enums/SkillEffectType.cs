@@ -121,6 +121,7 @@
 
         Summon = 601,
         Unsummon = 602,
+        Taming = 603,
         UnsummonAndAddState = 605,
 
         ToggleAura = 701,

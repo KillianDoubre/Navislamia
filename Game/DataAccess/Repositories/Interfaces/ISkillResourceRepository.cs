@@ -18,7 +18,23 @@ public enum SkillCastKind
     Debuff,
     PhysicalAttack,
     MagicAttack,
-    ActivateProp
+    ActivateProp,
+
+    /// <summary>
+    /// The creature spell 4001 (<c>EF_SUMMON</c> 601): the card the cast targets becomes a summon
+    /// (<c>Skill::CREATURE_SUMMON</c>). Carrying it out needs the card lookup and the summon record,
+    /// neither of which exists yet.
+    /// </summary>
+    Summon,
+
+    /// <summary>The creature spell 4002 (<c>EF_UNSUMMON</c> 602): the card's summon goes back to it.</summary>
+    Unsummon,
+
+    /// <summary>
+    /// The creature spell 4003 (<c>EF_TAMING</c> 603): an attempt on a living monster, judged by
+    /// <see cref="Navislamia.Game.Services.TamingRules"/>.
+    /// </summary>
+    Taming
 }
 
 public readonly record struct CastableBuffFields(

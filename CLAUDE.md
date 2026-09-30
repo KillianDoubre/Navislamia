@@ -1792,6 +1792,32 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   `op_codes.md`) : ne pas le déclarer.
 - Détail et réserves : `docs/packet-specs/452-summon-card-skill-list.md`.
 
+### Apprivoisement et invocation des créatures — étape 0 (fiche `docs/packet-specs/socle-apprivoisement-invocation.md`)
+
+- Les trois sorts de créature sont **4001** (invocation, effet 601), **4002** (renvoi, effet 602) et **4003**
+  (apprivoisement, effet 603) : les ids sont tranchés par les *effets* et les *nombres* (l'export 9.4 et la
+  table du client 7.3 donnent les mêmes `cost_mp` 60/5/80 et le client porte sur 4003 les deux coefficients
+  d'apprivoisement 0.06/0.03). **Piège :** les libellés du client 7.3 sont décalés d'un cran
+  (`50004001` = « Recall Creature », `50004002` = « Creature Taming ») et « Summon Creature » y est orphelin
+  (`40065065`) ; ne jamais déduire l'id d'un sort de son nom. `4004` (second sort d'effet 603) n'existe pas
+  dans le client 7.3.
+- `TM_SC_TAMING_INFO` = **310** en 7.3 (`1310` à partir d'`EPIC_9_6_3`, à ne pas déclarer), 16 octets :
+  `mode` @7, `tamer_handle` @8, `target_handle` @12. Modes : 0 début, 1 abandon, 2 réussite, 3 échec. Il est
+  **diffusé à la région du monstre**, pas au seul apprivoiseur.
+- La carte liée est un objet du groupe 13 (`Summoncard`) dont le champ `flag` (@34 du motif d'objet de 75
+  octets) porte **le masque rétail** `0x8000_0000` (`ITEM_FLAG_SUMMON`) ; l'apprivoisement en cours utilise
+  `0x2000_0000` (`ITEM_FLAG_TAMING`). `ItemFlag.Summon` vaut 31 (indice de bit) : écrire le membre au lieu du
+  masque casse la lecture de `GroundItemDropRules` et le client.
+- La ligne `Summons` est créée par la **formation 303** (`Summon::DB_InsertSummon` appelé depuis
+  `onEquipSummon`), pas par l'apprivoisement : l'apprivoisement ne fait que basculer les deux drapeaux de la
+  carte. La créature d'une carte vient d'`ItemResource.summon_id` ; la carte requise par une cible vient de
+  `MonsterResource.taming_id` → `SummonResource.card_id`.
+- `MonsterResourceEntity.TamingId/TamingPercentage/CreatureTamingCode/TamingExpMod` existent mais ne sont lus
+  par personne ; `SkillEffectType` n'a pas de membre pour 603 et `BuffCatalog.CastableEffectTypes` ne charge
+  pas 601/602/603, donc un lancer de 4001/4002/4003 est aujourd'hui refusé en `AccessDenied`.
+- Restent à arbitrer (fiche, `A VERIFIER PAR KILLIAN`) : butin d'un monstre apprivoisé, codes 90-93 ou 5,
+  noms des trois sorts en jeu, contenu de `SummonSlotItemIds`, durée de la fenêtre d'apprivoisement.
+
 ### Familier (pet) — 350-352, entrée dans le monde, filtre 355
 
 - `TS_SC_ADD_PET_INFO` (351) fait **42 octets en 7.3**, alors que rzu et NGemity en déclarent 38 : le

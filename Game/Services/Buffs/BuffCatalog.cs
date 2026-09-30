@@ -21,6 +21,9 @@ public class BuffCatalog : IBuffCatalog
     public const int AddRegionState = 302;
     public const int AddHp = 501;
     public const int AddHpMp = 505;
+    public const int Summon = 601;
+    public const int Unsummon = 602;
+    public const int Taming = 603;
     public const int ToggleAura = 701;
     public const int ToggleDifferentialAura = 702;
     public const int PhysicalSingleDamage = 30001;
@@ -31,10 +34,25 @@ public class BuffCatalog : IBuffCatalog
     /// </summary>
     public const int ActivateFieldProp = 9501;
 
+    /// <summary>
+    /// The three creature spells of Epic 7.3 — summon (4001), unsummon (4002) and taming (4003) — whose
+    /// effect types are 601/602/603. The skill id is part of the classification key: effect type 603
+    /// alone would also cover 4004, a second taming skill that the 7.3 client's skill table does not
+    /// carry, and our key (the effect type) is wider than the reference's per-skill entry
+    /// (docs/packet-specs/socle-apprivoisement-invocation.md §6 and §5.3).
+    /// </summary>
+    public const int SummonSkill = 4001;
+
+    /// <inheritdoc cref="SummonSkill"/>
+    public const int UnsummonSkill = 4002;
+
+    /// <inheritdoc cref="SummonSkill"/>
+    public const int TamingSkill = 4003;
+
     public static readonly int[] CastableEffectTypes =
     {
         MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, ToggleAura, ToggleDifferentialAura,
-        PhysicalSingleDamage, ActivateFieldProp
+        PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming
     };
 
     /// <summary>
@@ -96,10 +114,11 @@ public class BuffCatalog : IBuffCatalog
             return false;
         }
 
-        // A buff, an aura and a debuff ARE a state; a heal, an attack and a prop activation carry
-        // their effect themselves.
+        // A buff, an aura and a debuff ARE a state; a heal, an attack, a prop activation and a creature
+        // spell carry their effect themselves.
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
-                or SkillCastKind.ActivateProp)
+                or SkillCastKind.ActivateProp or SkillCastKind.Summon or SkillCastKind.Unsummon
+                or SkillCastKind.Taming)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -141,6 +160,24 @@ public class BuffCatalog : IBuffCatalog
         if (row.EffectType == ActivateFieldProp)
         {
             kind = SkillCastKind.ActivateProp;
+            return true;
+        }
+
+        // The three creature spells (4001/4002/4003), keyed on the skill id as well as the effect type:
+        // 603 alone would also cover 4004, which the 7.3 client does not carry (fiche §6).
+        if (row.SkillId is SummonSkill or UnsummonSkill or TamingSkill)
+        {
+            if (row.EffectType is not (Summon or Unsummon or Taming))
+            {
+                return false;
+            }
+
+            kind = row.EffectType switch
+            {
+                Summon => SkillCastKind.Summon,
+                Unsummon => SkillCastKind.Unsummon,
+                _ => SkillCastKind.Taming
+            };
             return true;
         }
 
