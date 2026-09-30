@@ -46,6 +46,7 @@ public class NetworkService : INetworkService
     public readonly IPlayerVisibilityService PlayerVisibilityService;
     public readonly IBoothTradeService BoothTradeService;
     public readonly IMarketTradeService MarketTradeService;
+    public readonly ISoulstoneCraftService SoulstoneCraftService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
 
@@ -79,13 +80,15 @@ public class NetworkService : INetworkService
         ICommercialStorageService commercialStorageService,
         IPlayerVisibilityService playerVisibilityService,
         IBoothTradeService boothTradeService,
-        IMarketTradeService marketTradeService)
+        IMarketTradeService marketTradeService,
+        ISoulstoneCraftService soulstoneCraftService)
     {
         PlayerVisibilityService = playerVisibilityService;
         BoothTradeService = boothTradeService;
         CommercialStorageService = commercialStorageService;
         PetSummonService = petSummonService;
         MarketTradeService = marketTradeService;
+        SoulstoneCraftService = soulstoneCraftService;
         _logger = logger;
         CharacterService = characterService;
         BannedWordsRepository = bannedWordsRepository;

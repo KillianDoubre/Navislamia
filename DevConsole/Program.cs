@@ -341,6 +341,8 @@ public class Program
         services.AddSingleton<IBoothWatchService, BoothWatchService>();
         services.AddSingleton<IPlayerVisibilityService, PlayerVisibilityService>();
         services.AddSingleton<IBoothTradeService, BoothTradeService>();
+        services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();
+        services.AddSingleton<ISoulstoneCraftService, SoulstoneCraftService>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();

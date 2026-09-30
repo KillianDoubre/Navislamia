@@ -44,6 +44,25 @@ public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxL
 /// </summary>
 public readonly record struct ItemEtherealFields(int Id, ItemWearType WearType, int EtherealDurability);
 
+/// <summary>
+/// What <c>TM_CS_SOULSTONE_CRAFT</c> (260) needs from an item resource: the chassis count of the item
+/// being socketed, the three axes that decide whether a stone is a soul stone, the price its socketing
+/// costs and the profile two stones are told apart by
+/// (NGemity <c>WorldSession.cpp:1509-1553</c>). Only the first value column of each slot is carried:
+/// the reference compares <c>base_var[k][0]</c> and dips into no other column.
+/// </summary>
+public readonly record struct ItemSoulstoneCraftFields(
+    int Id,
+    ItemBaseType ItemBaseType,
+    ItemGroup Group,
+    ItemType ItemType,
+    int SocketCount,
+    int Price,
+    short[] BaseTypes,
+    decimal[] BaseVar1,
+    short[] OptTypes,
+    decimal[] OptVar1);
+
 public interface IItemResourceRepository
 {
     IReadOnlyList<ItemSortFields> GetSortFields();
@@ -78,4 +97,11 @@ public interface IItemResourceRepository
     /// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY</c> (263).
     /// </summary>
     IReadOnlyList<ItemEtherealFields> GetEtherealFields();
+
+    /// <summary>
+    /// Every item resource, with its chassis count, its price and the four axis arrays the two-stone
+    /// rule compares. The whole table is read because any item can be the one being socketed and any
+    /// item code can already sit in one of its chassis.
+    /// </summary>
+    IReadOnlyList<ItemSoulstoneCraftFields> GetSoulstoneCraftFields();
 }

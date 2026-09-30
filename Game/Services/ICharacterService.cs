@@ -60,6 +60,17 @@ public interface ICharacterService
     Task<long?> ConsumeItemAsync(string characterName, uint itemHandle, long count);
 
     /// <summary>
+    /// Sockets the stones of one <c>TM_CS_SOULSTONE_CRAFT</c> (260) request: writes the code of every assigned
+    /// stone into its chassis of the crafted item, erases each stone, then saves. Everything moves in one write
+    /// under the character's own lock, so a request whose items vanished leaves the character exactly as it was.
+    /// Handles that resolve to none of the character's items are reported instead of thrown at. The cost is not
+    /// charged here: the purse of a character in the world is <c>ConnectionInfo.CharacterGold</c>, not the row,
+    /// which only catches up at the session save.
+    /// </summary>
+    Task<SoulstoneCraftResult> SocketSoulstonesAsync(string characterName, uint craftItemHandle,
+        IReadOnlyList<SoulstoneSlotAssignment> assignments);
+
+    /// <summary>
     /// The pet stored in a cage item: its row, created on the first call with <paramref name="defaultName"/>
     /// and <c>WasNameChanged = false</c>. One row per cage (<c>Pets.ItemId</c>, cascading from the item).
     /// </summary>

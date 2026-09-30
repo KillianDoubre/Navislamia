@@ -16,7 +16,7 @@ namespace Navislamia.Game.Services;
 
 /// <summary>
 /// The structural socle of the crafting and item-enchantment family: <c>TM_CS_MIX</c> (256),
-/// <c>TM_CS_SOULSTONE_CRAFT</c> (260), <c>TM_CS_REPAIR_SOULSTONE</c> (262),
+/// <c>TM_CS_REPAIR_SOULSTONE</c> (262),
 /// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY</c> (263) and
 /// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT</c> (264).
 ///
@@ -44,14 +44,18 @@ namespace Navislamia.Game.Services;
 /// <c>rate</c> is measured to live in (docs/packet-specs/264-transmit-ethereal-durability-to-equipment.md
 /// §2.3, §5.5): the frame names no handle, so nothing is resolved for it.
 ///
+/// <c>TM_CS_SOULSTONE_CRAFT</c> (260) used to sit here too and now has its own engine
+/// (<see cref="SoulstoneCraftService"/>): the frame's handles are a stone per chassis, which is a meaning
+/// the socle refuses to guess. See docs/packet-specs/260-soulstone-craft.md §5.
+///
 /// The refusals answer <c>TM_SC_RESULT</c> (0) with the received id as <c>request_msg_id</c>. A handle
 /// that resolves to none of the character's items reports <c>NotExist</c> (1) with the handle as value,
 /// the convention the 203 drop path already uses (docs/packet-specs/203-drop-item.md §5.3); NGemity
-/// splits that case in two (<c>NOT_EXIST</c> for the item being crafted, <c>ACCESS_DENIED</c> for a soul
-/// stone, <c>WorldSession.cpp:1503-1507</c> and <c>:1521-1526</c>), a distinction the socle does not
-/// reproduce because which handle plays which part is only established for 256 and 260. A readable
-/// frame is refused with <c>InvalidArgument</c> (28), the code NGemity sends when no mix rule resolves
-/// (<c>WorldSession.cpp:1463-1466</c>); the value stays 0 as in that reference answer.
+/// splits that case in two (<c>NOT_EXIST</c> for the item being crafted, <c>ACCESS_DENIED</c> for a
+/// material, <c>WorldSession.cpp:1503-1507</c> and <c>:1521-1526</c>), a distinction the socle does not
+/// reproduce for the frames it still owns because which handle plays which part is established for none
+/// of them. A readable frame is refused with <c>InvalidArgument</c> (28), the code NGemity sends when no
+/// mix rule resolves (<c>WorldSession.cpp:1463-1466</c>); the value stays 0 as in that reference answer.
 /// </summary>
 public class CraftingSocleService : ICraftingSocleService
 {
@@ -107,16 +111,6 @@ public class CraftingSocleService : ICraftingSocleService
                 // by the mix rule table rather than by the share handle check below.
                 await ResolveMixAsync(client, packetId, mix);
                 return;
-
-            case (ushort)GamePackets.TM_CS_SOULSTONE_CRAFT:
-                if (!GameActionPackets.TryReadSoulstoneCraft(packet, out var soulstoneCraft))
-                {
-                    RefuseMalformed(client, packetId, packet.Length);
-                    return;
-                }
-
-                handles = CraftingSocleRules.ReferencedHandles(soulstoneCraft);
-                break;
 
             case (ushort)GamePackets.TM_CS_REPAIR_SOULSTONE:
                 if (!GameActionPackets.TryReadRepairSoulstone(packet, out var repair))

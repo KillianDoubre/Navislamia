@@ -479,20 +479,17 @@ public class CraftingSocleServiceTests
     }
 
     [Test]
-    public async Task SoulstoneCraft_KeepsTheEmptySlotsOutOfTheResolution()
+    public async Task SoulstoneCraft_IsNoLongerTheSoclesFrame()
     {
+        // 260 has its own engine (SoulstoneCraftService, docs/packet-specs/260-soulstone-craft.md): the receive
+        // loop never hands it to the socle, and the socle drops it rather than answering in its place.
         var harness = MixHarness(Array.Empty<MixResourceEntity>());
 
         await harness.Service.HandleAsync(harness.Client, (ushort)GamePackets.TM_CS_SOULSTONE_CRAFT,
             SoulstoneCraftFrame(TargetHandle, MaterialHandle, 0u, 0u, 0u));
 
-        harness.Connection.Sent.Should().ContainSingle();
-        var result = ResultOf(harness.Connection.Sent[0]);
-        result.RequestMsgID.Should().Be(260);
-        result.Result.Should().Be((ushort)ResultCode.InvalidArgument,
-            "the frame is well formed and every handle it names exists, but the crafting engine is not written");
-        A.CallTo(() => harness.CharacterService.GetItemByHandleAsync(A<string>._, A<uint>._))
-            .MustHaveHappened(2, Times.Exactly);
+        harness.Connection.Sent.Should().BeEmpty();
+        A.CallTo(() => harness.CharacterService.GetItemByHandleAsync(A<string>._, A<uint>._)).MustNotHaveHappened();
     }
 
     private sealed class CapturingSink : ILogEventSink
