@@ -2442,7 +2442,13 @@ pipeline VPS under `/srv/navislamia/reference/epic7part4` (see its README):
   OLE `DECIMAL`, not a length-prefixed value.
 - **Server Lua in clear** (42 scripts: merchants, quest clients, job change, guild creation, login and
   level-up hooks, monster respawn) — only the scripts these branches changed, not the whole set.
-- **Client builds with matching PDBs** (`SFrame_Release.exe` + `.pdb`, 2011-09 → 2012-10).
+- **Client builds with matching PDBs** (`SFrame_Release.exe` + `.pdb`, 2011-09 → 2012-10). **None of them
+  is our client**: ours links the Visual Studio 2010 ATL (`AtlAxWin100`), every dump build the 2005 one
+  (`AtlAxWinLic80`). By content it sits closest to the builds of November 2011 - January 2012 (string-set
+  Jaccard 0.93): it has what they lack (instance dungeon windows, mount info, pet pickup filter 355, the
+  end-quest window) and lacks what the Part 4 branch adds (mission windows, guild member list renewal,
+  chat type table) — a 7.3 retail line, not the Part 4 development branch. Use these PDBs for meaning,
+  never to carry an address over to our `SFrame.exe`.
 
 The 7.3 client's own `db_item.rdb` (on the VPS, `reference/client73/`) is a community rebuild
 ("Written by Archemedes v0.1.0", 2025-12-07): 28 265 items, a 128-byte header, a `u32` count and records
