@@ -1,6 +1,9 @@
 using System;
 using System.Buffers.Binary;
 using System.Text;
+using System.Linq;
+using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Services.GmCommands;
 using FakeItEasy;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -90,6 +93,28 @@ public class ChatRoutingTests
         BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(7, 2)).Should().Be((ushort)GamePackets.TM_CS_CHAT_REQUEST);
         BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(9, 2)).Should().Be((ushort)expected);
         peerConnection.Sent.Count.Should().Be(reachesPeer);
+    }
+
+    [Test]
+    public void APartyCommandGoesToThePartyServiceNotToTheGmCommands()
+    {
+        var visibility = new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>());
+        var commands = A.Fake<IGmCommandService>();
+        var frame = Request(ChatType.Normal, "/pcreate Wolves");
+        var connection = new StorageTestHarness.FrameConnection(frame);
+        var client = StorageTestHarness.NewGameClient(connection, gmCommandService: commands,
+            playerVisibilityService: visibility);
+        StorageTestHarness.Session(client).CharacterHandle = 1;
+        StorageTestHarness.Session(client).CharacterName = "Ana";
+        visibility.Registry.Register(1, client);
+
+        client.OnDataReceived(frame.Length);
+
+        A.CallTo(() => commands.HandleAsync(A<GameClient>._, A<string>._, A<System.Collections.Generic.IEnumerable<GameClient>>._))
+            .MustNotHaveHappened();
+        var create = connection.Sent.First();
+        create[30].Should().Be((byte)ChatType.PartySystem);
+        Encoding.ASCII.GetString(create, 31, 20).Should().Be("CREATE|Wolves|Ana|0|");
     }
 
     private static byte[] Request(ChatType type, string text, string target = "", byte requestId = 0)

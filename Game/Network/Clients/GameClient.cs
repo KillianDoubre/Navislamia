@@ -107,6 +107,7 @@ public class GameClient : Client
         _networkService.PlayerVisibilityService.SendToObservers(this, GameStatPackets.BuildHpMp(
             info.CharacterHandle, 0, info.CharacterHp, Math.Max(maxHp, info.CharacterHp), 0, info.CharacterMp,
             Math.Max(maxMp, info.CharacterMp)));
+        _networkService.PartyService?.OnVitalsChanged(this);
     }
 
     public void SendGameTime()
@@ -1088,6 +1089,14 @@ public class GameClient : Client
 
         var message = Encoding.ASCII.GetString(input.Slice(24, count)).TrimEnd('\0');
 
+        // The party window has no opcode: it sends /pcreate, /pinvite, /pjoin... as chat lines and parses
+        // the @PARTY answers (docs/packet-specs/socle-groupe.md). They are player commands, not GM ones.
+        if (type != (byte)ChatType.Whisper && message.StartsWith('/')
+            && _networkService.PartyService.TryHandleCommand(this, message))
+        {
+            return;
+        }
+
         // A line starting with '/' is a GM command, never relayed as chat (NGemity's rule,
         // WorldSession::onChatRequest). The handler awaits the database for /item, so it is fired and not
         // awaited here: the receive loop must not wait on it. See docs/gm-commands.md.
@@ -1231,6 +1240,7 @@ public class GameClient : Client
             // booth closes before, so its watchers receive their 709.
             _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
+            _networkService.PartyService?.OnWorldExit(this);
 
             await SaveProgressSafelyAsync("while disconnecting");
         }
@@ -1258,6 +1268,7 @@ public class GameClient : Client
             _networkService.CombatService.StopAttack(this);
             _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
+            _networkService.PartyService?.OnWorldExit(this);
             await SaveProgressSafelyAsync("before returning to character selection");
             info.ClearCharacterSession();
             SendResult((ushort)GamePackets.TM_CS_RETURN_LOBBY, (ushort)ResultCode.Success);

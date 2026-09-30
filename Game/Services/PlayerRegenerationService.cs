@@ -12,11 +12,13 @@ public sealed class PlayerRegenerationService
     private readonly CancellationTokenSource _stopping = new();
     private readonly IPlayerVisibilityService _players;
     private readonly IStatService _stats;
+    private readonly Party.IPartyService _parties;
     private readonly ILogger<PlayerRegenerationService> _logger;
 
     public PlayerRegenerationService(IPlayerVisibilityService players, IStatService stats,
-        ILogger<PlayerRegenerationService> logger)
+        ILogger<PlayerRegenerationService> logger, Party.IPartyService parties = null)
     {
+        _parties = parties;
         _players = players;
         _stats = stats;
         _logger = logger;
@@ -66,6 +68,7 @@ public sealed class PlayerRegenerationService
                     _players.SendToObservers(client,
                         GameStatPackets.BuildRegenHpMp(info.CharacterHandle, actualHpGain, actualMpGain, hp, mp),
                         includeSelf: true);
+                    _parties?.OnVitalsChanged(client);
                 }
             }
             catch (Exception ex)

@@ -13,6 +13,12 @@ public enum ChatType : byte
     Notice = 0x14,
 
     /// <summary>
+    /// 100: the system line of party, guild and alliance events (<c>@PARTY</c>, <c>@GUILD</c>...), which the
+    /// client parses instead of printing — the official server's <c>SendChatMessage(…, 100, "@PARTY", …)</c>.
+    /// </summary>
+    PartySystem = 0x64,
+
+    /// <summary>
     /// <c>CHAT_EXP</c> (0x1E) in rzu and NGemity: the system line NGemity answers its commands on,
     /// sender <c>@SYSTEM</c> (<c>AllowedCommandInfo.cpp</c>, <c>onCheatPosition</c>).
     /// </summary>

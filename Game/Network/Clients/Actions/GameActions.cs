@@ -113,7 +113,6 @@ public class GameActions : IActions
         _statService.Seed(info, character);
         info.CharacterHandle = (uint)character.Id;
         info.WearFrame = GameCharacterPackets.BuildWearInfo((uint)character.Id, character);
-        info.PartyId = character.PartyId;
         info.GuildId = character.GuildId;
         info.CharacterName = character.CharacterName;
         info.CharacterHp = hp;
@@ -311,6 +310,10 @@ public class GameActions : IActions
         // ENTER through the visibility socle (docs/packet-specs/socle-visibilite-joueurs.md §5.3,
         // trigger 1).
         _networkService.PlayerVisibilityService.EnterWorld(client);
+
+        // Parties live in memory (docs/packet-specs/socle-groupe.md): the member comes back online in the
+        // party they left, and ConnectionInfo.PartyId is set from it, never from Characters.PartyId.
+        _networkService.PartyService?.OnWorldEntry(client);
         _networkService.GroundItemService.Sync(client);
         client.Connection.Send(GameCharacterPackets.BuildItemCoolTime(info.ItemCooldowns, ServerClock.Now));
     }

@@ -1631,8 +1631,8 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
 ### Chat et régénération
 
 - **Chat** (`GameClient.HandleChatRequest`, règles de NGemity `WorldSession::onChatRequest`) : normal et
-  cri (`TM_SC_CHAT_LOCAL` 21) vers l'émetteur et les pairs en vue ; global (4) à tous ; groupe (0x0A) et
-  guilde (0x0B) aux joueurs de même `PartyId`/`GuildId` ; **chuchotement (3)** : la cible est lue
+  cri (`TM_SC_CHAT_LOCAL` 21) vers l'émetteur et les pairs en vue ; global (4) à tous ; groupe (0x0A) aux
+  joueurs de même `PartyId` (tenu par `PartyService`) et guilde (0x0B) de même `GuildId` ; **chuchotement (3)** : la cible est lue
   **jusqu'au premier NUL dans ses 21 octets** (`request_id` suit, un octet non nul s'ajoutait au nom), la
   ligne part vers elle seule et l'émetteur reçoit `TS_SC_RESULT(20, Success | NotExist)`, **jamais d'écho**.
 - **Régénération** (`PlayerRegenerationService`, démarré par `Application`) : toutes les 3 s,
@@ -1641,6 +1641,26 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   handle, `hp_regen`, `mp_regen`, `hp`, `mp`, tous `int32` à Epic 7.3) part au joueur et à ses
   observateurs, comme la référence diffuse à la région. Le cumul « 3 % ou plein » de NGemity n'est pas
   repris : une trame par pas qui change quelque chose.
+
+### Groupe (party) — commandes de chat et lignes `@PARTY`
+
+- **Aucun opcode** : la fenêtre de groupe du 7.3 envoie `/pcreate`, `/pinvite`, `/pjoin %d %d`,
+  `/pleave`, `/pkick`, `/ppromote`, `/pdestroy`, `/pshare`, `/plist` en chat et lit des `TS_SC_CHAT`
+  **type 100** (`ChatType.PartySystem`) d'émetteur `@PARTY`. `PartyService` les reçoit **avant** les
+  commandes MJ (`/pk`, `/position` n'en sont pas).
+- **Formats du serveur officiel** (`CaptainHerlockServer.exe` du dump Part 4, lu avec sa PDB), **pas** de
+  NGemity, qui les a simplifiés : `CREATE|groupe|chef|0|`, `INVITE|invitant|groupe|id|motdepasse|`,
+  `PINFO|id|groupe|chef|partage|niv.max|niv.min|type|` + une entrée par membre
+  (`handle|nom|race|métier|PV%|PM%|x|y|2|`, hors ligne `0|nom|niveau|métier|0|0|0|0|0|`), `MINFO|`+entrée,
+  `NEW`, `JOIN`, `LEAVE`, `KICK|groupe|membre|`, `PROMOTE`, `DESTROY`, `MODE`, `LOGIN|groupe|membre|`,
+  `LOGOUT`. Règles : chef seul pour inviter/exclure/promouvoir/dissoudre/partager, **le chef ne peut pas
+  partir**, 8 membres, `/pjoin` exige le mot de passe de l'invitation. PV/PM en pourcentage tronqué à
+  l'octet, **1 tant que non nul** ; `MINFO` rediffusé quand un pourcentage change (PV, PM, régénération).
+- **En mémoire** : un groupe survit à la sortie de ses membres (LOGOUT, puis LOGIN et PINFO au retour),
+  pas au redémarrage. `ConnectionInfo.PartyId` vient du service, **plus de `Characters.PartyId`** (la table
+  `Parties` n'a pas le mot de passe et son `LeadPartyId` auto-référent est obligatoire). Partage
+  d'expérience et de butin non modélisé.
+- Fiche, adresses des fonctions officielles, écarts et `NON ÉTABLI` : `docs/packet-specs/socle-groupe.md`.
 
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 

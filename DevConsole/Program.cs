@@ -348,6 +348,7 @@ public class Program
         services.AddSingleton<IBoothWatchService, BoothWatchService>();
         services.AddSingleton<IPlayerVisibilityService, PlayerVisibilityService>();
         services.AddSingleton<PlayerRegenerationService>();
+        services.AddSingleton<Navislamia.Game.Services.Party.IPartyService, Navislamia.Game.Services.Party.PartyService>();
         services.AddSingleton<IBoothTradeService, BoothTradeService>();
         services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();
         services.AddSingleton<ISoulstoneCraftService, SoulstoneCraftService>();
