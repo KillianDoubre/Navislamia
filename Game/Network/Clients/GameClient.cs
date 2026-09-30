@@ -1019,6 +1019,28 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// <c>TM_CS_QUEST_INFO</c> (604): the player selected a quest in the list window and pressed
+    /// <c>quest_info_button</c>. The 11-byte frame is read bounded and logged and <b>nothing is
+    /// answered</b>: the 7.3 client has no handler for the only candidate answer (602), NGemity declares
+    /// 604 and never reads it, and 604 changes no state — a reply would be an invented policy. The code
+    /// is deliberately not judged against <c>CharacterQuests</c>: no response consumes that verdict.
+    /// Synchronous on purpose, with no database access on this path.
+    /// See docs/packet-specs/604-quest-info.md §5.3, §5.5.
+    /// </summary>
+    private void HandleQuestInfo(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadQuestInfo(packet, out var request))
+        {
+            _logger.Warning("Malformed quest info request received from {clientTag} (Length: {length})",
+                ClientTag, packet.Length);
+            return;
+        }
+
+        _logger.Debug("TM_CS_QUEST_INFO ({id}) Length: {length} received from {clientTag}: code={code}",
+            (ushort)GamePackets.TM_CS_QUEST_INFO, packet.Length, ClientTag, request.Code);
+    }
+
+    /// <summary>
     /// <c>TM_CS_START_BOOTH</c> (700). The frame is read and judged before anything is stored, and a
     /// refusal is answered with <c>TS_SC_RESULT</c> carrying the request id, because the family has no
     /// acknowledgement packet at all: <c>703</c>, <c>708</c>, <c>709</c> and <c>710</c> are the only
@@ -1742,6 +1764,18 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_DROP_QUEST)
             {
                 _ = HandleDropQuestAsync(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_QUEST_INFO (604): the quest the player selected in the list window, sent by
+            // quest_info_button. The frame is read bounded and logged, and nothing is answered: the 7.3
+            // client has no handler for the only candidate answer (602), NGemity declares 604 without
+            // ever reading it, and 604 changes no state. The code is not validated against the
+            // character's quests — the verdict would be read by nobody. See
+            // docs/packet-specs/604-quest-info.md §5.3, §5.5.
+            if (header.ID == (ushort)GamePackets.TM_CS_QUEST_INFO)
+            {
+                HandleQuestInfo(msgBuffer);
                 continue;
             }
 

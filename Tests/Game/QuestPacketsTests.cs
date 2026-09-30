@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Linq;
 using FluentAssertions;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Packets;
@@ -11,11 +12,13 @@ using NUnit.Framework;
 namespace Tests.Game;
 
 /// <summary>
-/// Offset tests for the quest socle: <c>TM_CS_DROP_QUEST</c> (603), <c>TM_SC_QUEST_LIST</c> (600) and
-/// <c>TM_SC_QUEST_STATUS</c> (601). The request is 11 bytes (<c>length = 0xb</c>, the signed code at 7);
-/// 600 is <c>11 + 61·N</c> bytes (two <c>uint16</c> counts, then the <c>TS_QUEST_INFO</c> elements, whose
-/// step is the client's own <c>0x3d</c>); 601 is a fixed 40 bytes. Every size and offset comes from the
-/// Epic 7.3 client structures recorded in <c>docs/packet-specs/socle-quetes.md</c> §3.4-3.5 and §4.
+/// Offset tests for the quest socle: <c>TM_CS_DROP_QUEST</c> (603), <c>TM_CS_QUEST_INFO</c> (604),
+/// <c>TM_SC_QUEST_LIST</c> (600) and <c>TM_SC_QUEST_STATUS</c> (601). Both requests are 11 bytes
+/// (<c>length = 0xb</c>, the signed code at 7); 600 is <c>11 + 61·N</c> bytes (two <c>uint16</c> counts,
+/// then the <c>TS_QUEST_INFO</c> elements, whose step is the client's own <c>0x3d</c>); 601 is a fixed
+/// 40 bytes. Every size and offset comes from the Epic 7.3 client structures recorded in
+/// <c>docs/packet-specs/socle-quetes.md</c> §3.4-3.5 and §4, and, for 604,
+/// <c>docs/packet-specs/604-quest-info.md</c> §3.1.
 /// </summary>
 [TestFixture]
 public class QuestPacketsTests
@@ -28,6 +31,7 @@ public class QuestPacketsTests
     private const int QuestInfoSize = 61;
     private const int QuestStatusSize = 40;
     private const int DropQuestRequestSize = HeaderSize + 4;
+    private const int QuestInfoRequestSize = HeaderSize + 4;
 
     [Test]
     public void TryReadDropQuest_ReadsTheSignedCodeAtSeven()
@@ -64,6 +68,114 @@ public class QuestPacketsTests
         GameActionPackets.TryReadDropQuest(packet, out var request).Should().BeFalse();
 
         request.Code.Should().Be(0);
+    }
+
+    [Test]
+    public void TryReadQuestInfo_ReadsTheSignedCodeAtSeven()
+    {
+        var packet = new byte[QuestInfoRequestSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)QuestInfoRequestSize); // Length @0
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), (ushort)GamePackets.TM_CS_QUEST_INFO); // ID @4
+
+        // The code is laid out byte by byte so the assertion proves the wire order instead of
+        // round-tripping through the same reader: 0x00001092 = 4242.
+        packet[7] = 0x92;
+        packet[8] = 0x10;
+        packet[9] = 0x00;
+        packet[10] = 0x00;
+        packet[6] = Checksum(packet); // Checksum @6 = sum of bytes 0..5
+
+        GameActionPackets.TryReadQuestInfo(packet, out var request).Should().BeTrue();
+
+        packet.Length.Should().Be(11, "the client's constructor writes Length = 0xb and stops at offset 10");
+        GameActionPackets.QuestInfoRequestSize.Should().Be(11);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0, 4)).Should().Be(11); // Length @0
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)).Should().Be(604); // ID @4
+        packet[6].Should().Be(Checksum(packet));
+        request.Code.Should().Be(4242);
+        request.Code.Should().NotBe(unchecked((int)0x92100000u), "code is little-endian on the wire");
+    }
+
+    [Test]
+    public void TryReadQuestInfo_KeepsANegativeCodeSigned()
+    {
+        var packet = new byte[QuestInfoRequestSize];
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(7, 4), -1);
+
+        GameActionPackets.TryReadQuestInfo(packet, out var request).Should().BeTrue();
+
+        // code is an int32_t in rzu and in NGemity, and the client copies the dword as is: 0xFFFFFFFF
+        // must stay -1, never fold into the unsigned 4294967295 (fiche §3.1, §6 écart 4).
+        request.Code.Should().Be(-1);
+    }
+
+    [TestCase(7, TestName = "TryReadQuestInfo_RejectsAHeaderOnlyFrame")]
+    [TestCase(10, TestName = "TryReadQuestInfo_RejectsATruncatedFrame")]
+    [TestCase(12, TestName = "TryReadQuestInfo_RejectsAPaddedFrame")]
+    [TestCase(QuestStatusSize, TestName = "TryReadQuestInfo_RejectsAQuestStatusSizedFrame")]
+    public void TryReadQuestInfo_RejectsAnyLengthOtherThanEleven(int length)
+    {
+        // The constructor is linear and writes offsets 0 to 10 only, so 604 has no hidden field and no
+        // variable tail: any other size is an anomaly, refused rather than partially read — the model of
+        // packet 57 and of TM_CS_GET_REGION_INFO.
+        var packet = new byte[length];
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), (ushort)GamePackets.TM_CS_QUEST_INFO);
+        if (length >= QuestInfoRequestSize)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(7, 4), 4242);
+        }
+        else
+        {
+            packet[length - 1] = 0x2a;
+        }
+
+        GameActionPackets.TryReadQuestInfo(packet, out var request).Should().BeFalse();
+
+        request.Code.Should().Be(0);
+    }
+
+    [Test]
+    public void OnDataReceived_ConsumesQuestInfoWithoutThrowingOrAnswering()
+    {
+        var frame = QuestInfoFrame(4242);
+        var connection = new StorageTestHarness.FrameConnection(frame);
+        var client = StorageTestHarness.NewGameClient(connection);
+
+        var receive = () => client.OnDataReceived(QuestInfoRequestSize);
+
+        receive.Should().NotThrow("604 is declared in GamePackets, so its arm must keep the frame out of the throwing switch");
+        connection.BytesAvailable.Should().Be(0, "the whole frame was consumed");
+        connection.Sent.Should().BeEmpty("nothing answers 604: not 602, not 601");
+    }
+
+    [Test]
+    public void OnDataReceived_KeepsTheLoopOnAQuestInfoFrameCoalescedWithTheNextOne()
+    {
+        var keepalive = new byte[7];
+        BinaryPrimitives.WriteUInt32LittleEndian(keepalive.AsSpan(0, 4), 7);
+        BinaryPrimitives.WriteUInt16LittleEndian(keepalive.AsSpan(4, 2), (ushort)GamePackets.TM_NONE);
+        keepalive[6] = Checksum(keepalive);
+
+        var frame = QuestInfoFrame(int.MinValue).Concat(keepalive).ToArray();
+        var connection = new StorageTestHarness.FrameConnection(frame);
+        var client = StorageTestHarness.NewGameClient(connection);
+
+        var receive = () => client.OnDataReceived(frame.Length);
+
+        receive.Should().NotThrow();
+        connection.Sent.Should().BeEmpty();
+        connection.BytesAvailable.Should().Be(0, "both frames were consumed");
+    }
+
+    /// <summary>Builds a valid <c>TM_CS_QUEST_INFO</c> frame, checksum included.</summary>
+    private static byte[] QuestInfoFrame(int code)
+    {
+        var frame = new byte[QuestInfoRequestSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(0, 4), (uint)QuestInfoRequestSize);
+        BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(4, 2), (ushort)GamePackets.TM_CS_QUEST_INFO);
+        BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(7, 4), code);
+        frame[6] = Checksum(frame);
+        return frame;
     }
 
     [Test]
@@ -229,14 +341,17 @@ public class QuestPacketsTests
         ((ushort)GamePackets.TM_SC_QUEST_LIST).Should().Be(600);
         ((ushort)GamePackets.TM_SC_QUEST_STATUS).Should().Be(601);
         ((ushort)GamePackets.TM_CS_DROP_QUEST).Should().Be(603);
+        ((ushort)GamePackets.TM_CS_QUEST_INFO).Should().Be(604);
 
         Enum.IsDefined(typeof(GamePackets), (ushort)603).Should().BeTrue();
 
-        // 602 (quest info), 604 (give up) and 605 (accept) are deliberately not declared: the socle does
-        // not implement them, and a member the receive chain does not handle would reach the final
-        // "Unknown Packet Type" throw of GameClient. Enum and dispatch move together (fiche §5.6).
+        // 604 is declared and armed: its arm reads the 11-byte frame and answers nothing, so the frame
+        // never reaches the final "Unknown Packet Type" throw of GameClient. 602 (quest information, no
+        // client handler) and 605 (accept, its own card and branch) are still deliberately absent: a
+        // member the receive chain does not handle would kill the receive loop. Enum and dispatch move
+        // together (fiche §5.3, §5.4).
+        Enum.IsDefined(typeof(GamePackets), (ushort)604).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)602).Should().BeFalse();
-        Enum.IsDefined(typeof(GamePackets), (ushort)604).Should().BeFalse();
         Enum.IsDefined(typeof(GamePackets), (ushort)605).Should().BeFalse();
     }
 
