@@ -62,4 +62,25 @@ public static class GameHuntaholicPackets
         page = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(PageOffset, PageFieldLength));
         return true;
     }
+
+    /// <summary>
+    /// Total size of <c>TM_CS_HUNTAHOLIC_BEGIN_HUNTING</c> (4011): the 7-byte header, no payload at all. The
+    /// 7.3 client writes that length in hard (<c>mov DWORD PTR [ebp-0x7],0x7</c> at <c>0x4c93eb</c>) and never
+    /// writes a byte past offset 6, so the header is the entire frame.
+    /// </summary>
+    public const int BeginHuntingLength = HeaderSize;
+
+    /// <summary>
+    /// <c>TM_CS_HUNTAHOLIC_BEGIN_HUNTING</c> (4011) is the "start the hunt" gesture of the HuntaHolic instance
+    /// window and carries no payload: there is nothing to read and no field to extract. Only the exact 7-byte
+    /// form is accepted — a shorter frame is truncated, and a longer one carries bytes no field accounts for
+    /// (an 11-byte frame is the <c>4009</c> shape and 6 bytes is a cut header), so the sender is not the 7.3
+    /// client. The frame's checksum byte at offset 6 is not verified here, as in every other packet of the
+    /// family (an assumed gap, stated in the sheet §3 rather than papered over); the receive loop does check it
+    /// before dispatching.
+    /// </summary>
+    public static bool IsBeginHunting(ReadOnlySpan<byte> packet)
+    {
+        return packet.Length == BeginHuntingLength;
+    }
 }
