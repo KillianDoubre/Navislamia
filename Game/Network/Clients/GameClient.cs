@@ -1617,6 +1617,39 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// TM_CS_HUNTAHOLIC_INSTANCE_LIST (4000): the HuntaHolic lobby window asks for a page of its room list —
+    /// page 1 when it opens, then the page the previous answer clamped to. The frame is 11 bytes — a 7-byte
+    /// header plus a single signed <c>int32</c> <c>page</c> at offset 7. It is read and bounded, and the page
+    /// is logged raw so that a client capture tells what the field carries.
+    /// <para>
+    /// Nothing is answered. The client's lobby is fed by <c>TM_SC_HUNTAHOLIC_INSTANCE_LIST</c> (4001), and the
+    /// three decisions that frame needs — the rooms to list, the pagination and the <c>huntaholic_id</c> — have
+    /// no source in the repository: the server holds neither a <c>HuntaholicResource</c> nor a
+    /// <c>HuntaholicInstanceResource</c> entity, and the client does not send the lobby id. No reference shows
+    /// any server answer either: NGemity declares 4000 and never handles it, rzu only ships the headers.
+    /// Nor does the client react to anything else: it is absent from its own <c>MSG_RESULT</c> cascade, so
+    /// reading and logging an unanswered 4000 is invisible to the player.
+    /// See docs/packet-specs/4000-huntaholic-instance-list.md §5.3, §5.5, §7a §7b §7c.
+    /// </para>
+    /// </summary>
+    private void HandleHuntaholicInstanceList(byte[] buffer)
+    {
+        if (!GameHuntaholicPackets.TryReadHuntaholicInstanceList(buffer, out var page))
+        {
+            _logger.Warning("Malformed HuntaHolic instance list request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_HUNTAHOLIC_INSTANCE_LIST ({id}) Length: {length} page={page} received from {clientTag}",
+                (ushort)GamePackets.TM_CS_HUNTAHOLIC_INSTANCE_LIST, buffer.Length, page, ClientTag);
+        }
+    }
+
+    /// <summary>
     /// TM_CS_SECURITY_NO (9005): the client answers TM_SC_REQUEST_SECURITY_NO (9004) with the security
     /// password the player typed, carrying back the mode it received and the code in a fixed 19-byte
     /// container. No reference implements the answer of the game server — rzu verifies the code on the
@@ -1898,6 +1931,17 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_SC_SHOW_SOULSTONE_REPAIR_WINDOW)
             {
                 _logger.Warning("Server to client packet ({id}) received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_CS_HUNTAHOLIC_INSTANCE_LIST (4000): the lobby asks for a page of its room list. The frame is
+            // read, bounded and logged, and nothing is answered — the rooms, the pagination and the
+            // huntaholic_id the 4001 answer would need have no source in the repository. It must stay before the
+            // throwing switch below: a member of GamePackets that reaches it breaks the receive loop.
+            // See docs/packet-specs/4000-huntaholic-instance-list.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_INSTANCE_LIST)
+            {
+                HandleHuntaholicInstanceList(msgBuffer);
                 continue;
             }
 
