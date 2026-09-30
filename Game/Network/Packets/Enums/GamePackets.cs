@@ -228,6 +228,19 @@ public enum GamePackets : ushort
     // 2308 must never be declared here.
     // See docs/packet-specs/1308-auction-instant-purchase.md.
     TM_CS_AUCTION_INSTANT_PURCHASE = 1308,
+    // TM_CS_AUCTION_REGISTER (1309): the "put this item up for auction" request of the auction house,
+    // 32 bytes — the widest and the only two-price frame of the family: the 7 byte header, item_handle
+    // (uint32) at 7, item_count (int32) at 11, start_price (int64) at 15, instant_purchase_price (int64)
+    // at 23 and duration_type (uint8) at 31. The 7.3 client builds and sends it (SFrame.exe construction
+    // routine 0x48DF30, whose single caller is the stub 0x49E3AE, reached by the internal key 1160 = 0x488
+    // from the register button of SUIAuctionRegisterWnd) and never receives it. It has no dedicated
+    // answer: no TS_SC_AUCTION_REGISTER exists in any reference, and the client reads a TM_SC_RESULT (id 0)
+    // carrying request_msg_id = 1309, whose only dedicated treatment is a log line (0x66E07C) — it empties
+    // its own item list after sending and never asks for the list again, so a refreshed listing is the
+    // server's job. rzu declares the id for version < EPIC_9_6_3 and remaps it to 2309 above, so 2309 must
+    // never be declared here.
+    // See docs/packet-specs/1309-auction-register.md.
+    TM_CS_AUCTION_REGISTER = 1309,
 
     TM_SC_DIALOG = 3000,
     TM_CS_DIALOG = 3001,
