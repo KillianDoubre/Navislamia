@@ -1356,9 +1356,12 @@ tant qu'aucun joueur n'en voit un autre** : il faut voir l'étal pour cliquer de
   `QuestLinkResource` n'a pas de clé primaire au schéma, le modèle clé sur `(NpcId, QuestId)`. Ne pas
   reprendre l'ordre positionnel de `ObjectMgr::LoadQuestResource` (liste 4.1.1 : `limit_quest_indication`
   au lieu de `limit_job_depth`, `nGold` au lieu de `holicpoint` + `ld`).
-- **604/605 ne sont toujours ni déclarés ni lus** (lot (b1) de la fiche, non livré) : 604 = 11 octets,
-  `code` int32 @7, sans réponse (602 n'a pas de handler client) ; 605 = 12 octets, `code` @7,
-  `nOptionalReward` **int8** @11 où `-1` = aucune récompense optionnelle. Le déclencheur (lot (b3)) est un
+- **604 et 605 sont déclarés et lus** (lot (b1)) : 604 = 11 octets, `code` int32 @7, sans réponse (602 n'a pas
+  de handler client, `docs/packet-specs/604-quest-info.md`) ; 605 = 12 octets, `code` @7, `nOptionalReward`
+  **int8** @11 où `-1` = aucune récompense optionnelle, lu en `sbyte`. 605 répond toujours
+  `TS_SC_RESULT(605, …)` : `InvalidArgument` (longueur ≠ 12, emplacement hors `-1..5`), `NotActable` (code négatif,
+  quête non portée, **et quête portée** : terminer une quête est le lot (b4), et un `Success` sans récompense
+  ferait mentir le client), `DBError`. Rien n'est écrit (`docs/packet-specs/605-end-quest.md`). Le déclencheur (lot (b3)) est un
   `TM_SC_DIALOG` au texte `QUEST|<code>|<textID>`, menu `	START	start_quest( code, textid )	`, relu
   comme une grammaire fermée, jamais du Lua.
 
