@@ -188,6 +188,39 @@ public static class GameActionPackets
         return true;
     }
 
+    /// <summary>The whole <c>TM_CS_QUEST_INFO</c> frame: 7-byte header plus the signed <c>code</c>.</summary>
+    public const int QuestInfoRequestSize = HeaderSize + 4;
+
+    /// <summary>
+    /// <c>TM_CS_QUEST_INFO</c> (604): the quest the player selected in the list window when pressing
+    /// <c>quest_info_button</c>, recopied by the client as a signed 32-bit code
+    /// (<c>docs/packet-specs/604-quest-info.md</c> §3.1).
+    /// </summary>
+    public readonly record struct QuestInfoRequest(int Code);
+
+    /// <summary>
+    /// Reads <c>TM_CS_QUEST_INFO</c> (604). The 7.3 client's constructor writes <c>length = 0xb</c> and
+    /// initialises offsets 0 to 10 only, with no hidden field and no variable tail
+    /// (<c>SFrame.exe 0x0048d1b0</c>), so the exact 11-byte form is the only one accepted: a short or
+    /// padded frame is refused rather than partially read, exactly like
+    /// <see cref="TryReadCheckIllegalUser"/>. The code is read <b>signed</b> — rzu and NGemity both
+    /// declare it <c>int32_t</c> and the client copies the dword as is — and is not validated against
+    /// the character's quests: 604 answers nothing and changes no state, so that verdict would be read
+    /// by nobody (fiche §5.5).
+    /// </summary>
+    public static bool TryReadQuestInfo(ReadOnlySpan<byte> packet, out QuestInfoRequest request)
+    {
+        request = default;
+
+        if (packet.Length != QuestInfoRequestSize)
+        {
+            return false;
+        }
+
+        request = new QuestInfoRequest(BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4)));
+        return true;
+    }
+
     public static bool TryReadEraseItem(ReadOnlySpan<byte> packet, out EraseItemRequest[] requests)
     {
         const int recordSize = 12;
