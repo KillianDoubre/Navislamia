@@ -13,6 +13,7 @@ using Navislamia.Game.Network;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Props;
 
 namespace Tests.Game;
 
@@ -113,18 +114,43 @@ public class MarketCatalogTests
     }
 
     [Test]
-    public void TheShippedCatalogHoldsNoMarket()
+    public void EveryNamedMerchantTriggerOfTheShippedDialogsOpensAShippedMarket()
     {
-        // The file is delivered with zero rows: the reference's MarketResource table has no export here,
-        // and the NPC to market link is not established either (reserve "A VERIFIER PAR KILLIAN").
-        using var document = JsonDocument.Parse(
+        // Both files come from tools/export_market_catalog.py (Epic 7 Part 4 MarketResource and server
+        // Lua): a named trigger whose market is missing would leave a merchant that silently refuses.
+        using var markets = JsonDocument.Parse(
             File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "market-catalog.73.json")));
-        var options = document.RootElement.GetProperty("MarketCatalog")
-            .Deserialize<MarketCatalogOptions>();
+        var options = markets.RootElement.GetProperty("MarketCatalog").Deserialize<MarketCatalogOptions>();
+        var catalog = new MarketCatalog(options!);
+        catalog.MarketCount.Should().BeGreaterThan(0);
 
-        options.Should().NotBeNull();
-        options!.Markets.Should().BeEmpty();
-        new MarketCatalog(options).MarketCount.Should().Be(0);
+        using var dialogs = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "npc-dialogs.73.json")));
+        var named = 0;
+        foreach (var dialog in dialogs.RootElement.GetProperty("NpcDialogCatalog").GetProperty("Dialogs")
+                     .EnumerateObject())
+        {
+            if (!dialog.Value.TryGetProperty("Menu", out var menu))
+            {
+                continue;
+            }
+
+            foreach (var entry in menu.EnumerateArray())
+            {
+                var action = PropScript.Parse(entry.GetProperty("Trigger").GetString());
+                if (action.Kind != PropActionKind.OpenMarket || action.Name.Length == 0)
+                {
+                    continue;
+                }
+
+                named++;
+                catalog.TryGetMarket(action.Name, out var lines).Should().BeTrue(
+                    $"{dialog.Name} opens market '{action.Name}'");
+                lines.Should().NotBeEmpty();
+            }
+        }
+
+        named.Should().BeGreaterThan(0);
     }
 
     [Test]

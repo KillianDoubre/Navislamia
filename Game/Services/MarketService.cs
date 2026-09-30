@@ -38,10 +38,9 @@ public class MarketService : IMarketService
 
         if (string.IsNullOrWhiteSpace(marketName))
         {
-            // Every merchant trigger in npc-dialogs.73.json is the truncated form "open_market(": the
-            // market name was concatenated in the client's Lua and was not captured at generation. The
-            // NPC to market link is therefore unknown, and guessing a catalogue would open an empty or
-            // wrong window. Nothing is sent.
+            // The merchant dialogs tools/export_market_catalog.py could not name keep the truncated form
+            // "open_market(": their NPC to market link is unknown, and guessing a catalogue would open an
+            // empty or wrong window. Nothing is sent.
             _logger.Warning("NPC handle {handle} announced a truncated open_market() trigger for {clientTag}: "
                             + "no market name, so no TM_SC_MARKET was sent", npcHandle, client.ClientTag);
             return false;

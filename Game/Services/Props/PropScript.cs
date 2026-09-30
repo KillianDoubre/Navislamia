@@ -52,10 +52,11 @@ public static class PropScript
         var name = script[..open].Trim();
 
         // The merchant entry of an NPC dialog carries the trigger as the client's Lua built it. The Epic
-        // 7.3 catalogue only kept the truncated prefix "open_market(": the name was concatenated at run
-        // time and the generator does not accept it. The trigger is therefore read with or without its
-        // closing parenthesis, and what sits between the parentheses is the market name — empty in the
-        // truncated form, which the market service then refuses rather than guessing.
+        // 7.3 catalogue kept the truncated prefix "open_market(" until tools/export_market_catalog.py named
+        // the merchant dialogs from the Epic 7 server scripts; the ones it could not name keep it. The
+        // trigger is therefore read with or without its closing parenthesis, and what sits between the
+        // parentheses is the market name, quoted or not — empty in the truncated form, which the market
+        // service then refuses rather than guessing.
         if (name == "open_market")
             return PropAction.Market(ReadMarketName(script, open));
 
@@ -94,7 +95,10 @@ public static class PropScript
     {
         var close = script.IndexOf(')', open + 1);
         var value = close < 0 ? script[(open + 1)..] : script[(open + 1)..close];
-        return value.Trim();
+
+        // The server scripts quote the name, open_market( 'flat_sum_deva_equip' ), and the catalogue keeps
+        // their spelling: the quotes are not part of the market's name.
+        return value.Trim().Trim('\'', '"').Trim();
     }
 
     private static bool TryInt(string value, out int result) =>

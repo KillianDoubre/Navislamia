@@ -2185,15 +2185,21 @@ et 4011 sont lus, bornés et journalisés sans réponse (`GameHuntaholicPackets`
   `NpcDialogService.Select` route vers `MarketService` et **laisse le dialogue courant**.
 - `MarketService` n'envoie 250 que si le nom résout un catalogue **non vide** ; sinon il refuse en
   `Warning` — jamais de fenêtre vide, aucun producteur connu d'un `250` de 13 octets (`n = 0`).
-- Le catalogue vient de `DevConsole/market-catalog.73.json` (section `"MarketCatalog"`, livré
-  **vide**) via `MarketCatalogOptions` / `MarketCatalog` : regroupement par `name`, tri par
+- Le catalogue vient de `DevConsole/market-catalog.73.json` (section `"MarketCatalog"`, 4 404 lignes,
+  90 marchés) via `MarketCatalogOptions` / `MarketCatalog` : regroupement par `name`, tri par
   `sort_id` (égalité = ordre du fichier), comparaison ordinale, lignes de `code` nul écartées.
   `price` est le prix **absolu**, pas le `price_ratio` de la base (multiplié par le prix de base à
   l'ouverture, `ObjectMgr.cpp:851`) ; `huntaholic_point` est émis, attendu `0`
   (`ObjectMgr.cpp:852`).
-- **Bloqué par des données, pas par du code** : correspondance PNJ → nom de marché (le nom était
-  concaténé en Lua et n'a pas été capturé) et lignes de `MarketResource` (ni SQL Server ni
-  PostgreSQL ici). Sans elles, tout marchand est refusé et journalisé.
+- **Données : `tools/export_market_catalog.py`**, depuis le dépôt SVN Epic 7 Part 4 (voir *Source data*).
+  Les lignes viennent de `MarketResource.rdu`, prix = `floor(price_ratio × ItemResource.price)` de la même
+  époque, lignes dont l'objet est absent du `db_item.rdb` du client 7.3 écartées (104). Le nom de marché de
+  chaque dialogue vient des Lua serveur (`open_market( 'nom' )`, 20 dialogues) ou d'une règle de nommage
+  écrite dans l'outil (30) ; la variante `flat_sum_*` (serveur sans boutique payante,
+  `cash_usable_server == 0`) remplace sa jumelle, et les noms se comparent sans casse comme la collation
+  `_CI_` d'origine. 34 dialogues restent sans marché identifiable (arène 8.1, accessoires de rang,
+  `astarot`/`island`/`sealine`, HuntaHolic…) et gardent leur déclencheur tronqué, refusé.
+  `PropScript` retire les apostrophes du nom.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
 ### Paquet 9005 — `TM_CS_SECURITY_NO` (client → serveur, 30 octets)
@@ -2417,6 +2423,30 @@ model. `Import-MonsterResourceColumns.ps1` and `Import-MonsterSpawns.ps1` still 
 directly. The other databases of that instance (`CHARACTER_01_DBF`, `ACCOUNT_DBF`, `RANKING_DBF`,
 `LOGGING_01_DBF`) belong to another game, not to Rappelz: they are not exported and nothing here reads
 them.
+
+## Source data (Epic 7 Part 4 SVN dump)
+
+`A:\Rappelz Kiff\Epic 7 Part 4` (outside the repository, 8 GB) is Gala Lab's own SVN tree of the Epic 7
+era, 2011-2012 — the closest data to the 7.3 client this project has. What it holds, mirrored on the
+pipeline VPS under `/srv/navislamia/reference/epic7part4` (see its README):
+
+- **The official game server with its symbols**: `branches/Binary/Server/CaptainHerlockServer.exe` + `.pdb`
+  (x64, branch `gameserver_release/2011-12-12`, GUIDs matching), and in `branches/telnet 보안/` a later build
+  plus `PrincessAuroraServer` (the auth server). The PDB names ~4 100 functions: party, guild, quests,
+  taming, trade, regeneration, damage.
+- **Server resource tables** as `.rdu` files: complete, self-describing dumps of the SQL Server tables
+  (`MarketResource`, `QuestResource`, `MonsterSkillResource`, `InstanceDungeon*`, `ItemResource`…).
+  `tools/rdu.py` reads them (150 of 152 files consume exactly; the two left are damaged copies of
+  `MixResource`/`EnhanceResource` whose other copies read) and writes the same CSV as the 9.4 export.
+  Format traps it encodes: a nullable column carries a leading indicator byte, and a decimal is a 16-byte
+  OLE `DECIMAL`, not a length-prefixed value.
+- **Server Lua in clear** (42 scripts: merchants, quest clients, job change, guild creation, login and
+  level-up hooks, monster respawn) — only the scripts these branches changed, not the whole set.
+- **Client builds with matching PDBs** (`SFrame_Release.exe` + `.pdb`, 2011-09 → 2012-10).
+
+The 7.3 client's own `db_item.rdb` (on the VPS, `reference/client73/`) is a community rebuild
+("Written by Archemedes v0.1.0", 2025-12-07): 28 265 items, a 128-byte header, a `u32` count and records
+of 6 256 bytes, item id first. It is what tells an item the client can render from a 9.4-only one.
 
 ## Logging
 

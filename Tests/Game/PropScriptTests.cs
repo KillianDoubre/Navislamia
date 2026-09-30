@@ -74,6 +74,14 @@ public class PropScriptTests
         action.Should().Be(PropAction.Market("deva_weapon"));
     }
 
+    [TestCase("open_market( 'flat_sum_deva_equip' )")]
+    [TestCase("open_market(\"flat_sum_deva_equip\")")]
+    public void open_market_reads_the_quoted_name_of_the_server_scripts(string script)
+    {
+        // tools/export_market_catalog.py writes the trigger exactly as the server Lua calls it.
+        PropScript.Parse(script).Should().Be(PropAction.Market("flat_sum_deva_equip"));
+    }
+
     [Test]
     public void open_market_is_read_without_its_closing_parenthesis()
     {
