@@ -246,9 +246,14 @@ champ ; `TS_SC_LEAVE` fait 11 octets et `TS_SC_MOVE` `19 + 8 × N`. Ce qui manqu
 - Les traits fixes d'un pair viennent de `ConnectionInfo.Appearance` (`PlayerAppearance`, posé à l'entrée en
   jeu : la session ne garde aucune `CharacterEntity`) ; niveau, job, PV/PM, statut sont relus en direct.
   `max_mp` = PM courants et `is_first_enter = 1`, comme l'entrée locale.
-- **Hors lot** : l'équipement des pairs (`TS_SC_WEAR_INFO`, un pair apparaît en tenue de base), leurs
-  changements d'état après l'entrée (mort, assis, PK), un pair déjà en marche (vu immobile jusqu'à sa
-  prochaine trame), et la diffusion du familier, des invocations, des émotions et des objets au sol.
+- **Diffusé aux observateurs** : l'équipement (`TS_SC_WEAR_INFO` 202, gardé en
+  `ConnectionInfo.WearFrame` à l'entrée et refait à chaque équipement, envoyé juste après l'`ENTER` d'un
+  pair), les PV/PM en **`TS_SC_HPMP` (509, 36 octets)** — ce que la référence diffuse
+  (`Messages::BroadcastHPMPMessage`) : le joueur garde ses `TS_SC_PROPERTY`, ses observateurs reçoivent la
+  509 (`GameClient.SendVitalProperty`) —, la régénération (516), le niveau (1002, `BroadcastLevelMsg`),
+  l'émotion (1201), le chat local et les objets au sol.
+- **Hors lot** : leurs changements d'état après l'entrée (mort, assis, PK), un pair déjà en marche (vu
+  immobile jusqu'à sa prochaine trame), et la diffusion du familier et des invocations.
   `BoothWatchService` cherche encore le propriétaire d'un étal par balayage : le registre peut le remplacer.
 - Fiche, sources et réserves : `docs/packet-specs/socle-visibilite-joueurs.md`.
 
@@ -441,8 +446,12 @@ disappears. Items expire after `Rates:GroundItemLifetimeSeconds` (120 by default
 
 `GroundItemService` deliberately does **not** depend on `NetworkService`: `NetworkService` already
 injects the service, so taking the client list from it creates a DI cycle that only fails at runtime.
-Drops are therefore sent to the killer alone, and each `GroundItem` holds its owning `GameClient` the
-same way `CombatService.PendingLeave` does. Other players cannot see or take them.
+Each `GroundItem` holds its owning `GameClient` the same way `CombatService.PendingLeave` does, and takes
+the player list from `IPlayerVisibilityService` instead. **A ground item is visible to every player within
+the 540-unit view** (same handle for all; `ConnectionInfo.SpawnedGroundItems` under
+`GroundItemVisibilityLock`, re-synced on move, region update, warp and world entry), **but only its owner
+can take it** — the owner is the first `pick_up_order` handle, and the reference's timed opening to the
+others is not modelled.
 
 ## Monster movement
 
@@ -986,7 +995,8 @@ resistance.
 ## Teleporters and field props
 
 **The portals in the world are not NPCs.** No teleporter NPC exists within 24 839 units of the spawn
-point (94454, 126040, Lost Island), so a double-click on a portal is not `TS_CS_CONTACT`. They are
+point (94454, 126040, Lost Island — the former default; a new character now starts at 153161, 80223, a
+town with the adventure guide, a choice without a reference source), so a double-click on a portal is not `TS_CS_CONTACT`. They are
 **field props**: map objects carrying an id, a position and a script.
 
 **A prop is used by casting a skill on it.** Double-click makes the client cast the prop's
@@ -1485,9 +1495,7 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   player is not implemented). Damage-to-monster, attack speed, walk speed
   and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
   as a swing**, through the same `ICombatService` path
-- Ground items are visible to their killer only, are not filtered for Epic 7.3 compatibility (the
-  client's `db_item.rdb` is unavailable, so a 9.4-only code will not render), and cannot be dropped back
-  on the ground by the player
+- Ground items are seen by the players around them but taken by their owner only
 - NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
   warp**; other gameplay actions such as shops and quest mutation are not executed yet
 - **Field props stream and warp gates work**: 203 of 3 189 props teleport. Not modelled: `use_count`,
@@ -1620,6 +1628,20 @@ Règle tenue par `GameRequestPackets` / `GameClient.HandleRequest` : **lire et b
 sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce n'est **pas** un
 `ResultCode`. Liste blanche et réponse restent des politiques ouvertes.
 
+### Chat et régénération
+
+- **Chat** (`GameClient.HandleChatRequest`, règles de NGemity `WorldSession::onChatRequest`) : normal et
+  cri (`TM_SC_CHAT_LOCAL` 21) vers l'émetteur et les pairs en vue ; global (4) à tous ; groupe (0x0A) et
+  guilde (0x0B) aux joueurs de même `PartyId`/`GuildId` ; **chuchotement (3)** : la cible est lue
+  **jusqu'au premier NUL dans ses 21 octets** (`request_id` suit, un octet non nul s'ajoutait au nom), la
+  ligne part vers elle seule et l'émetteur reçoit `TS_SC_RESULT(20, Success | NotExist)`, **jamais d'écho**.
+- **Régénération** (`PlayerRegenerationService`, démarré par `Application`) : toutes les 3 s,
+  `(max × pourcentage / 100 + points) × 3 / 60`, doublé assis, au moins 1, rien pour un mort — la formule
+  de `Unit::regenHPMP` (`et / 6000` sur un pas de 300 ticks). `TS_SC_REGEN_HPMP` (516, **27 octets** :
+  handle, `hp_regen`, `mp_regen`, `hp`, `mp`, tous `int32` à Epic 7.3) part au joueur et à ses
+  observateurs, comme la référence diffuse à la région. Le cumul « 3 % ou plein » de NGemity n'est pas
+  repris : une trame par pas qui change quelque chose.
+
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
 - **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`
@@ -1709,7 +1731,18 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   Ne jamais l'utiliser comme masque binaire sans arbitrage.
 - Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
   (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
-- Les effets de l'objet (`base_type` / `opt_type`) ne sont pas encore appliqués.
+- **Effets appliqués** (`ItemUseService.ApplyEffects`, après le résultat) : `IncHp`/`IncMp` (1/2, valeur
+  plate), `IncHpPercent`/`IncMpPercent` (101/102, `var1` est un **ratio** : 0,10 = 10 %), `AddState` (6,
+  `state_id`/`state_level`/`state_time` en secondes), et `Skill` (5) : une compétence de récupération
+  `AddHpByItem`/`AddMpByItem` (509/510, montant = `var3`) rend PV/PM, sinon `ISkillCastService.ApplyItemSkill`
+  lance un buff ou un soin sans garde d'apprentissage. `DevConsole/item-use.73.json`
+  (`tools/export_item_use_catalog.py`, 1 788 consommables Epic 7) recouvre les champs de la base et porte
+  ces compétences de récupération.
+- **Délai de réutilisation** : par `cool_time_group` **1 à 40 seulement**, `cool_time × 100` ticks, comme
+  NGemity (`Player.cpp:2091-2092`, `2165-2166`) ; un groupe 0 n'arme aucun délai (18 objets Epic 7 ont un
+  `cool_time` sans groupe : un délai que le client ne peut pas afficher refuserait une utilisation qu'il
+  montre prête). Refus = `CoolTime`. `TM_SC_ITEM_COOL_TIME` (217, **40 × `uint32` de temps restant**,
+  167 octets, groupe `g` à l'indice `g − 1`) part à chaque armement et à l'entrée en jeu.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 
 ### Socle artisanat et enchantement — `TM_CS_MIX` 256, `TM_CS_SOULSTONE_CRAFT` 260, `TM_CS_REPAIR_SOULSTONE` 262, `TM_CS_TRANSMIT_ETHEREAL_DURABILITY` 263 / `…_TO_EQUIPMENT` 264
@@ -2118,9 +2151,8 @@ cellule inconnue) et mérite une carte dédiée.
   aucun refus n'est inventé sur la valeur.
 - La boucle de réception ne garantit que `Length`/`Checksum` : la garde de taille (11 octets) est
   dans le handler, et elle répond par un `Warning` seul.
-- Portée : Navislamia n'a **aucune** visibilité joueur↔joueur (`TS_SC_ENTER_PLAYER` n'est envoyé
-  qu'au client qui entre, `GameActions.cs:180`) : n'émettre que vers l'acteur tant qu'elle n'existe
-  pas.
+- Portée : la 1201 part vers l'acteur **et** ses observateurs (`SendToObservers(…, includeSelf: true)`),
+  depuis que les joueurs se voient.
 - Aucun traitement dans NGemity ni dans rzu (0 occurrence) : rien à porter. Ne pas confondre avec
   `CHAT_EMOTION` (0x5, type de chat reçu par la passerelle, `IrcClient.cpp:189`), qui n'est pas le
   véhicule de l'émotion.

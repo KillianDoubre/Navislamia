@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
@@ -11,10 +12,8 @@ using Serilog;
 namespace Navislamia.Game.Services;
 
 /// <summary>
-/// Handles <c>TM_CS_USE_ITEM</c> (253). The scope is the one the fiche fixes: read the frame,
-/// judge the item, consume one unit, answer. The effects of the item (base_type / opt_type) are not
-/// applied yet: they belong to the later milestones of the item system — except a pet cage
-/// (<c>SummonPet</c>), which calls its pet through <see cref="IPetSummonService"/>.
+/// Handles <c>TM_CS_USE_ITEM</c> (253): checks the resource and cooldown, consumes one unit,
+/// answers the request, then applies supported instant effects. Pet cages use the pet service.
 /// </summary>
 public class ItemUseService : IItemUseService
 {
@@ -24,16 +23,37 @@ public class ItemUseService : IItemUseService
     private readonly ICharacterService _characterService;
     private readonly IItemUseCatalog _catalog;
     private readonly IPetSummonService _petSummon;
+    private readonly ISkillCastService _states;
+    private readonly IStatService _stats;
 
     public ItemUseService(ICharacterService characterService, IItemUseCatalog catalog,
-        IPetSummonService petSummon)
+        IPetSummonService petSummon, ISkillCastService states, IStatService stats)
     {
         _characterService = characterService;
         _catalog = catalog;
         _petSummon = petSummon;
+        _states = states;
+        _stats = stats;
     }
 
+    /// <summary>The cool-time groups <c>TS_SC_ITEM_COOL_TIME</c> carries at Epic 7.3 (<c>&gt;= EPIC_6_2</c>).</summary>
+    private const int MaxCoolTimeGroup = 40;
+
     public async Task UseAsync(GameClient client, GameActionPackets.UseItemRequest request)
+    {
+        var info = client.ConnectionInfo;
+        await info.ItemUseLock.WaitAsync();
+        try
+        {
+            await UseLockedAsync(client, request);
+        }
+        finally
+        {
+            info.ItemUseLock.Release();
+        }
+    }
+
+    private async Task UseLockedAsync(GameClient client, GameActionPackets.UseItemRequest request)
     {
         var info = client.ConnectionInfo;
         var value = unchecked((int)request.ItemHandle);
@@ -69,6 +89,20 @@ public class ItemUseService : IItemUseService
                 client.SendResult(UseItemRequestId, (ushort)gate, value);
                 return;
             }
+        }
+
+        // The cool-down is per group and only for groups 1..40, the 40 slots of TS_SC_ITEM_COOL_TIME (217):
+        // NGemity Player::IsUseableItem / UseItem (Player.cpp:2091-2092, 2165-2166) ignore cool_time when
+        // cool_time_group is 0. A per-item delay the client cannot display would refuse a use it shows ready.
+        var hasFields = _catalog.TryGetUseFields((int)item.ItemResourceId, out var fields);
+        var grouped = hasFields && fields.CoolTimeGroup is >= 1 and <= MaxCoolTimeGroup;
+        var cooldownKey = grouped ? -fields.CoolTimeGroup : 0;
+        var now = ServerClock.Now;
+        if (grouped && info.ItemCooldowns.TryGetValue(cooldownKey, out var readyAt)
+            && unchecked((int)(now - readyAt)) < 0)
+        {
+            client.SendResult(UseItemRequestId, (ushort)ResultCode.CoolTime, value);
+            return;
         }
 
         // A pet rename item (effect RenamePet) needs a pet out; refused before anything is consumed.
@@ -114,6 +148,15 @@ public class ItemUseService : IItemUseService
         // acknowledgement, then the use result echoing the item and target handles of the request.
         client.SendResult(UseItemRequestId, (ushort)ResultCode.Success, value);
         client.Connection.Send(GameCharacterPackets.BuildUseItemResult(request.ItemHandle, request.TargetHandle));
+        if (hasFields)
+        {
+            if (grouped && fields.CoolTime > 0)
+            {
+                info.ItemCooldowns[cooldownKey] = unchecked(now + ServerClock.FromSeconds(fields.CoolTime));
+                client.Connection.Send(GameCharacterPackets.BuildItemCoolTime(info.ItemCooldowns, now));
+            }
+            ApplyEffects(client, fields);
+        }
         _logger.Debug("{clientTag} used item {resourceId} (handle {itemHandle}, target {targetHandle})",
             client.ClientTag, item.ItemResourceId, request.ItemHandle, request.TargetHandle);
 
@@ -128,5 +171,78 @@ public class ItemUseService : IItemUseService
         {
             _petSummon.OfferRename(client);
         }
+    }
+
+    private void ApplyEffects(GameClient client,
+        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
+    {
+        ApplySlots(client, fields.BaseTypes, fields.BaseVar1, fields.BaseVar2, fields);
+        ApplySlots(client, fields.OptTypes, fields.OptVar1, fields.OptVar2, fields);
+    }
+
+    private void ApplySlots(GameClient client, short[] types, decimal[] values, decimal[] levels,
+        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
+    {
+        if (types is null || values is null) return;
+        var info = client.ConnectionInfo;
+        for (var i = 0; i < Math.Min(types.Length, values.Length); i++)
+        {
+            var amount = (int)values[i];
+            switch ((ItemEffectInstant)types[i])
+            {
+                case ItemEffectInstant.IncHp:
+                case ItemEffectInstant.IncHpPercent:
+                    if (info.CharacterHp <= 0) break;
+                    var maxHp = Math.Max(1, (int)_stats.Compute(info).Total.MaxHp);
+                    var hpAdd = (ItemEffectInstant)types[i] == ItemEffectInstant.IncHpPercent
+                        ? (int)(maxHp * values[i]) : amount;
+                    info.CharacterHp = Math.Min(maxHp, Math.Max(0, info.CharacterHp + hpAdd));
+                    client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+                    break;
+                case ItemEffectInstant.IncMp:
+                case ItemEffectInstant.IncMpPercent:
+                    var maxMp = Math.Max(0, (int)_stats.Compute(info).Total.MaxMp);
+                    var mpAdd = (ItemEffectInstant)types[i] == ItemEffectInstant.IncMpPercent
+                        ? (int)(maxMp * values[i]) : amount;
+                    info.CharacterMp = Math.Min(maxMp, Math.Max(0, info.CharacterMp + mpAdd));
+                    client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", info.CharacterMp));
+                    break;
+                case ItemEffectInstant.AddState when fields.StateId is > 0 && fields.StateTime > 0:
+                    _states.ApplyState(client, (int)fields.StateId.Value, fields.StateLevel,
+                        ServerClock.FromSeconds(fields.StateTime));
+                    break;
+                case ItemEffectInstant.Skill when amount > 0:
+                    if (!ApplyRecoverySkill(client, fields, amount))
+                        _states.ApplyItemSkill(client, amount,
+                            levels is not null && i < levels.Length ? (int)levels[i] : 1);
+                    break;
+            }
+        }
+    }
+
+    private bool ApplyRecoverySkill(GameClient client,
+        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields, int skillId)
+    {
+        if (fields.RecoverySkills is null) return false;
+        foreach (var skill in fields.RecoverySkills)
+        {
+            if (skill.SkillId != skillId) continue;
+            var info = client.ConnectionInfo;
+            if (info.CharacterHp <= 0) return true;
+            if (skill.EffectType == (int)SkillEffectType.AddHpByItem)
+            {
+                var max = Math.Max(1, (int)_stats.Compute(info).Total.MaxHp);
+                info.CharacterHp = Math.Min(max, info.CharacterHp + skill.Amount);
+                client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+            }
+            else if (skill.EffectType == (int)SkillEffectType.AddMpByItem)
+            {
+                var max = Math.Max(0, (int)_stats.Compute(info).Total.MaxMp);
+                info.CharacterMp = Math.Min(max, info.CharacterMp + skill.Amount);
+                client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", info.CharacterMp));
+            }
+            return true;
+        }
+        return false;
     }
 }

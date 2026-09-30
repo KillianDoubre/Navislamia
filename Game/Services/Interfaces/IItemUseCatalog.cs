@@ -15,6 +15,8 @@ public interface IItemUseCatalog
     /// </summary>
     bool TryGetLevels(int itemResourceId, out ItemUseLevels levels);
 
+    bool TryGetUseFields(int itemResourceId, out Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields);
+
     /// <summary>Whether the item carries the <c>RenamePet</c> use effect (120): it opens the pet name box.</summary>
     bool RenamesPet(int itemResourceId);
 

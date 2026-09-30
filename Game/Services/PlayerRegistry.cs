@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using Navislamia.Game.Network.Clients;
 
 namespace Navislamia.Game.Services;
@@ -21,6 +22,9 @@ public sealed class PlayerRegistry
     private readonly ConcurrentDictionary<uint, GameClient> _clients = new();
 
     public int Count => _clients.Count;
+
+    public System.Collections.Generic.IReadOnlyCollection<GameClient> Clients =>
+        _clients.Values.ToArray();
 
     /// <summary>
     /// Binds <paramref name="handle"/> to <paramref name="client"/>. Returns false when the handle was

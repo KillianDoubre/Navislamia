@@ -11,6 +11,19 @@ namespace Tests.Game;
 public class GameCharacterPacketsTests
 {
     [Test]
+    public void BuildItemCoolTime_WritesFortyRemainingGroupTimes()
+    {
+        var packet = GameCharacterPackets.BuildItemCoolTime(
+            new Dictionary<int, uint> { [-1] = 150, [-2] = 90, [-40] = 230 }, 100);
+
+        packet.Length.Should().Be(167);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2))
+            .Should().Be((ushort)GamePackets.TM_SC_ITEM_COOL_TIME);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)).Should().Be(50);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(11, 4)).Should().Be(0);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(163, 4)).Should().Be(130);
+    }
+    [Test]
     public void ModelIds_UseTheClientCalibratedFaceThenHairOrder()
     {
         var character = new CharacterEntity { Models = new[] { 101, 205, 301, 401, 501 } };

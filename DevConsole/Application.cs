@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using Navislamia.Configuration.Options;
+using Navislamia.Game.Services;
 
 namespace DevConsole;
 
@@ -14,14 +15,17 @@ public class Application : IHostedService
 {
     private readonly IGameModule _gameModule;
     private readonly NetworkOptions _networkOptions;
+    private readonly PlayerRegenerationService _regeneration;
 
     private readonly ILogger<Application> _logger;
 
     public Application(IGameModule gameModule,
-        IOptions<NetworkOptions> networkOptions, ILogger<Application> logger)
+        IOptions<NetworkOptions> networkOptions, ILogger<Application> logger,
+        PlayerRegenerationService regeneration)
     {
         _gameModule = gameModule;
         _networkOptions = networkOptions.Value;
+        _regeneration = regeneration;
 
         _logger = logger;
     }
@@ -40,6 +44,7 @@ public class Application : IHostedService
             }
                 
             _gameModule.Start();
+            _regeneration.Start();
             _logger.LogInformation("Press {combination} to stop", "CTRL + C");
         }
         catch (Exception e)
@@ -53,6 +58,7 @@ public class Application : IHostedService
     {
         // To stuff here required to gracefully stop the server
         _logger.LogWarning("Stopping Navislamia");
+        _regeneration.Stop();
         return Task.CompletedTask;
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services;
@@ -25,10 +26,15 @@ public class ConnectionInfo
     public Dictionary<int, int> ActiveAuras { get; } = new();
 
     public Dictionary<int, uint> SkillCooldowns { get; } = new();
+    public SemaphoreSlim ItemUseLock { get; } = new(1, 1);
+    public Dictionary<int, uint> ItemCooldowns { get; } = new();
     public ushort NextStateHandle { get; set; }
     public string AccountName { get; set; }
     public List<string> CharacterList { get; set; } = new();
     public uint CharacterHandle { get; set; }
+    public byte[] WearFrame { get; set; }
+    public long? PartyId { get; set; }
+    public long? GuildId { get; set; }
     public uint TargetHandle { get; set; }
     public int CharacterHp { get; set; }
     public int CharacterMaxHp { get; set; }
@@ -244,6 +250,9 @@ public class ConnectionInfo
     /// in step.
     /// </summary>
     public Dictionary<long, uint> SpawnedPlayers { get; } = new();
+
+    public readonly object GroundItemVisibilityLock = new();
+    public HashSet<uint> SpawnedGroundItems { get; } = new();
 
     public readonly object PlayerVisibilityLock = new();
 
@@ -469,6 +478,11 @@ public class ConnectionInfo
         {
             SpawnedPlayers.Clear();
         }
+
+        lock (GroundItemVisibilityLock)
+        {
+            SpawnedGroundItems.Clear();
+        }
     }
 
     /// <summary>
@@ -487,6 +501,10 @@ public class ConnectionInfo
         CharacterHandle = 0;
         TargetHandle = 0;
         CharacterHp = 0;
+        WearFrame = null;
+        PartyId = null;
+        GuildId = null;
+        ItemCooldowns.Clear();
         CharacterMaxHp = 0;
         CharacterMp = 0;
         CharacterLevel = 0;

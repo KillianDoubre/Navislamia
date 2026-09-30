@@ -39,8 +39,8 @@ namespace Navislamia.Game.Services;
 /// </item>
 /// </list>
 /// <para>
-/// What is deliberately <b>not</b> done here: <c>TS_SC_WEAR_INFO</c> after an <c>ENTER</c> (§5.5), the
-/// <c>bIsStopMessage</c> flag of a region update (§7.5), and any validation of a walk (speed, points),
+/// What is deliberately <b>not</b> done here: the <c>bIsStopMessage</c> flag of a region update (§7.5),
+/// and any validation of a walk (speed, points),
 /// which the repository already bounds. The handle of an incoming <c>MOVE_REQUEST</c> is checked by
 /// <c>GameClient</c> before this service is reached (§7.7).
 /// </para>
@@ -146,6 +146,8 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
 
                 info.SpawnedPlayers[peer.Handle] = peer.Handle;
                 Send(client, BuildEnterFrame(peer, peerClient.ConnectionInfo));
+                if (peerClient.ConnectionInfo.WearFrame is { } peerWear)
+                    Send(client, peerWear);
             }
 
             foreach (var entry in info.SpawnedPlayers)
@@ -182,6 +184,8 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
 
                 peerInfo.SpawnedPlayers[mine.Handle] = mine.Handle;
                 Send(peerClient, BuildEnterFrame(mine, info));
+                if (info.WearFrame is { } mineWear)
+                    Send(peerClient, mineWear);
             }
         }
 

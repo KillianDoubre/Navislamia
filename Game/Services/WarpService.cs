@@ -21,10 +21,11 @@ public class WarpService : IWarpService
     private readonly ICombatService _combatService;
     private readonly IPetSummonService _petSummon;
     private readonly IPlayerVisibilityService _playerVisibility;
+    private readonly IGroundItemService _groundItems;
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
         IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
-        IPlayerVisibilityService playerVisibility)
+        IPlayerVisibilityService playerVisibility, IGroundItemService groundItems)
     {
         _petSummon = petSummon;
         _npcSpawnService = npcSpawnService;
@@ -32,6 +33,7 @@ public class WarpService : IWarpService
         _fieldPropService = fieldPropService;
         _combatService = combatService;
         _playerVisibility = playerVisibility;
+        _groundItems = groundItems;
     }
 
     public void Warp(GameClient client, float x, float y)
@@ -58,6 +60,7 @@ public class WarpService : IWarpService
             _npcSpawnService.Sync(client);
             _monsterSpawnService.Sync(client);
             _fieldPropService.Sync(client);
+            _groundItems.Sync(client);
 
             // The new place registers itself in the presence index and the pairs exchange their ENTER:
             // the players' side of the re-entry (docs/packet-specs/socle-visibilite-joueurs.md §5.3,
@@ -86,6 +89,7 @@ public class WarpService : IWarpService
         // The players' pass: the departure is announced to every observer, and the parting client is
         // told its peers are gone, exactly as the object sets below are emptied for it.
         _playerVisibility.LeaveWorld(client, notifyWalker: true);
+        _groundItems.LeaveWorld(client);
 
         LeaveAll(client, info.NpcVisibilityLock, info.SpawnedNpcs, info.SpawnedNpcIdsByHandle);
         LeaveAll(client, info.MonsterVisibilityLock, info.SpawnedMonsters);

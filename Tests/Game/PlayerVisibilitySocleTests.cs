@@ -44,6 +44,28 @@ public class PlayerVisibilitySocleTests
     }
 
     [Test]
+    public void Entry_SendsEachPeersWearAfterItsEnter()
+    {
+        var visibility = NewService();
+        var a = NewPlayer(HandleA, 0f, 0f);
+        var b = NewPlayer(HandleB, 100f, 0f);
+        var wearA = new byte[] { 1, 2, 3 };
+        var wearB = new byte[] { 4, 5, 6 };
+        StorageTestHarness.Session(a).WearFrame = wearA;
+        StorageTestHarness.Session(b).WearFrame = wearB;
+
+        visibility.EnterWorld(a);
+        visibility.EnterWorld(b);
+
+        SentOf(a).Should().HaveCount(2);
+        EnterFrameOf(SentOf(a)[0]).Should().Be(HandleB);
+        SentOf(a)[1].Should().BeSameAs(wearB);
+        SentOf(b).Should().HaveCount(2);
+        EnterFrameOf(SentOf(b)[0]).Should().Be(HandleA);
+        SentOf(b)[1].Should().BeSameAs(wearA);
+    }
+
+    [Test]
     public void Entry_OutOfTheWindow_ProducesNothingOnEitherSide()
     {
         var visibility = NewService();
@@ -318,7 +340,7 @@ public class PlayerVisibilitySocleTests
 
         var warp = new WarpService(A.Fake<INpcSpawnService>(), A.Fake<IMonsterSpawnService>(),
             A.Fake<IFieldPropService>(), A.Fake<ICombatService>(), A.Fake<IPetSummonService>(),
-            visibility);
+            visibility, A.Fake<IGroundItemService>());
 
         warp.Warp(a, 40000f, 40000f);
 

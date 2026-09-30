@@ -67,10 +67,15 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
-            .Select(item => new { item.Id, item.UseMinLevel, item.UseMaxLevel, item.ItemBaseType, item.OptTypes })
+            .Select(item => new { item.Id, item.UseMinLevel, item.UseMaxLevel, item.ItemBaseType,
+                item.CoolTime, item.CoolTimeGroup, item.BaseTypes, item.BaseVar1, item.BaseVar2,
+                item.OptTypes, item.OptVar1, item.OptVar2, item.StateId, item.StateLevel, item.StateTime })
             .AsEnumerable()
             .Select(item => new ItemUseFields((int)item.Id, item.UseMinLevel, item.UseMaxLevel, item.ItemBaseType,
-                item.OptTypes != null && Array.IndexOf(item.OptTypes, (short)ItemEffectInstant.RenamePet) >= 0))
+                item.OptTypes != null && Array.IndexOf(item.OptTypes, (short)ItemEffectInstant.RenamePet) >= 0,
+                item.CoolTime, item.CoolTimeGroup, item.BaseTypes, item.BaseVar1, item.OptTypes,
+                item.OptVar1, item.StateId, item.StateLevel, item.StateTime, item.BaseVar2,
+                item.OptVar2))
             .ToList();
     }
 

@@ -62,7 +62,7 @@ public class GameActions : IActions
     {
     }
 
-    private static readonly int[] DefaultSpawn = { 94454, 126040, 0 };
+    private static readonly int[] DefaultSpawn = { 153161, 80223, 0 };
 
     /// <summary>
     /// The action table takes <c>void</c> handlers, so each asynchronous one is an <c>async void</c> shell
@@ -112,6 +112,9 @@ public class GameActions : IActions
         var info = client.ConnectionInfo;
         _statService.Seed(info, character);
         info.CharacterHandle = (uint)character.Id;
+        info.WearFrame = GameCharacterPackets.BuildWearInfo((uint)character.Id, character);
+        info.PartyId = character.PartyId;
+        info.GuildId = character.GuildId;
         info.CharacterName = character.CharacterName;
         info.CharacterHp = hp;
         info.CharacterMaxHp = hp;
@@ -236,7 +239,7 @@ public class GameActions : IActions
 
         client.ConnectionInfo.SummonSlots = character.SummonSlotItemIds ?? Array.Empty<long>();
         client.Connection.Send(GameCharacterPackets.BuildEquipSummon(client.ConnectionInfo.SummonSlots));
-        client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, character));
+        client.Connection.Send(info.WearFrame);
         client.Connection.Send(GameCharacterPackets.BuildHideEquipInfo(handle, character.HideEquipFlag));
         client.Connection.Send(GameCharacterPackets.BuildSkinInfo(handle, character.SkinColor));
         client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(character.Gold, character.Chaos));
@@ -308,6 +311,8 @@ public class GameActions : IActions
         // ENTER through the visibility socle (docs/packet-specs/socle-visibilite-joueurs.md §5.3,
         // trigger 1).
         _networkService.PlayerVisibilityService.EnterWorld(client);
+        _networkService.GroundItemService.Sync(client);
+        client.Connection.Send(GameCharacterPackets.BuildItemCoolTime(info.ItemCooldowns, ServerClock.Now));
     }
 
     private void OnReport(GameClient client, IPacket packet)

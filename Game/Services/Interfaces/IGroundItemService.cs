@@ -5,6 +5,9 @@ namespace Navislamia.Game.Services;
 
 public interface IGroundItemService
 {
+    void Sync(GameClient client);
+    void LeaveWorld(GameClient client);
+
     void DropForMonster(GameClient killer, int monsterId, float x, float y, float z);
 
     /// <summary>

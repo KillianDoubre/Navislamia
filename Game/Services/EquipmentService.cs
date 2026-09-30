@@ -6,6 +6,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -20,13 +21,15 @@ public class EquipmentService : IEquipmentService
     private readonly ICharacterService _characterService;
     private readonly IStatService _statService;
     private readonly IItemWearCatalog _wearCatalog;
+    private readonly IPlayerVisibilityService _visibility;
 
     public EquipmentService(ICharacterService characterService, IStatService statService,
-        IItemWearCatalog wearCatalog)
+        IItemWearCatalog wearCatalog, IPlayerVisibilityService visibility)
     {
         _characterService = characterService;
         _statService = statService;
         _wearCatalog = wearCatalog;
+        _visibility = visibility;
     }
 
     public async Task EquipAsync(GameClient client, GameActionPackets.PutonItemRequest request)
@@ -54,7 +57,7 @@ public class EquipmentService : IEquipmentService
         var handle = info.CharacterHandle;
         SendStatInfo(client, info, handle, step.Character);
         client.SendResult(EquipRequestId, (ushort)ResultCode.Success, 0);
-        client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, step.Character));
+        PublishWear(client, step.Character);
     }
 
     /// <summary>
@@ -119,7 +122,7 @@ public class EquipmentService : IEquipmentService
         var handle = info.CharacterHandle;
         SendStatInfo(client, info, handle, character);
         client.SendResult(EquipSetRequestId, (ushort)ResultCode.Success, 0);
-        client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, character));
+        PublishWear(client, character);
     }
 
     public async Task UnequipAsync(GameClient client, GameActionPackets.PutoffItemRequest request)
@@ -150,7 +153,7 @@ public class EquipmentService : IEquipmentService
             SendItemWear(client, handle, item);
             SendStatInfo(client, info, handle, item.Character);
             client.SendResult(UnequipRequestId, (ushort)ResultCode.Success, 0);
-            client.Connection.Send(GameCharacterPackets.BuildWearInfo(handle, item.Character));
+            PublishWear(client, item.Character);
         }
         catch (Exception exception)
         {
@@ -232,8 +235,16 @@ public class EquipmentService : IEquipmentService
         var result = _statService.Compute(character);
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.Total, StatInfoType.Total));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)result.Total.MaxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)result.Total.MaxMp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_hp", (int)result.Total.MaxHp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_mp", (int)result.Total.MaxMp));
+    }
+
+    private void PublishWear(GameClient client, CharacterEntity character)
+    {
+        var info = client.ConnectionInfo;
+        var frame = GameCharacterPackets.BuildWearInfo(info.CharacterHandle, character);
+        info.WearFrame = frame;
+        _visibility.SendToObservers(client, frame, includeSelf: true);
     }
 
     private static void SendItemWear(GameClient client, uint targetHandle, ItemEntity item)

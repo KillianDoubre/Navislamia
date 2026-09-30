@@ -53,13 +53,14 @@ public class LevelingService : ILevelingService
         info.CharacterMp = maxMp;
 
         var handle = info.CharacterHandle;
-        client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(handle, newLevel, info.CharacterJobLevel));
+        // The reference broadcasts the new level to the region (NGemity Player.cpp:1459, BroadcastLevelMsg).
+        client.SendToSelfAndObservers(GameCharacterPackets.BuildLevelUpdate(handle, newLevel, info.CharacterJobLevel));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats, StatInfoType.Total));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", maxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "hp", maxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "mp", maxMp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_hp", maxHp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "hp", maxHp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "mp", maxMp));
     }
 
     public int MaxLevel => _cumulativeExp == null ? 0 : _maxLevel;

@@ -71,6 +71,44 @@ public class GameClient : Client
         SendMessage(message);
     }
 
+    /// <summary>A frame about this player for the player and every player who sees them.</summary>
+    public void SendToSelfAndObservers(byte[] frame)
+    {
+        _networkService.PlayerVisibilityService.SendToObservers(this, frame, includeSelf: true);
+    }
+
+    /// <summary>
+    /// Sends a vital <c>TS_SC_PROPERTY</c> (hp, mp, max_hp, max_mp) to the player, and the new vitals to the
+    /// players who see them as <c>TS_SC_HPMP</c> (509) — what the reference broadcasts for a unit's HP/MP
+    /// (NGemity <c>Messages::BroadcastHPMPMessage</c>); the property frame is the local player's own.
+    /// </summary>
+    public void SendVitalProperty(byte[] propertyFrame)
+    {
+        Connection.Send(propertyFrame);
+
+        var info = ConnectionInfo;
+        if (info.CharacterHandle == 0)
+        {
+            return;
+        }
+
+        var maxHp = info.CharacterMaxHp;
+        var maxMp = info.CharacterMp;
+        if (_networkService.StatService is { } stats)
+        {
+            var total = stats.Compute(info).Total;
+            if (total is not null)
+            {
+                maxHp = (int)total.MaxHp;
+                maxMp = (int)total.MaxMp;
+            }
+        }
+
+        _networkService.PlayerVisibilityService.SendToObservers(this, GameStatPackets.BuildHpMp(
+            info.CharacterHandle, 0, info.CharacterHp, Math.Max(maxHp, info.CharacterHp), 0, info.CharacterMp,
+            Math.Max(maxMp, info.CharacterMp)));
+    }
+
     public void SendGameTime()
     {
         var message = new Packet<TS_SC_GAME_TIME>((ushort)GamePackets.TM_SC_GAME_TIME,
@@ -769,6 +807,7 @@ public class GameClient : Client
         _networkService.NpcSpawnService.Sync(this);
         _networkService.MonsterSpawnService.Sync(this);
         _networkService.FieldPropService.Sync(this);
+        _networkService.GroundItemService.Sync(this);
     }
 
     private void HandleTargeting(byte[] buffer)
@@ -811,9 +850,8 @@ public class GameClient : Client
         // The emotion value is opaque: neither rzu nor NGemity validates a range and the client 7.3
         // resolves the animation and the local message itself, so it is echoed verbatim. No TS_SC_RESULT
         // is sent — nothing identifies an acknowledgement for 1202 and the 1201 alone plays the animation.
-        // Only the actor is served: no player-to-player visibility exists yet, so a broadcast would carry
-        // a handle the other clients do not know.
-        Connection.Send(GameCharacterPackets.BuildEmotion(ConnectionInfo.CharacterHandle, emotion));
+        _networkService.PlayerVisibilityService.SendToObservers(this,
+            GameCharacterPackets.BuildEmotion(ConnectionInfo.CharacterHandle, emotion), includeSelf: true);
         _logger.Debug("TM_CS_EMOTION ({id}) Length: {length} received from {clientTag}: emotion={emotion}",
             (ushort)GamePackets.TM_CS_EMOTION, buffer.Length, ClientTag, emotion);
     }
@@ -1030,12 +1068,25 @@ public class GameClient : Client
         SendResult((ushort)GamePackets.TM_CS_COMPETE_ANSWER, (ushort)GameCompetePackets.AnswerRefusalCode);
     }
 
+    /// <summary><c>szTarget</c> of <c>TS_CS_CHAT_REQUEST</c>: 21 bytes, then <c>request_id</c>.</summary>
+    private const int WhisperTargetSize = 21;
+
     private void HandleChatRequest(byte[] buffer)
     {
+        if (buffer.Length < 32)
+        {
+            return;
+        }
+
         var input = buffer.AsSpan(7);
         var count = input[22];
         var type = input[23];
-        var message = Encoding.ASCII.GetString(input.Slice(24, count));
+        if (count == 0 || input.Length < 24 + count)
+        {
+            return;
+        }
+
+        var message = Encoding.ASCII.GetString(input.Slice(24, count)).TrimEnd('\0');
 
         // A line starting with '/' is a GM command, never relayed as chat (NGemity's rule,
         // WorldSession::onChatRequest). The handler awaits the database for /item, so it is fired and not
@@ -1047,12 +1098,64 @@ public class GameClient : Client
             return;
         }
 
-        var isLocal = type is (byte)ChatType.Normal or (byte)ChatType.Yell;
-        var reply = isLocal
-            ? GameChatPackets.BuildChatLocal(ConnectionInfo.CharacterHandle, type, message)
-            : GameChatPackets.BuildChat(ConnectionInfo.CharacterName, type, message);
+        var info = ConnectionInfo;
+        if (info.CharacterHandle == 0 || string.IsNullOrEmpty(message))
+        {
+            return;
+        }
 
-        Connection.Send(reply);
+        if (type is (byte)ChatType.Normal or (byte)ChatType.Yell)
+        {
+            var reply = GameChatPackets.BuildChatLocal(info.CharacterHandle, type, message);
+            Connection.Send(reply);
+            foreach (var peer in _networkService.PlayerVisibilityService.Index.PeersInViewOf(info.CharacterHandle))
+            {
+                if (_networkService.PlayerVisibilityService.Registry.TryResolve(peer.Handle, out var recipient))
+                {
+                    recipient.Connection.Send(reply);
+                }
+            }
+            return;
+        }
+
+        var chat = GameChatPackets.BuildChat(info.CharacterName, type, message);
+        if (type == (byte)ChatType.Whisper)
+        {
+            // szTarget is 21 bytes and request_id follows it: the name ends at its first NUL, never at the
+            // end of a wider slice, or a non-zero request_id would be read as a last character.
+            var targetField = input.Slice(0, WhisperTargetSize);
+            var nul = targetField.IndexOf((byte)0);
+            var target = Encoding.ASCII.GetString(nul < 0 ? targetField : targetField.Slice(0, nul));
+
+            // NGemity WorldSession::onChatRequest: the line goes to the target alone and the sender gets a
+            // result on the chat request, Success or NotExist — the message is not echoed back to them.
+            foreach (var recipient in _networkService.PlayerVisibilityService.Registry.Clients)
+            {
+                if (string.Equals(recipient.ConnectionInfo.CharacterName, target,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    recipient.Connection.Send(chat);
+                    SendResult((ushort)GamePackets.TM_CS_CHAT_REQUEST, (ushort)ResultCode.Success);
+                    return;
+                }
+            }
+
+            SendResult((ushort)GamePackets.TM_CS_CHAT_REQUEST, (ushort)ResultCode.NotExist);
+            return;
+        }
+
+        foreach (var recipient in _networkService.PlayerVisibilityService.Registry.Clients)
+        {
+            var other = recipient.ConnectionInfo;
+            var deliver = type switch
+            {
+                (byte)ChatType.Global => true,
+                (byte)ChatType.Party => info.PartyId is not null && info.PartyId == other.PartyId,
+                (byte)ChatType.Guild => info.GuildId is not null && info.GuildId == other.GuildId,
+                _ => ReferenceEquals(recipient, this)
+            };
+            if (deliver) recipient.Connection.Send(chat);
+        }
     }
 
     private async void HandleSetProperty(byte[] buffer)

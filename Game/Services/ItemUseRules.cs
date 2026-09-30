@@ -6,9 +6,7 @@ namespace Navislamia.Game.Services;
 /// <summary>
 /// The level gate of an item use, ported from <c>Player::IsUseableItem</c> in NGemity
 /// (Chihiro/src/Entities/Player/Player.cpp:2088-2107): only the template's own use levels are
-/// judged. The cool-down and target level checks of the same function are out of scope, as is the
-/// movement check of <c>WorldSession::onUseItem</c>: the fiche excludes them and the repository
-/// keeps neither item cool-downs nor a movement state.
+/// judged here. The item service checks cooldowns separately.
 /// </summary>
 public static class ItemUseRules
 {

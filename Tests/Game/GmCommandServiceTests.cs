@@ -666,6 +666,13 @@ public class GmCommandServiceTests
         var connection = new StorageTestHarness.FrameConnection(frame);
         var client = StorageTestHarness.NewGameClient(connection, gmCommandService: commands);
 
+        var info = StorageTestHarness.Session(client);
+        info.CharacterHandle = 1;
+        info.CharacterName = "Freezeraid";
+        StorageTestHarness.Network(client).PlayerVisibilityService.Registry.Register(1, client);
+        StorageTestHarness.Network(client).PlayerVisibilityService.Index.Add(
+            new PlayerPresence(1, new PlayerAppearance(), 0, 100, 100, 0));
+
         client.OnDataReceived(frame.Length);
 
         A.CallTo(() => commands.HandleAsync(A<GameClient>._, A<string>._, A<IEnumerable<GameClient>>._))

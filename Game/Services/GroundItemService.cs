@@ -11,6 +11,7 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Rates;
+using Navislamia.Game.Services.Interfaces;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -27,16 +28,18 @@ public class GroundItemService : IGroundItemService
     private readonly ICharacterService _characterService;
     private readonly IItemGroupCatalog _itemGroups;
     private readonly IRateService _rates;
+    private readonly IPlayerVisibilityService _players;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
-        IItemGroupCatalog itemGroups, IRateService rates)
+        IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players)
     {
         _rates = rates;
         _catalog = catalog;
         _characterService = characterService;
         _itemGroups = itemGroups;
+        _players = players;
         _ = RunAsync();
     }
 
@@ -90,9 +93,8 @@ public class GroundItemService : IGroundItemService
 
             _items[item.Handle] = item;
 
-            var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
-            killer.Connection.Send(GameSpawnPackets.BuildEnterItem(item.Handle, item.X, item.Y, item.Z,
-                item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle));
+            ShowTo(killer, item);
+            ShowToNearby(item, killer);
         }
     }
 
@@ -146,9 +148,8 @@ public class GroundItemService : IGroundItemService
 
             _items[dropped.Handle] = dropped;
 
-            var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
-            client.Connection.Send(GameSpawnPackets.BuildEnterItem(dropped.Handle, dropped.X, dropped.Y,
-                dropped.Z, dropped.Layer, dropped.ItemCode, dropped.Count, dropTime, dropped.OwnerHandle));
+            ShowTo(client, dropped);
+            ShowToNearby(dropped, client);
             client.Connection.Send(GameCharacterPackets.BuildEraseItem(new[] { (itemHandle, removal.Removed) }));
             SendDropResult(client, itemHandle, true);
 
@@ -301,7 +302,86 @@ public class GroundItemService : IGroundItemService
     private void Remove(GroundItem item)
     {
         _items.TryRemove(item.Handle, out _);
-        item.Owner.Connection.Send(GameSpawnPackets.BuildLeave(item.Handle));
+        HideFrom(item.Owner, item.Handle);
+        foreach (var peer in _players.Registry.Clients)
+        {
+            if (!ReferenceEquals(peer, item.Owner)) HideFrom(peer, item.Handle);
+        }
+    }
+
+    public void Sync(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        foreach (var item in _items.Values)
+        {
+            if (Volatile.Read(ref item.TakenBy) != 0 || !InView(info, item)) continue;
+            ShowTo(client, item);
+        }
+
+        // What left the view is judged per item under the lock, never against a snapshot taken before it:
+        // a drop shown by another thread in between (ShowToNearby) would otherwise be sent a LEAVE at once.
+        // An item being taken stays: Remove hides it once the take succeeds, after the 210 that animates it.
+        lock (info.GroundItemVisibilityLock)
+        {
+            info.SpawnedGroundItems.RemoveWhere(handle =>
+            {
+                if (_items.TryGetValue(handle, out var item) && InView(info, item))
+                {
+                    return false;
+                }
+
+                client.Connection.Send(GameSpawnPackets.BuildLeave(handle));
+                return true;
+            });
+        }
+    }
+
+    public void LeaveWorld(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        lock (info.GroundItemVisibilityLock)
+        {
+            foreach (var handle in info.SpawnedGroundItems)
+                client.Connection.Send(GameSpawnPackets.BuildLeave(handle));
+            info.SpawnedGroundItems.Clear();
+        }
+    }
+
+    private void ShowToNearby(GroundItem item, GameClient owner)
+    {
+        foreach (var peer in _players.Registry.Clients)
+        {
+            if (!ReferenceEquals(peer, owner) && InView(peer.ConnectionInfo, item)) ShowTo(peer, item);
+        }
+    }
+
+    private static bool InView(ConnectionInfo info, GroundItem item)
+    {
+        if (info.CharacterHandle == 0 || info.Layer != item.Layer) return false;
+        var dx = info.X - item.X;
+        var dy = info.Y - item.Y;
+        return dx * dx + dy * dy <= WorldVisibility.ViewRange * WorldVisibility.ViewRange;
+    }
+
+    private static void ShowTo(GameClient client, GroundItem item)
+    {
+        var info = client.ConnectionInfo;
+        lock (info.GroundItemVisibilityLock)
+        {
+            if (!info.SpawnedGroundItems.Add(item.Handle)) return;
+            var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
+            client.Connection.Send(GameSpawnPackets.BuildEnterItem(item.Handle, item.X, item.Y, item.Z,
+                item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle));
+        }
+    }
+
+    private static void HideFrom(GameClient client, uint handle)
+    {
+        var info = client.ConnectionInfo;
+        lock (info.GroundItemVisibilityLock)
+        {
+            if (info.SpawnedGroundItems.Remove(handle)) client.Connection.Send(GameSpawnPackets.BuildLeave(handle));
+        }
     }
 
     private async Task RunAsync()

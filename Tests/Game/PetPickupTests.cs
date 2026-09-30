@@ -29,7 +29,7 @@ public class PetPickupTests
         _characters = A.Fake<ICharacterService>();
         var rates = new RateService(new StaticOptionsMonitor<RatesOptions>(new RatesOptions { EventStatePath = "" }));
         _service = new GroundItemService(A.Fake<IMonsterDropCatalog>(), _characters, A.Fake<IItemGroupCatalog>(),
-            rates);
+            rates, A.Fake<Navislamia.Game.Services.Interfaces.IPlayerVisibilityService>());
     }
 
     private (GameClient Client, StorageTestHarness.FrameConnection Connection) NewMaster(string name)

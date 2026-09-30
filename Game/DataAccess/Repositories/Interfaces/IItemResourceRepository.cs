@@ -34,7 +34,12 @@ public readonly record struct ItemMatchFields(int Id, ItemGroup Group, ItemType 
 public readonly record struct ItemSellFields(int Id, int Rank, int Price);
 
 public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType,
-    bool RenamesPet = false);
+    bool RenamesPet = false, int CoolTime = 0, short CoolTimeGroup = 0,
+    short[] BaseTypes = null, decimal[] BaseVar1 = null, short[] OptTypes = null,
+    decimal[] OptVar1 = null, long? StateId = null, int StateLevel = 0, int StateTime = 0,
+    decimal[] BaseVar2 = null, decimal[] OptVar2 = null, ItemRecoverySkill[] RecoverySkills = null);
+
+public readonly record struct ItemRecoverySkill(int SkillId, int EffectType, int Amount);
 
 /// <summary>
 /// The two resource fields that decide whether an item can be offered as the sacrifice of

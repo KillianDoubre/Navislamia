@@ -21,6 +21,22 @@ public static class GameCharacterPackets
     private const int InventoryItemSize = ItemFixedInfoWriter.Size + 10;
     private const int MaxInventoryItemsPerPacket = 45;
 
+    public static byte[] BuildItemCoolTime(IReadOnlyDictionary<int, uint> cooldowns, uint now)
+    {
+        // Epic 7.3 carries 40 uint32 remaining times. Group numbers are one-based in ItemResource.
+        var packet = CreatePacket(GamePackets.TM_SC_ITEM_COOL_TIME, HeaderSize + 40 * 4);
+        for (var group = 1; group <= 40; group++)
+        {
+            if (!cooldowns.TryGetValue(-group, out var readyAt)) continue;
+            var remaining = unchecked((int)(readyAt - now));
+            if (remaining > 0)
+                BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize + (group - 1) * 4, 4),
+                    (uint)remaining);
+        }
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static uint GetHairId(CharacterEntity character)
     {
         return character.Models is { Length: > 1 } ? (uint)character.Models[1] : 0;

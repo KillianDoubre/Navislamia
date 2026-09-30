@@ -430,6 +430,26 @@ public class SkillCastService : ISkillCastService
         SendStatRefresh(client, client.ConnectionInfo);
     }
 
+    public bool ApplyItemSkill(GameClient client, int skillId, int skillLevel)
+    {
+        if (client.ConnectionInfo.CharacterHp <= 0 || !_catalog.TryGet(skillId, out var fields))
+            return false;
+
+        var level = Math.Max(1, skillLevel);
+        switch (fields.Kind)
+        {
+            case SkillCastKind.Buff:
+                ApplyBuff(client, fields, level, ServerClock.Now);
+                SendStatRefresh(client, client.ConnectionInfo);
+                return true;
+            case SkillCastKind.Heal:
+                ApplyHeal(client, fields, level);
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public bool RemoveState(GameClient client, int stateId)
     {
         var info = client.ConnectionInfo;
@@ -525,7 +545,7 @@ public class SkillCastService : ISkillCastService
         var healed = Math.Min(heal, Math.Max(0, maxHp - info.CharacterHp));
         info.CharacterHp += healed;
 
-        client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
         return new SkillHit(SkillHitType.AddHp, info.CharacterHandle, info.CharacterHp, healed);
     }
 

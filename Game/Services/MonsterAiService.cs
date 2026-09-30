@@ -216,7 +216,7 @@ public class MonsterAiService
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
             AttackSpeedMs, AttackSpeedMs, GameAttackPackets.ActionAttack, damage, info.CharacterHp,
             _worldState.GetHp(instanceId)));
-        client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
 
         _worldState.SetNextAttack(instanceId, unchecked(now + AttackIntervalTicks));
     }

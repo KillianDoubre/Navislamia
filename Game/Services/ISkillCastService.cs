@@ -24,6 +24,9 @@ public interface ISkillCastService
     /// </summary>
     void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks);
 
+    /// <summary>Applies a self buff or heal carried by an item effect without a learned-skill gate.</summary>
+    bool ApplyItemSkill(GameClient client, int skillId, int skillLevel);
+
     /// <summary>
     /// Takes the active instance of <paramref name="stateId"/> off the caster: <c>TS_SC_STATE</c> removal
     /// and the stat refresh, exactly as the expiry tick does. False when no such state is active.

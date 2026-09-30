@@ -98,8 +98,8 @@ public class ResurrectionService : IResurrectionService
             info.Layer = info.RespawnLayer;
             _warpService.Warp(client, info.RespawnX, info.RespawnY);
 
-            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
-            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
 
             // Which of these three frames closes the client's death window is not established
             // (§15.2): the recommendation is to send the result, the warp and the vitals together.
@@ -149,8 +149,8 @@ public class ResurrectionService : IResurrectionService
             info.CharacterHp = hp;
             info.CharacterMp = mp;
 
-            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
-            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
             client.SendResult(requestId, (ushort)ResultCode.Success);
 
             _logger.Debug("{clientTag} resurrected in place by item {itemId} (skill {skillId} level {level}) with {hp} hp",
@@ -204,8 +204,8 @@ public class ResurrectionService : IResurrectionService
             // stat refresh reach the client before the vitals.
             _skillCastService.RemoveState(client, state.StateId);
 
-            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
-            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
             client.SendResult(requestId, (ushort)ResultCode.Success);
 
             _logger.Debug("{clientTag} resurrected in place by state {stateId} level {level} with {hp} hp",

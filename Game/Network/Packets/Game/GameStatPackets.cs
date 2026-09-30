@@ -16,6 +16,45 @@ public static class GameStatPackets
 {
     private const int HeaderSize = 7;
 
+    /// <summary>
+    /// <c>TS_SC_HPMP</c> (509): a unit's vitals as the reference broadcasts them to the players around it
+    /// (NGemity <c>Messages::BroadcastHPMPMessage</c>). 36 bytes at Epic 7.3: handle, add_hp, hp, max_hp,
+    /// add_mp, mp, max_mp (all int32 from EPIC_4_1) and need_to_display.
+    /// </summary>
+    public static byte[] BuildHpMp(uint handle, int addHp, int hp, int maxHp, int addMp, int mp, int maxMp,
+        bool display = false)
+    {
+        var packet = new byte[HeaderSize + 29];
+        var span = packet.AsSpan();
+        BinaryPrimitives.WriteUInt32LittleEndian(span, (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(4, 2), (ushort)GamePackets.TM_SC_HPMP);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(7, 4), handle);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(11, 4), addHp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(15, 4), hp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(19, 4), maxHp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(23, 4), addMp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(27, 4), mp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(31, 4), maxMp);
+        packet[35] = display ? (byte)1 : (byte)0;
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    public static byte[] BuildRegenHpMp(uint handle, int hpGain, int mpGain, int hp, int mp)
+    {
+        var packet = new byte[HeaderSize + 20];
+        var span = packet.AsSpan();
+        BinaryPrimitives.WriteUInt32LittleEndian(span, (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(4, 2), (ushort)GamePackets.TM_SC_REGEN_HPMP);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(7, 4), handle);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(11, 4), hpGain);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(15, 4), mpGain);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(19, 4), hp);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(23, 4), mp);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildStatInfo(uint handle, StatBlock stats, StatInfoType type)
     {
         const int baseCount = 8;

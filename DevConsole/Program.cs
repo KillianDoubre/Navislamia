@@ -322,7 +322,9 @@ public class Program
         services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<ICommercialStorageService, CommercialStorageService>();
-        services.AddSingleton<IItemUseCatalog, ItemUseCatalog>();
+        services.AddSingleton<IItemUseCatalog>(provider => new ItemUseCatalog(
+            provider.GetRequiredService<IItemResourceRepository>(),
+            Path.Combine(System.AppContext.BaseDirectory, "item-use.73.json")));
         services.AddSingleton<IItemWearCatalog, ItemWearCatalog>();
         services.AddSingleton<IEtherealSacrificeCatalog, EtherealSacrificeCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
@@ -345,6 +347,7 @@ public class Program
         services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
         services.AddSingleton<IBoothWatchService, BoothWatchService>();
         services.AddSingleton<IPlayerVisibilityService, PlayerVisibilityService>();
+        services.AddSingleton<PlayerRegenerationService>();
         services.AddSingleton<IBoothTradeService, BoothTradeService>();
         services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();
         services.AddSingleton<ISoulstoneCraftService, SoulstoneCraftService>();

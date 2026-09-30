@@ -708,7 +708,7 @@ public class ResurrectionPacketTests
             WarpService = new WarpService(A.Fake<INpcSpawnService>(), A.Fake<IMonsterSpawnService>(),
                 A.Fake<IFieldPropService>(), A.Fake<ICombatService>(),
                 A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
-                A.Fake<IPlayerVisibilityService>());
+                A.Fake<IPlayerVisibilityService>(), A.Fake<IGroundItemService>());
         }
     }
 
