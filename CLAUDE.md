@@ -1255,8 +1255,9 @@ Trois points à ne pas redécouvrir :
 Les trois identifiants serveur → client (`1301`, `1303`, `1305`) sont dans `GamePackets` et ont un
 bras `log + continue` dans `GameClient`, comme `TM_SC_REGION_ACK` : le client ne les envoie jamais,
 mais un membre d'enum sans branche atteindrait le `throw "Unknown Packet Type"`. Les sept paquets
-client → serveur de la famille (`1300`, `1302`, `1304`, `1306`, `1308`, `1309`, `1310`) restent à
-implémenter, chacun avec son bras de dispatch.
+client → serveur de la famille (`1300`, `1302`, `1304`, `1306`, `1308`, `1309`, `1310`) sont déclarés,
+lus et bornés (une fiche chacun) : 1300/1302/1304 répondent une page vide (rien n'écrit d'enchère),
+1306/1308/1309/1310 sont journalisés sans réponse. Aucune mécanique d'enchère n'existe.
 
 L'hôtel des ventes n'est **pas** porté depuis NGemity : il n'y implémente aucun handler, aucune
 ressource, aucune mécanique (`SecRouteAuction = 130107` y est une constante orpheline). La
@@ -2060,7 +2061,8 @@ un delta** : publier un seul bit éteint tous les autres. Il ne se compose donc 
 `GameActions.OnLogin`, remis à `false` par `ClearCharacterSession`, réécrit par
 `CharacterService.SaveProgressAsync` (d'où le paramètre `bool pkMode`). Aucune migration : la
 colonne existe depuis `Version0001_TheBeginning`. Le protocole n'a **aucun paquet serveur PK** —
-`800` et `801` n'existent pas encore côté serveur, donc rien ne bascule `PkMode` en jeu aujourd'hui.
+`800` et `801` (trames d'en-tête seul) basculent `PkMode` et republient le masque par
+`GameClient.SendActorStatus`, qui passe par `ForPlayer(info)` et part aussi aux observateurs.
 
 Les tests d'offsets des deux trames sont dans `Tests/Game/PkModeStatusTests.cs`.
 
@@ -2159,7 +2161,8 @@ en 6 paquets (S1…S6) : §5.4 de la fiche.
 11 / 7 / 7 / 23 sont dans `Game/Network/Packets/Game/GameInstanceGamePackets.cs` et verrouillées
 par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seulement** et porte
 `CharacterEntity.HuntaholicPoint` ; les trois champs de score sans source en 7.3 partent à zéro
-(placeholder, §9.4 de la fiche). Les lots S2…S6 (famille HuntaHolic 4000-4012) restent à faire.
+(placeholder, §9.4 de la fiche). De la famille HuntaHolic, 4000, 4003, 4004, 4005, 4008 (fiche seule)
+et 4011 sont lus, bornés et journalisés sans réponse (`GameHuntaholicPackets`) ; le lobby (4001/4002) reste à faire.
 
 ### Paquets 240 / 250 — marché NPC (`TM_SC_NPC_TRADE_INFO` / `TM_SC_MARKET`)
 
@@ -2173,8 +2176,9 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
 - Les deux ids sont **strictement serveur → client**. Comme `TM_SC_REGION_ACK` (11), ils ont dans
   `GameClient.cs:803-811` un bras « anomalie » qui journalise en `Warning` et fait `continue` : ne
   jamais les laisser atteindre `_ => throw new Exception("Unknown Packet Type")`.
-- **240 n'a aucun producteur** hors des gestionnaires de `TM_CS_BUY_ITEM` (251) / `TM_CS_SELL_ITEM`
-  (252), restés hors périmètre ; `GameTradePackets.BuildNpcTradeInfo` est livré pour eux.
+- **240 est produit par l'achat (251, `MarketTradeService`) et la vente (252, `MarketSellService`)**.
+  L'or passe par `TryDebitGold`/`AddGold` ; l'achat envoie la pile achetée en 207 avant le résultat.
+  La vente ne vérifie pas qu'un marchand est ouvert (fiche 252).
 - Le déclencheur des marchands est le littéral **tronqué** `open_market(` (176 entrées de
   `DevConsole/npc-dialogs.73.json`) : `PropScript.Parse` l'accepte **avec ou sans** parenthèse
   fermante et rend `PropActionKind.OpenMarket` avec le nom du marché, vide dans la forme tronquée.
