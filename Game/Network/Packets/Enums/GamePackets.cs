@@ -146,6 +146,7 @@ public enum GamePackets : ushort
     TM_SC_QUEST_STATUS = 601,
     TM_CS_DROP_QUEST = 603,
     TM_CS_QUEST_INFO = 604,
+    TM_CS_END_QUEST = 605,
     TM_CS_CHANGE_LOCATION = 900,
     TM_SC_WEATHER_INFO = 902,
     TM_CS_GET_WEATHER_INFO = 903,

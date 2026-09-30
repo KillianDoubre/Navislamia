@@ -1041,6 +1041,31 @@ public class GameClient : Client
     }
 
     /// <summary>
+    /// <c>TM_CS_END_QUEST</c> (605): the confirmation button of the quest window. A frame of another length
+    /// than 12 is refused with <c>InvalidArgument</c> like a malformed 603; everything else is judged by the
+    /// quest service. See docs/packet-specs/605-end-quest.md.
+    /// </summary>
+    private async Task HandleEndQuestAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadEndQuest(packet, out var request))
+        {
+            _logger.Warning("Malformed end quest request received from {clientTag} (Length: {length})",
+                ClientTag, packet.Length);
+            SendResult((ushort)GamePackets.TM_CS_END_QUEST, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.QuestService.EndQuestAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process end quest for {clientTag}", ClientTag);
+        }
+    }
+
+    /// <summary>
     /// <c>TM_CS_START_BOOTH</c> (700). The frame is read and judged before anything is stored, and a
     /// refusal is answered with <c>TS_SC_RESULT</c> carrying the request id, because the family has no
     /// acknowledgement packet at all: <c>703</c>, <c>708</c>, <c>709</c> and <c>710</c> are the only
@@ -1776,6 +1801,15 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_QUEST_INFO)
             {
                 HandleQuestInfo(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_END_QUEST (605): the quest window's confirmation. Read, judged against the character's
+            // quests and answered with a TS_SC_RESULT tagged 605; the database read is awaited off the
+            // receive loop. See docs/packet-specs/605-end-quest.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_END_QUEST)
+            {
+                _ = HandleEndQuestAsync(msgBuffer);
                 continue;
             }
 

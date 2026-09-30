@@ -17,6 +17,7 @@ namespace Navislamia.Game.Services;
 public class QuestService : IQuestService
 {
     private const ushort DropQuestRequestId = (ushort)GamePackets.TM_CS_DROP_QUEST;
+    private const ushort EndQuestRequestId = (ushort)GamePackets.TM_CS_END_QUEST;
 
     private readonly ILogger _logger = Log.ForContext<QuestService>();
     private readonly ICharacterService _characterService;
@@ -74,5 +75,43 @@ public class QuestService : IQuestService
             // The result carries no list, and 600 is the only frame the client rebuilds its state from.
             await SendQuestListAsync(client);
         }
+    }
+
+    public async Task EndQuestAsync(GameClient client, GameActionPackets.EndQuestRequest request)
+    {
+        var verdict = QuestEndRules.CheckRequest(request.Code, request.OptionalReward);
+        if (verdict != ResultCode.Success)
+        {
+            client.SendResult(EndQuestRequestId, (ushort)verdict);
+            return;
+        }
+
+        CharacterQuestEntity[] quests;
+        try
+        {
+            quests = await _characterService.GetQuestsAsync(client.ConnectionInfo.CharacterName);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not read the quests of {clientTag} to end quest {code}", client.ClientTag,
+                request.Code);
+            client.SendResult(EndQuestRequestId, (ushort)ResultCode.DBError);
+            return;
+        }
+
+        if (Array.FindIndex(quests ?? Array.Empty<CharacterQuestEntity>(), quest => quest.Code == request.Code) < 0)
+        {
+            // NGemity's verdict for a quest absent from the state (socle-cycle-quete.md §5.4).
+            client.SendResult(EndQuestRequestId, (ushort)ResultCode.NotActable);
+            return;
+        }
+
+        // The quest is carried, but finishing it — judging it finishable, the rewards, the collected items,
+        // the finished mark — is lot (b4), which needs the quest catalogue and the progression. Nothing is
+        // done and the answer stays a refusal, so the client never shows a reward it did not receive.
+        _logger.Warning(
+            "TM_CS_END_QUEST from {clientTag} for carried quest {code} (optional reward {reward}): ending a quest is not implemented, refused",
+            client.ClientTag, request.Code, request.OptionalReward);
+        client.SendResult(EndQuestRequestId, (ushort)ResultCode.NotActable);
     }
 }
