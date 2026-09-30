@@ -241,6 +241,15 @@ public enum GamePackets : ushort
     // never be declared here.
     // See docs/packet-specs/1309-auction-register.md.
     TM_CS_AUCTION_REGISTER = 1309,
+    // TM_CS_AUCTION_CANCEL (1310): the "withdraw this announcement" request of the auction house, 11
+    // bytes — the 7 byte header plus a single uint32 auction_uid at 7, the exact shape of 1308 but for the
+    // identifier. The 7.3 client builds and sends it (construction routine 0x48DFC0, whose single caller is
+    // the stub 0x49E3BB, reached by the internal key 1161 = 0x489) and never receives it: it has no
+    // dedicated TS_SC_AUCTION_* answer in any reference, and the window that emits it consumes no result
+    // for 0x51E. rzu gates the id to 1310 below EPIC_9_6_3 and remaps it to 2310 above, so 2310 must never
+    // be declared here — 1310 is even reassigned to TS_SC_TAMING_INFO from 9.6.3 on.
+    // See docs/packet-specs/1310-auction-cancel.md.
+    TM_CS_AUCTION_CANCEL = 1310,
 
     TM_SC_DIALOG = 3000,
     TM_CS_DIALOG = 3001,

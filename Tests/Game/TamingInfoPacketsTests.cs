@@ -44,10 +44,11 @@ public class TamingInfoPacketsTests
         ((ushort)GamePackets.TM_SC_TAMING_INFO).Should().Be(310);
 
         // rzu gates the id: 1310 from EPIC_9_6_3 (0x090603, dated 20200713) on, above EPIC_7_3 = 0x070300.
-        // That id is out of this repository's scope and must stay undeclared here — a second member would
-        // be a second client contract nothing can honour.
-        Enum.IsDefined(typeof(GamePackets), (ushort)1310).Should().BeFalse(
-            "1310 is the 9.6.3 remap of the taming info and is above EPIC_7_3");
+        // In 7.3, 1310 is TM_CS_AUCTION_CANCEL: it may be declared under that name only, never as a second
+        // taming member — that would be a second client contract nothing can honour.
+        Enum.GetName(typeof(GamePackets), (ushort)1310).Should().BeOneOf(
+            new string[] { null, "TM_CS_AUCTION_CANCEL" },
+            "1310 is the 9.6.3 remap of the taming info and the 7.3 auction cancel");
     }
 
     [Test]
