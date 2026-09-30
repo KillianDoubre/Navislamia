@@ -78,6 +78,44 @@ public class StorageServiceTests
 
     private static long PropertyValueOf(byte[] packet) => BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(28, 8));
 
+    /// <summary>
+    /// The frame every refusal of this lot rides on. <c>TM_SC_RESULT</c> keeps the Epic 7.3 id <b>0</b> —
+    /// rzu only moves it to 1000 from <c>EPIC_9_6_3</c> on (<c>TS_SC_RESULT.h:12-14</c>) — and its payload
+    /// is eight bytes: the id of the frame that caused it at 7, the code at 9 and the four-byte value at 11
+    /// (<c>TS_SC_RESULT.h:7-10</c>). The value is read as an <c>int32</c> because the repository fills it
+    /// with the item handle, unsigned 32 bits on the wire.
+    /// </summary>
+    private static void AssertRefusal(byte[] packet, ushort result, int value)
+    {
+        packet.Should().HaveCount(15, "eight payload bytes after the seven-byte header");
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0, 4)).Should().Be(15, "Length");
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)).Should().Be(0, "TM_SC_RESULT is id 0 in Epic 7.3");
+        packet[6].Should().Be(StorageTestHarness.Checksum(packet), "the checksum sums the first six header bytes");
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(7, 2)).Should().Be(212, "request_msg_id");
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(9, 2)).Should().Be(result, "result");
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(11, 4)).Should().Be(value, "value");
+    }
+
+    /// <summary>
+    /// The refusal frame of this lot on its own: the frame the four refusal paths share, with the gating of
+    /// the id read in rzu. 1000 is the 9.6.3 id of <c>TS_SC_RESULT</c> and is already taken by
+    /// <c>TM_SC_STAT_INFO</c> here, which is exactly why the query result frame stays on 0.
+    /// </summary>
+    [Test]
+    public void SendResult_LaysOutTheFifteenByteEpic73ResultFrame()
+    {
+        var harness = Build();
+
+        harness.Client.SendResult(212, (ushort)ResultCode.TooMuchMoney, -1);
+
+        var packet = harness.Connection.Sent.Should().ContainSingle().Subject;
+        ((ushort)GamePackets.TM_SC_RESULT).Should().Be(0, "1000 only exists from EPIC_9_6_3 on");
+        ((ushort)GamePackets.TM_SC_STAT_INFO).Should().Be(1000, "the 9.6.3 id of TS_SC_RESULT is taken here");
+        AssertRefusal(packet, (ushort)ResultCode.TooMuchMoney, -1);
+        BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(11, 4)).Should().Be(uint.MaxValue,
+            "a value of -1 is all four bytes set, so a 64-bit value would have shifted the total length");
+    }
+
     [Test]
     public async Task Open_SendsTheWindowTheContentsAndTheStoredGold()
     {
@@ -145,7 +183,9 @@ public class StorageServiceTests
 
         await Send(harness, StorageRules.ItemToStorage, 5);
 
-        harness.Connection.Sent.Should().ContainSingle();
+        harness.Connection.Sent.Should().ContainSingle("a refused request gets one result frame and nothing else");
+        AssertRefusal(harness.Connection.Sent[0], (ushort)ResultCode.NotActable, unchecked((int)Handle));
+        harness.Session.StorageSecurityCheck.Should().BeFalse("a refusal does not open the counter");
         var result = ResultOf(harness.Connection.Sent[0]);
         result.RequestMsgID.Should().Be(212);
         result.Result.Should().Be((ushort)ResultCode.NotActable);
@@ -154,53 +194,92 @@ public class StorageServiceTests
     }
 
     [Test]
-    public async Task Handle_RefusesAModeOutsideTheFive()
+    public async Task Handle_AnswersNotActableForACloseWhenNoCounterIsOpen()
     {
-        var harness = Build();
-
-        await Send(harness, 5, 5);
-
-        ResultOf(harness.Connection.Sent[0]).Result.Should().Be((ushort)ResultCode.NotActable);
-        A.CallTo(() => harness.Repository.MoveAsync(A<string>._, A<uint>._, A<bool>._, A<long>._)).MustNotHaveHappened();
-    }
-
-    [Test]
-    public async Task Handle_ClosesTheWindowWithoutAnAnswer()
-    {
-        var harness = Build();
+        // The session state is asked before the mode is looked at (WorldSession.cpp:1595-1598): a close on a
+        // counter that is not open answers like any other mode instead of being taken as a close.
+        var harness = Build(open: false);
 
         await Send(harness, StorageRules.CloseMode, 0);
 
+        harness.Connection.Sent.Should().ContainSingle();
+        AssertRefusal(harness.Connection.Sent[0], (ushort)ResultCode.NotActable, unchecked((int)Handle));
+    }
+
+    [TestCase(5, TestName = "Handle_RefusesAModeOutsideTheFive_5")]
+    [TestCase(6, TestName = "Handle_RefusesAModeOutsideTheFive_6")]
+    [TestCase(127, TestName = "Handle_RefusesAModeOutsideTheFive_127")]
+    // rzu types the field int8_t, so 128..255 are negative for the reference client and reach its silent
+    // default: break (WorldSession.cpp:1673-1675). The field is a byte here and refusals are the assumed
+    // divergence (§6): both ends of that range answer NotActable rather than nothing.
+    [TestCase(128, TestName = "Handle_RefusesAModeOutsideTheFive_128IsMinus128Signed")]
+    [TestCase(255, TestName = "Handle_RefusesAModeOutsideTheFive_255IsMinusOneSigned")]
+    public async Task Handle_RefusesAModeOutsideTheFive(byte mode)
+    {
+        var harness = Build();
+
+        await Send(harness, mode, 5);
+
+        harness.Connection.Sent.Should().ContainSingle();
+        AssertRefusal(harness.Connection.Sent[0], (ushort)ResultCode.NotActable, unchecked((int)Handle));
+        harness.Session.StorageSecurityCheck.Should().BeTrue("an unknown mode does not close the counter");
+        A.CallTo(() => harness.Repository.MoveAsync(A<string>._, A<uint>._, A<bool>._, A<long>._)).MustNotHaveHappened();
+    }
+
+    [TestCase(0, TestName = "Handle_ClosesTheWindowWithoutAnAnswer_0")]
+    [TestCase(100, TestName = "Handle_ClosesTheWindowWithoutAnAnswer_100")]
+    [TestCase(100000000000, TestName = "Handle_ClosesTheWindowWithoutAnAnswer_TheReferenceGoldBound")]
+    [TestCase(-1, TestName = "Handle_ClosesTheWindowWithoutAnAnswer_MinusOne")]
+    public async Task Handle_ClosesTheWindowWithoutAnAnswer(long count)
+    {
+        // The close is looked at before the count (WorldSession.cpp:1670-1672), so neither a zero nor a
+        // negative count turns it into a refusal: the only effect is the session state.
+        var harness = Build();
+
+        await Send(harness, StorageRules.CloseMode, count);
+
         harness.Session.StorageSecurityCheck.Should().BeFalse();
         harness.Connection.Sent.Should().BeEmpty("the close has no answer in the reference either");
+        A.CallTo(() => harness.Repository.MoveAsync(A<string>._, A<uint>._, A<bool>._, A<long>._)).MustNotHaveHappened();
     }
 
     [TestCase(0, 0)]
     [TestCase(0, -5)]
     [TestCase(1, 0)]
     [TestCase(2, -1)]
+    [TestCase(2, 0)]
+    [TestCase(3, -1)]
     public async Task Handle_RefusesANonPositiveCountWithNotEnoughMoney(int mode, long count)
     {
+        // WorldSession.cpp:1603-1606 answers NOT_ENOUGH_MONEY for a unit count of zero or less. The counter
+        // of the gold modes is read the same way here, before the mode family is looked at (§5.2, §6.2):
+        // both gold modes answer NotEnoughMoney rather than NotActable for a count of zero or less.
         var harness = Build();
 
         await Send(harness, (byte)mode, count);
 
-        ResultOf(harness.Connection.Sent[0]).Result.Should().Be((ushort)ResultCode.NotEnoughMoney);
+        harness.Connection.Sent.Should().ContainSingle();
+        AssertRefusal(harness.Connection.Sent[0], (ushort)ResultCode.NotEnoughMoney, unchecked((int)Handle));
         A.CallTo(() => harness.Repository.MoveAsync(A<string>._, A<uint>._, A<bool>._, A<long>._)).MustNotHaveHappened();
     }
 
-    [TestCase(2)]
-    [TestCase(3)]
-    public async Task Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace(int mode)
+    [TestCase(2, 1, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_OneUnit")]
+    [TestCase(3, 1, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_OneUnitBack")]
+    [TestCase(2, 100000000000, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_TheReferenceBound")]
+    [TestCase(3, 9223372036854775807, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_MaxInt64")]
+    public async Task Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace(int mode, long count)
     {
         // The stored gold has no column in this repository and NGemity keeps it in a dummy item row of code
         // 0 (CharacterDatabase.cpp:97): the scope is an open decision (§7.5), so no gold moves in either
-        // direction rather than moving into a value the server could not give back.
+        // direction rather than moving into a value the server could not give back. Every amount is refused
+        // the same way — no bound of the gold is decided here, NGemity's own 1e11 included (§7.5, A
+        // VERIFIER 3), and the item path is never reached.
         var harness = Build();
 
-        await Send(harness, (byte)mode, 100);
+        await Send(harness, (byte)mode, count);
 
-        ResultOf(harness.Connection.Sent[0]).Result.Should().Be((ushort)ResultCode.NotActable);
+        harness.Connection.Sent.Should().ContainSingle();
+        AssertRefusal(harness.Connection.Sent[0], (ushort)ResultCode.NotActable, unchecked((int)Handle));
         A.CallTo(() => harness.Repository.MoveAsync(A<string>._, A<uint>._, A<bool>._, A<long>._)).MustNotHaveHappened();
     }
 

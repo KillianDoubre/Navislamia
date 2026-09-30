@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using FluentAssertions;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
@@ -95,6 +96,17 @@ public class StorageRulesTests
         StorageRules.NextFreeIndex(new[] { 0, 1, 2 }).Should().Be(3);
         StorageRules.NextFreeIndex(new[] { 2, 0 }).Should().Be(1, "the gap is filled before the end is extended");
         StorageRules.NextFreeIndex(new[] { 5, 7 }).Should().Be(0);
+    }
+
+    [Test]
+    public void NextFreeIndex_IsNotBoundedByAnyStorageCapacity()
+    {
+        // The residual lot's capacity point: no 7.3 source gives the counter a maximum. rzu only sends
+        // maxStorageItemCount from EPIC_7_4 on (TS_SC_OPEN_STORAGE.h:8) and the 10000 it defaults to is that
+        // 7.4 value; NGemity's Inventory has neither a capacity nor a maximum count
+        // (Chihiro/src/Entities/Item/Inventory.h). The destination list therefore offers the lowest free
+        // index with no ceiling, and a 7.4 default must never become a 7.3 bound (§7.2).
+        StorageRules.NextFreeIndex(Enumerable.Range(0, 10_001)).Should().Be(10_001);
     }
 
     [Test]
