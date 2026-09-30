@@ -309,6 +309,18 @@ public class SkillCastService : ISkillCastService
             {
                 return false;
             }
+
+            // Étape 0 of the socle (docs/packet-specs/socle-apprivoisement-invocation.md §11) classifies
+            // the three creature spells so the catalogue loads them and the taming target resolves to a
+            // monster, but carrying them out is étape 1: the tamer state on the monster, the card lookup
+            // and the card -> summon linkage do not exist here. Refusing them before the effect switch
+            // below (whose default arm only logs and would pocket the mp cost) is the reference's own
+            // answer — Skill::PrepareTaming returns TS_RESULT_NOT_ACTABLE for every refusal it knows.
+            if (fields.Kind is SkillCastKind.Summon or SkillCastKind.Unsummon or SkillCastKind.Taming)
+            {
+                error = ResultCode.NotActable;
+                return false;
+            }
         }
 
         if (info.SkillCooldowns.TryGetValue(request.SkillId, out var readyAt)
@@ -399,9 +411,16 @@ public class SkillCastService : ISkillCastService
         return false;
     }
 
+    /// <summary>
+    /// The kinds whose target is a monster rather than the caster. Taming is one of them since étape 0 of
+    /// the socle (docs/packet-specs/socle-apprivoisement-invocation.md §11): the creature spell 4003 is
+    /// cast at a monster, so an unresolvable handle must answer <c>NotExist</c> rather than land on the
+    /// caster.
+    /// </summary>
     private static bool TargetsAMonster(SkillCastKind kind)
     {
-        return kind is SkillCastKind.Debuff or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack;
+        return kind is SkillCastKind.Debuff or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
+            or SkillCastKind.Taming;
     }
 
     public void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks)

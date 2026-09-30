@@ -110,7 +110,8 @@ public static class MonsterInstanceFactory
                 random.Next(left, right + 1), random.Next(top, bottom + 1), 0f,
                 resource.Level, resource.Hp, race, faceDirection,
                 resource.FirstAttack != 0, resource.VisibleRange, resource.ChaseRange,
-                (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale));
+                (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale,
+                resource.TamingId, resource.TamingPercentage));
         }
     }
 

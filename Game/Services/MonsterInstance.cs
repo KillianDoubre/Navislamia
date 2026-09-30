@@ -1,5 +1,16 @@
 namespace Navislamia.Game.Services;
 
+/// <summary>
+/// One monster in the world, frozen from its <c>tf_monster_resource</c> row at startup.
+/// </summary>
+/// <remarks>
+/// <see cref="TamingId"/> and <see cref="TamingPercentage"/> are that row's taming columns, carried so the
+/// taming path can reach them from <see cref="MonsterWorldState.TryGetInstance"/> without a database round
+/// trip (docs/packet-specs/socle-apprivoisement-invocation.md §11, étape 0.5). Nothing reads
+/// <see cref="TamingPercentage"/> yet: the draw at the monster's death is étape 1, and it also needs the
+/// card flags and the loot skip that do not exist here. <see cref="TamingId"/> is what
+/// <see cref="TamingRules.IsTamable"/> judges.
+/// </remarks>
 public readonly record struct MonsterInstance(
     long InstanceId,
     int MonsterId,
@@ -15,4 +26,6 @@ public readonly record struct MonsterInstance(
     int ChaseRange,
     float AttackRange,
     float Size,
-    float Scale);
+    float Scale,
+    int TamingId,
+    decimal TamingPercentage);

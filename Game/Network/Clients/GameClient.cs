@@ -1814,6 +1814,17 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_SC_TAMING_INFO (310): the taming attempt of a monster — mode, tamer_handle,
+            // target_handle — and a server to client frame the 7.3 client only reads
+            // (docs/packet-specs/socle-apprivoisement-invocation.md §3.1). Logged and dropped like the pet
+            // frames above, so that no member of GamePackets reaches the throwing switch below.
+            if (header.ID == (ushort)GamePackets.TM_SC_TAMING_INFO)
+            {
+                _logger.Warning("Server to client packet TM_SC_TAMING_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             // TM_CS_COMPETE_REQUEST (4500) and TM_CS_COMPETE_ANSWER (4502) are the two client to server frames of
             // the competition socle (lot C1): read, validated, then refused by a TS_SC_RESULT carrying a code the
             // 7.3 client displays. The five remaining ids of the family travel server to client and are not
