@@ -53,6 +53,14 @@ public interface ICharacterService
     Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle);
 
     /// <summary>
+    /// Writes the character's id into the bearer socket of one of its skill cards, judgement and write inside
+    /// the character's gate: an unknown handle is <c>NotFound</c>, another target <c>NotActable</c>, and a
+    /// card of another group, worn or already bound <c>AccessDenied</c>; a refusal leaves the item untouched.
+    /// </summary>
+    Task<SkillCardBindAttempt> BindSkillCardAsync(string characterName, uint itemHandle, uint targetHandle,
+        IItemGroupCatalog itemGroups);
+
+    /// <summary>
     /// Clears the bearer socket of one of the character's skill cards, both judgements and write inside
     /// the database gate: the handle is resolved, the unbind rules run in the order of the reference and
     /// the socket is written only when they all pass — a refusal leaves the item untouched. An item

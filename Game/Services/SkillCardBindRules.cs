@@ -85,4 +85,32 @@ public static class SkillCardBindRules
 
         return SkillCardBindResult.Success;
     }
+
+    /// <summary>
+    /// The bearer socket of a raw socket array: a missing or short array reads as "not bound".
+    /// </summary>
+    public static bool IsBound(long[] sockets)
+    {
+        return sockets is { Length: > BearerSocketIndex } && sockets[BearerSocketIndex] != 0;
+    }
+
+    /// <summary>
+    /// The bind judgement on the item itself (NGemity <c>WorldSession.cpp:1673-1690</c>): a resource of
+    /// another group, a worn item or a card already bound answer <c>AccessDenied</c>. An unknown group
+    /// (<c>null</c>) is not refused: the catalog cannot prove it is not a skill card.
+    /// </summary>
+    public static ResultCode CheckBindable(ItemGroup? group, ItemWearType wearInfo, long[] sockets)
+    {
+        if (group is not null && group != ItemGroup.Skillcard)
+        {
+            return ResultCode.AccessDenied;
+        }
+
+        if (wearInfo != ItemWearType.None)
+        {
+            return ResultCode.AccessDenied;
+        }
+
+        return IsBound(sockets) ? ResultCode.AccessDenied : ResultCode.Success;
+    }
 }

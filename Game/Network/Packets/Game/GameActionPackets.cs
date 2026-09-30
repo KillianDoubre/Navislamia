@@ -34,6 +34,8 @@ public static class GameActionPackets
 
     public readonly record struct UseItemRequest(uint ItemHandle, uint TargetHandle);
 
+    public readonly record struct BindSkillCardRequest(uint ItemHandle, uint TargetHandle);
+
     /// <summary>
     /// <c>TS_CS_UNBIND_SKILLCARD</c> (285), the Epic 7.3 form: the handle of the skill card to unbind,
     /// then the handle of the target, which the reference only ever accepts as the character itself.
@@ -401,6 +403,24 @@ public static class GameActionPackets
         }
 
         request = new UseItemRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
+        return true;
+    }
+
+    public static bool TryReadBindSkillCard(ReadOnlySpan<byte> packet, out BindSkillCardRequest request)
+    {
+        // TM_CS_BIND_SKILLCARD (284) is the fixed 15 byte frame of rzu
+        // TS_CS_BIND_SKILLCARD.h: header (7) then item_handle (4) at 7 and target_handle (4) at 11.
+        // Nothing else follows: the frame is not padded and carries no parameter block.
+        const int packetLength = HeaderSize + 8;
+        if (packet.Length < packetLength)
+        {
+            request = default;
+            return false;
+        }
+
+        request = new BindSkillCardRequest(
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
             BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)));
         return true;

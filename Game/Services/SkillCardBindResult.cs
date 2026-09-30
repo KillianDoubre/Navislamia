@@ -32,3 +32,13 @@ public readonly record struct SkillCardBindResult(SkillCardBindOutcome Outcome, 
         return new SkillCardBindResult(outcome, (ushort)code, value);
     }
 }
+
+/// <summary>
+/// What a <c>TM_CS_BIND_SKILLCARD</c> (284) write decided: the outcome, and the character and item it read
+/// (the item carries the written bearer socket on success, and is <c>null</c> when the handle resolved to
+/// nothing).
+/// </summary>
+public readonly record struct SkillCardBindAttempt(
+    SkillCardBindOutcome Outcome,
+    Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity Character,
+    Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity Item);

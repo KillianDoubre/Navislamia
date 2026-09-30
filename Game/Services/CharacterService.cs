@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Game;
 
 using Serilog;
@@ -262,6 +263,35 @@ public class CharacterService : ICharacterService
     {
         return RunExclusiveAsync(characterName, async repository => FindByHandle(
             (await repository.GetCharacterByNameWithItemsAsync(characterName))?.Items, itemHandle));
+    }
+
+    public Task<SkillCardBindAttempt> BindSkillCardAsync(string characterName, uint itemHandle, uint targetHandle,
+        IItemGroupCatalog itemGroups)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var item = FindByHandle(character?.Items, itemHandle);
+            if (item is null)
+            {
+                return new SkillCardBindAttempt(SkillCardBindOutcome.NotFound, character, null);
+            }
+
+            if (!SkillCardBindRules.IsSelfTarget(targetHandle, (uint)character.Id))
+            {
+                return new SkillCardBindAttempt(SkillCardBindOutcome.NotActable, character, item);
+            }
+
+            ItemGroup? group = itemGroups.TryGetGroup(item.ItemResourceId, out var knownGroup) ? knownGroup : null;
+            if (SkillCardBindRules.CheckBindable(group, item.WearInfo, item.SocketItemIds) != ResultCode.Success)
+            {
+                return new SkillCardBindAttempt(SkillCardBindOutcome.AccessDenied, character, item);
+            }
+
+            item.SocketItemIds = WriteBearerSocket(item.SocketItemIds, character.Id);
+            await repository.SaveChangesAsync();
+            return new SkillCardBindAttempt(SkillCardBindOutcome.Success, character, item);
+        });
     }
 
     public Task<SkillCardBindResult> UnbindSkillCardAsync(string characterName, uint itemHandle,
@@ -826,6 +856,22 @@ public class CharacterService : ICharacterService
         }
 
         item.SocketItemIds = sockets;
+    }
+
+    /// <summary>
+    /// Writes <paramref name="bearerId"/> into the bearer socket, rebuilding the four-socket array so the
+    /// change tracker sees the row as modified; sockets 1 to 3 are carried over untouched.
+    /// </summary>
+    private static long[] WriteBearerSocket(long[] sockets, long bearerId)
+    {
+        var updated = new long[SkillCardBindRules.SocketCount];
+        if (sockets is not null)
+        {
+            Array.Copy(sockets, updated, Math.Min(sockets.Length, SkillCardBindRules.SocketCount));
+        }
+
+        updated[SkillCardBindRules.BearerSocketIndex] = bearerId;
+        return updated;
     }
 
     /// <summary>A read-modify-write on one character: its own repository, under that character's gate.</summary>

@@ -1654,6 +1654,24 @@ public class GameClient : Client
         }
     }
 
+    private async Task HandleBindSkillCardAsync(byte[] packet)
+    {
+        if (!GameActionPackets.TryReadBindSkillCard(packet, out var request))
+        {
+            SendResult((ushort)GamePackets.TM_CS_BIND_SKILLCARD, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        try
+        {
+            await _networkService.SkillCardService.BindAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not process skill card bind for {clientTag}", ClientTag);
+        }
+    }
+
     private async Task HandleUnbindSkillCardAsync(byte[] packet)
     {
         // The 7.3 client builds this request with Length = 15 and writes nothing after offset 14, so a
@@ -2680,6 +2698,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_DONATE_ITEM)
             {
                 _ = HandleDonateItemAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_BIND_SKILLCARD)
+            {
+                _ = HandleBindSkillCardAsync(msgBuffer);
                 continue;
             }
 
