@@ -1134,6 +1134,31 @@ public class GameClient : Client
         }
     }
 
+    /// <summary>
+    /// TM_CS_AUCTION_BID (1306): the player places a bid on an announcement of the auction house, the only
+    /// act of the family whose answer is not a <c>TS_SC_AUCTION_*</c> frame — the 7.3 client reads a
+    /// TM_SC_RESULT (id 0) whose <c>request_msg_id</c> is 1306. The nineteen-byte frame (spec §3.1) is read
+    /// and logged; the bid itself is never executed, because its rules, its announcements and its writer
+    /// belong to lots that do not exist here (spec §12), and no <c>ResultCode</c> is sent for a well-formed
+    /// frame: with nothing executed, neither <c>Success</c> nor a refusal code would be true, and the code
+    /// the client expects is not established (spec §7.1).
+    /// </summary>
+    private void HandleAuctionBid(byte[] buffer)
+    {
+        if (!GameAuctionPackets.TryReadAuctionBid(buffer, out var auctionUid, out var price))
+        {
+            SendResult((ushort)GamePackets.TM_CS_AUCTION_BID, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogEventLevel.Debug))
+        {
+            _logger.Debug(
+                "TM_CS_AUCTION_BID ({id}) Length: {length} received from {clientTag}: auction_uid={auctionUid}, price={price}",
+                (ushort)GamePackets.TM_CS_AUCTION_BID, buffer.Length, ClientTag, auctionUid, price);
+        }
+    }
+
     private async Task HandleDropQuestAsync(byte[] packet)
     {
         if (!GameActionPackets.TryReadDropQuest(packet, out var request))
@@ -1857,6 +1882,22 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_SKILL)
             {
                 HandleSkill(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_AUCTION_BID (1306): the bid of the auction house, the only act of the family whose
+            // answer is not a TS_SC_AUCTION_* frame — the client reads a TM_SC_RESULT (0) carrying
+            // request_msg_id = 1306. The nineteen-byte frame is read, bounded and logged, and nothing is
+            // executed: the announcement it targets, its rules and its writer belong to lots that do not
+            // exist here. It must stay before the throwing switch below, like every member of GamePackets
+            // the client can send: reaching it breaks the receive loop.
+            // Placed here, in the widest stretch of the chain no other open branch inserts into, to keep
+            // the four lots of the family apart (1300 goes above the switch, 1302 after the auction
+            // response guard, 1304 before the TM_SC_MIX_RESULT block). See
+            // docs/packet-specs/1306-auction-bid.md §13.7.
+            if (header.ID == (ushort)GamePackets.TM_CS_AUCTION_BID)
+            {
+                HandleAuctionBid(msgBuffer);
                 continue;
             }
 

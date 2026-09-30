@@ -208,6 +208,16 @@ public enum GamePackets : ushort
 
     TM_SC_AUCTION_BIDDED_LIST = 1305,
 
+    // TM_CS_AUCTION_BID (1306): the "bid" request of the auction house, 19 bytes — the 7 byte header,
+    // the int32 auction_uid at 7 and the int64 price at 11, the only 64-bit price among the family's
+    // requests. The 7.3 client builds and sends it (SFrame.exe construction routine 0x48CA70 and sender
+    // 0x48DE30, whose single caller is the stub 0x49E397) and never receives it. It is the one act of
+    // the family with no dedicated TS_SC_AUCTION_* answer: the client reads a TM_SC_RESULT (id 0)
+    // carrying request_msg_id = 1306, an explicit case of its result handler 0x66DB80. rzu declares the
+    // id for version < EPIC_9_6_3 and remaps it to 2306 above, so 2306 must never be declared here.
+    // See docs/packet-specs/1306-auction-bid.md.
+    TM_CS_AUCTION_BID = 1306,
+
     TM_SC_DIALOG = 3000,
     TM_CS_DIALOG = 3001,
     TM_CS_CONTACT = 3002,
