@@ -876,7 +876,9 @@ public class GameClient : Client
             _networkService.SkillCastService.Unregister(this);
 
             // The exit goes first: every observer must be told before the asynchronous save and the
-            // socket cleanup (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 5).
+            // socket cleanup (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 5). An open
+            // booth closes before, so its watchers receive their 709.
+            _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
 
             await SaveProgressSafelyAsync("while disconnecting");
@@ -903,6 +905,7 @@ public class GameClient : Client
         {
             _logger.Debug("{clientTag} returning to character selection", ClientTag);
             _networkService.CombatService.StopAttack(this);
+            _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             await SaveProgressSafelyAsync("before returning to character selection");
             info.ClearCharacterSession();
@@ -1110,6 +1113,10 @@ public class GameClient : Client
         ConnectionInfo.OpenBooth(request);
         _logger.Debug("Booth opened by {clientTag}: type={type}, items={count}, nameLength={nameLength}",
             ClientTag, request.Type, request.Items.Length, request.Name.Length);
+
+        // The booth becomes visible: the owner's status mask gains its booth bit for the owner and for
+        // every client that sees it (docs/packet-specs/705-buy-from-booth.md §5.1).
+        _networkService.BoothTradeService.PublishBoothStatus(this);
     }
 
     /// <summary>
@@ -1126,7 +1133,8 @@ public class GameClient : Client
             return;
         }
 
-        var wasOpen = ConnectionInfo.CloseBooth();
+        var wasOpen = ConnectionInfo.IsBoothOpen;
+        _networkService.BoothTradeService.CloseBooth(this);
         _logger.Debug("TM_CS_STOP_BOOTH from {clientTag}: booth was {state}", ClientTag,
             wasOpen ? "open" : "already closed");
         SendResult((ushort)GamePackets.TM_CS_STOP_BOOTH, (ushort)ResultCode.Success);
@@ -1985,6 +1993,37 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_STOP_WATCH_BOOTH)
             {
                 _networkService.BoothWatchService.HandleStopWatch(this, msgBuffer);
+                continue;
+            }
+
+            // The booth trade (docs/packet-specs/705-buy-from-booth.md): 705 buys from a sell booth and
+            // 706 sells to a buy booth, both awaiting the database, so fired and not awaited; 707 asks the
+            // names of booths and is answered at once with 708.
+            if (header.ID == (ushort)GamePackets.TM_CS_BUY_FROM_BOOTH)
+            {
+                _ = _networkService.BoothTradeService.HandleBuyAsync(this, msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_SELL_TO_BOOTH)
+            {
+                _ = _networkService.BoothTradeService.HandleSellAsync(this, msgBuffer);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_CS_GET_BOOTHS_NAME)
+            {
+                _networkService.BoothTradeService.HandleGetBoothsName(this, msgBuffer);
+                continue;
+            }
+
+            // 708, 709 and 710 only travel server to client: a client that sends one is logged and
+            // ignored, so the declared ids never reach the throwing switch below.
+            if (header.ID is (ushort)GamePackets.TM_SC_GET_BOOTHS_NAME or (ushort)GamePackets.TM_SC_BOOTH_CLOSED
+                or (ushort)GamePackets.TM_SC_BOOTH_TRADE_INFO)
+            {
+                _logger.Warning("Server to client booth packet {id} received from {clientTag}, dropped", header.ID,
+                    ClientTag);
                 continue;
             }
 

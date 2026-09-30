@@ -1333,6 +1333,34 @@ avec la session. Le verrou d'actions (`BoothRules.GateAction`) couvre désormais
 tant qu'aucun joueur n'en voit un autre** : il faut voir l'étal pour cliquer dessus. Voir
 `docs/packet-specs/socle-booths-visibilite.md`.
 
+### Étal de joueur — commerce (705-710)
+
+`BoothTradeService` (`docs/packet-specs/705-buy-from-booth.md`). Tailles mesurées dans le client : **705 =
+13 + 75 × N** (le `13 + 85 × N` de `socle-booths.md`, tiré de rzu, était faux : le client n'envoie que les 75
+premiers octets de chaque enregistrement de 703), 706 = 19, 707 = 11 + 4 × H, 708 = 11 + 53 × N (compte
+`uint32`), 709 = 11, 710 = 14 + 83 × N.
+
+- **`type` 1 = vente, 2 = achat**, déduit et non prouvé (1 est le défaut de la fenêtre de création, et 703 ne
+  garde que `type == 1`, comme le `is_sell` de 710) : à confirmer en jeu par le `type=` journalisé.
+- **L'étal se voit par le statut** : `ActorStatus.ForPlayer(info)` compose désormais le bit d'étal
+  (`PlayerSellBooth` 1<<10 / `PlayerBuyBooth` 1<<9) avec PK, assis, combat et marche — les quatre sites
+  d'envoi passent par cette surcharge. Ouverture et fermeture publient un 500 au propriétaire et à ses
+  observateurs (`IPlayerVisibilityService.SendToObservers`) ; 707 reçoit les noms des étals ouverts.
+- **Commerce** : il faut regarder l'étal (702). Le `gold` déclaré est un **prix unitaire**. Ordre : réserver
+  les unités de l'étal sous `BoothLock` (`ConnectionInfo.UpdateBooth` + `BoothTradeRules`, pur), puis l'or sous
+  `GoldLock` de chaque session (`TryDebitGold` / `TryCreditGold`, plafond NGemity 100 000 000 000), puis
+  `ICharacterService.TransferItemsAsync` : tout ou rien, sous les **deux** verrous de personnage pris dans un
+  ordre fixe (`CharacterGate.RunPairAsync` — une tranche n'est pas réentrante, deux noms sur la même tranche
+  ne la prennent qu'une fois), pile entière = même ligne, partie de pile = nouvelle ligne aux mêmes attributs,
+  **les deux soldes écrits dans la même sauvegarde**. Tout échec rend l'or et les unités.
+- **`CharacterGold` passe désormais par `GoldLock`** (`AddGold` pour le butin et `/gold`) : deux commerces
+  simultanés auraient sinon dépensé les mêmes pièces.
+- Réponses : client ← 1001, 207 ou 254/255, `TS_SC_RESULT(705|706, Success, handle de l'étal)` ; propriétaire
+  ← 1001, 207 ou 254/255, 710 (`target` = le client) ; fenêtres ouvertes ← 703 rafraîchie. Étal épuisé, 701,
+  lobby et déconnexion → `CloseBooth` : statut sans bit puis 709 aux spectateurs.
+- 705/706 sont dans le verrou d'actions de l'étal ; un seul commerce par client à la fois
+  (`BoothTradeInProgress`). Aucun poids n'est jugé.
+
 ## Quêtes — socle 7.3 (600/601/603)
 
 - 603 `TM_CS_DROP_QUEST` : 11 octets, `code` int32 à l'offset 7, signé (refuser < 0). Réponse :

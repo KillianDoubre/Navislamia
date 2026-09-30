@@ -201,7 +201,7 @@ public class GameActions : IActions
             Z = result.Z,
             Layer = (byte)character.Layer,
             ObjType = 0,
-            Status = ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking),
+            Status = ActorStatus.ForPlayer(info),
             FaceDirection = 0,
             Hp = hp,
             MaxHp = hp,
@@ -292,7 +292,7 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", decimal.ToInt64(character.ImmoralPoint)));
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle,
-            ActorStatus.ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking)));
+            ActorStatus.ForPlayer(info)));
 
         await _networkService.CommercialStorageService.SendContainerAsync(client);
 

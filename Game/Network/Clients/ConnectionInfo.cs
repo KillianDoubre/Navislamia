@@ -39,7 +39,67 @@ public class ConnectionInfo
     public int CharacterJobLevel { get; set; }
     public long CharacterExp { get; set; }
     public long CharacterJp { get; set; }
-    public long CharacterGold { get; set; }
+    /// <summary>
+    /// The gold the session holds, persisted on save. A booth trade moves gold between two sessions from
+    /// two receiving threads, so a check followed by a write would let two purchases spend the same coins:
+    /// every change goes through <see cref="AddGold"/>, <see cref="TryDebitGold"/> or
+    /// <see cref="TryCreditGold"/>, which judge and write under <see cref="GoldLock"/>.
+    /// </summary>
+    public long CharacterGold
+    {
+        get { lock (GoldLock) { return _characterGold; } }
+        set { lock (GoldLock) { _characterGold = value; } }
+    }
+
+    public readonly object GoldLock = new();
+
+    private long _characterGold;
+
+    /// <summary>Adds (or, negative, removes) gold without a bound, as a kill reward or a GM command does.</summary>
+    public long AddGold(long amount)
+    {
+        lock (GoldLock)
+        {
+            _characterGold += amount;
+            return _characterGold;
+        }
+    }
+
+    /// <summary>Takes <paramref name="amount"/> if the session holds it; nothing changes otherwise.</summary>
+    public bool TryDebitGold(long amount)
+    {
+        lock (GoldLock)
+        {
+            if (amount < 0 || _characterGold < amount)
+            {
+                return false;
+            }
+
+            _characterGold -= amount;
+            return true;
+        }
+    }
+
+    /// <summary>Adds <paramref name="amount"/> unless the balance would pass <paramref name="max"/>.</summary>
+    public bool TryCreditGold(long amount, long max)
+    {
+        lock (GoldLock)
+        {
+            if (amount < 0 || _characterGold > max - amount)
+            {
+                return false;
+            }
+
+            _characterGold += amount;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Set while a booth purchase or sale of this session is between its checks and its database write:
+    /// a second request in the meantime is dropped, like <see cref="CommercialTakeoutInProgress"/>.
+    /// </summary>
+    public int BoothTradeInProgress;
     public int CharacterChaos { get; set; }
 
     /// <summary>
@@ -293,6 +353,29 @@ public class ConnectionInfo
         lock (BoothLock)
         {
             _booth = booth;
+        }
+    }
+
+    /// <summary>
+    /// The booth type the status mask publishes: 1 (sell) or 2 (buy) while a booth is open, 0 otherwise.
+    /// </summary>
+    public byte BoothType
+    {
+        get { lock (BoothLock) { return _booth?.Type ?? 0; } }
+    }
+
+    /// <summary>
+    /// Reads and replaces the booth in one step under <see cref="BoothLock"/>: a trade reserves the
+    /// quantities it takes, so two customers can never buy the same unit. <paramref name="update"/> is
+    /// pure and receives null when no booth is open; returning null closes it.
+    /// </summary>
+    public T UpdateBooth<T>(Func<StartBoothRequest, (StartBoothRequest Next, T Result)> update)
+    {
+        lock (BoothLock)
+        {
+            var (next, result) = update(_booth);
+            _booth = next;
+            return result;
         }
     }
 

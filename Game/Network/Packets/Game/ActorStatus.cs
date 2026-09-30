@@ -1,3 +1,4 @@
+using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Enums;
 
 namespace Navislamia.Game.Network.Packets.Game;
@@ -19,13 +20,22 @@ public static class ActorStatus
     /// A player's mask. <paramref name="pkModeOn"/> is <c>TCS_FlagPkOn</c>
     /// (<see cref="CreatureStatus.PlayerPkOn"/>); <paramref name="sitting"/>, <paramref name="battleMode"/>
     /// and <paramref name="walking"/> are the three states the GM commands <c>/sitdown</c>, <c>/battle</c>
-    /// and <c>/walk</c> toggle (docs/gm-commands.md). Booths, bloody and demoniac states have no
-    /// established server-side rule yet. Every flag is passed on every send: the mask is a snapshot.
+    /// and <c>/walk</c> toggle (docs/gm-commands.md). <paramref name="boothType"/> is the open booth's
+    /// type — 1 sells (<see cref="CreatureStatus.PlayerSellBooth"/>), 2 buys
+    /// (<see cref="CreatureStatus.PlayerBuyBooth"/>), 0 none (docs/packet-specs/705-buy-from-booth.md §4).
+    /// Bloody and demoniac states have no established server-side rule yet. Every flag is passed on every
+    /// send: the mask is a snapshot — prefer <see cref="ForPlayer(ConnectionInfo)"/>, which reads them all.
     /// </summary>
     public static uint ForPlayer(bool pkModeOn, bool sitting = false, bool battleMode = false,
-        bool walking = false)
+        bool walking = false, byte boothType = 0)
     {
-        var status = 0u;
+        var status = boothType switch
+        {
+            1 => CreatureStatus.PlayerSellBooth,
+            2 => CreatureStatus.PlayerBuyBooth,
+            _ => 0u
+        };
+
         if (pkModeOn)
         {
             status |= CreatureStatus.PlayerPkOn;
@@ -48,6 +58,10 @@ public static class ActorStatus
 
         return status;
     }
+
+    /// <summary>A player's whole mask, read from its session: every state the mask carries, in one place.</summary>
+    public static uint ForPlayer(ConnectionInfo info) =>
+        ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking, info.BoothType);
 
     /// <summary>
     /// A monster's mask. <paramref name="dead"/> is the corpse flag; the corpse outlives the death

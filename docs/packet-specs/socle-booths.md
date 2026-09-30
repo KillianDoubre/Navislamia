@@ -228,7 +228,7 @@ Aucune de ces trames n'est produite par le socle ; les tailles sont là pour ne 
 | 702 | 11 | `target` `ar_handle_t` @7 | rzu `TS_CS_WATCH_BOOTH.h:8` |
 | 703 | **14 + 83×N** | `target` @7, `type` `uint8` @11, `count` `uint16` @12, objets @14 | **client** : `VA 0x673352` (target), `0x673347` (type), `0x673363` (count), `0x67335A` (objets @0xE), stride `imul esi,esi,0x53` `VA 0x6733A8`, copies de 0x14 dwords+mot+octet = 83 `VA 0x6733BA` |
 | 704 | 11 | `target` @7 | rzu `TS_CS_STOP_WATCH_BOOTH.h:8` |
-| 705 | 13 + 85×N | `target` @7, `count` `int16` @11, objets `TS_ITEM_FIXED_INFO` @13 | rzu `TS_CS_BUY_FROM_BOOTH.h:9-11` |
+| 705 | **13 + 75×N** (corrigé, voir `705-buy-from-booth.md` §3.1) | `target` @7, `count` `int16` @11, motifs de 75 octets @13 | **client** : `SFrame.exe 0x48E665` (`imul $0x4b`), rzu `TS_CS_BUY_FROM_BOOTH.h:9-11` donnait 85 |
 | 706 | 19 | `target` @7, `item_handle` @11, `cnt` `int32` @15 | rzu `TS_CS_SELL_TO_BOOTH.h:8-10` |
 | 707 | 11 + 4×H | `count` `int32` @7, handles @11 | rzu `TS_CS_GET_BOOTHS_NAME.h:8-9` |
 | 708 | 11 + 53×N | `count` `int32` @7, puis (`handle` 4 + `name[49]`) | rzu `TS_SC_GET_BOOTHS_NAME.h:8-15` |

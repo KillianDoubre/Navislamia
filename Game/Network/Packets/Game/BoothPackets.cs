@@ -36,6 +36,24 @@ public readonly record struct BoothWatchItem(ItemFixedInfo Item, long Gold);
 public sealed record StartBoothRequest(byte Type, byte[] Name, BoothOpenItem[] Items);
 
 /// <summary>
+/// One item of a <c>TM_CS_BUY_FROM_BOOTH</c> (705): the fields of the 75 byte motif the server acts on.
+/// The client copies the first 75 bytes of the 83 byte record its 703 carried
+/// (<c>SFrame.exe 0x48E717-0x48E72D</c>), so <see cref="ItemHandle"/> and <see cref="Code"/> are the
+/// owner's, and <see cref="Count"/> is the quantity the buyer asks for
+/// (docs/packet-specs/705-buy-from-booth.md §3).
+/// </summary>
+public readonly record struct BoothBuyLine(uint ItemHandle, int Code, long Count);
+
+/// <summary>A parsed <c>TM_CS_BUY_FROM_BOOTH</c> (705): the booth handle and the items asked for.</summary>
+public sealed record BuyFromBoothRequest(uint Target, BoothBuyLine[] Lines);
+
+/// <summary>A parsed <c>TM_CS_SELL_TO_BOOTH</c> (706): one item of the seller's bag offered to a booth.</summary>
+public readonly record struct SellToBoothRequest(uint Target, uint ItemHandle, int Count);
+
+/// <summary>One name of <c>TM_SC_GET_BOOTHS_NAME</c> (708): the booth handle and its raw name bytes.</summary>
+public readonly record struct BoothName(uint Handle, byte[] Name);
+
+/// <summary>
 /// The Epic 7.3 layout of the two client packets of the player booth family
 /// (docs/packet-specs/socle-booths.md §3). Both sizes are measured in the 7.3 client itself
 /// (<c>SFrame.exe</c>, frame builders <c>VA 0x48CBD0</c> for 700 and <c>VA 0x48CC20</c> for 701):
@@ -220,6 +238,197 @@ public static class BoothPackets
         for (var i = 0; i < count; i++)
         {
             var record = packet.AsSpan(WatchBoothItemsOffset + i * WatchBoothItemSize, WatchBoothItemSize);
+            ItemFixedInfoWriter.Write(record.Slice(0, ItemFixedInfoWriter.Size), items[i].Item);
+            BinaryPrimitives.WriteInt64LittleEndian(record.Slice(WatchBoothItemGoldOffset, 8), items[i].Gold);
+        }
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>
+    /// <c>TM_CS_BUY_FROM_BOOTH</c> (705): header (7) + <c>target</c> (4) + <c>count</c> <c>int16</c> (2),
+    /// then <c>count</c> items of <b>75</b> bytes. The client's frame builder sizes it
+    /// <c>13 + 0x4B × count</c> (<c>SFrame.exe 0x48E665-0x48E668</c>); the booth sheet had
+    /// <c>13 + 85 × N</c> from rzu's <c>TS_ITEM_FIXED_INFO</c>, and the client is the authority.
+    /// </summary>
+    public const int BuyFromBoothHeaderLength = HeaderSize + 6;
+
+    public const int BuyFromBoothTargetOffset = HeaderSize;
+    public const int BuyFromBoothCountOffset = HeaderSize + 4;
+    public const int BuyFromBoothItemsOffset = HeaderSize + 6;
+    public const int BuyFromBoothItemSize = ItemFixedInfoWriter.Size;
+
+    /// <summary>
+    /// <c>TM_CS_SELL_TO_BOOTH</c> (706): header (7) + <c>target</c> + <c>item_handle</c> + <c>cnt</c>
+    /// <c>int32</c>, 19 bytes (<c>SFrame.exe 0x48E7C5</c> allocates 0x13, one frame per offered item).
+    /// </summary>
+    public const int SellToBoothLength = HeaderSize + 12;
+
+    /// <summary>
+    /// <c>TM_CS_GET_BOOTHS_NAME</c> (707): header (7) + <c>count</c> <c>int32</c> + <c>count</c> handles,
+    /// <c>11 + 4 × count</c> (<c>SFrame.exe 0x48F15E-0x48F165</c>).
+    /// </summary>
+    public const int GetBoothsNameHeaderLength = HeaderSize + 4;
+
+    /// <summary>
+    /// The largest handle list a 707 may carry here: the client only asks for the booths it sees, and the
+    /// frame must fit the 32 KiB receive buffer anyway.
+    /// </summary>
+    public const int MaxBoothNameQueries = 1024;
+
+    /// <summary>
+    /// One record of <c>TM_SC_GET_BOOTHS_NAME</c> (708): handle (4) + name (49). The client's handler
+    /// compares the <c>uint32</c> count at +7 and steps by <c>0x35</c> = 53 from +11
+    /// (<c>SFrame.exe 0x6736C7</c>, <c>0x67367B</c>, <c>0x67370B</c>).
+    /// </summary>
+    public const int BoothNameRecordSize = 4 + BoothNameFieldLength;
+
+    /// <summary><c>TM_SC_BOOTH_CLOSED</c> (709): header (7) + <c>target</c> (4).</summary>
+    public const int BoothClosedLength = HeaderSize + 4;
+
+    /// <summary>
+    /// <c>TM_SC_BOOTH_TRADE_INFO</c> (710): header (7) + <c>target</c> (4) + <c>is_sell</c> (1) +
+    /// <c>count</c> <c>uint16</c> (2), then 83 byte records like 703 (handler <c>SFrame.exe 0x6734D0</c>).
+    /// </summary>
+    public const int BoothTradeInfoHeaderLength = HeaderSize + 7;
+
+    /// <summary>
+    /// Reads <c>TM_CS_BUY_FROM_BOOTH</c> (705). The length must be exactly <c>13 + 75 × count</c> and the
+    /// count between 1 and <see cref="MaxBoothItemCount"/>: a booth never lists more, and the frame builder
+    /// writes no other length. Only the handle, the code and the requested count of each motif are kept;
+    /// the rest describes the owner's item, which the server reads from the owner's bag.
+    /// </summary>
+    public static bool TryReadBuyFromBooth(ReadOnlySpan<byte> packet, out BuyFromBoothRequest request)
+    {
+        request = null;
+        if (packet.Length < BuyFromBoothHeaderLength)
+        {
+            return false;
+        }
+
+        var count = BinaryPrimitives.ReadInt16LittleEndian(packet.Slice(BuyFromBoothCountOffset, 2));
+        if (count < 1 || count > MaxBoothItemCount
+            || packet.Length != BuyFromBoothHeaderLength + count * BuyFromBoothItemSize)
+        {
+            return false;
+        }
+
+        var lines = new BoothBuyLine[count];
+        for (var i = 0; i < count; i++)
+        {
+            var item = packet.Slice(BuyFromBoothItemsOffset + i * BuyFromBoothItemSize, BuyFromBoothItemSize);
+            lines[i] = new BoothBuyLine(
+                BinaryPrimitives.ReadUInt32LittleEndian(item.Slice(0, 4)),
+                BinaryPrimitives.ReadInt32LittleEndian(item.Slice(4, 4)),
+                BinaryPrimitives.ReadInt64LittleEndian(item.Slice(16, 8)));
+        }
+
+        request = new BuyFromBoothRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(BuyFromBoothTargetOffset, 4)), lines);
+        return true;
+    }
+
+    /// <summary>Reads <c>TM_CS_SELL_TO_BOOTH</c> (706): exactly 19 bytes.</summary>
+    public static bool TryReadSellToBooth(ReadOnlySpan<byte> packet, out SellToBoothRequest request)
+    {
+        request = default;
+        if (packet.Length != SellToBoothLength)
+        {
+            return false;
+        }
+
+        request = new SellToBoothRequest(
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4)),
+            BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize + 8, 4)));
+        return true;
+    }
+
+    /// <summary>
+    /// Reads <c>TM_CS_GET_BOOTHS_NAME</c> (707): the length must be exactly <c>11 + 4 × count</c>, with
+    /// <c>count</c> between 0 and <see cref="MaxBoothNameQueries"/>.
+    /// </summary>
+    public static bool TryReadGetBoothsName(ReadOnlySpan<byte> packet, out uint[] handles)
+    {
+        handles = null;
+        if (packet.Length < GetBoothsNameHeaderLength)
+        {
+            return false;
+        }
+
+        var count = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        if (count < 0 || count > MaxBoothNameQueries || packet.Length != GetBoothsNameHeaderLength + count * 4)
+        {
+            return false;
+        }
+
+        handles = new uint[count];
+        for (var i = 0; i < count; i++)
+        {
+            handles[i] = BinaryPrimitives.ReadUInt32LittleEndian(
+                packet.Slice(GetBoothsNameHeaderLength + i * 4, 4));
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Builds <c>TM_SC_GET_BOOTHS_NAME</c> (708): <c>11 + 53 × count</c>, each name written into its 49
+    /// byte field and cut at 48 bytes, so the field always keeps its nul.
+    /// </summary>
+    public static byte[] BuildGetBoothsName(IReadOnlyList<BoothName> names)
+    {
+        var count = names?.Count ?? 0;
+        var length = GetBoothsNameHeaderLength + BoothNameRecordSize * count;
+        var packet = new byte[length];
+
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)length);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), (ushort)GamePackets.TM_SC_GET_BOOTHS_NAME);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), (uint)count);
+
+        for (var i = 0; i < count; i++)
+        {
+            var record = packet.AsSpan(GetBoothsNameHeaderLength + i * BoothNameRecordSize, BoothNameRecordSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(record.Slice(0, 4), names[i].Handle);
+            var name = names[i].Name ?? Array.Empty<byte>();
+            name.AsSpan(0, Math.Min(name.Length, BoothNameFieldLength - 1)).CopyTo(record.Slice(4));
+        }
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>Builds <c>TM_SC_BOOTH_CLOSED</c> (709): the handle of the booth that closed.</summary>
+    public static byte[] BuildBoothClosed(uint target)
+    {
+        var packet = new byte[BoothClosedLength];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), BoothClosedLength);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), (ushort)GamePackets.TM_SC_BOOTH_CLOSED);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), target);
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>
+    /// Builds <c>TM_SC_BOOTH_TRADE_INFO</c> (710): <c>14 + 83 × count</c>, the traded items with their
+    /// traded count and unit price, cut at <see cref="MaxBoothItemCount"/> like 703.
+    /// </summary>
+    public static byte[] BuildBoothTradeInfo(uint target, bool isSell, IReadOnlyList<BoothWatchItem> items)
+    {
+        var count = Math.Min(items?.Count ?? 0, MaxBoothItemCount);
+        var length = BoothTradeInfoHeaderLength + WatchBoothItemSize * count;
+        var packet = new byte[length];
+
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)length);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), (ushort)GamePackets.TM_SC_BOOTH_TRADE_INFO);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(HeaderSize, 4), target);
+        packet[HeaderSize + 4] = isSell ? (byte)1 : (byte)0;
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(HeaderSize + 5, 2), (ushort)count);
+
+        for (var i = 0; i < count; i++)
+        {
+            var record = packet.AsSpan(BoothTradeInfoHeaderLength + i * WatchBoothItemSize, WatchBoothItemSize);
             ItemFixedInfoWriter.Write(record.Slice(0, ItemFixedInfoWriter.Size), items[i].Item);
             BinaryPrimitives.WriteInt64LittleEndian(record.Slice(WatchBoothItemGoldOffset, 8), items[i].Gold);
         }

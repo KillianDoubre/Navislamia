@@ -630,7 +630,7 @@ public class ResurrectionPacketTests
                 A.Fake<Navislamia.Game.Services.Pets.IPetSummonService>(),
             A.Fake<IBoothWatchService>(),
                 A.Fake<ICommercialStorageService>(),
-            A.Fake<IPlayerVisibilityService>());
+            A.Fake<IPlayerVisibilityService>(), A.Fake<IBoothTradeService>());
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

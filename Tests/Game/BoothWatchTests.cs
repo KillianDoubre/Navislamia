@@ -64,12 +64,13 @@ public class BoothWatchTests
 
         // The 75 bytes of the record are the inventory motif, not the declared triplet: the declared
         // frame carried only a handle, a count and a price — no code, no endurance and no socket.
+        // The count is the units on offer: the 3 the owner declared, which its stack of 5 can serve.
         var expected = new byte[ItemFixedInfoWriter.Size];
-        ItemFixedInfoWriter.Write(expected, ItemFixedInfo.FromItem(resolved));
+        ItemFixedInfoWriter.Write(expected, ItemFixedInfo.FromItem(resolved) with { Count = 3 });
         packet.AsSpan(14, ItemFixedInfoWriter.Size).ToArray().Should().Equal(expected,
             "the motif comes from ICharacterService.GetItemByHandleAsync");
-        BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(14 + 16, 8)).Should().Be(5,
-            "the amount is the one the inventory holds, not the declared cnt of 3");
+        BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(14 + 16, 8)).Should().Be(3,
+            "a sell booth shows the units it still offers, never more than the stack holds");
         BinaryPrimitives.ReadInt64LittleEndian(packet.AsSpan(14 + 75, 8)).Should().Be(1500,
             "the price is the declared one, verbatim — unit or total is not established (§7.7)");
 

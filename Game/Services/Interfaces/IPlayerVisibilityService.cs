@@ -42,4 +42,14 @@ public interface IPlayerVisibilityService
     /// case, where the client keeps a world it must be told to forget.
     /// </summary>
     void LeaveWorld(GameClient client, bool notifyWalker = false);
+
+    /// <summary>The clients currently shown <paramref name="subject"/>, the subject itself excluded.</summary>
+    System.Collections.Generic.IReadOnlyList<GameClient> Observers(GameClient subject);
+
+    /// <summary>
+    /// Sends <paramref name="frame"/> to every client that currently sees <paramref name="subject"/>, each
+    /// under its visibility lock so it can never overtake the <c>LEAVE</c> of the subject; and to the
+    /// subject too when <paramref name="includeSelf"/> is set.
+    /// </summary>
+    void SendToObservers(GameClient subject, byte[] frame, bool includeSelf = false);
 }

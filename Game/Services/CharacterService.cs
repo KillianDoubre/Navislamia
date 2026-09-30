@@ -433,6 +433,108 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<ItemTransferResult> TransferItemsAsync(ItemTransfer transfer)
+    {
+        return _gate.RunPairAsync(transfer.GiverName, transfer.ReceiverName, async () =>
+        {
+            using var repository = _repositories.Create();
+            var giver = await repository.GetCharacterByNameWithItemsAsync(transfer.GiverName);
+            var receiver = await repository.GetCharacterByNameWithItemsAsync(transfer.ReceiverName);
+            if (giver?.Items is null || receiver is null)
+            {
+                return ItemTransferResult.Failed(ItemTransferOutcome.CharacterMissing);
+            }
+
+            // Every line is judged before anything changes: a trade applies whole or not at all.
+            var asked = new Dictionary<uint, long>();
+            foreach (var line in transfer.Lines)
+            {
+                asked[line.ItemHandle] = asked.GetValueOrDefault(line.ItemHandle) + line.Count;
+            }
+
+            foreach (var (handle, count) in asked)
+            {
+                var item = FindByHandle(giver.Items, handle);
+                if (item is null)
+                {
+                    return ItemTransferResult.Failed(ItemTransferOutcome.ItemMissing);
+                }
+
+                if (item.WearInfo != ItemWearType.None)
+                {
+                    return ItemTransferResult.Failed(ItemTransferOutcome.Worn);
+                }
+
+                if (count <= 0 || count > item.Amount)
+                {
+                    return ItemTransferResult.Failed(ItemTransferOutcome.NotEnough);
+                }
+            }
+
+            receiver.Items ??= new List<ItemEntity>();
+            var nextIndex = receiver.Items.Count == 0
+                ? InventoryArrange.FirstIndex
+                : receiver.Items.Max(item => item.Idx) + 1;
+            var moved = new List<ItemTransferred>(asked.Count);
+
+            foreach (var (handle, count) in asked)
+            {
+                var item = FindByHandle(giver.Items, handle);
+                var remaining = item.Amount - count;
+                ItemEntity received;
+                if (remaining == 0)
+                {
+                    giver.Items.Remove(item);
+                    item.CharacterId = receiver.Id;
+                    item.Idx = nextIndex++;
+                    receiver.Items.Add(item);
+                    received = item;
+                }
+                else
+                {
+                    item.Amount = remaining;
+                    received = SplitOff(item, count, nextIndex++);
+                    receiver.Items.Add(received);
+                }
+
+                moved.Add(new ItemTransferred(handle, remaining, received));
+            }
+
+            giver.Gold = transfer.GiverGold;
+            receiver.Gold = transfer.ReceiverGold;
+            InventoryArrange.EnsureContiguousIndices(giver.Items.ToArray());
+            await repository.SaveChangesAsync();
+            return new ItemTransferResult(ItemTransferOutcome.Success, moved);
+        });
+    }
+
+    /// <summary>
+    /// A new stack of <paramref name="count"/> units carrying every attribute of <paramref name="source"/>:
+    /// part of a stack changes hands with the enhance, level, sockets and effects it had.
+    /// </summary>
+    private static ItemEntity SplitOff(ItemEntity source, long count, int index)
+    {
+        return new ItemEntity
+        {
+            ItemResourceId = source.ItemResourceId,
+            Amount = count,
+            Level = source.Level,
+            Enhance = source.Enhance,
+            EtherealDurability = source.EtherealDurability,
+            Endurance = source.Endurance,
+            Flag = source.Flag,
+            GenerateBySource = source.GenerateBySource,
+            WearInfo = ItemWearType.None,
+            SocketItemIds = source.SocketItemIds?.ToArray(),
+            RemainingTime = source.RemainingTime,
+            ElementalEffectType = source.ElementalEffectType,
+            ElementalEffectExpireTime = source.ElementalEffectExpireTime,
+            ElementalEffectAttackPoint = source.ElementalEffectAttackPoint,
+            ElementalEffectMagicPoint = source.ElementalEffectMagicPoint,
+            Idx = index
+        };
+    }
+
     public Task<ItemEntity[]> SwapItemPositionsAsync(string characterName, uint itemHandle1, uint itemHandle2)
     {
         return RunExclusiveAsync(characterName, async repository =>

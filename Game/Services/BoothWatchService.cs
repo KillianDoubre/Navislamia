@@ -91,33 +91,18 @@ public class BoothWatchService : IBoothWatchService
             return;
         }
 
-        var items = new List<BoothWatchItem>(booth.Items.Length);
-        foreach (var declared in booth.Items)
+        IReadOnlyList<BoothWatchItem> items;
+        try
         {
-            ItemEntity item;
-            try
-            {
-                item = await _characterService.GetItemByHandleAsync(owner.CharacterName, declared.ItemHandle);
-            }
-            catch (Exception exception)
-            {
-                _logger.Error(exception, "Could not read item {itemHandle} of {owner} for {clientTag}",
-                    declared.ItemHandle, owner.CharacterName, client.ClientTag);
-                client.SendResult((ushort)GamePackets.TM_CS_WATCH_BOOTH, (ushort)ResultCode.DBError,
-                    unchecked((int)declared.ItemHandle));
-                return;
-            }
-
-            if (item is null)
-            {
-                // §7.6: the item moved, was consumed or was sold since the 700. Skipping keeps count and
-                // length coherent, which the client never checks itself (§3.6).
-                _logger.Debug("Booth {target} of {owner} declares item {itemHandle}, which is no longer in the bag: skipped",
-                    target, owner.CharacterName, declared.ItemHandle);
-                continue;
-            }
-
-            items.Add(new BoothWatchItem(ItemFixedInfo.FromItem(item), declared.Gold));
+            items = await ResolveItemsAsync(owner, booth);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not read the booth items of {owner} for {clientTag}",
+                owner.CharacterName, client.ClientTag);
+            client.SendResult((ushort)GamePackets.TM_CS_WATCH_BOOTH, (ushort)ResultCode.DBError,
+                unchecked((int)target));
+            return;
         }
 
         client.ConnectionInfo.BeginWatchingBooth(target);
@@ -125,6 +110,54 @@ public class BoothWatchService : IBoothWatchService
 
         _logger.Debug("TM_CS_WATCH_BOOTH from {clientTag}: booth {target} of {owner} answered with {count} item(s)",
             client.ClientTag, target, owner.CharacterName, items.Count);
+    }
+
+    public async Task<byte[]> BuildWatchFrameAsync(ConnectionInfo owner)
+    {
+        var booth = owner.Booth;
+        if (booth is null)
+        {
+            return null;
+        }
+
+        var items = await ResolveItemsAsync(owner, booth);
+        return BoothPackets.BuildWatchBooth(owner.CharacterHandle, booth.Type, items);
+    }
+
+    /// <summary>
+    /// The declared items resolved against the owner's bag, each with its declared price and with the
+    /// units still on offer as its count. An item gone from the bag (§7.6: moved, consumed) and an item
+    /// sold out are skipped, which keeps count and length coherent — the client checks neither (§3.6).
+    /// </summary>
+    private async Task<IReadOnlyList<BoothWatchItem>> ResolveItemsAsync(ConnectionInfo owner,
+        StartBoothRequest booth)
+    {
+        var items = new List<BoothWatchItem>(booth.Items.Length);
+        foreach (var declared in booth.Items)
+        {
+            if (declared.Count <= 0)
+            {
+                continue;
+            }
+
+            var item = await _characterService.GetItemByHandleAsync(owner.CharacterName, declared.ItemHandle);
+            if (item is null)
+            {
+                _logger.Debug("Booth of {owner} declares item {itemHandle}, which is no longer in the bag: skipped",
+                    owner.CharacterName, declared.ItemHandle);
+                continue;
+            }
+
+            // A sell booth offers its remaining units, never more than the stack still holds; a buy booth
+            // shows the units it still wants, the sample item standing for them.
+            var info = ItemFixedInfo.FromItem(item);
+            var count = booth.Type == BoothTradeRules.SellBooth
+                ? Math.Min(declared.Count, info.Count)
+                : declared.Count;
+            items.Add(new BoothWatchItem(info with { Count = count }, declared.Gold));
+        }
+
+        return items;
     }
 
     public void HandleStopWatch(GameClient client, byte[] packet)
