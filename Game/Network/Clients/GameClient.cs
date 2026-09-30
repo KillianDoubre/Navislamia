@@ -3051,6 +3051,17 @@ public class GameClient : Client
                 continue;
             }
 
+            // Header-only client packet with no known payload and no response in either reference
+            // implementation. It must still be consumed here, because an id defined in GamePackets
+            // that reaches the final switch below throws "Unknown Packet Type" inside the receive
+            // loop. See docs/packet-specs/223-swap-equip.md.
+            if (header.ID == (ushort)GamePackets.TM_CS_SWAP_EQUIP)
+            {
+                _logger.Debug("TM_CS_SWAP_EQUIP ({id}) Length: {length} received from {clientTag}",
+                    header.ID, header.Length, ClientTag);
+                continue;
+            }
+
             // TM_CS_SET_PET_NAME (354), the pet (familier) rename request: the 7.3 client sends it from its name
             // box (SFrame.exe 0x48e170) with the handle the server itself put in TM_SC_SHOW_SET_PET_NAME (353)
             // and the typed name. PetSummonService renames the pet out when that handle is the one a 353
