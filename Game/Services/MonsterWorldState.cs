@@ -4,7 +4,9 @@ using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
+using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.Services.Buffs;
+using Navislamia.Game.Services.Stats;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -20,6 +22,7 @@ public class MonsterWorldState
 {
     private readonly ILogger _logger = Log.ForContext<MonsterWorldState>();
     private readonly IMonsterResourceRepository _repository;
+    private readonly IStatResourceRepository _statResources;
     private readonly MonsterSpawnOptions _options;
     private const float WanderRadiusMin = 75f;
     private const float WanderRadiusMax = 150f;
@@ -54,9 +57,11 @@ public class MonsterWorldState
     private SpatialIndex<MonsterInstance> _index;
     private Dictionary<long, MonsterInstance> _byId;
 
-    public MonsterWorldState(IMonsterResourceRepository repository, IOptions<MonsterSpawnOptions> options)
+    public MonsterWorldState(IMonsterResourceRepository repository, IOptions<MonsterSpawnOptions> options,
+        IStatResourceRepository statResources = null)
     {
         _repository = repository;
+        _statResources = statResources;
         _options = options.Value;
         Load();
     }
@@ -598,6 +603,40 @@ public class MonsterWorldState
         return Random.Shared.Next(MoveIntervalMinMs, MoveIntervalMaxMs);
     }
 
+    /// <summary>
+    /// The <c>StatResource</c> rows the loaded monsters name, in one query. A missing row leaves that
+    /// monster with level and columns only, and is reported once.
+    /// </summary>
+    private Dictionary<int, StatBaseStats> LoadBaseStats(IReadOnlyList<MonsterResourceEntity> resources)
+    {
+        var result = new Dictionary<int, StatBaseStats>();
+        if (_statResources is null)
+        {
+            return result;
+        }
+
+        var ids = new HashSet<int>();
+        foreach (var resource in resources)
+        {
+            ids.Add(resource.StatId);
+        }
+
+        foreach (var row in _statResources.GetByIds(ids))
+        {
+            result[(int)row.Id] = new StatBaseStats((int)row.Id, row.Strength, row.Vitality, row.Dexterity,
+                row.Agility, row.Intelligence, row.Wisdom, row.Luck);
+        }
+
+        var missing = ids.Count - result.Count;
+        if (missing > 0)
+        {
+            _logger.Warning("{missing} of {total} monster stat ids have no StatResource row; those monsters fight on level and columns alone",
+                missing, ids.Count);
+        }
+
+        return result;
+    }
+
     private int MaxHp(long instanceId)
     {
         return _byId != null && _byId.TryGetValue(instanceId, out var instance) ? instance.Hp : 1;
@@ -642,7 +681,9 @@ public class MonsterWorldState
         {
             var resourceIds = MonsterInstanceFactory.GetRequiredResourceIds(_options);
             var resources = _repository.GetByIds(resourceIds);
-            var instances = MonsterInstanceFactory.Build(_options, resources);
+            var baseStats = LoadBaseStats(resources);
+            var instances = MonsterInstanceFactory.Build(_options, resources,
+                statId => baseStats.TryGetValue(statId, out var stats) ? stats : null);
 
             var byId = new Dictionary<long, MonsterInstance>(instances.Count);
             foreach (var instance in instances)

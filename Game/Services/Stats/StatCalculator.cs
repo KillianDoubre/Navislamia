@@ -52,6 +52,11 @@ public class StatCalculator
             return;
         }
 
+        ApplyBaseStats(stats, block);
+    }
+
+    internal static void ApplyBaseStats(StatBaseStats stats, StatBlock block)
+    {
         block.StatId = stats.StatId;
         block.Strength = stats.Strength;
         block.Vitality = stats.Vitality;
@@ -85,7 +90,7 @@ public class StatCalculator
         }
     }
 
-    private static void SeedFromLevel(int level, StatBlock block)
+    internal static void SeedFromLevel(int level, StatBlock block)
     {
         block.AttackPointRight = level;
         block.AccuracyRight = level;
@@ -118,7 +123,7 @@ public class StatCalculator
         block.MaxChaos = DefaultMaxChaos;
     }
 
-    private static void ApplyEffects(StatBlock block, params IReadOnlyList<StatEffect>[] sources)
+    internal static void ApplyEffects(StatBlock block, params IReadOnlyList<StatEffect>[] sources)
     {
         foreach (var effects in sources)
         {
@@ -153,7 +158,7 @@ public class StatCalculator
         }
     }
 
-    private static void ApplyDerivedBonuses(StatBlock block)
+    internal static void ApplyDerivedBonuses(StatBlock block)
     {
         block.AttackPointRight += 2.8f * block.Strength;
         block.AccuracyRight += 0.5f * block.Dexterity;

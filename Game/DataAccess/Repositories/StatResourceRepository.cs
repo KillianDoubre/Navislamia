@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Navislamia.Game.DataAccess.Contexts;
@@ -18,5 +20,16 @@ public class StatResourceRepository : IStatResourceRepository
     public StatResourceEntity GetById(int id)
     {
         return _context.StatResources.FirstOrDefault(s => s.Id == id);
+    }
+
+    public IReadOnlyList<StatResourceEntity> GetByIds(IReadOnlyCollection<int> ids)
+    {
+        if (ids.Count == 0)
+        {
+            return Array.Empty<StatResourceEntity>();
+        }
+
+        var wanted = ids.Select(id => (long)id).ToArray();
+        return _context.StatResources.AsNoTracking().Where(s => wanted.Contains(s.Id)).ToList();
     }
 }

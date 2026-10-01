@@ -28,9 +28,6 @@ public class MonsterAiService
     /// <summary>Dropped monsters walk home at twice the chase speed.</summary>
     private const byte ReturnSpeed = ChaseSpeed * 2;
 
-    private const ushort AttackSpeedMs = 1200;
-    private const uint AttackIntervalTicks = 120;
-
     /// <summary>
     /// A chase move is only re-issued when the desired destination has drifted this far from the one
     /// already in flight — otherwise the client would get a fresh move every tick and stutter.
@@ -40,11 +37,13 @@ public class MonsterAiService
     private readonly ILogger _logger = Log.ForContext<MonsterAiService>();
     private readonly MonsterWorldState _worldState;
     private readonly NetworkService _networkService;
+    private readonly ICombatService _combat;
 
-    public MonsterAiService(MonsterWorldState worldState, NetworkService networkService)
+    public MonsterAiService(MonsterWorldState worldState, NetworkService networkService, ICombatService combat)
     {
         _worldState = worldState;
         _networkService = networkService;
+        _combat = combat;
         _ = RunAsync();
     }
 
@@ -210,15 +209,16 @@ public class MonsterAiService
             client.Connection.Send(GameMovePackets.BuildStopMove(handle, startTime, info.Layer));
         }
 
-        var damage = MonsterAiRules.PlayerDamage(info.CharacterMaxHp, info.IsImmortal);
-        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+        var hit = _combat.RollMonsterHit(instanceId, client, out var intervalTicks);
+        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
 
+        var intervalMs = CombatService.IntervalMs(intervalTicks);
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
-            AttackSpeedMs, AttackSpeedMs, GameAttackPackets.ActionAttack, damage, info.CharacterHp,
-            _worldState.GetHp(instanceId)));
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, info.CharacterHp,
+            _worldState.GetHp(instanceId), (byte)hit.Flags));
         client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
 
-        _worldState.SetNextAttack(instanceId, unchecked(now + AttackIntervalTicks));
+        _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
     }
 
     private void GoHome(GameClient client, long instanceId, uint handle, ConnectionInfo info, bool streamed)

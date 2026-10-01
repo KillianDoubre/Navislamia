@@ -205,7 +205,7 @@ public class ConnectionInfo
 
     /// <summary>
     /// Set by the GM command <c>/immortal</c>: monsters still swing but deal no damage
-    /// (<see cref="Navislamia.Game.Services.MonsterAiRules.PlayerDamage(int, bool)"/>). Session only.
+    /// (<see cref="Navislamia.Game.Services.ICombatService.RollMonsterHit"/>). Session only.
     /// </summary>
     public bool IsImmortal { get; set; }
 

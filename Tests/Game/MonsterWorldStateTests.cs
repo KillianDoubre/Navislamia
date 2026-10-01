@@ -26,7 +26,11 @@ public class MonsterWorldStateTests
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
             .Returns(new[]
             {
-                new MonsterResourceEntity { Id = 2101, Level = 5, Hp = hp, Race = 1, FirstAttack = firstAttack }
+                // Max HP is the hp column plus 20 per level (MonsterCombatStats): the instance gets exactly `hp`.
+                new MonsterResourceEntity
+                {
+                    Id = 2101, Level = 5, Hp = hp - 20 * 5, Race = 1, FirstAttack = firstAttack
+                }
             });
 
         return new MonsterWorldState(repository, Options.Create(options));

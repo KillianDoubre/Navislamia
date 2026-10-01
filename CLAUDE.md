@@ -310,7 +310,7 @@ sends a response. `GameActionPackets` holds the pure offset parsers.
 
 Double-clicking a monster sends `TS_CS_ATTACK_REQUEST` (`100`, Epic < 9.6.3): `handle` @7 +
 `target_handle` @11. The server drives auto-attack: `CombatService` runs a 100 ms `PeriodicTimer`
-loop that swings every 1200 ms, sending `TS_SC_ATTACK_EVENT` (`101`). **The swing is gated on
+loop that swings at the player's attack interval, sending `TS_SC_ATTACK_EVENT` (`101`). **The swing is gated on
 `CombatRange.InReach`** — the player's current position against the monster's — so a swing out of reach
 holds and re-checks every 200 ms while the client walks the player in, rather than landing a hit from
 across the view. **`CombatRange.MeleeReach` is the single real reach both directions share**: player
@@ -326,9 +326,22 @@ plays the death animation when `target_hp` reaches 0; there is no `TS_SC_DEAD` i
 HP and respawn deadlines (both sparse). `MonsterSpawnService` reads it and skips dead instances in
 `Sync`; `CombatService` mutates it and re-streams a respawned monster to its last attacker. Access to
 `ConnectionInfo.SpawnedMonsters` is guarded by `MonsterVisibilityLock` because the combat tick thread
-and the client thread both touch it. Damage is currently the monster's max HP divided by 3 (a
-fast-kill value for testing) and attack timing is fixed until the `MonsterResource` combat columns are
-backfilled.
+and the client thread both touch it.
+
+**Damage, hit, block, critical and cadence follow the official rules** (`docs/packet-specs/socle-combat-reel.md`).
+`CombatFormulas.Resolve` is the one pure function behind the player's swing, the monster's swing and the
+offensive skills: hit roll (`7 + max(10, 88 + 2 × level gap) × accuracy / avoid + bonus`, only against a
+target with avoid), block then perfect block (physical, a target with a block chance), critical
+(`× (1 + criticalPower / 100)`), the defence formula `level × 1.7 × max(1 − 0.4 def/atk, 0.3) +
+atk × max(1 − 0.5 def/atk, 0.05)` and a ±5 % spread — the order `DamageCalculator::SimulateDamageCalculation`
+draws them in. The interval is `100 / attackSpeed × 115` ticks (1.15 s at 100), carried in `attack_speed`/
+`attack_delay` as milliseconds; `ATTACK_INFO.flag` (@8 of the record) carries miss/block/critical. Players
+use `StatService.Compute(info)`; **a monster's stats are `MonsterCombatStats`**: its `stat_id`'s
+`StatResource` row, the level seed and derived bonuses of `StatCalculator` (the official
+`StructCreature::calcAttribute` has the same coefficients) and then its `MonsterResource` columns, built
+once per resource at load. **Its max HP is `hp + 20 × level + 33 × vitality`, not the `hp` column**, which
+is what `MonsterInstance.Hp` now holds. A monster's active states are folded into its stats on each hit.
+`ICombatRandom` is the dice, scripted in the tests.
 
 On death the killer is rewarded: `CombatRewards.Compute(level)` returns level-based placeholder exp, jp
 and gold (`10 + level * 5`, `5 + level * 2`, `5 + level * 3`), added to `ConnectionInfo`
@@ -495,8 +508,8 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
   destination has drifted past `ChaseReissueThreshold` from the one already in flight — otherwise the
   client would get a fresh move every 300 ms tick and stutter.
 - **Attack**: within the melee reach and off cooldown, `TS_SC_ATTACK_EVENT` (`101`) with the monster as
-  attacker and the player as target; the player loses `maxHp / 15` HP (**test formula**), sent as the
-  `hp` property. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
+  attacker and the player as target, rolled by `ICombatService.RollMonsterHit` against the player's
+  stats (the real rule, see *Combat*), at the monster's own attack interval, sent as the `hp` property. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
   joueur*), and a monster drops a target at 0 HP. **A monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
   freezes it at its current position and a `TS_SC_MOVE` stop is sent, so it does not slide through the
   swing (the reference's `SetMove(current, current, speed 0)` before `Attack`). The player is planted
@@ -529,7 +542,7 @@ per-monster reach gates both the monster's attack and the player's swing, keepin
 modelled.
 
 `CharacterMaxHp` was added to `ConnectionInfo` next to `CharacterHp`, seeded at the same two points HP
-is set to max (login and level-up), because the test damage reads it. The AI columns were NOT NULL
+is set to max (login and level-up); the former test damage read it, the real rule reads the stats. The AI columns were NOT NULL
 literals until `tools/Import-MonsterResourceColumns.ps1` backfilled `FirstAttack`, `GroupFirstAttack`,
 `VisibleRange`, `ChaseRange`, `AttackRange`, `RunSpeed`, `Size` and `Scale` from the 9.4 source — the
 same import trap the skill columns hit. See `docs/superpowers/specs/2026-07-17-monster-ai-design.md`.
@@ -959,11 +972,10 @@ and a respawn inherits none. The target must be a **visible monster of that clie
 `ConnectionInfo.SpawnedMonsters` under `MonsterVisibilityLock` exactly like `CombatService.StartAttack`,
 so a debuff can never touch an object the client cannot see.
 
-**A debuff is visible and inert, and that is the honest description.** Monsters carry only `Id`, `Level`,
-`Hp` and `Race` — there is no monster stat block, so a state lowering defence lowers nothing. Only 9 of
-the 29 harmful `AddState` skills even carry a stat state; the rest are mechanics nothing models. This
-slice delivers the icon, the countdown and the plumbing, and becomes real the day monsters get stats and
-combat reads them. `probability_on_hit` is imported but resistance is not modelled: a debuff always lands.
+**A debuff now moves the monster's stats**: the monster has a stat block (`MonsterCombatStats`) and
+`CombatService` folds its active states into it on every hit, so a state lowering defence lowers the
+damage it resists. Only 9 of the 29 harmful `AddState` skills even carry a stat state; the rest are
+mechanics nothing models. `probability_on_hit` is imported but resistance is not modelled: a debuff always lands.
 Whether this client renders a state icon on a monster at all is **unverified**.
 
 ### Offensive skills
@@ -973,9 +985,9 @@ Whether this client renders a state icon on a monster at all is **unverified**.
 records or area resolution and are out.
 
 **One damage rule, one death path.** `CombatService` owns damage, death, the corpse, drops, reward and
-respawn; the cast path must never reimplement any of it. `ICombatService` exposes `GetHitDamage` and
-`ApplyDamage`, `ProcessSwing` is refactored onto them, and `SkillCastService` calls them — so an auto-attack
-and a skill deal **the same damage through the same code**, and the whole death sequence behaves
+respawn; the cast path must never reimplement any of it. `ICombatService` exposes `RollHit` and
+`ApplyDamage`, `ProcessSwing` uses the same rule, and `SkillCastService` calls them — so an auto-attack
+and a skill are **judged by the same rule through the same code**, and the whole death sequence behaves
 identically for free. `SkillCastService` depends on `ICombatService`, never the reverse.
 
 **The damage hit's payload differs from the heal's**, inside the same 45-byte stride: `type` u8@0,
@@ -990,7 +1002,10 @@ unit is unverified against a world whose coordinates run in the tens of thousand
 gates the cast. A wrong conversion would refuse legitimate casts, so this stays a documented gap, like
 resistance.
 
-**The damage formula is still the placeholder** (max HP / 3), deliberately unchanged here.
+**The base damage is the reference's** (`SkillDamageCurve`): physical `attack × (var0 + var1 × lvl) + var2 +
+var3 × lvl`, magic `magicPoint × (var0 + var1 × lvl) + var3 + var4 × lvl`, with `hit_bonus + level gap ×
+percentage` and `critical_bonus + critical_bonus_per_skl × lvl`; the hit's `flag` (int32 @14) carries
+miss/block/critical. Enhancement terms are zero.
 
 ## Teleporters and field props
 
@@ -1439,7 +1454,7 @@ threshold and lets `LevelingService.ApplyExperience` run the ordinary level-up, 
 exact JP cost then calls `LevelingService.ApplyJobLevelUp` (JP balance unchanged, the button's own
 sequence), `/learn` is `SaveLearnedSkillAsync` with the JP untouched and ignores the job restriction,
 `/buff` is `ISkillCastService.ApplyState` after an `IStateCatalog.Exists` check, and `/immortal` is a
-session flag `MonsterAiRules.PlayerDamage(maxHp, immortal)` turns into a zero-damage swing. A command
+session flag `ICombatService.RollMonsterHit` turns into a zero-damage swing. A command
 therefore cannot produce a state the game itself cannot. `/sitdown`, `/battle` and `/walk` are session states carried by
 `ActorStatus.ForPlayer`, which now composes PK, sitting, battle mode and walking — **every status send
 must pass all four**, the mask being a snapshot.
@@ -1492,12 +1507,12 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding; monster damage is the
-  `maxHp/15` test formula, and a player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them
-  back in town, or in place with a resurrection state or a Resurrection Scroll (resurrection by another
-  player is not implemented). Damage-to-monster, attack speed, walk speed
-  and the scaled attack range stay placeholders. **An offensive skill deals the same placeholder damage
-  as a swing**, through the same `ICombatService` path
+  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding. **Damage, hit, block, critical
+  and attack speed follow the official rules on both sides** (`socle-combat-reel.md`); not modelled:
+  double attack, dual wield, bow aiming, elements, additional damage, reflection and mana shield. A
+  player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them back in town, or in place with a
+  resurrection state or a Resurrection Scroll (resurrection by another player is not implemented). Walk
+  speed stays a placeholder, and kill rewards are still the per-level placeholder
 - Ground items are seen by the players around them but taken by their owner only
 - NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
   warp**; other gameplay actions such as shops and quest mutation are not executed yet
@@ -1509,7 +1524,7 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot
 - **Casting works for buffs, toggle auras, heals, monster debuffs and single-target offensive skills**
   (physical 30001 and magic 231): MP cost, cooldown, cast delay, duration, expiry, damage, death and
-  reward. **Debuffs are visible but inert** — monsters have no stat block. Not implemented: multi-hit and
+  reward. **Debuffs move the monster's stats.** Not implemented: multi-hit and
   region offensive skills, `cast_range`, expanding a region buff beyond the caster, buffing other players
   (no party), summon buffs, resurrection, region heals, debuff resistance, `state_type` stacking rules,
   cast interruption and buff persistence across sessions
@@ -1517,9 +1532,8 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   race) are still not validated
 - Stats cover job/JLv/level, equipment, the supported passive skills, active buffs and toggled auras;
   **titles still contribute nothing because nothing can grant one**. `ParameterB` is undecoded for both
-  items (63) and states. **Stats still barely drive gameplay**: a heal reads `magicPoint`, but combat
-  ignores them entirely — damage is the monster's max HP divided by 3 and attack speed is fixed, so an
-  attack-speed buff changes nothing
+  items (63) and states. **Stats drive combat**: attack, defence, accuracy, avoid, block, critical and
+  attack speed all reach the damage and the swing interval
 - Inventory sorting and drag-swap work; the character storage (211/212) moves items between the bag and
   the account storage, but its capacity is unbounded and the two gold modes answer `NotActable` (no
   column holds the stored gold), and the sort order follows the client's tab categories rather than the

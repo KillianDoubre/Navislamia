@@ -14,11 +14,18 @@ public interface ICombatService
     void DropAggro(GameClient client);
 
     /// <summary>
-    /// The damage a hit deals to a monster. Currently a placeholder — the monster's max HP divided by
-    /// three — and deliberately the same value for an auto-attack and a skill, so combat has one rule
-    /// until the stats drive it.
+    /// Rolls one hit of the player on a monster through <see cref="CombatFormulas.Resolve"/>: the
+    /// player's live stats against the monster's, its states included. An auto-attack passes the attack
+    /// point; a skill passes its own base damage and bonuses, so both follow the same rule.
     /// </summary>
-    int GetHitDamage(long instanceId);
+    HitResult RollHit(GameClient client, long instanceId, float baseDamage, DamageKind kind, int accuracyBonus,
+        int criticalBonus);
+
+    /// <summary>
+    /// Rolls one swing of a monster on a player, and gives the monster's swing interval in ar_time ticks
+    /// (its attack speed). A player under <c>/immortal</c> takes 0.
+    /// </summary>
+    HitResult RollMonsterHit(long instanceId, GameClient target, out uint intervalTicks);
 
     /// <summary>
     /// Applies damage to a monster and owns everything that follows: death, the corpse, its states, the

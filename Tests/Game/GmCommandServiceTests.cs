@@ -546,9 +546,6 @@ public class GmCommandServiceTests
 
         await _service.HandleAsync(client, "/immortal", Array.Empty<GameClient>());
         info.IsImmortal.Should().BeFalse();
-
-        MonsterAiRules.PlayerDamage(1_500, immortal: true).Should().Be(0);
-        MonsterAiRules.PlayerDamage(1_500, immortal: false).Should().Be(100);
     }
 
     [Test]
@@ -688,7 +685,9 @@ public class GmCommandServiceTests
         };
         var repository = A.Fake<IMonsterResourceRepository>();
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
-            .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = hp, Race = 1 } });
+            // A monster's max HP is its hp column plus 20 per level (MonsterCombatStats): subtract the level
+            // part so the instance ends up with exactly `hp`.
+            .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = hp - 20 * 5, Race = 1 } });
 
         return new MonsterWorldState(repository, Options.Create(options));
     }

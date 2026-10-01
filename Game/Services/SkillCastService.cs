@@ -132,7 +132,7 @@ public class SkillCastService : ISkillCastService
                 break;
             case SkillCastKind.PhysicalAttack:
             case SkillCastKind.MagicAttack:
-                hit = ApplyAttack(client, fields, request.Target, targetInstanceId);
+                hit = ApplyAttack(client, fields, skillLevel, request.Target, targetInstanceId);
                 break;
             case SkillCastKind.ActivateProp:
                 ActivateProp(client, targetInstanceId);
@@ -550,19 +550,29 @@ public class SkillCastService : ISkillCastService
     }
 
     /// <summary>
-    /// An offensive skill deals the same damage an auto-attack swing does, and goes through
-    /// <see cref="ICombatService.ApplyDamage"/> so death, drops, reward and respawn stay in one place.
+    /// An offensive skill computes its own base damage and bonuses (<see cref="SkillDamageCurve"/>), then
+    /// rolls through the same <see cref="ICombatService.RollHit"/> as a swing and lands through
+    /// <see cref="ICombatService.ApplyDamage"/>, so death, drops, reward and respawn stay in one place.
     /// </summary>
-    private SkillHit ApplyAttack(GameClient client, CastableBuffFields fields, uint targetHandle,
-        long instanceId)
+    private SkillHit ApplyAttack(GameClient client, CastableBuffFields fields, int skillLevel,
+        uint targetHandle, long instanceId)
     {
-        var damage = _combatService.GetHitDamage(instanceId);
-        var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, damage);
-        var type = fields.Kind == SkillCastKind.MagicAttack
-            ? SkillHitType.MagicDamage
-            : SkillHitType.Damage;
+        var info = client.ConnectionInfo;
+        var stats = _statService.Compute(info).Total;
+        var magical = fields.Kind == SkillCastKind.MagicAttack;
+        var targetLevel = _monsterState.TryGetInstance(instanceId, out var instance) ? instance.Level : 0;
 
-        return new SkillHit(type, targetHandle, targetHp, damage);
+        var baseDamage = SkillDamageCurve.BaseDamage(fields.Kind, fields.Vars, skillLevel,
+            stats.AttackPointRight, stats.MagicPoint);
+        var hit = _combatService.RollHit(client, instanceId, baseDamage,
+            magical ? DamageKind.Magical : DamageKind.Physical,
+            SkillDamageCurve.HitBonus(fields, info.CharacterLevel, targetLevel),
+            SkillDamageCurve.CriticalBonus(fields, skillLevel));
+
+        var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage);
+        var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
+
+        return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags);
     }
 
     private void ApplyDebuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now,

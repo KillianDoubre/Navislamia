@@ -2,16 +2,17 @@ using System;
 using System.Collections.Generic;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.DataAccess.Entities.Arcadia;
+using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.Services;
 
 public static class MonsterInstanceFactory
 {
     public static IReadOnlyList<MonsterInstance> Build(MonsterSpawnOptions options,
-        IReadOnlyList<MonsterResourceEntity> resources)
+        IReadOnlyList<MonsterResourceEntity> resources, Func<int, StatBaseStats?> baseStats = null)
     {
         var instances = new List<MonsterInstance>(GetInstanceCount(options));
-        var resourcesById = IndexResources(resources);
+        var resourcesById = IndexResources(resources, baseStats);
         long instanceId = 0;
 
         foreach (var spawn in options.Spawns)
@@ -36,10 +37,10 @@ public static class MonsterInstanceFactory
     }
 
     public static IReadOnlyList<MonsterInstance> Build(IEnumerable<MonsterSpawnPoint> spawns,
-        IReadOnlyList<MonsterResourceEntity> resources)
+        IReadOnlyList<MonsterResourceEntity> resources, Func<int, StatBaseStats?> baseStats = null)
     {
         var instances = new List<MonsterInstance>();
-        var resourcesById = IndexResources(resources);
+        var resourcesById = IndexResources(resources, baseStats);
         long instanceId = 0;
 
         foreach (var spawn in spawns)
@@ -73,28 +74,34 @@ public static class MonsterInstanceFactory
         return ids;
     }
 
-    private static Dictionary<int, MonsterResourceEntity> IndexResources(
-        IReadOnlyList<MonsterResourceEntity> resources)
+    /// <summary>
+    /// Indexes the resources with their combat stats, built once per resource. Without a base-stat source
+    /// (the tests) a resource gets no <c>StatResource</c> row, so only its level and columns count.
+    /// </summary>
+    private static Dictionary<int, (MonsterResourceEntity Resource, MonsterCombatStats Combat)> IndexResources(
+        IReadOnlyList<MonsterResourceEntity> resources, Func<int, StatBaseStats?> baseStats)
     {
-        var resourcesById = new Dictionary<int, MonsterResourceEntity>(resources.Count);
+        var resourcesById = new Dictionary<int, (MonsterResourceEntity, MonsterCombatStats)>(resources.Count);
 
         foreach (var resource in resources)
         {
-            resourcesById[(int)resource.Id] = resource;
+            var combat = MonsterCombatStats.From(resource, baseStats?.Invoke(resource.StatId));
+            resourcesById[(int)resource.Id] = (resource, combat);
         }
 
         return resourcesById;
     }
 
     private static void AddInstances(List<MonsterInstance> instances,
-        IReadOnlyDictionary<int, MonsterResourceEntity> resourcesById, ref long instanceId,
-        int monsterId, int resourceId, int count, int x1, int y1, int x2, int y2)
+        IReadOnlyDictionary<int, (MonsterResourceEntity Resource, MonsterCombatStats Combat)> resourcesById,
+        ref long instanceId, int monsterId, int resourceId, int count, int x1, int y1, int x2, int y2)
     {
-        if (count <= 0 || !resourcesById.TryGetValue(resourceId, out var resource))
+        if (count <= 0 || !resourcesById.TryGetValue(resourceId, out var entry))
         {
             return;
         }
 
+        var (resource, combat) = entry;
         var race = resource.Race is >= 0 and <= byte.MaxValue ? (byte)resource.Race : (byte)0;
         var left = Math.Min(x1, x2);
         var right = Math.Max(x1, x2);
@@ -108,10 +115,10 @@ public static class MonsterInstanceFactory
             instances.Add(new MonsterInstance(
                 instanceId++, monsterId,
                 random.Next(left, right + 1), random.Next(top, bottom + 1), 0f,
-                resource.Level, resource.Hp, race, faceDirection,
+                resource.Level, combat.MaxHp, race, faceDirection,
                 resource.FirstAttack != 0, resource.VisibleRange, resource.ChaseRange,
                 (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale,
-                resource.TamingId, resource.TamingPercentage));
+                resource.TamingId, resource.TamingPercentage, combat));
         }
     }
 

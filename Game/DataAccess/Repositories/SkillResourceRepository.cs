@@ -94,7 +94,11 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.DelayCommon,
                 skill.DelayCooltime,
                 skill.DelayCooltimePerSkl,
-                skill.RequiredLevel))
+                skill.RequiredLevel,
+                skill.HitBonus,
+                skill.Percentage,
+                skill.CriticalBonus,
+                skill.CriticalBonusPerSkl))
             .ToList();
     }
 
