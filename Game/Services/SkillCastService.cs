@@ -49,13 +49,16 @@ public class SkillCastService : ISkillCastService
     private readonly ICombatService _combatService;
     private readonly IFieldPropCatalog _fieldPropCatalog;
     private readonly IWarpService _warpService;
+    private readonly IPlayerVisibilityService _players;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
     public SkillCastService(IBuffCatalog catalog, IStatService statService, IStateCatalog stateCatalog,
         MonsterWorldState monsterState,
-        ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService)
+        ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService,
+        IPlayerVisibilityService players = null)
     {
+        _players = players;
         _catalog = catalog;
         _statService = statService;
         _stateCatalog = stateCatalog;
@@ -113,7 +116,7 @@ public class SkillCastService : ISkillCastService
             info.SkillCooldowns[request.SkillId] = unchecked(now + cooldown);
         }
 
-        SendSkill(client, request, SkillPacketType.Casting, mpCost, castDelay);
+        SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Casting, mpCost, castDelay);
 
         SkillHit? hit = null;
         switch (fields.Kind)
@@ -143,7 +146,7 @@ public class SkillCastService : ISkillCastService
                 return;
         }
 
-        SendSkill(client, request, SkillPacketType.Fire, 0, 0, hit);
+        SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Fire, 0, 0, hit);
 
         // Only a buff or an aura moves the caster's stat block. A heal changes HP, which travels as a
         // property; a debuff and an attack land on a monster.
@@ -152,7 +155,7 @@ public class SkillCastService : ISkillCastService
             SendStatRefresh(client, info);
         }
 
-        SendSkill(client, request, SkillPacketType.Complete, 0, 0);
+        SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Complete, 0, 0);
 
         client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
             new[] { new SkillListEntry(request.SkillId, skillLevel, cooldown, cooldown) }));
@@ -619,13 +622,32 @@ public class SkillCastService : ISkillCastService
             (uint)stateId, (ushort)stateLevel, endTick, now));
     }
 
-    private static void SendSkill(GameClient client, GameActionPackets.SkillRequest request,
-        SkillPacketType type, int mpCost, uint castDelay, SkillHit? hit = null)
+    /// <summary>
+    /// One step of a cast, to the caster and to the players who see them
+    /// (docs/packet-specs/socle-diffusion-combat.md): a cast on the caster goes out as is, a cast on a monster
+    /// is rebuilt with each observer's handle for it, and a prop activation stays the caster's (a prop's
+    /// handle is per client too, and nothing tracks which observer streams which prop).
+    /// </summary>
+    private void SendSkill(GameClient client, GameActionPackets.SkillRequest request, SkillCastKind kind,
+        long targetInstanceId, SkillPacketType type, int mpCost, uint castDelay, SkillHit? hit = null)
     {
         var info = client.ConnectionInfo;
-        client.Connection.Send(GameSkillPackets.BuildSkill((ushort)request.SkillId, request.SkillLevel,
-            info.CharacterHandle, request.Target, request.X, request.Y, request.Z, (byte)request.Layer,
-            type, 0, mpCost, info.CharacterHp, info.CharacterMp, castDelay, 0, hit));
+        byte[] Frame(uint target, SkillHit? frameHit) => GameSkillPackets.BuildSkill((ushort)request.SkillId,
+            request.SkillLevel, info.CharacterHandle, target, request.X, request.Y, request.Z, (byte)request.Layer,
+            type, 0, mpCost, info.CharacterHp, info.CharacterMp, castDelay, 0, frameHit);
+
+        client.Connection.Send(Frame(request.Target, hit));
+
+        switch (kind)
+        {
+            case SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack or SkillCastKind.Debuff:
+                ObserverFrames.SendMonsterFrame(_players, client, targetInstanceId, (_, handle) =>
+                    Frame(handle, hit is { } monsterHit ? monsterHit with { TargetHandle = handle } : null));
+                break;
+            case SkillCastKind.Buff or SkillCastKind.Aura or SkillCastKind.Heal:
+                _players?.SendToObservers(client, Frame(request.Target, hit));
+                break;
+        }
     }
 
     private static void SendCastFailed(GameClient client, GameActionPackets.SkillRequest request,

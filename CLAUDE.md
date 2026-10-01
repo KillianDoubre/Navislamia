@@ -167,8 +167,9 @@ them for a summon. `max_hp` @38 and
 `SummonWorldService.Enter(session, tag, connection, entry)` is their caller: it allocates the handle with
 `WorldObjectHandle.Next()`, emits 301 (it fills the creature window) then 3 (it puts the object in the world) —
 one call because no login-properties emission exists for summons yet — and `Leave` emits `TS_SC_UNSUMMON` (305)
-then `TS_SC_LEAVE` (9) on the master's connection. Only that direct copy is sent: the regional broadcast of 305/9
-from §5.3 is not ported yet (players do see each other now, but summons are not broadcast). A summon's position is
+then `TS_SC_LEAVE` (9) on the master's connection; given the master's `GameClient`, the players who see the
+master get the summon's `TS_SC_ENTER`/`TS_SC_LEAVE` too, and `ConnectionInfo.Summons` keeps it so a player who
+comes into view later is shown it (`docs/packet-specs/socle-diffusion-compagnons.md`). A summon's position is
 never persisted: it is the master's (`ConnectionInfo.X/Y`, `Layer`, `master_handle = CharacterHandle`) plus a
 bounded jitter (`AddNoise` in integer arithmetic: `raw % range - range/2`, 70 on summon, 50 on login, 35 on
 warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `z`, never set, is 0 — and the
@@ -251,9 +252,17 @@ champ ; `TS_SC_LEAVE` fait 11 octets et `TS_SC_MOVE` `19 + 8 × N`. Ce qui manqu
   pair), les PV/PM en **`TS_SC_HPMP` (509, 36 octets)** — ce que la référence diffuse
   (`Messages::BroadcastHPMPMessage`) : le joueur garde ses `TS_SC_PROPERTY`, ses observateurs reçoivent la
   509 (`GameClient.SendVitalProperty`) —, la régénération (516), le niveau (1002, `BroadcastLevelMsg`),
-  l'émotion (1201), le chat local et les objets au sol.
-- **Hors lot** : leurs changements d'état après l'entrée (mort, assis, PK), un pair déjà en marche (vu
-  immobile jusqu'à sa prochaine trame), et la diffusion du familier et des invocations.
+  l'émotion (1201), le chat local et les objets au sol ; assis et mode PK (500, `SendActorStatus`, à l'entrée
+  comme au changement).
+- **Combat diffusé** (`docs/packet-specs/socle-diffusion-combat.md`) : coups, compétences, poursuites et mort
+  des monstres partent aussi aux joueurs qui voient la scène, **reconstruits pour chacun** avec son handle du
+  monstre et son horloge (`ObserverFrames`, `MonsterAiService.ToOtherWatchers`). La mort d'un joueur se voit
+  par le coup fatal (`target_hp = 0`) et le 509 : le client n'a pas de paquet de mort.
+- **Compagnons diffusés** (`docs/packet-specs/socle-diffusion-compagnons.md`) : l'`ENTER` du familier et des
+  invocations suit celui du maître, leur `LEAVE` précède le sien, et appel, rangement et marche du familier
+  partent aux observateurs (`CompanionFrames`, handle global). La visibilité lit `ActivePet` et `Summons`
+  **sans verrou** — l'inverse de l'ordre de verrouillage du familier serait un interblocage.
+- **Hors lot** : un pair déjà en marche (vu immobile jusqu'à sa prochaine trame) et les états (505) d'un pair.
   `BoothWatchService` cherche encore le propriétaire d'un étal par balayage : le registre peut le remplacer.
 - Fiche, sources et réserves : `docs/packet-specs/socle-visibilite-joueurs.md`.
 

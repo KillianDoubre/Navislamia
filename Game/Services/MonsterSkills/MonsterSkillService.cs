@@ -3,6 +3,7 @@ using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Buffs;
+using Navislamia.Game.Services.Interfaces;
 using Serilog;
 
 namespace Navislamia.Game.Services.MonsterSkills;
@@ -37,10 +38,12 @@ public class MonsterSkillService : IMonsterSkillService
     private readonly ICombatService _combat;
     private readonly ISkillCastService _skillCast;
     private readonly ICombatRandom _random;
+    private readonly IPlayerVisibilityService _players;
 
     public MonsterSkillService(IMonsterSkillCatalog catalog, MonsterWorldState world, ICombatService combat,
-        ISkillCastService skillCast, ICombatRandom random = null)
+        ISkillCastService skillCast, ICombatRandom random = null, IPlayerVisibilityService players = null)
     {
+        _players = players;
         _catalog = catalog;
         _world = world;
         _combat = combat;
@@ -85,13 +88,25 @@ public class MonsterSkillService : IMonsterSkillService
     {
         var info = client.ConnectionInfo;
         var (mx, my) = _world.GetPosition(instanceId);
-        var targetHandle = skill.OnSelf ? monsterHandle : info.CharacterHandle;
         var (x, y, z) = skill.OnSelf ? (mx, my, instance.Z) : (info.X, info.Y, info.Z);
 
-        void Send(SkillPacketType type, uint delay = 0, SkillHit? hit = null) =>
-            client.Connection.Send(GameSkillPackets.BuildSkill((ushort)skill.Fields.SkillId,
-                (byte)Math.Clamp(skill.Level, 0, byte.MaxValue), monsterHandle, targetHandle, x, y, z,
-                (byte)info.Layer, type, 0, 0, _world.GetHp(instanceId), 0, delay, 0, hit));
+        // One frame per recipient: the monster's handle is that client's, and so is the target's when the
+        // monster casts on itself. The players who see the target watch the cast too.
+        byte[] Frame(uint handle, SkillPacketType type, uint delay, SkillHit? hit)
+        {
+            var target = skill.OnSelf ? handle : info.CharacterHandle;
+            var rehit = hit is { } h && skill.OnSelf ? h with { TargetHandle = handle } : hit;
+            return GameSkillPackets.BuildSkill((ushort)skill.Fields.SkillId,
+                (byte)Math.Clamp(skill.Level, 0, byte.MaxValue), handle, target, x, y, z, (byte)info.Layer, type, 0,
+                0, _world.GetHp(instanceId), 0, delay, 0, rehit);
+        }
+
+        void Send(SkillPacketType type, uint delay = 0, SkillHit? hit = null)
+        {
+            client.Connection.Send(Frame(monsterHandle, type, delay, hit));
+            ObserverFrames.SendMonsterFrame(_players, client, instanceId,
+                (_, handle) => Frame(handle, type, delay, hit));
+        }
 
         Send(SkillPacketType.Casting, castTicks);
         var fire = Apply(client, instanceId, instance, monsterHandle, skill, now);

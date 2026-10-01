@@ -200,7 +200,7 @@ public class MonsterAiService
             return;
         }
 
-        Broadcast(client, handle, info, _worldState.BeginMove(instanceId, x, y, ChaseSpeed));
+        Broadcast(client, instanceId, handle, info, _worldState.BeginMove(instanceId, x, y, ChaseSpeed));
     }
 
     private void Attack(GameClient client, long instanceId, uint handle, ConnectionInfo info, uint now)
@@ -211,6 +211,8 @@ public class MonsterAiService
             _worldState.StopMove(instanceId);
             var startTime = unchecked(now + info.ClientClockOffset);
             client.Connection.Send(GameMovePackets.BuildStopMove(handle, startTime, info.Layer));
+            ToOtherWatchers(client, instanceId, false, (other, otherHandle) => GameMovePackets.BuildStopMove(
+                otherHandle, unchecked(now + other.ConnectionInfo.ClientClockOffset), other.ConnectionInfo.Layer));
         }
 
         // A skill, when one comes up, replaces the swing (StructMonster::AI_processAttack). The next
@@ -227,9 +229,16 @@ public class MonsterAiService
         info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
 
         var intervalMs = CombatService.IntervalMs(intervalTicks);
+        var monsterHp = _worldState.GetHp(instanceId);
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
             intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, info.CharacterHp,
-            _worldState.GetHp(instanceId), (byte)hit.Flags));
+            monsterHp, (byte)hit.Flags));
+
+        // The players who see both see the swing: the one that brings the player to 0 carries
+        // target_hp = 0, which is how they watch the player die (the client has no death packet).
+        ToOtherWatchers(client, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
+            otherHandle, info.CharacterHandle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
+            info.CharacterHp, monsterHp, (byte)hit.Flags));
         client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
 
         _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
@@ -249,14 +258,63 @@ public class MonsterAiService
         var order = _worldState.ReturnHome(instanceId, homeX, homeY, ReturnSpeed);
         if (streamed)
         {
-            Broadcast(client, handle, info, order);
+            Broadcast(client, instanceId, handle, info, order);
+        }
+        else
+        {
+            ToOtherWatchers(client, instanceId, false, (other, otherHandle) => MoveFrame(other, otherHandle, order));
         }
     }
 
-    private static void Broadcast(GameClient client, uint handle, ConnectionInfo info, MoveOrder order)
+    private void Broadcast(GameClient client, long instanceId, uint handle, ConnectionInfo info, MoveOrder order)
     {
+        client.Connection.Send(MoveFrame(client, handle, order));
+        ToOtherWatchers(client, instanceId, false, (other, otherHandle) => MoveFrame(other, otherHandle, order));
+    }
+
+    /// <summary>A monster move for one client: its handle for the monster and its own clock.</summary>
+    private static byte[] MoveFrame(GameClient recipient, uint handle, MoveOrder order)
+    {
+        var info = recipient.ConnectionInfo;
         var startTime = unchecked(order.StartTick + info.ClientClockOffset);
-        client.Connection.Send(GameMovePackets.BuildMove(handle, startTime, info.Layer, order.Speed,
-            order.DestX, order.DestY));
+        return GameMovePackets.BuildMove(handle, startTime, info.Layer, order.Speed, order.DestX, order.DestY);
+    }
+
+    /// <summary>
+    /// A frame about a monster for every other client that has it streamed, under that client's handle for
+    /// it (docs/packet-specs/socle-diffusion-combat.md). With <paramref name="mustSeeTarget"/>, only the
+    /// clients that also see the target player get it: an attack on a player they do not know is not theirs.
+    /// </summary>
+    private void ToOtherWatchers(GameClient target, long instanceId, bool mustSeeTarget,
+        Func<GameClient, uint, byte[]> build)
+    {
+        var targetHandle = target.ConnectionInfo.CharacterHandle;
+        foreach (var other in _networkService.AuthorizedGameClients.Values)
+        {
+            if (ReferenceEquals(other, target))
+            {
+                continue;
+            }
+
+            var otherInfo = other.ConnectionInfo;
+            var handle = otherInfo.GetMonsterHandle(instanceId);
+            if (handle == 0)
+            {
+                continue;
+            }
+
+            if (mustSeeTarget)
+            {
+                lock (otherInfo.PlayerVisibilityLock)
+                {
+                    if (!otherInfo.SpawnedPlayers.ContainsKey(targetHandle))
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            other.Connection.Send(build(other, handle));
+        }
     }
 }

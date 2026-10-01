@@ -74,7 +74,7 @@ public class PetSummonService : IPetSummonService
             var action = PetSummonRules.Decide(info.ActivePet, itemHandle);
             if (action is PetCageAction.Dismiss or PetCageAction.Swap)
             {
-                _world.Leave(info, client.ClientTag, client.Connection, info.ActivePet!.Handle);
+                _world.Leave(info, client.ClientTag, client.Connection, info.ActivePet!.Handle, client);
                 info.ActivePet = null;
             }
 
@@ -107,13 +107,13 @@ public class PetSummonService : IPetSummonService
             // Another cage may have been used while the row was read: the last call wins, one pet at a time.
             if (info.ActivePet is { } other)
             {
-                _world.Leave(info, client.ClientTag, client.Connection, other.Handle);
+                _world.Leave(info, client.ClientTag, client.Connection, other.Handle, client);
                 info.ActivePet = null;
             }
 
             var entry = PetSummonRules.BuildEntry(pet, itemHandle, info.X, info.Y, info.Z, info.Layer,
                 isFirstEnter: true, name: record.Name);
-            var handle = _world.Enter(info, client.ClientTag, client.Connection, entry);
+            var handle = _world.Enter(info, client.ClientTag, client.Connection, entry, client);
             if (handle == 0)
             {
                 return true;
@@ -242,12 +242,12 @@ public class PetSummonService : IPetSummonService
     private void Replace(GameClient client, ActivePet active, float x, float y, string name)
     {
         var info = client.ConnectionInfo;
-        _world.Leave(info, client.ClientTag, client.Connection, active.Handle);
+        _world.Leave(info, client.ClientTag, client.Connection, active.Handle, client);
 
         var entry = PetSummonRules.BuildEntry(
             new PetDefinition((int)active.Entry.PetCode, 0, name), active.CageHandle,
             x, y, info.Z, info.Layer, isFirstEnter: false, name: name);
-        var handle = _world.Enter(info, client.ClientTag, client.Connection, entry);
+        var handle = _world.Enter(info, client.ClientTag, client.Connection, entry, client);
         info.ActivePet = handle == 0 ? null : new ActivePet(handle, active.CageHandle, entry, active.CollectRange);
     }
 

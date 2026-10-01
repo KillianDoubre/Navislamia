@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.Rates;
 using Navislamia.Game.Services.Stats;
 using Serilog;
@@ -27,6 +28,7 @@ public class CombatService : ICombatService
     private readonly IStatService _stats;
     private readonly IStateCatalog _states;
     private readonly ICombatRandom _random;
+    private readonly IPlayerVisibilityService _players;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
@@ -34,8 +36,10 @@ public class CombatService : ICombatService
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
-        IStatService stats, IStateCatalog states, ICombatRandom random = null)
+        IStatService stats, IStateCatalog states, ICombatRandom random = null,
+        IPlayerVisibilityService players = null)
     {
+        _players = players;
         _rates = rates;
         _stats = stats;
         _states = states;
@@ -88,6 +92,8 @@ public class CombatService : ICombatService
         }
 
         client.Connection.Send(GameAttackPackets.BuildEndAttack(session.AttackerHandle, session.TargetHandle));
+        ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
+            (_, handle) => GameAttackPackets.BuildEndAttack(session.AttackerHandle, handle));
     }
 
     public void DropAggro(GameClient client)
@@ -190,6 +196,12 @@ public class CombatService : ICombatService
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle, session.TargetHandle,
             intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, targetHp, info.CharacterHp,
             (byte)hit.Flags));
+
+        // The players around see the swing too, each under its own handle for the monster: the killing one
+        // carries target_hp = 0, which is what plays the monster's death on their screen.
+        ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
+            (_, handle) => GameAttackPackets.BuildAttackEvent(session.AttackerHandle, handle, intervalMs, intervalMs,
+                GameAttackPackets.ActionAttack, hit.Damage, targetHp, info.CharacterHp, (byte)hit.Flags));
 
         if (targetHp <= 0)
         {
@@ -318,6 +330,21 @@ public class CombatService : ICombatService
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, ActorStatus.ForMonster(true)));
 
+        // The players who watched the kill see the corpse fall and later leave, like the killer: otherwise a
+        // dead monster stood on their screen until their next synchronisation.
+        var watchers = new List<PendingLeave>();
+        ObserverFrames.SendMonsterFrame(_players, client, instanceId, (observer, handle) =>
+        {
+            watchers.Add(new PendingLeave
+            {
+                Client = observer,
+                InstanceId = instanceId,
+                Handle = handle,
+                LeaveAt = now.AddSeconds(DeathAnimationSeconds)
+            });
+            return GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForMonster(true));
+        });
+
         lock (_lock)
         {
             _lastAttacker[instanceId] = client;
@@ -329,6 +356,7 @@ public class CombatService : ICombatService
                 Handle = targetHandle,
                 LeaveAt = now.AddSeconds(DeathAnimationSeconds)
             });
+            _pendingLeaves.AddRange(watchers);
         }
 
         var (dropX, dropY) = _worldState.GetPosition(instanceId);

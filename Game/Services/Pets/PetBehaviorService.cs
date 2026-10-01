@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
 using Serilog;
 
 namespace Navislamia.Game.Services.Pets;
@@ -31,7 +32,7 @@ public class PetBehaviorService
         IPetSummonService petSummon)
     {
         _networkService = networkService;
-        _behavior = new PetBehavior(groundItems, petSummon);
+        _behavior = new PetBehavior(groundItems, petSummon, networkService.PlayerVisibilityService);
         _ = RunAsync();
     }
 
@@ -63,11 +64,14 @@ public class PetBehavior
 {
     private readonly IGroundItemService _groundItems;
     private readonly IPetSummonService _petSummon;
+    private readonly IPlayerVisibilityService _players;
 
-    public PetBehavior(IGroundItemService groundItems, IPetSummonService petSummon)
+    public PetBehavior(IGroundItemService groundItems, IPetSummonService petSummon,
+        IPlayerVisibilityService players = null)
     {
         _groundItems = groundItems;
         _petSummon = petSummon;
+        _players = players;
     }
 
     public void Step(GameClient client, uint now)
@@ -132,11 +136,22 @@ public class PetBehavior
         }
     }
 
-    private static void Move(GameClient client, ActivePet pet, float x, float y, uint now)
+    private void Move(GameClient client, ActivePet pet, float x, float y, uint now)
     {
-        var info = client.ConnectionInfo;
         pet.MoveTo(x, y, PetSummonDefaults.MoveSpeed, now);
-        client.Connection.Send(GameMovePackets.BuildMove(pet.Handle, unchecked(now + info.ClientClockOffset),
-            info.Layer, PetSummonDefaults.MoveSpeed, x, y));
+        client.Connection.Send(MoveFrame(client.ConnectionInfo, pet.Handle, x, y, now));
+
+        // The players who see the master see the pet walk, each on its own clock.
+        if (_players is not null)
+        {
+            foreach (var observer in _players.Observers(client))
+            {
+                observer.Connection.Send(MoveFrame(observer.ConnectionInfo, pet.Handle, x, y, now));
+            }
+        }
     }
+
+    private static byte[] MoveFrame(ConnectionInfo recipient, uint handle, float x, float y, uint now) =>
+        GameMovePackets.BuildMove(handle, unchecked(now + recipient.ClientClockOffset), recipient.Layer,
+            PetSummonDefaults.MoveSpeed, x, y);
 }
