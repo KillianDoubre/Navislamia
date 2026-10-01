@@ -262,7 +262,7 @@ public class CombatFormulasTests
             .Returns(new CharacterStatResult(new StatBlock(), new StatBlock()));
         var combat = new CombatService(world, A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
             A.Fake<IGroundItemService>(), A.Fake<IRateService>(), statService, A.Fake<IStateCatalog>(),
-            new ScriptedRandom(NoCrit, NoSpread, NoCrit, NoSpread));
+            random: new ScriptedRandom(NoCrit, NoSpread, NoCrit, NoSpread));
 
         var client = StorageTestHarness.NewGameClient(new StorageTestHarness.FrameConnection(Array.Empty<byte>()));
         var info = StorageTestHarness.Session(client);

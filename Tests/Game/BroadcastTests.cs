@@ -65,7 +65,7 @@ public class BroadcastTests
 
         var combat = new CombatService(World(), A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
             A.Fake<IGroundItemService>(), A.Fake<IRateService>(), A.Fake<IStatService>(), A.Fake<IStateCatalog>(),
-            null, visibility);
+            players: visibility);
 
         combat.ApplyDamage(killer, 0, 0x40000001, 100_000).Should().Be(0);
 
