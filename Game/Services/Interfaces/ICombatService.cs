@@ -34,6 +34,13 @@ public interface ICombatService
     HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
         int accuracyBonus, int criticalBonus);
 
+    /// <summary>
+    /// The one place a monster's damage lands on a player: HP (never below 0), the <c>hp</c> property, and
+    /// on the hit that brings it to 0 the end of its attack and the death penalty
+    /// (<see cref="ILevelingService.ApplyDeathPenalty"/>). Returns the player's HP.
+    /// </summary>
+    int DamagePlayer(GameClient target, int damage);
+
     /// <summary>The monster's current stats, its states included; null for an unknown instance.</summary>
     Navislamia.Game.Services.Stats.StatBlock GetMonsterStats(long instanceId);
 

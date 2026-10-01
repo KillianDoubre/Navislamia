@@ -12,7 +12,8 @@ namespace Navislamia.Game.Services;
 public class MonsterMovementService
 {
     private const int TickIntervalMs = 500;
-    private const byte WalkSpeed = 25;
+    /// <summary>The speed of a monster without combat stats; the others walk at <c>run_speed / 7</c>.</summary>
+    private const byte FallbackSpeed = 17;
 
     private readonly ILogger _logger = Log.ForContext<MonsterMovementService>();
     private readonly MonsterWorldState _worldState;
@@ -64,7 +65,7 @@ public class MonsterMovementService
         Dictionary<long, MoveOrder> moves = null;
         foreach (var id in activeIds)
         {
-            if (_worldState.TryBeginWander(id, now, WalkSpeed, out var order))
+            if (_worldState.TryBeginWander(id, now, FallbackSpeed, out var order))
             {
                 (moves ??= new Dictionary<long, MoveOrder>())[id] = order;
             }
@@ -136,7 +137,6 @@ public class MonsterMovementService
     private static void SendMove(GameClient client, ConnectionInfo info, uint handle, MoveOrder order)
     {
         var startTime = unchecked(order.StartTick + info.ClientClockOffset);
-        client.Connection.Send(GameMovePackets.BuildMove(handle, startTime, info.Layer, order.Speed,
-            order.DestX, order.DestY));
+        client.Connection.Send(MonsterMovement.Frame(handle, startTime, info.Layer, order));
     }
 }

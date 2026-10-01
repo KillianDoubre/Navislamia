@@ -150,6 +150,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
                 if (peerClient.ConnectionInfo.WearFrame is { } peerWear)
                     Send(client, peerWear);
                 SendAll(client, CompanionFrames.Enter(peerClient.ConnectionInfo, now));
+                SendAll(client, CompanionFrames.States(peerClient.ConnectionInfo));
             }
 
             foreach (var entry in info.SpawnedPlayers)
@@ -173,6 +174,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
         }
 
         List<byte[]> myCompanions = null;
+        List<byte[]> myStates = null;
 
         // (2) The other side of every pair in range, one lock at a time, never nested.
         foreach (var peer in peers)
@@ -196,6 +198,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
                 if (info.WearFrame is { } mineWear)
                     Send(peerClient, mineWear);
                 SendAll(peerClient, myCompanions ??= CompanionFrames.Enter(info, now));
+                SendAll(peerClient, myStates ??= CompanionFrames.States(info));
             }
         }
 

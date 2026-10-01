@@ -138,6 +138,9 @@ public class MonsterSkillService : IMonsterSkillService
                     unchecked(now + duration));
                 client.Connection.Send(GameSkillPackets.BuildState(monsterHandle, state.StateHandle,
                     (uint)state.StateId, (ushort)stateLevel, state.EndTick, now));
+                ObserverFrames.SendMonsterFrame(_players, client, instanceId, (_, watcherHandle) =>
+                    GameSkillPackets.BuildState(watcherHandle, state.StateHandle, (uint)state.StateId,
+                        (ushort)stateLevel, state.EndTick, now));
                 return null;
             }
 
@@ -172,9 +175,7 @@ public class MonsterSkillService : IMonsterSkillService
                     SkillDamageCurve.HitBonus(fields, instance.Level, info.CharacterLevel),
                     SkillDamageCurve.CriticalBonus(fields, skill.Level));
 
-                info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
-                client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp",
-                    info.CharacterHp));
+                _combat.DamagePlayer(client, hit.Damage);
                 return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, info.CharacterHandle,
                     info.CharacterHp, hit.Damage, (byte)hit.Flags);
             }

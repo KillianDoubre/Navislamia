@@ -59,6 +59,41 @@ public static class CompanionFrames
         return frames;
     }
 
+    /// <summary>
+    /// The active states (505) and switched-on auras (407) of a player, for an observer it just came into
+    /// view of: without them the icons only appear at the next cast. The state list is copied under
+    /// <c>BuffLock</c>, the one lock taken here; no path holding that lock takes a visibility lock.
+    /// </summary>
+    public static List<byte[]> States(ConnectionInfo player)
+    {
+        var frames = new List<byte[]>();
+        Services.Buffs.ActiveBuff[] states;
+        (int Group, int SkillId)[] auras;
+        lock (player.BuffLock)
+        {
+            states = player.ActiveBuffs.ToArray();
+            auras = new (int, int)[player.ActiveAuras.Count];
+            var i = 0;
+            foreach (var (group, skillId) in player.ActiveAuras)
+            {
+                auras[i++] = (group, skillId);
+            }
+        }
+
+        foreach (var (_, skillId) in auras)
+        {
+            frames.Add(GameSkillPackets.BuildAura(player.CharacterHandle, (ushort)skillId, true));
+        }
+
+        foreach (var state in states)
+        {
+            frames.Add(GameSkillPackets.BuildState(player.CharacterHandle, state.StateHandle, (uint)state.StateId,
+                (ushort)state.StateLevel, state.EndTick, state.StartTick));
+        }
+
+        return frames;
+    }
+
     public static byte[] SummonEnter(uint masterHandle, SummonPresence summon, bool isFirstEnter)
     {
         var entry = summon.Entry;

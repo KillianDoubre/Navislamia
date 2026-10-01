@@ -31,6 +31,7 @@ public sealed class MonsterCombatStats
     private readonly int _avoid;
     private readonly int _magicAccuracy;
     private readonly int _magicAvoid;
+    private readonly int _runSpeed;
     private readonly StatBlock _plain;
 
     private MonsterCombatStats(MonsterResourceEntity resource, StatBaseStats? baseStats)
@@ -49,6 +50,7 @@ public sealed class MonsterCombatStats
         _avoid = resource.Avoid;
         _magicAccuracy = resource.MagicAccuracy;
         _magicAvoid = resource.MagicAvoid;
+        _runSpeed = resource.RunSpeed;
 
         _plain = Compute(null);
         MaxHp = Math.Max(1, (int)_plain.MaxHp);
@@ -97,11 +99,17 @@ public sealed class MonsterCombatStats
         block.MagicAccuracy += _magicAccuracy;
         block.MagicAvoid += _magicAvoid;
 
+        // StructMonster::onBeforeCalculateStat (0x1400575b0): move speed += run_speed - 120, so a monster
+        // moves at its run_speed (NGemity Monster.cpp:1306-1307).
+        block.MoveSpeed += _runSpeed - 120;
+
         if (stateEffects is { Count: > 0 })
         {
             StatCalculator.ApplyEffects(block, stateEffects);
         }
 
+        // The reference's floor (NGemity CalculateStat.cpp:212-213).
+        block.MoveSpeed = Math.Max(block.MoveSpeed, 10f);
         return block;
     }
 }

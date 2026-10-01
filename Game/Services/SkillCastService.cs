@@ -218,10 +218,10 @@ public class SkillCastService : ISkillCastService
 
         if (toggleGroup is not null)
         {
-            client.Connection.Send(GameSkillPackets.BuildAura(handle, (ushort)removed.SkillId, false));
+            SendToSelfAndWatchers(client, GameSkillPackets.BuildAura(handle, (ushort)removed.SkillId, false));
         }
 
-        client.Connection.Send(GameSkillPackets.BuildStateRemoval(handle, removed.StateHandle,
+        SendToSelfAndWatchers(client, GameSkillPackets.BuildStateRemoval(handle, removed.StateHandle,
             (uint)removed.StateId));
         SendStatRefresh(client, info);
         client.SendResult(requestId, (ushort)ResultCode.Success);
@@ -469,20 +469,20 @@ public class SkillCastService : ISkillCastService
             info.ActiveBuffs.RemoveAt(index);
         }
 
-        client.Connection.Send(GameSkillPackets.BuildStateRemoval(info.CharacterHandle, removed.StateHandle,
+        SendToSelfAndWatchers(client, GameSkillPackets.BuildStateRemoval(info.CharacterHandle, removed.StateHandle,
             (uint)removed.StateId));
         SendStatRefresh(client, info);
         return true;
     }
 
-    private static void ApplyBuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
+    private void ApplyBuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
     {
         var duration = BuffCurve.DurationTicks(fields, skillLevel);
         var stateLevel = BuffCurve.StateLevel(fields, skillLevel);
         ApplyState(client, fields.StateId, fields.SkillId, stateLevel, now, unchecked(now + duration));
     }
 
-    private static void ToggleAura(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
+    private void ToggleAura(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
     {
         var info = client.ConnectionInfo;
         int activeSkillId;
@@ -508,12 +508,12 @@ public class SkillCastService : ISkillCastService
             info.ActiveAuras[fields.ToggleGroup] = fields.SkillId;
         }
 
-        client.Connection.Send(GameSkillPackets.BuildAura(info.CharacterHandle, (ushort)fields.SkillId,
+        SendToSelfAndWatchers(client, GameSkillPackets.BuildAura(info.CharacterHandle, (ushort)fields.SkillId,
             true));
         ApplyState(client, fields.StateId, fields.SkillId, stateLevel, now, NeverExpires);
     }
 
-    private static void RemoveAura(GameClient client, int skillId, int toggleGroup)
+    private void RemoveAura(GameClient client, int skillId, int toggleGroup)
     {
         var info = client.ConnectionInfo;
         ActiveBuff? state = null;
@@ -530,10 +530,10 @@ public class SkillCastService : ISkillCastService
             }
         }
 
-        client.Connection.Send(GameSkillPackets.BuildAura(info.CharacterHandle, (ushort)skillId, false));
+        SendToSelfAndWatchers(client, GameSkillPackets.BuildAura(info.CharacterHandle, (ushort)skillId, false));
         if (state.HasValue)
         {
-            client.Connection.Send(GameSkillPackets.BuildStateRemoval(info.CharacterHandle,
+            SendToSelfAndWatchers(client, GameSkillPackets.BuildStateRemoval(info.CharacterHandle,
                 state.Value.StateHandle, (uint)state.Value.StateId));
         }
     }
@@ -593,9 +593,14 @@ public class SkillCastService : ISkillCastService
             client.Connection.Send(GameSkillPackets.BuildState(handle, state.StateHandle,
                 (uint)state.StateId, (ushort)stateLevel, state.EndTick, now));
         }
+
+        // The players watching see the debuff on the monster too, under their own handle for it.
+        ObserverFrames.SendMonsterFrame(_players, client, instanceId, (_, watcherHandle) =>
+            GameSkillPackets.BuildState(watcherHandle, state.StateHandle, (uint)state.StateId, (ushort)stateLevel,
+                state.EndTick, now));
     }
 
-    private static void ApplyState(GameClient client, int stateId, int skillId, int stateLevel, uint now,
+    private void ApplyState(GameClient client, int stateId, int skillId, int stateLevel, uint now,
         uint endTick)
     {
         var info = client.ConnectionInfo;
@@ -618,8 +623,24 @@ public class SkillCastService : ISkillCastService
         }
 
         // An aura has no deadline: the wire wants -1, which is what uint.MaxValue writes.
-        client.Connection.Send(GameSkillPackets.BuildState(info.CharacterHandle, stateHandle,
+        SendToSelfAndWatchers(client, GameSkillPackets.BuildState(info.CharacterHandle, stateHandle,
             (uint)stateId, (ushort)stateLevel, endTick, now));
+    }
+
+    /// <summary>
+    /// A frame about the player's own states (505) or auras (407), for the player and every player who sees
+    /// them (docs/packet-specs/socle-diffusion-combat.md, icons): NGemity broadcasts them to the region. Always
+    /// called outside <c>BuffLock</c>: the visibility takes an observer's lock and then that lock.
+    /// </summary>
+    private void SendToSelfAndWatchers(GameClient client, byte[] frame)
+    {
+        if (_players is null)
+        {
+            client.Connection.Send(frame);
+            return;
+        }
+
+        _players.SendToObservers(client, frame, includeSelf: true);
     }
 
     /// <summary>
@@ -730,7 +751,7 @@ public class SkillCastService : ISkillCastService
 
             foreach (var buff in expired)
             {
-                client.Connection.Send(GameSkillPackets.BuildStateRemoval(info.CharacterHandle,
+                SendToSelfAndWatchers(client, GameSkillPackets.BuildStateRemoval(info.CharacterHandle,
                     buff.StateHandle, (uint)buff.StateId));
             }
 
@@ -759,7 +780,7 @@ public class SkillCastService : ISkillCastService
                 var handle = client.ConnectionInfo.GetMonsterHandle(instanceId);
                 if (handle != 0)
                 {
-                    client.Connection.Send(GameSkillPackets.BuildStateRemoval(handle, state.StateHandle,
+                    SendToSelfAndWatchers(client, GameSkillPackets.BuildStateRemoval(handle, state.StateHandle,
                         (uint)state.StateId));
                 }
             }

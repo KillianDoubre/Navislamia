@@ -262,7 +262,9 @@ champ ; `TS_SC_LEAVE` fait 11 octets et `TS_SC_MOVE` `19 + 8 × N`. Ce qui manqu
   invocations suit celui du maître, leur `LEAVE` précède le sien, et appel, rangement et marche du familier
   partent aux observateurs (`CompanionFrames`, handle global). La visibilité lit `ActivePet` et `Summons`
   **sans verrou** — l'inverse de l'ordre de verrouillage du familier serait un interblocage.
-- **Hors lot** : un pair déjà en marche (vu immobile jusqu'à sa prochaine trame) et les états (505) d'un pair.
+- **Icônes d'états diffusées** : états (505) et auras (407) d'un joueur à ses observateurs, et à l'entrée d'un pair
+  dans une vue (`CompanionFrames.States`) ; malus et bonus d'un monstre aux observateurs qui le voient.
+- **Hors lot** : un pair déjà en marche (vu immobile jusqu'à sa prochaine trame).
   `BoothWatchService` cherche encore le propriétaire d'un étal par balayage : le registre peut le remplacer.
 - Fiche, sources et réserves : `docs/packet-specs/socle-visibilite-joueurs.md`.
 
@@ -500,6 +502,17 @@ each chase tick), so the server thought a monster had already arrived while the 
 walking — which is what read as jittery, teleporting movement. `MoveOrder` is the returned
 destination/speed/start-tick the caller broadcasts.
 
+**Speed, obstacles and paths** (`docs/packet-specs/socle-deplacement-monstres.md`). A monster moves at its
+`run_speed` (`MonsterCombatStats`, states included, floor 10) and the `TS_SC_MOVE` speed byte is
+`move speed / 7` (`MonsterMovement.SpeedByte`): wander at that, chase × 1.00-1.09, return × 2. The world's
+blocking polygons are the client's `.nfa` files, extracted to `DevConsole/Maps` by
+`tools/Export-FieldProps --extract-maps` (git-ignored) and loaded by `WorldCollision` into `CollisionMap`
+(own geometry and grid, not the legacy X2D code). Spawn points are redrawn out of obstacles (the 9.4 spawn
+areas overlap them), a wander into or across an obstacle is refused, and a chase or a return goes around
+through `PathFinder` (A* over a visibility graph; a monster inside an obstacle may walk out). A path travels
+as a multi-waypoint `TS_SC_MOVE` and is interpolated leg by leg. `GameModule.LoadMaps` read `SkipLoading`
+backwards and the map parsers were culture-sensitive: the maps had never loaded.
+
 ## Monster AI
 
 Monsters fight back and hunt. `MonsterAiService` runs a 300 ms loop like `MonsterMovementService`
@@ -518,7 +531,10 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
   client would get a fresh move every 300 ms tick and stutter.
 - **Attack**: within the melee reach and off cooldown, `TS_SC_ATTACK_EVENT` (`101`) with the monster as
   attacker and the player as target, rolled by `ICombatService.RollMonsterHit` against the player's
-  stats (the real rule, see *Combat*), at the monster's own attack interval, sent as the `hp` property. **Before swinging, the monster rolls its
+  stats (the real rule, see *Combat*), at the monster's own attack interval, landing through
+  `ICombatService.DamagePlayer` — the one place a monster's damage reaches a player, which on the killing hit
+  applies the official death penalty (`LevelingService.ApplyDeathPenalty`, `socle-perte-experience.md`:
+  `need(level) × (0.15 / (level − 1) + 0.0005)`, a level can be lost). **Before swinging, the monster rolls its
   skills** (see *Monster skills*); the first one that comes up replaces the swing. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
   joueur*), and a monster drops a target at 0 HP. **A monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
   freezes it at its current position and a `TS_SC_MOVE` stop is sent, so it does not slide through the
@@ -548,7 +564,7 @@ clamped to the client view. **Attack range is the reference's real value**, in `
 body-size term dominates the tiny weapon term, so a small monster reaches ~12 units and a big one
 (`size` up to 12.45, `scale` up to 7) hundreds — **big monsters really do hit from farther**. The same
 per-monster reach gates both the monster's attack and the player's swing, keeping them symmetric.
-`run_speed → move speed` stays a placeholder; `GroupFirstAttack` is imported but group aggro is not
+`GroupFirstAttack` is imported but group aggro is not
 modelled.
 
 `CharacterMaxHp` was added to `ConnectionInfo` next to `CharacterHp`, seeded at the same two points HP
@@ -1531,13 +1547,14 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding. **Monsters cast their single-target,
+  modelled: taming and group aggro (`GroupFirstAttack`); **they walk at their `run_speed` and around the
+  `.nfa` obstacles** (paths for chase and return), and a death costs experience. **Monsters cast their single-target,
   state and heal skills**; region skills and Lua triggers are not modelled. **Damage, hit, block, critical
   and attack speed follow the official rules on both sides** (`socle-combat-reel.md`); not modelled:
   double attack, dual wield, bow aiming, elements, additional damage, reflection and mana shield. A
   player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them back in town, or in place with a
-  resurrection state or a Resurrection Scroll (resurrection by another player is not implemented). Walk
-  speed stays a placeholder, and kill rewards are still the per-level placeholder
+  resurrection state or a Resurrection Scroll (resurrection by another player is not implemented). Kill
+  rewards are still the per-level placeholder
 - Ground items are seen by the players around them but taken by their owner only
 - NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
   warp**; other gameplay actions such as shops and quest mutation are not executed yet

@@ -145,7 +145,7 @@ public class TerrainPropInfo
             
             if ((content = line.GetStringContent(VisibleRatioHeader)) != null)
             {
-                currentVisibleRatio = float.Parse(content);
+                currentVisibleRatio = float.Parse(content, System.Globalization.CultureInfo.InvariantCulture);
 
                 if (currentVisibleRatio == 0f)
                 {

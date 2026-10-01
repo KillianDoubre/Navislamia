@@ -375,6 +375,7 @@ public class Program
         services.AddSingleton<IBoothTradeService, BoothTradeService>();
         services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();
         services.AddSingleton<ISoulstoneCraftService, SoulstoneCraftService>();
+        services.AddSingleton<Navislamia.Game.Maps.Collision.IWorldCollision, Navislamia.Game.Maps.Collision.WorldCollision>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();

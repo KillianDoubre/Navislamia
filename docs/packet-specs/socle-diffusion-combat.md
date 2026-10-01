@@ -49,6 +49,8 @@ dépendent pas de `NetworkService`, ce qui créerait le cycle d'injection connu)
   cadavre à sa prochaine synchronisation.
 - L'activation d'un objet du décor (compétence 9501) reste privée : le handle d'un objet du décor est par
   client et rien ne dit quel observateur le voit.
-- Les états (505) posés par une compétence ne sont pas diffusés, ni ceux du joueur ni ceux d'un monstre ; l'aura
-  (407) non plus.
+- **Icônes d'états** : les états (505) et auras (407) d'un joueur partent à ses observateurs à la pose, au retrait
+  et à l'expiration (`SkillCastService.SendToSelfAndWatchers`), et un joueur qui entre dans une vue y arrive avec
+  ses états et auras actifs (`CompanionFrames.States`). Un malus posé sur un monstre, ou un bonus qu'il se pose,
+  part aux observateurs qui le voient. Un monstre qui entre dans une vue n'y amène pas ses états.
 - Le blocage du joueur sur place pendant son coup (arrêt de déplacement) n'est envoyé qu'à lui.

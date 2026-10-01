@@ -26,6 +26,11 @@ internal static class Program
 
         try
         {
+            if (Argument(args, "--extract-maps") is { } mapDirectory)
+            {
+                return ExtractMaps(OpenClientArchive(clientDirectory), mapDirectory);
+            }
+
             var core = OpenClientArchive(clientDirectory);
             var world = TerrainSeamlessWorld.Read(ReadText(core, "terrainseamlessworld.cfg"));
             Console.WriteLine($"maps declared: {world.Maps.Count}, map length: {world.MapLength}");
@@ -50,6 +55,39 @@ internal static class Program
             Console.Error.WriteLine($"export failed: {exception.Message}");
             return 1;
         }
+    }
+
+    /// <summary>
+    /// The map files MapService reads (<c>Game/Maps/MapService.cs</c>): the world layout, the prop info, and
+    /// per map the locations (.nfc), the attribute polygons that block movement (.nfa), the event areas (.nfe)
+    /// and the scripts (.nfs). Written as they are stored, under their archive name in lower case.
+    /// </summary>
+    private static int ExtractMaps(Core core, string outputDirectory)
+    {
+        var wanted = new[] { ".nfa", ".nfc", ".nfe", ".nfs" };
+        var names = new[] { "terrainseamlessworld.cfg", "terrainpropinfo.cfg" };
+        Directory.CreateDirectory(outputDirectory);
+
+        var counts = new Dictionary<string, int>();
+        foreach (var entry in core.Index)
+        {
+            string entryName;
+            try { entryName = entry.Name; }
+            catch { continue; }
+
+            var lower = entryName.ToLowerInvariant();
+            var extension = Path.GetExtension(lower);
+            if (!wanted.Contains(extension) && !names.Contains(lower))
+                continue;
+
+            File.WriteAllBytes(Path.Combine(outputDirectory, lower), core.GetFileBytes(entry));
+            counts[extension] = counts.GetValueOrDefault(extension) + 1;
+        }
+
+        foreach (var (extension, count) in counts.OrderBy(pair => pair.Key))
+            Console.WriteLine($"{extension}: {count}");
+
+        return names.All(name => File.Exists(Path.Combine(outputDirectory, name))) ? 0 : 1;
     }
 
     private static Core OpenClientArchive(string clientDirectory)

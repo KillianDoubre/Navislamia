@@ -24,10 +24,8 @@ namespace Navislamia.Game.Services;
 public class MonsterAiService
 {
     private const int TickIntervalMs = 300;
-    private const byte ChaseSpeed = 40;
-
-    /// <summary>Dropped monsters walk home at twice the chase speed.</summary>
-    private const byte ReturnSpeed = ChaseSpeed * 2;
+    /// <summary>The move speed of a monster without combat stats (a creature's base).</summary>
+    private const float FallbackMoveSpeed = 120f;
 
     /// <summary>
     /// A chase move is only re-issued when the desired destination has drifted this far from the one
@@ -200,7 +198,16 @@ public class MonsterAiService
             return;
         }
 
-        Broadcast(client, instanceId, handle, info, _worldState.BeginMove(instanceId, x, y, ChaseSpeed));
+        // The official chase speed: the real move speed (run_speed / 7, states included) times 1.00..1.09
+        // (AI_processAttack: XFastRandom / 100 + 1 before GetRealMoveSpeed; NGemity Monster.cpp:803-812).
+        var moveSpeed = _combat.GetMonsterStats(instanceId)?.MoveSpeed ?? FallbackMoveSpeed;
+        var speed = MonsterMovement.SpeedByte(moveSpeed * (1f + Random.Shared.Next(0, 10) / 100f));
+
+        // Around the obstacles; with no path the monster holds rather than walk through a wall.
+        if (_worldState.BeginWalk(instanceId, x, y, speed) is { } order)
+        {
+            Broadcast(client, instanceId, handle, info, order);
+        }
     }
 
     private void Attack(GameClient client, long instanceId, uint handle, ConnectionInfo info, uint now)
@@ -226,20 +233,22 @@ public class MonsterAiService
         }
 
         var hit = _combat.RollMonsterHit(instanceId, client, out var intervalTicks);
-        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
+        var playerHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
 
         var intervalMs = CombatService.IntervalMs(intervalTicks);
         var monsterHp = _worldState.GetHp(instanceId);
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
-            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, info.CharacterHp,
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, playerHp,
             monsterHp, (byte)hit.Flags));
 
         // The players who see both see the swing: the one that brings the player to 0 carries
         // target_hp = 0, which is how they watch the player die (the client has no death packet).
         ToOtherWatchers(client, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
             otherHandle, info.CharacterHandle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
-            info.CharacterHp, monsterHp, (byte)hit.Flags));
-        client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+            playerHp, monsterHp, (byte)hit.Flags));
+
+        // HP, property and, on the killing swing, the death penalty: after the swing that shows it.
+        _combat.DamagePlayer(client, hit.Damage);
 
         _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
     }
@@ -255,7 +264,9 @@ public class MonsterAiService
             return;
         }
 
-        var order = _worldState.ReturnHome(instanceId, homeX, homeY, ReturnSpeed);
+        // Home at twice the move speed (NGemity Monster.cpp:688, 2 × move speed / 7).
+        var moveSpeed = _combat.GetMonsterStats(instanceId)?.MoveSpeed ?? FallbackMoveSpeed;
+        var order = _worldState.ReturnHome(instanceId, homeX, homeY, MonsterMovement.SpeedByte(2f * moveSpeed));
         if (streamed)
         {
             Broadcast(client, instanceId, handle, info, order);
@@ -276,8 +287,7 @@ public class MonsterAiService
     private static byte[] MoveFrame(GameClient recipient, uint handle, MoveOrder order)
     {
         var info = recipient.ConnectionInfo;
-        var startTime = unchecked(order.StartTick + info.ClientClockOffset);
-        return GameMovePackets.BuildMove(handle, startTime, info.Layer, order.Speed, order.DestX, order.DestY);
+        return MonsterMovement.Frame(handle, unchecked(order.StartTick + info.ClientClockOffset), info.Layer, order);
     }
 
     /// <summary>

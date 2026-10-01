@@ -250,6 +250,24 @@ public class CombatService : ICombatService
             accuracyBonus, criticalBonus);
     }
 
+    public int DamagePlayer(GameClient target, int damage)
+    {
+        var info = target.ConnectionInfo;
+        var wasAlive = MonsterAiRules.IsAlive(info.CharacterHp);
+        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+        target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+
+        if (wasAlive && !MonsterAiRules.IsAlive(info.CharacterHp))
+        {
+            // A dead character swings no more (the reference's onDead ends the attack), and a monster kill
+            // costs experience (StructPlayer::procDecreaseEXPAndDropItem). No death packet exists here.
+            StopAttack(target);
+            _levelingService.ApplyDeathPenalty(target);
+        }
+
+        return info.CharacterHp;
+    }
+
     public StatBlock GetMonsterStats(long instanceId) =>
         _worldState.TryGetInstance(instanceId, out var instance) ? MonsterStats(instanceId, instance) : null;
 
