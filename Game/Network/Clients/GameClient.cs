@@ -1266,6 +1266,7 @@ public class GameClient : Client
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
 
+            if (_networkService.QuestService is not null) await _networkService.QuestService.LeaveWorldAsync(this);
             await SaveProgressSafelyAsync("while disconnecting");
         }
         catch (Exception exception)
@@ -1294,6 +1295,7 @@ public class GameClient : Client
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
+            if (_networkService.QuestService is not null) await _networkService.QuestService.LeaveWorldAsync(this);
             await SaveProgressSafelyAsync("before returning to character selection");
             info.ClearCharacterSession();
             SendResult((ushort)GamePackets.TM_CS_RETURN_LOBBY, (ushort)ResultCode.Success);
@@ -2030,6 +2032,7 @@ public class GameClient : Client
         try
         {
             await _networkService.SkillService.LearnAsync(this, request);
+            if (_networkService.QuestService is not null) await _networkService.QuestService.RefreshAsync(this);
         }
         catch (Exception exception)
         {
@@ -2732,6 +2735,7 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_JOB_LEVEL_UP)
             {
                 _networkService.LevelingService.ApplyJobLevelUp(this, GameActionPackets.ReadTargetHandle(msgBuffer));
+                if (_networkService.QuestService is not null) _ = _networkService.QuestService.RefreshAsync(this);
                 continue;
             }
 

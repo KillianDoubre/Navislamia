@@ -319,6 +319,8 @@ public class ConnectionInfo
         }
     }
     public uint NpcDialogHandle { get; set; }
+    public long NpcDialogRevision { get; set; }
+    public int NpcQuestCode { get; set; }
 
     /// <summary>
     /// The market whose window <c>MarketService.Open</c> just opened for <see cref="NpcDialogHandle"/>, or
@@ -582,6 +584,8 @@ public class ConnectionInfo
 
     public void ClearNpcDialog()
     {
+        NpcDialogRevision++;
+        NpcQuestCode = 0;
         NpcDialogHandle = 0;
         NpcDialogTriggers.Clear();
 

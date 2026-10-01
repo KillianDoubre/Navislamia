@@ -414,13 +414,21 @@ public class MonsterWorldState
 
     public void Kill(long instanceId, DateTime respawnAt)
     {
+        TryKill(instanceId, respawnAt);
+    }
+
+    /// <summary>Claims the death once, so simultaneous hits cannot duplicate rewards or quest credit.</summary>
+    public bool TryKill(long instanceId, DateTime respawnAt)
+    {
         lock (_stateLock)
         {
+            if (_respawnAt.ContainsKey(instanceId)) return false;
             _currentHp[instanceId] = 0;
             _respawnAt[instanceId] = respawnAt;
             // A corpse chases nothing and a respawn inherits no target, the same rule as its states.
             _aggro.Remove(instanceId);
             _returningHome.Remove(instanceId);
+            return true;
         }
     }
 

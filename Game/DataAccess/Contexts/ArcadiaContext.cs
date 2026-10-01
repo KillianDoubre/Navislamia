@@ -32,6 +32,7 @@ public class ArcadiaContext : SoftDeletionContext
     public DbSet<WorldLocationEntity> WorldLocations { get; set; }
     public DbSet<QuestResourceEntity> QuestResources { get; set; }
     public DbSet<QuestLinkResourceEntity> QuestLinkResources { get; set; }
+    public DbSet<RandomPoolResourceEntity> RandomPoolResources { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -52,6 +53,7 @@ public class ArcadiaContext : SoftDeletionContext
         ConfigureAuctionCateryResource(modelBuilder);
         ConfigureWorldLocations(modelBuilder);
         ConfigureQuestCatalogue(modelBuilder);
+        modelBuilder.Entity<RandomPoolResourceEntity>().HasKey(row => new { row.GroupId, row.QuestTargetId });
     }
 
     /// <summary>

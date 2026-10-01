@@ -16,5 +16,7 @@ public class GroundItem
     public byte Layer { get; init; }
     public GameClient Owner { get; init; }
     public uint OwnerHandle { get; init; }
+    public long? PartyId { get; init; }
+    public bool MonsterDrop { get; init; }
     public DateTime ExpiresAt { get; init; }
 }

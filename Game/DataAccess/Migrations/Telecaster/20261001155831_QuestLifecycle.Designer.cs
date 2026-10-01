@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Navislamia.Game.DataAccess.Contexts;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Navislamia.Game.Migrations.Telecaster
+namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 {
     [DbContext(typeof(TelecasterContext))]
-    partial class TelecasterContextModelSnapshot : ModelSnapshot
+    [Migration("20261001155831_QuestLifecycle")]
+    partial class QuestLifecycle
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

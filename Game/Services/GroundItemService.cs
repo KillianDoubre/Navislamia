@@ -12,6 +12,7 @@ using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Rates;
 using Navislamia.Game.Services.Interfaces;
+using Navislamia.Game.Services.Party;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -30,13 +31,15 @@ public class GroundItemService : IGroundItemService
     private readonly IRateService _rates;
     private readonly IPlayerVisibilityService _players;
     private readonly Weight.ICarriedWeightService _weights;
+    private readonly IPartyService _parties;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
         IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players,
-        Weight.ICarriedWeightService weights = null)
+        Weight.ICarriedWeightService weights = null, IPartyService parties = null)
     {
+        _parties = parties;
         _weights = weights;
         _rates = rates;
         _catalog = catalog;
@@ -91,6 +94,8 @@ public class GroundItemService : IGroundItemService
                 Layer = info.Layer,
                 Owner = killer,
                 OwnerHandle = info.CharacterHandle,
+                PartyId = info.PartyId,
+                MonsterDrop = true,
                 ExpiresAt = expiresAt
             };
 
@@ -99,6 +104,21 @@ public class GroundItemService : IGroundItemService
             ShowTo(killer, item);
             ShowToNearby(item, killer);
         }
+    }
+
+    public void DropQuestItem(GameClient owner, int itemId, float x, float y, float z)
+    {
+        if (itemId <= 0) return;
+        var item = new GroundItem
+        {
+            Handle = WorldObjectHandle.Next(), ItemCode = itemId, Count = 1,
+            X = x, Y = y, Z = z, Layer = owner.ConnectionInfo.Layer,
+            Owner = owner, OwnerHandle = owner.ConnectionInfo.CharacterHandle,
+            ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
+        };
+        _items[item.Handle] = item;
+        ShowTo(owner, item);
+        ShowToNearby(item, owner);
     }
 
     private bool IsSummonCard(int itemId) =>
@@ -169,7 +189,7 @@ public class GroundItemService : IGroundItemService
 
     public async Task TakeAsync(GameClient client, uint itemHandle)
     {
-        if (!_items.TryGetValue(itemHandle, out var item) || !ReferenceEquals(item.Owner, client))
+        if (!_items.TryGetValue(itemHandle, out var item) || !CanTake(client, item))
         {
             client.SendResult(TakeRequestId, (ushort)ResultCode.NotExist, 0);
             return;
@@ -191,7 +211,7 @@ public class GroundItemService : IGroundItemService
         var best = float.MaxValue;
         foreach (var item in _items.Values)
         {
-            if (!ReferenceEquals(item.Owner, owner) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0)
+            if (!CanTake(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0)
             {
                 continue;
             }
@@ -211,13 +231,18 @@ public class GroundItemService : IGroundItemService
 
     public async Task<bool> TakeForPetAsync(GameClient owner, uint itemHandle, uint petHandle)
     {
-        if (!_items.TryGetValue(itemHandle, out var item) || !ReferenceEquals(item.Owner, owner))
+        if (!_items.TryGetValue(itemHandle, out var item) || !CanTake(owner, item))
         {
             return false;
         }
 
-        return await TakeAsync(owner, item, petHandle) == ResultCode.Success;
+        return WithinPickupRange(owner.ConnectionInfo, item)
+            && await TakeAsync(owner, item, petHandle) == ResultCode.Success;
     }
+
+    private bool CanTake(GameClient picker, GroundItem item) =>
+        ReferenceEquals(item.Owner, picker) || item.MonsterDrop && _parties is not null
+            && _parties.CanTakeDrop(item.Owner, picker, item.PartyId);
 
     /// <summary>
     /// The take itself, shared by the player and its pet: claim the item so a second request cannot
@@ -226,8 +251,11 @@ public class GroundItemService : IGroundItemService
     /// </summary>
     private async Task<ResultCode> TakeAsync(GameClient client, GroundItem item, uint takerHandle)
     {
+        var recipient = item.MonsterDrop && _parties is not null
+            ? _parties.LootRecipient(client, item.PartyId, item.X, item.Y, item.Layer)
+            : client;
         // Player::IsTakeable: the item's weight on top of the load must stay within the maximum.
-        if (_weights is not null && !_weights.CanCarry(client.ConnectionInfo, item.ItemCode, item.Count))
+        if (_weights is not null && !_weights.CanCarry(recipient.ConnectionInfo, item.ItemCode, item.Count))
         {
             return ResultCode.TooHeavy;
         }
@@ -239,7 +267,7 @@ public class GroundItemService : IGroundItemService
 
         try
         {
-            var added = await _characterService.AddItemAsync(client.ConnectionInfo.CharacterName,
+            var added = await _characterService.AddItemAsync(recipient.ConnectionInfo.CharacterName,
                 item.ItemCode, item.Count);
             if (added is null)
             {
@@ -252,7 +280,7 @@ public class GroundItemService : IGroundItemService
 
             foreach (var packet in GameCharacterPackets.BuildInventory(new[] { added }))
             {
-                client.Connection.Send(packet);
+                recipient.Connection.Send(packet);
             }
 
             return ResultCode.Success;
@@ -303,6 +331,7 @@ public class GroundItemService : IGroundItemService
 
     private static bool WithinPickupRange(ConnectionInfo info, GroundItem item)
     {
+        if (info.Layer != item.Layer) return false;
         var dx = info.X - item.X;
         var dy = info.Y - item.Y;
         return dx * dx + dy * dy <= PickupRange * PickupRange;
@@ -380,7 +409,8 @@ public class GroundItemService : IGroundItemService
             if (!info.SpawnedGroundItems.Add(item.Handle)) return;
             var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
             client.Connection.Send(GameSpawnPackets.BuildEnterItem(item.Handle, item.X, item.Y, item.Z,
-                item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle));
+                item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle,
+                item.MonsterDrop ? (uint)(item.PartyId ?? 0) : 0));
         }
     }
 

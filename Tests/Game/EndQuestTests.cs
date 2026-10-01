@@ -15,8 +15,8 @@ namespace Tests.Game;
 
 /// <summary>
 /// <c>TM_CS_END_QUEST</c> (605), lot (b1) of the quest cycle (docs/packet-specs/605-end-quest.md): the
-/// 12-byte frame, its signed <c>nOptionalReward</c>, and a verdict tagged 605 for every request — ending a
-/// quest is lot (b4), so even a carried quest is refused.
+/// 12-byte frame, its signed <c>nOptionalReward</c>, and refusals when no executable catalogue is supplied.
+/// The complete cycle is exercised separately by QuestLifecycleTests.
 /// </summary>
 [TestFixture]
 public class EndQuestTests
@@ -81,14 +81,14 @@ public class EndQuestTests
     }
 
     [Test]
-    public async Task ACarriedQuest_IsStillRefused_AndNothingChanges()
+    public async Task ACarriedQuest_WithoutACatalogueIsRefused_AndNothingChanges()
     {
         var (service, client, connection, characters) = Harness(new CharacterQuestEntity { Code = 10173 });
 
         await service.EndQuestAsync(client, new GameActionPackets.EndQuestRequest(10173, 0));
 
         Result(connection).Should().Be(((ushort)605, ResultCode.NotActable),
-            "finishing a quest is lot (b4): no reward may be announced that was not given");
+            "without a catalogue and database, no reward may be announced that was not given");
         connection.Sent.Should().ContainSingle("no quest list is resent: the state did not change");
         A.CallTo(() => characters.DropQuestAsync(A<string>._, A<int>._)).MustNotHaveHappened();
     }

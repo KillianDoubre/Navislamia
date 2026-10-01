@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.Network.Clients;
@@ -23,13 +26,15 @@ public class NpcDialogService : INpcDialogService
     private readonly IWarpService _warpService;
     private readonly IStorageService _storageService;
     private readonly IMarketService _marketService;
+    private readonly IQuestService _quests;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
-        IStorageService storageService, IMarketService marketService)
+        IStorageService storageService, IMarketService marketService, IQuestService quests = null)
     {
         _warpService = warpService;
         _storageService = storageService;
         _marketService = marketService;
+        _quests = quests;
         _contacts = CompileContacts(options.Value.Npcs);
         _dialogs = CompileDialogs(options.Value.Dialogs);
         _logger.Information("Loaded {npcCount} NPC dialog links and {dialogCount} dialog definitions",
@@ -54,6 +59,19 @@ public class NpcDialogService : INpcDialogService
                     client.ClientTag);
                 return;
             }
+        }
+
+        if (_quests?.HasNpcQuests((int)npcId) == true)
+        {
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+                info.NpcDialogHandle = handle;
+                revision = info.NpcDialogRevision;
+            }
+            _ = ShowQuestContactAsync(client, handle, (int)npcId, revision);
+            return;
         }
 
         if (!_contacts.TryGetValue((int)npcId, out var function))
@@ -102,6 +120,11 @@ public class NpcDialogService : INpcDialogService
         // than looked up as a follow-up dialog page. The guard above already proved the current
         // dialog advertised it.
         var action = PropScript.Parse(trigger);
+        if (_quests is not null && ReadFunctionName(trigger) is "quest_info" or "start_quest" or "end_quest")
+        {
+            _ = SelectQuestAsync(client, npcHandle, trigger);
+            return;
+        }
         if (action.Kind == PropActionKind.RunTeleport)
         {
             lock (info.NpcVisibilityLock)
@@ -171,6 +194,8 @@ public class NpcDialogService : INpcDialogService
             }
 
             info.NpcDialogHandle = npcHandle;
+            info.NpcDialogRevision++;
+            info.NpcQuestCode = 0;
             info.NpcDialogTriggers.Clear();
             foreach (var trigger in dialog.Triggers)
             {
@@ -222,7 +247,8 @@ public class NpcDialogService : INpcDialogService
             var packet = GameNpcDialogPackets.BuildDialog(0, dialog.Title, dialog.Text, menu);
             var triggerArray = new string[triggers.Count];
             triggers.CopyTo(triggerArray);
-            compiled[function] = new CompiledDialog(packet, triggerArray);
+            compiled[function] = new CompiledDialog(packet, triggerArray,
+                new NpcDialogDefinition { Title = dialog.Title, Text = dialog.Text, Menu = menu });
         }
 
         return compiled.ToFrozenDictionary(StringComparer.Ordinal);
@@ -246,5 +272,73 @@ public class NpcDialogService : INpcDialogService
         return value.Slice(0, length).ToString();
     }
 
-    private sealed record CompiledDialog(byte[] PacketTemplate, string[] Triggers);
+    private async Task ShowQuestContactAsync(GameClient client, uint handle, int npcId, long revision)
+    {
+        try
+        {
+            var offers = await _quests.GetNpcOffersAsync(client, npcId);
+            var basis = _contacts.TryGetValue(npcId, out var function) && _dialogs.TryGetValue(function, out var compiled)
+                ? compiled.Definition : new NpcDialogDefinition();
+            var menu = new List<NpcDialogMenuEntry>(offers);
+            menu.AddRange(basis.Menu);
+            ShowDynamic(client, handle, revision, new NpcDialogDefinition { Title = basis.Title, Text = basis.Text, Menu = menu }, 0, 0);
+        }
+        catch (Exception exception) { _logger.Error(exception, "Could not show quests for NPC {npcId}", npcId); }
+    }
+
+    private async Task SelectQuestAsync(GameClient client, uint handle, string trigger)
+    {
+        try
+        {
+            var match = Regex.Match(trigger, @"\A(quest_info|start_quest|end_quest)\(([0-9]+)(?:,(-?[0-9]+))?\)\z");
+            if (!match.Success || !int.TryParse(match.Groups[2].Value, out var code)) return;
+            var info = client.ConnectionInfo;
+            int npcId;
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                if (info.NpcDialogHandle != handle || !info.NpcDialogTriggers.Contains(trigger)
+                    || !info.SpawnedNpcIdsByHandle.TryGetValue(handle, out var id)) return;
+                npcId = (int)id;
+                revision = info.NpcDialogRevision;
+            }
+            switch (match.Groups[1].Value)
+            {
+                case "quest_info":
+                    var title = _contacts.TryGetValue(npcId, out var function) && _dialogs.TryGetValue(function, out var compiled)
+                        ? compiled.Definition.Title : string.Empty;
+                    var dialog = await _quests.GetQuestDialogAsync(client, npcId, code, title);
+                    if (dialog is not null)
+                    {
+                        var type = dialog.Menu.Any(m => m.Label == "START") ? 3 : dialog.Menu.Any(m => m.Label == "REWARD") ? 8 : 7;
+                        ShowDynamic(client, handle, revision, dialog, type, code);
+                    }
+                    break;
+                case "start_quest":
+                    if (int.TryParse(match.Groups[3].Value, out var textId)) await _quests.StartQuestAsync(client, npcId, code, textId);
+                    break;
+                case "end_quest":
+                    if (sbyte.TryParse(match.Groups[3].Value, out var reward))
+                        await _quests.EndQuestAsync(client, new GameActionPackets.EndQuestRequest(code, reward));
+                    break;
+            }
+        }
+        catch (Exception exception) { _logger.Error(exception, "Could not handle quest dialog selection"); }
+    }
+
+    private static void ShowDynamic(GameClient client, uint handle, long revision, NpcDialogDefinition dialog, int type, int code)
+    {
+        var info = client.ConnectionInfo;
+        lock (info.NpcVisibilityLock)
+        {
+            if (info.NpcDialogHandle != handle || info.NpcDialogRevision != revision || !info.SpawnedNpcIdsByHandle.ContainsKey(handle)) return;
+            info.NpcDialogRevision++;
+            info.NpcQuestCode = code;
+            info.NpcDialogTriggers.Clear();
+            foreach (var entry in dialog.Menu.Where(m => m.Trigger.Length > 0)) info.NpcDialogTriggers.Add(entry.Trigger);
+            client.Connection.Send(GameNpcDialogPackets.BuildDialog(handle, dialog.Title, dialog.Text, dialog.Menu, type));
+        }
+    }
+
+    private sealed record CompiledDialog(byte[] PacketTemplate, string[] Triggers, NpcDialogDefinition Definition);
 }

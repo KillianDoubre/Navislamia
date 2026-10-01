@@ -5,6 +5,9 @@ using System.Linq;
 using System.Text;
 using FakeItEasy;
 using FluentAssertions;
+using Navislamia.Configuration.Options;
+using Navislamia.Game.DataAccess.Entities.Arcadia;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Microsoft.Extensions.Logging;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
@@ -12,6 +15,8 @@ using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.Party;
 using Navislamia.Game.Services.Stats;
+using Navislamia.Game.Services.Rates;
+using Microsoft.Extensions.Options;
 
 namespace Tests.Game;
 
@@ -235,6 +240,113 @@ public class PartyServiceTests
         Info(bo).CharacterHp = 500;
         _parties.OnVitalsChanged(bo);
         Lines(ana).Should().Equal("MINFO|2|Bo|0|0|50|0|0|0|2|");
+    }
+
+    [Test]
+    public void KillRewardsReachOnlyNearbyOnlineMembers()
+    {
+        var ana = Player(1, "Ana");
+        var bo = Player(2, "Bo");
+        var cy = Player(3, "Cy");
+        _parties.TryHandleCommand(ana, "/pcreate Wolves");
+        Join(ana, bo);
+        Join(ana, cy);
+        Info(bo).X = 300;
+        Info(cy).X = 1000;
+
+        _parties.RewardMembers(ana, 0, 0, 0).Should().Equal(ana, bo);
+        _visibility.Registry.Unregister(2, bo);
+        _parties.RewardMembers(ana, 0, 0, 0).Should().Equal(ana);
+    }
+
+    [Test]
+    public void LootModeAndMembershipControlTheRecipient()
+    {
+        var ana = Player(1, "Ana");
+        var bo = Player(2, "Bo");
+        var outsider = Player(3, "Cy");
+        _parties.TryHandleCommand(ana, "/pcreate Wolves");
+        Join(ana, bo);
+
+        _parties.CanTakeDrop(ana, bo, 1).Should().BeTrue();
+        _parties.CanTakeDrop(ana, outsider, 1).Should().BeFalse();
+        _parties.LootRecipient(bo, 1, 0, 0, 0).Should().BeSameAs(bo);
+
+        _parties.TryHandleCommand(ana, "/pshare random");
+        _parties.LootRecipient(bo, 1, 0, 0, 0).Should().BeOneOf(ana, bo);
+
+        _parties.TryHandleCommand(ana, "/pkick Bo");
+        _parties.CanTakeDrop(ana, bo, 1).Should().BeFalse();
+    }
+
+    [Test]
+    public void MonsterKillSharesExpJpAndGoldWithoutLosingRemainders()
+    {
+        var ana = Player(1, "Ana");
+        var bo = Player(2, "Bo");
+        _parties.TryHandleCommand(ana, "/pcreate Wolves");
+        Join(ana, bo);
+        Info(ana).X = Info(bo).X = 1000;
+        Info(ana).Y = Info(bo).Y = 2000;
+        var options = new MonsterSpawnOptions
+        {
+            Spawns = { new MonsterSpawnPoint { MonsterId = 2101, X = 1000, Y = 2000, Count = 1, Radius = 0 } }
+        };
+        var repository = A.Fake<IMonsterResourceRepository>();
+        A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
+            .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = 100 } });
+        var world = new MonsterWorldState(repository, Options.Create(options));
+        var rates = new RateService(new StaticOptionsMonitor<RatesOptions>(new RatesOptions { EventStatePath = "" }));
+        var quests = A.Fake<IQuestService>();
+        var combat = new CombatService(world, A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
+            A.Fake<IGroundItemService>(), rates, _parties, quests);
+
+        combat.ApplyDamage(ana, 0, 500, 100).Should().Be(0);
+        combat.ApplyDamage(bo, 0, 500, 100).Should().Be(0);
+        A.CallTo(() => quests.OnMonsterKilledAsync(ana, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => quests.OnMonsterKilledAsync(bo, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
+
+        (Info(ana).CharacterExp + Info(bo).CharacterExp).Should().Be(35);
+        (Info(ana).CharacterJp + Info(bo).CharacterJp).Should().Be(15);
+        (Info(ana).CharacterGold + Info(bo).CharacterGold).Should().Be(20);
+        Math.Abs(Info(ana).CharacterExp - Info(bo).CharacterExp).Should().Be(1);
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task PartyMemberCanPickUpMonsterLootAndLinearModeAssignsRecipientsInTurn()
+    {
+        var ana = Player(1, "Ana");
+        var bo = Player(2, "Bo");
+        var outsider = Player(3, "Cy");
+        _parties.TryHandleCommand(ana, "/pcreate Wolves");
+        Join(ana, bo);
+        _parties.TryHandleCommand(ana, "/pshare linear");
+        var catalog = A.Fake<IMonsterDropCatalog>();
+        A.CallTo(() => catalog.GetDrops(50)).Returns(new[] { new DropEntry(603002, 1, 1, 1) });
+        A.CallTo(() => catalog.Groups).Returns(new Dictionary<int, DropGroupEntry[]>());
+        var characters = A.Fake<ICharacterService>();
+        A.CallTo(() => characters.AddItemAsync(A<string>._, 603002, 1))
+            .Returns(new ItemEntity { Id = 10, ItemResourceId = 603002, Amount = 1 });
+        var rates = new RateService(new StaticOptionsMonitor<RatesOptions>(new RatesOptions { EventStatePath = "" }));
+        var ground = new GroundItemService(catalog, characters, A.Fake<IItemGroupCatalog>(), rates,
+            _visibility, parties: _parties);
+
+        for (var i = 0; i < 2; i++)
+        {
+            Clear(ana, bo, outsider);
+            ground.DropForMonster(ana, 50, 0, 0, 0);
+            var enter = ((StorageTestHarness.FrameConnection)bo.Connection).Sent.Single(frame =>
+                BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4, 2)) == (ushort)GamePackets.TM_SC_ENTER);
+            BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(58, 4)).Should().Be(1);
+            var handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8, 4));
+            Clear(ana, bo, outsider);
+
+            await ground.TakeAsync(outsider, handle);
+            await ground.TakeAsync(bo, handle);
+        }
+
+        A.CallTo(() => characters.AddItemAsync("Ana", 603002, 1)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => characters.AddItemAsync("Bo", 603002, 1)).MustHaveHappenedOnceExactly();
     }
 
     [Test]

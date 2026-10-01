@@ -1,36 +1,9 @@
 namespace Navislamia.Game.DataAccess.Entities.Arcadia;
 
 /// <summary>
-/// One quest definition, mirroring the Arcadia table <c>QuestResource</c>
-/// (<c>ArcadiaSchemaPSQL.sql:1789-1882</c>). The table is read by the reference in
-/// <c>ObjectMgr::LoadQuestResource</c> (Chihiro/src/Globals/ObjectMgr.cpp:289-375), but that reader walks
-/// the columns <b>positionally</b> with the 4.1.1 column set of its own database
-/// (<c>reference/ngemity/Database/Arcadia.sql:37737</c>): it has neither <c>limit_begin_time</c>,
-/// <c>limit_end_time</c>, <c>limit_max_level</c>, <c>limit_max_job_level</c> nor <c>time_limit_type</c>,
-/// it declares <c>limit_quest_indication char(1)</c> where the 7.3 schema has <c>limit_job_depth
-/// smallint</c>, and it reads a <c>gold</c> column that the 7.3 table does not have (in 7.3 the column
-/// after <c>jp</c> is <c>holicpoint</c>). Its positional order and its field names are therefore
-/// <b>not</b> reused here: the column order and the names below are the 7.3 schema's own.
-/// <para>
-/// Every column of the table is carried, and none of them is interpreted. What the <c>limit_*</c> columns,
-/// <c>invoke_condition</c>, <c>invoke_value</c>, <c>type</c>, <c>value1..12</c>, <c>or_flag</c>,
-/// <c>is_auto_quest</c>, <c>holicpoint</c> and <c>ld</c> judge, and which reward group each of them feeds,
-/// is not established for Epic 7.3 (docs/packet-specs/socle-cycle-quete.md §5.1, §7.4, §7.5): the
-/// conditions of acceptance, progression and end remain on that sheet's <c>A VERIFIER PAR KILLIAN</c>
-/// list instead of being decided by a name given here.
-/// </para>
-/// <para>
-/// Three mapping decisions, all of them reversible and none of them a value judgement:
-/// the schema's <c>char</c> columns are declared <c>character varying(1)</c> (<c>HasMaxLength(1)</c>) so the
-/// stored character survives as a character — the retail dumps write <c>'0'</c> or <c>'1'</c> there
-/// (<c>QuestLinkResource</c> in <c>Arcadia.sql:37098</c>, <c>flag_start char(1) ... '1'</c>) and no
-/// document establishes the same domain for every flag of this table, so no <c>'0'</c>/<c>'1'</c> to
-/// <c>bool</c> fold is applied; <c>time_limit_type</c> keeps its <c>char(10)</c> width and the three
-/// <c>varchar(512)</c> script columns keep theirs; the constraint defaults of the schema
-/// (<c>0</c> for <c>limit_job_depth</c> and <c>is_auto_quest</c>, <c>999</c> for <c>favor_group_id</c>)
-/// are not reproduced in the migration, which mirrors the column types only, like the other resource
-/// migrations of this context.
-/// </para>
+/// Imported quest definition. The schema mirror is extended with the imported Gold column;
+/// QuestRules and QuestService interpret native objectives and the six reward choices.
+/// The Lua script columns are preserved but are not executed.
 /// </summary>
 public class QuestResourceEntity
 {
@@ -54,25 +27,25 @@ public class QuestResourceEntity
 
     public int LimitMaxJobLevel { get; set; }
 
-    /// <summary>One of the seven race/class `char` flags of the schema. Carried, never interpreted.</summary>
+    /// <summary>One of the seven race/class `char` flags of the schema. Read as the imported character flag, "1" for allowed.</summary>
     public string LimitDeva { get; set; }
 
-    /// <summary>One of the seven race/class `char` flags of the schema. Carried, never interpreted.</summary>
+    /// <summary>One of the seven race/class `char` flags of the schema. Read as the imported character flag, "1" for allowed.</summary>
     public string LimitAsura { get; set; }
 
-    /// <summary>One of the seven race/class `char` flags of the schema. Carried, never interpreted.</summary>
+    /// <summary>One of the seven race/class `char` flags of the schema. Read as the imported character flag, "1" for allowed.</summary>
     public string LimitGaia { get; set; }
 
-    /// <summary>One of the seven race/class `char` flags of the schema. Carried, never interpreted.</summary>
+    /// <summary>One of the seven race/class `char` flags of the schema. Read as the imported character flag, "1" for allowed.</summary>
     public string LimitFighter { get; set; }
 
-    /// <summary>One of the seven race/class `char` flags of the schema. Carried, never interpreted.</summary>
+    /// <summary>One of the seven race/class `char` flags of the schema. Read as the imported character flag, "1" for allowed.</summary>
     public string LimitHunter { get; set; }
 
-    /// <summary>One of the seven race/class `char` flags of the schema. Carried, never interpreted.</summary>
+    /// <summary>One of the seven race/class `char` flags of the schema. Read as the imported character flag, "1" for allowed.</summary>
     public string LimitMagician { get; set; }
 
-    /// <summary>One of the seven race/class `char` flags of the schema. Carried, never interpreted.</summary>
+    /// <summary>One of the seven race/class `char` flags of the schema. Read as the imported character flag, "1" for allowed.</summary>
     public string LimitSummoner { get; set; }
 
     public int LimitJob { get; set; }
@@ -141,11 +114,11 @@ public class QuestResourceEntity
 
     public int Jp { get; set; }
 
-    /// <summary>
-    /// The column the 4.1.1 reader names <c>nGold</c>. Nothing establishes what it holds in 7.3, so it is
-    /// exposed under the schema's own name and is never read as a gold amount.
-    /// </summary>
+    /// <summary>Huntaholic point reward, separate from Gold.</summary>
     public int HolicPoint { get; set; }
+
+    /// <summary>Gold reward in the imported 9.4 QuestResource catalogue.</summary>
+    public long Gold { get; set; }
 
     /// <summary>Two-letter schema name kept as is; no reference reads this column.</summary>
     public int Ld { get; set; }

@@ -89,6 +89,7 @@ TABLES = [
     ("NpcResources", "NPCResource", ["Id"], {"NameId": "name_text_id", "SexualId": "sexsual_id"}),
     ("QuestResources", "QuestResource", ["Id"], {"LimitJobDepth": "job_depth"}),
     ("QuestLinkResources", "QuestLinkResource", ["NpcId", "QuestId"], {}),
+    ("RandomPoolResources", "RandomPoolResource", ["GroupId", "QuestTargetId"], {}),
     ("WorldLocations", "WorldLocation", None, {}),
 ]
 

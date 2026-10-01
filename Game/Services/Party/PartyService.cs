@@ -31,6 +31,10 @@ public interface IPartyService
 
     /// <summary>HP or MP changed: the members see the new percentages when they moved.</summary>
     void OnVitalsChanged(GameClient client);
+
+    IReadOnlyList<GameClient> RewardMembers(GameClient killer, float x, float y, byte layer);
+    bool CanTakeDrop(GameClient owner, GameClient picker, long? dropPartyId);
+    GameClient LootRecipient(GameClient picker, long? dropPartyId, float x, float y, byte layer);
 }
 
 public sealed class PartyService : IPartyService
@@ -150,6 +154,60 @@ public sealed class PartyService : IPartyService
             }
 
             BroadcastMemberInfo(party, client);
+        }
+    }
+
+    /// <summary>Only online members close enough to the kill share its experience, JP and gold.</summary>
+    public IReadOnlyList<GameClient> RewardMembers(GameClient killer, float x, float y, byte layer)
+    {
+        lock (_gate)
+        {
+            if (!TryGetParty(killer.ConnectionInfo.CharacterHandle, out var party))
+                return new[] { killer };
+            return NearbyMembers(party, x, y, layer).ToArray();
+        }
+    }
+
+    public bool CanTakeDrop(GameClient owner, GameClient picker, long? dropPartyId)
+    {
+        if (ReferenceEquals(owner, picker)) return true;
+        lock (_gate)
+        {
+            return dropPartyId is not null && TryGetParty(owner.ConnectionInfo.CharacterHandle, out var party)
+                && party.Id == dropPartyId && _partyOf.TryGetValue(picker.ConnectionInfo.CharacterHandle, out var id)
+                && id == party.Id && ReferenceEquals(Online(picker.ConnectionInfo.CharacterHandle), picker);
+        }
+    }
+
+    /// <summary>Monopoly gives the item to its picker; random and linear assign it among nearby members.</summary>
+    public GameClient LootRecipient(GameClient picker, long? dropPartyId, float x, float y, byte layer)
+    {
+        lock (_gate)
+        {
+            if (dropPartyId is null || !TryGetParty(picker.ConnectionInfo.CharacterHandle, out var party)
+                || party.Id != dropPartyId || party.ShareMode == PartyShareMode.Monopoly)
+                return picker;
+
+            var members = NearbyMembers(party, x, y, layer).ToArray();
+            if (members.Length == 0) return picker;
+            var index = party.ShareMode == PartyShareMode.Random
+                ? RandomNumberGenerator.GetInt32(members.Length)
+                : party.NextLootIndex++ % members.Length;
+            return members[index];
+        }
+    }
+
+    private IEnumerable<GameClient> NearbyMembers(PartyState party, float x, float y, byte layer)
+    {
+        foreach (var member in party.Members)
+        {
+            var client = Online(member.CharacterId);
+            if (client is null) continue;
+            var info = client.ConnectionInfo;
+            var dx = info.X - x;
+            var dy = info.Y - y;
+            if (info.Layer == layer && dx * dx + dy * dy <= WorldVisibility.ViewRange * WorldVisibility.ViewRange)
+                yield return client;
         }
     }
 
@@ -496,6 +554,7 @@ public sealed class PartyService : IPartyService
         public int Password { get; }
         public long LeaderId { get; set; }
         public PartyShareMode ShareMode { get; set; }
+        public int NextLootIndex { get; set; }
         public List<PartyMember> Members { get; } = new();
 
         public PartyMember Find(long characterId) => Members.FirstOrDefault(m => m.CharacterId == characterId);

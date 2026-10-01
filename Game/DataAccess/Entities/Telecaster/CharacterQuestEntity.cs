@@ -15,6 +15,10 @@ namespace Navislamia.Game.DataAccess.Entities.Telecaster;
 /// </summary>
 public class CharacterQuestEntity : Entity
 {
+    /// <summary>Persisted countdown for time_limit_type 1; offline time does not consume it.</summary>
+    public double RemainingSeconds { get; set; }
+    /// <summary>UTC deadline for time_limit_type 2.</summary>
+    public System.DateTime? ExpiresAt { get; set; }
     public long CharacterId { get; set; }
 
     public virtual CharacterEntity Character { get; set; }
@@ -22,13 +26,13 @@ public class CharacterQuestEntity : Entity
     /// <summary>Quest identifier; signed, exactly as <c>TS_CS_DROP_QUEST.code</c> carries it.</summary>
     public int Code { get; set; }
 
-    /// <summary><c>startID</c> of the quest instance.</summary>
+    /// <summary>NPC start text id passed as the second argument of start_quest.</summary>
     public int StartId { get; set; }
 
-    /// <summary>Six <c>uint32</c> values, in wire order.</summary>
+    /// <summary>Six wire slots; random contracts store three target/count pairs here.</summary>
     public int[] Value { get; set; }
 
-    /// <summary>Six <c>uint32</c> status words, in wire order; opaque in 7.3.</summary>
+    /// <summary>Six objective counters in wire order, interpreted according to the resource type.</summary>
     public int[] Status { get; set; }
 
     /// <summary>The single <c>progress</c> byte of the 600 element.</summary>

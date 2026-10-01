@@ -12,6 +12,7 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<CharacterEntity> Characters { get; set; }
     public DbSet<CharacterSkillEntity> CharacterSkills { get; set; }
     public DbSet<CharacterQuestEntity> CharacterQuests { get; set; }
+    public DbSet<CharacterQuestCompletionEntity> CharacterQuestCompletions { get; set; }
     public DbSet<DungeonEntity> Dungeons { get; set; }
     public DbSet<GuildEntity> Guilds { get; set; }
     public DbSet<ItemEntity> Items { get; set; }
@@ -108,10 +109,18 @@ public class TelecasterContext : SoftDeletionContext
         // 600 re-reads whole. The six wire slots live in two fixed arrays.
         modelBuilder.Entity<CharacterQuestEntity>()
             .HasIndex(quest => new { quest.CharacterId, quest.Code })
-            .IsUnique();
+            .IsUnique().HasFilter("\"DeletedOn\" IS NULL");
 
         modelBuilder.Entity<CharacterQuestEntity>().Property(quest => quest.Value).HasMaxLength(6);
         modelBuilder.Entity<CharacterQuestEntity>().Property(quest => quest.Status).HasMaxLength(6);
+        modelBuilder.Entity<CharacterQuestCompletionEntity>()
+            .HasIndex(quest => new { quest.CharacterId, quest.Code })
+            .IsUnique();
+        modelBuilder.Entity<CharacterQuestCompletionEntity>()
+            .HasOne<CharacterEntity>()
+            .WithMany()
+            .HasForeignKey(quest => quest.CharacterId)
+            .OnDelete(DeleteBehavior.Cascade);
         
         modelBuilder.Entity<CharacterEntity>()
             .HasOne(c => c.Party)

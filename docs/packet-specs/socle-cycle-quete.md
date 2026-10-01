@@ -649,7 +649,81 @@ Découpage qui en découle : **(b1)** réception 604/605 (sans décision, peut p
 import du catalogue ; **(b3)** déclencheur par dialogue PNJ ; **(b4)** exécution (acceptation,
 progression, fin et récompenses) selon les points 3 et 5.
 
-## Annexe — bloc destiné à `CLAUDE.md` (proposition)
+## 11. Cycle livré — 1 octobre 2026
+
+Les lots b3/b4 sont implémentés dans `QuestService`, `QuestRules` et `NpcDialogService`.
+Les sections antérieures décrivent l'analyse initiale ; les décisions du §10 et ce bilan décrivent
+le comportement actuel.
+
+### Dialogue et acceptation
+
+Le contact ajoute les quêtes disponibles au dialogue existant. Chaque offre utilise
+`quest_info(code)` ; sa page conserve le titre du PNJ et affiche `QUEST|code|textID`. Les types
+3/7/8 et les libellés littéraux correspondent à la référence. Une quête terminable affiche un
+déclencheur `end_quest(code,index)` par récompense disponible, ou `-1` si aucune n'existe.
+La sélection doit appartenir au menu courant ; le PNJ, ses drapeaux et les conditions sont revérifiés
+lors de l'écriture. Une révision de dialogue bloque les réponses asynchrones périmées.
+
+L'acceptation vérifie les 20 emplacements, les prérequis OU/ET, les restrictions de niveau et de
+métier, la race, la classe et la profondeur de métier, les heures d'accès et les délais. La classe
+et la profondeur viennent de `JobResource`, sans déduction à partir des chiffres du métier.
+L'historique `CharacterQuestCompletions` porte les prérequis et les répétitions après reconnexion.
+Le champ `startID` de 600 conserve l'identifiant du texte de début accepté, deuxième argument de
+`start_quest`, comme dans `ScriptQuest.cpp` ; ce n'est pas l'identifiant du PNJ.
+
+### Objectifs et récompenses
+
+| Types | Objectif |
+| --- | --- |
+| 101 / 102 | Total de victimes / compte par cible, y compris les groupes de monstres négatifs |
+| 103 | Objets détenus, jusqu'à six couples objet/quantité |
+| 106 / 107 / 109 | Objets de chasse, drops personnels par membre concerné |
+| 201 | Niveaux des compétences apprises |
+| 301 / 302 | Niveau des équipements portés / enchantement d'un objet détenu |
+| 401 | Contact, immédiatement terminable auprès d'un PNJ de fin |
+| 501 / 601 | Profondeur et niveau de métier / chaos avec comparateur du catalogue |
+| 901 | Trois cibles distinctes tirées dans les pools, quantités et coefficients du catalogue |
+
+Les morts sont attribuées une seule fois par `MonsterWorldState.TryKill`. Les membres proches du
+groupe reçoivent chacun la progression. La collecte suit le flux des changements d'inventaire,
+avec recalcul à l'acceptation, à la reconnexion et à la remise. Les compteurs diminuent si les objets
+quittent le sac ; la quête redevient alors en cours. Les objets stockés, vendus ou équipés ne sont pas
+consommables. Un contrat aléatoire conserve son tirage dans `Value[6]`, y compris après abandon.
+
+La remise valide `-1..5`, refuse les emplacements vides et le mauvais PNJ, puis utilise une seule
+transaction EF sous le verrou du personnage pour retirer les objets, créer les récompenses, créditer
+EXP/JP/or/points Huntaholic, marquer l'historique et retirer la quête active. Le niveau de l'objet
+optionnel est celui de son emplacement. Le résultat 605 et la liste 600 suivent le commit ; 601
+annonce les changements d'objectifs. Une deuxième remise ne paie rien.
+
+Le temps de type 1 est un compteur sauvegardé, suspendu hors ligne ; le type 2 est une échéance UTC
+persistante. Seules les quêtes encore en cours expirent (état 100). Les objectifs de compétences,
+métier et chaos sont aussi rafraîchis périodiquement ; l'apprentissage et le niveau de métier
+demandent un rafraîchissement immédiat.
+
+### Données, migrations et vérification
+
+- `QuestLifecycle` crée l'historique, les champs de délai et l'index unique filtré des quêtes actives.
+- `QuestGoldReward` ajoute l'or séparément de `HolicPoint` et reprend les 765 montants exportés.
+- `RandomQuestPools` crée et remplit 1 637 cibles ; `tools/import_epic7.py` sait réimporter cette table.
+- `QuestLifecycleTests` couvre dialogue, acceptation, chasse, collecte, tutoriel, contrat aléatoire,
+  restrictions, prérequis, abandon, répétition, échéances, choix optionnel et remise concurrente.
+- Le test explicite `PostgreSqlMigrationsAndFailedRewardInsertRollBackTheWholeHandIn` migre les deux
+  contextes dans des schémas isolés, vérifie l'or et les pools, puis provoque un refus SQL d'insertion
+  de récompense : objets, historique, état actif et or restent inchangés. Il peut utiliser
+  `NAVIS_QUEST_TEST_CONNECTION`, sinon la connexion locale configurée. Les schémas sont retirés ensuite.
+
+Les sources locales du serveur d'origine confirment les règles de valeurs : `StructQuest.cpp`,
+`StructQuestManager.cpp`, `StructPlayer.cpp`, `GameContent.cpp` et `SendMessage.cpp` dans
+`Rappelz/program/server/GameServer/Game`. Elles complètent les références NGemity retenues au §10.
+
+**Limites mesurées :** les types natifs représentent 713 des 765 définitions. Les 52 quêtes 701
+requièrent un contrôle par scripts et restent exclues des offres. Six contrats 901 ont un pool
+insuffisant dans la plage niveau ±4 et sont également exclus ; aucune cible artificielle n'est ajoutée.
+Le système de faveur, l'exécution Lua et les paramètres autres que le chaos ne sont pas implémentés.
+Il reste à vérifier visuellement les fenêtres avec le client 7.3 en jeu.
+
+## Annexe — bloc destiné à `CLAUDE.md` (proposition historique)
 
 Ce bloc est à porter par la **description de la MR** : `CLAUDE.md` est un fichier d'instructions
 protégé, `navis-ref` et `navis-dev` ne l'écrivent pas.

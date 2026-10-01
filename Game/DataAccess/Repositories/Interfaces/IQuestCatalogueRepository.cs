@@ -17,4 +17,6 @@ public interface IQuestCatalogueRepository
     /// whatever the table returns.
     /// </summary>
     IReadOnlyList<QuestLinkResourceEntity> GetLinks();
+    IReadOnlyList<JobResourceEntity> GetJobs();
+    IReadOnlyList<RandomPoolResourceEntity> GetRandomPools();
 }

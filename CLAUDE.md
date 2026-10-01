@@ -1386,37 +1386,43 @@ premiers octets de chaque enregistrement de 703), 706 = 19, 707 = 11 + 4 × H, 7
 - 705/706 sont dans le verrou d'actions de l'étal ; un seul commerce par client à la fois
   (`BoothTradeInProgress`). Aucun poids n'est jugé.
 
-## Quêtes — socle 7.3 (600/601/603)
+## Quêtes — cycle 7.3 (600/601/603/604/605 et dialogues PNJ)
 
-- 603 `TM_CS_DROP_QUEST` : 11 octets, `code` int32 à l'offset 7, signé (refuser < 0). Réponse :
-  `TM_SC_RESULT` (0) taggé 603 (`Success` 0 / `NotActable` 5) **puis** `TM_SC_QUEST_LIST` (600).
-- 600 `TM_SC_QUEST_LIST` : `11 + 61·N + 8·M` octets. Deux comptes u16 obligatoires (actives à 7,
-  en attente à 9) — le client 7.3 lit le tableau à l'offset 11 et avance de 61 octets par entrée
-  (`SFrame.exe 0x00670cf4`, `0x00670dc0`). Une entrée `TS_QUEST_INFO` : code u32, startID u32,
-  value[6], status[6], progress u8, timeLimit u32.
-- 601 `TM_SC_QUEST_STATUS` : 40 octets, six `status` u32, `nProgress` int8 à 35, `nTimeLimit` u32 à
-  36 (que le client ne lit pas).
-- 602 `TM_SC_QUEST_INFOMATION` : le client 7.3 **n'a pas de handler** pour 602 (dispatch
-  `0x0067e1d9`, défaut `0x0067ef21`) : ne pas l'envoyer.
-- 604 et 605 : le client les émet, le serveur ne les traite pas encore (catalogues et politique de
-  récompenses requis).
-- Détail, sources et réserves : `docs/packet-specs/socle-quetes.md`.
-- **Catalogue de quêtes — miroir livré, vide** (`docs/packet-specs/socle-cycle-quete.md`, lot (b2)) :
-  `QuestResourceEntity`, `QuestLinkResourceEntity`, migration Arcadia `20260925222917_AddQuestCatalogue`,
-  `QuestCatalogueRepository` (enregistré, lu par personne). Les deux tables sont **créées vides** ; l'export
-  9.4 local porte pourtant `QuestResource.csv` et `QuestLinkResource.csv`, à importer comme les colonnes
-  de compétences. Colonnes `char` du schéma = `character varying(1)`, jamais repliées en `bool` ;
-  `QuestLinkResource` n'a pas de clé primaire au schéma, le modèle clé sur `(NpcId, QuestId)`. Ne pas
-  reprendre l'ordre positionnel de `ObjectMgr::LoadQuestResource` (liste 4.1.1 : `limit_quest_indication`
-  au lieu de `limit_job_depth`, `nGold` au lieu de `holicpoint` + `ld`).
-- **604 et 605 sont déclarés et lus** (lot (b1)) : 604 = 11 octets, `code` int32 @7, sans réponse (602 n'a pas
-  de handler client, `docs/packet-specs/604-quest-info.md`) ; 605 = 12 octets, `code` @7, `nOptionalReward`
-  **int8** @11 où `-1` = aucune récompense optionnelle, lu en `sbyte`. 605 répond toujours
-  `TS_SC_RESULT(605, …)` : `InvalidArgument` (longueur ≠ 12, emplacement hors `-1..5`), `NotActable` (code négatif,
-  quête non portée, **et quête portée** : terminer une quête est le lot (b4), et un `Success` sans récompense
-  ferait mentir le client), `DBError`. Rien n'est écrit (`docs/packet-specs/605-end-quest.md`). Le déclencheur (lot (b3)) est un
-  `TM_SC_DIALOG` au texte `QUEST|<code>|<textID>`, menu `	START	start_quest( code, textid )	`, relu
-  comme une grammaire fermée, jamais du Lua.
+- `QuestService` lit les 765 définitions importées et `QuestLinkResource`. Au contact, il ajoute les
+  offres admissibles au dialogue du PNJ ; `quest_info(code)` ouvre `QUEST|code|textID`, titre conservé,
+  types 3/7/8 et boutons littéraux `START`, `REJECT`, `NULL`, `REWARD`, `OK`.
+- Les commandes de dialogue sont une grammaire fermée et doivent avoir été annoncées. Acceptation
+  et remise vérifient aussi le PNJ visible et le code de quête du dialogue courant. Une réponse
+  asynchrone périmée ne peut pas rouvrir un dialogue fermé ou remplacé.
+- Acceptation : plafond de 20, prérequis OU/ET, répétabilité, délais d'acceptation et de répétition,
+  niveau, niveau de métier, métier, race, classe et profondeur de métier (lues dans `JobResource`).
+- Objectifs : 101 chasse totale ; 102 chasse individuelle ; 103 collecte (six couples) ; 106/107/109
+  objets de chasse ; 201 compétences ; 301 équipement porté amélioré ; 302 enchantement ; 401 contact ;
+  501 profondeur/niveau de métier ; 601 chaos ; 901 contrats de chasse aléatoires.
+- La mort d'un monstre crédite les membres proches du groupe. `TryKill` attribue la mort une seule
+  fois. Les groupes de cibles négatifs et les tirages 901 utilisent `RandomPoolResources` (1 637 cibles
+  importées). Les six `Value` du contrat aléatoire persistent ses trois couples cible/quantité ;
+  abandonner puis reprendre conserve le tirage. Le multiplicateur de récompense suit les coefficients
+  du catalogue. Les objets de quête tombent pour chaque membre concerné et restent personnels.
+- Chaque changement d'inventaire recalcule les collectes et envoie 601. Les objets portés, équipés
+  par une créature, stockés ou en vente ne sont pas consommables. Perdre un objet requis remet la quête
+  en cours. Le délai de type 1 est sauvegardé et suspendu hors ligne ; le type 2 conserve une échéance
+  UTC. Les quêtes non terminables expirées passent à l'état 100.
+- 605 choisit `-1` ou un emplacement 0..5 réellement rempli. Une transaction sous `CharacterGate`
+  consomme les objets, crée les récompenses (niveau du bon emplacement), crédite EXP/JP/or/points
+  Huntaholic, écrit `CharacterQuestCompletions` et retire la quête active. Deux remises concurrentes
+  ne paient qu'une fois. Résultat 605 puis liste 600 ; les progrès sont envoyés en 601.
+- 600 garde ses entrées de 61 octets et ses deux comptes u16 ; 601 fait 40 octets. 603 retire la quête
+  puis resynchronise 600 ; 604 reste sans réponse ; 602 n'est jamais émis.
+- Migrations : `QuestLifecycle` (historique, temps restant, échéance, index unique des seules quêtes
+  actives), `QuestGoldReward` (colonne or et reprise des 765 montants importés), `RandomQuestPools`
+  (table et 1 637 cibles). Elles sont appliquées par le démarrage existant du serveur.
+- Limites mesurées du catalogue : 52 quêtes 701 nécessitent un contrôle par scripts et ne sont pas
+  proposées. Six contrats 901 ont trop peu de cibles dans la plage niveau ±4 et sont également refusés.
+  Les systèmes de faveur et les scripts Lua restent hors du cycle natif.
+- Vérification : `QuestLifecycleTests`, tests de groupe, modèles EF et essai PostgreSQL explicite
+  avec migrations des deux contextes et échec SQL forcé pendant la récompense. Détail :
+  `docs/packet-specs/socle-cycle-quete.md`, §11.
 
 ## GM commands
 
@@ -1661,8 +1667,10 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   l'octet, **1 tant que non nul** ; `MINFO` rediffusé quand un pourcentage change (PV, PM, régénération).
 - **En mémoire** : un groupe survit à la sortie de ses membres (LOGOUT, puis LOGIN et PINFO au retour),
   pas au redémarrage. `ConnectionInfo.PartyId` vient du service, **plus de `Characters.PartyId`** (la table
-  `Parties` n'a pas le mot de passe et son `LeadPartyId` auto-référent est obligatoire). Partage
-  d'expérience et de butin non modélisé.
+  `Parties` n'a pas le mot de passe et son `LeadPartyId` auto-référent est obligatoire). Les membres
+  en ligne à 540 unités du monstre partagent l'expérience, les JP et l'or. Les membres du groupe
+  peuvent ramasser le butin du monstre ; `monopoly` l'attribue au ramasseur, `random` tire un
+  bénéficiaire proche et `linear` tourne entre les bénéficiaires proches.
 - Fiche, adresses des fonctions officielles, écarts et `NON ÉTABLI` : `docs/packet-specs/socle-groupe.md`.
 
 ### Poids porté

@@ -78,7 +78,24 @@ vers elles. `MINFO` suit `SendVitalProperty` et la régénération, **seulement 
   n'est pas lu ; ce sous-ensemble ne peut jamais contenir `|`, qui casserait chaque ligne.
 - **Non modélisés** : HuntaHolic, donjons d'instance, match à mort, règle PK d'invitation
   (`IsPartyInvitable`), équipes d'attaque et de raid (`/passist`, `RMINFO`, `SINFO`), invocations des
-  membres (`SendSummonInfo`), partage d'expérience et de butin (le mode est tenu et diffusé, sans effet).
+  membres (`SendSummonInfo`).
+
+## 5.1 Récompenses et ramassage (deuxième étape)
+
+À la mort d'un monstre, les membres du groupe en ligne, sur la même couche et à 540 unités ou moins
+du monstre se partagent à parts entières l'expérience, les JP et l'or. Les restes vont aux premiers
+membres dans l'ordre du groupe ; chaque bénéficiaire reçoit ses mises à jour et sa montée de niveau.
+Sans autre membre éligible, le tueur garde la totalité.
+
+Le butin du monstre conserve l'identifiant du groupe à la chute (premier `party_id` du bloc
+`pick_up_order` dans `TS_SC_ENTER`). Le propriétaire et les membres encore présents dans ce groupe
+peuvent le ramasser à portée de 300 unités. Un objet jeté depuis l'inventaire reste personnel.
+Le mode choisi détermine à qui l'objet ramassé est ajouté : `monopoly` au ramasseur, `random` à un
+membre proche tiré au hasard, `linear` aux membres proches à tour de rôle. Les familiers peuvent
+ramasser pour leur maître dans les mêmes conditions. Les bénéficiaires du partage d'objets doivent
+être en ligne, sur la même couche et dans le rayon de visibilité de 540 unités autour de l'objet.
+Ces règles de portée et d'attribution sont les choix de cette implémentation ; le premier socle
+n'avait établi que les trois valeurs du mode et le format du paquet.
 
 ## 6. Persistance
 

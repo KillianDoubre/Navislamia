@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Navislamia.Game.DataAccess.Contexts;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Navislamia.Game.Migrations.Arcadia
+namespace Navislamia.Game.DataAccess.Migrations.Arcadia
 {
     [DbContext(typeof(ArcadiaContext))]
-    partial class ArcadiaContextModelSnapshot : ModelSnapshot
+    [Migration("20261001155902_QuestGoldReward")]
+    partial class QuestGoldReward
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1786,22 +1789,6 @@ namespace Navislamia.Game.Migrations.Arcadia
                     b.HasKey("Id");
 
                     b.ToTable("QuestResources");
-                });
-
-            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.RandomPoolResourceEntity", b =>
-                {
-                    b.Property<int>("GroupId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("QuestTargetId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TargetLevel")
-                        .HasColumnType("integer");
-
-                    b.HasKey("GroupId", "QuestTargetId");
-
-                    b.ToTable("RandomPoolResources");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.SetItemEffectResourceEntity", b =>

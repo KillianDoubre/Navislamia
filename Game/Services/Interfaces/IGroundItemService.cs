@@ -9,6 +9,7 @@ public interface IGroundItemService
     void LeaveWorld(GameClient client);
 
     void DropForMonster(GameClient killer, int monsterId, float x, float y, float z);
+    void DropQuestItem(GameClient owner, int itemId, float x, float y, float z);
 
     /// <summary>
     /// <c>TM_CS_DROP_ITEM</c> (203): drops <paramref name="count"/> units of an inventory item on the

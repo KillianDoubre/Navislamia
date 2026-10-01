@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Rates;
+using Navislamia.Game.Services.Party;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -25,14 +26,19 @@ public class CombatService : ICombatService
     private readonly ILevelingService _levelingService;
     private readonly IGroundItemService _groundItemService;
     private readonly IRateService _rates;
+    private readonly IPartyService _parties;
+    private readonly IQuestService _quests;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
-        ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates)
+        ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
+        IPartyService parties, IQuestService quests = null)
     {
+        _parties = parties;
+        _quests = quests;
         _rates = rates;
         _worldState = worldState;
         _spawnService = spawnService;
@@ -211,7 +217,7 @@ public class CombatService : ICombatService
         }
 
         var now = DateTime.UtcNow;
-        _worldState.Kill(instanceId, now + _rates.MonsterRespawnDelay);
+        if (!_worldState.TryKill(instanceId, now + _rates.MonsterRespawnDelay)) return 0;
 
         // A corpse keeps no debuff, and a respawn must not inherit one either.
         foreach (var state in _worldState.ClearStates(instanceId))
@@ -239,24 +245,33 @@ public class CombatService : ICombatService
 
         var (dropX, dropY) = _worldState.GetPosition(instanceId);
         _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z);
-        AwardKill(client, info, instance.Level);
+        AwardKill(client, instance.Level, dropX, dropY, info.Layer);
+        if (_quests is not null)
+            foreach (var member in _parties.RewardMembers(client, dropX, dropY, info.Layer))
+                _ = _quests.OnMonsterKilledAsync(member, instance.MonsterId, dropX, dropY, instance.Z);
         return targetHp;
     }
 
-    private void AwardKill(GameClient client, ConnectionInfo info, int monsterLevel)
+    private void AwardKill(GameClient killer, int monsterLevel, float x, float y, byte layer)
     {
         // The rates apply to the reward, rounded at random so a fractional rate is exact on average.
         var (baseExp, baseJp, baseGold) = CombatRewards.Compute(monsterLevel);
         var exp = _rates.Scale(baseExp, RateType.Exp);
         var jp = _rates.Scale(baseJp, RateType.Jp);
         var gold = _rates.Scale(baseGold, RateType.Gold);
-        info.CharacterExp += exp;
-        info.CharacterJp += jp;
-        info.AddGold(gold);
-
-        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
-        client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
-        _levelingService.ApplyExperience(client);
+        var members = _parties.RewardMembers(killer, x, y, layer);
+        if (members.Count == 0) members = new[] { killer };
+        for (var i = 0; i < members.Count; i++)
+        {
+            var client = members[i];
+            var info = client.ConnectionInfo;
+            info.CharacterExp += exp / members.Count + (i < exp % members.Count ? 1 : 0);
+            info.CharacterJp += jp / members.Count + (i < jp % members.Count ? 1 : 0);
+            info.AddGold(gold / members.Count + (i < gold % members.Count ? 1 : 0));
+            client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
+            client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+            _levelingService.ApplyExperience(client);
+        }
     }
 
     private void ProcessPendingLeaves(DateTime now)

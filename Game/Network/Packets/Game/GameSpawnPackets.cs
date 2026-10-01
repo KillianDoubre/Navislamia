@@ -147,7 +147,7 @@ public static class GameSpawnPackets
     }
 
     public static byte[] BuildEnterItem(uint handle, float x, float y, float z, byte layer,
-        int itemCode, long count, uint dropTime, uint ownerHandle)
+        int itemCode, long count, uint dropTime, uint ownerHandle, uint partyId = 0)
     {
         const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 8 + 8 + 4 + 12 + 12;
         var packet = new byte[length];
@@ -166,6 +166,7 @@ public static class GameSpawnPackets
         BinaryPrimitives.WriteUInt64LittleEndian(span.Slice(34, 8), (ulong)Math.Max(1, count));
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(42, 4), dropTime);
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(46, 4), ownerHandle);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(58, 4), partyId);
 
         WriteChecksum(packet);
         return packet;

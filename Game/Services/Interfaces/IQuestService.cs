@@ -1,13 +1,13 @@
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Configuration.Options;
+using System.Collections.Generic;
 
 namespace Navislamia.Game.Services;
 
 /// <summary>
-/// The quest socle of Epic 7.3: the state a character carries (600 / 601) and its removal (603).
-/// Acceptance and progression are out of scope — they need the quest catalogue and the quest scripts
-/// (<c>docs/packet-specs/socle-quetes.md</c> §5.6, §7).
+/// The Epic 7.3 quest cycle: NPC dialogs, acceptance, objective updates, removal and rewards.
 /// </summary>
 public interface IQuestService
 {
@@ -25,9 +25,15 @@ public interface IQuestService
 
     /// <summary>
     /// Handles <c>TM_CS_END_QUEST</c> (605): judge the frame, then the character's state, and answer a
-    /// <c>TS_SC_RESULT</c> tagged 605. Finishing a quest — rewards, collected items, the finished mark —
-    /// is lot (b4) of docs/packet-specs/socle-cycle-quete.md and is not carried out: every verdict is a
-    /// refusal (docs/packet-specs/605-end-quest.md §5).
+    /// <c>TS_SC_RESULT</c> tagged 605. Consumption, rewards and completion commit atomically.
     /// </summary>
     Task EndQuestAsync(GameClient client, GameActionPackets.EndQuestRequest request);
+
+    bool HasNpcQuests(int npcId);
+    Task<IReadOnlyList<NpcDialogMenuEntry>> GetNpcOffersAsync(GameClient client, int npcId);
+    Task<NpcDialogDefinition> GetQuestDialogAsync(GameClient client, int npcId, int code, string title);
+    Task StartQuestAsync(GameClient client, int npcId, int code, int textId);
+    Task OnMonsterKilledAsync(GameClient client, int monsterId, float x, float y, float z);
+    Task LeaveWorldAsync(GameClient client);
+    Task RefreshAsync(GameClient client);
 }

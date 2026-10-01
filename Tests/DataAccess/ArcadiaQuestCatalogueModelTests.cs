@@ -78,6 +78,7 @@ public class ArcadiaQuestCatalogueModelTests
         "Exp:bigint:not null",
         "Jp:integer:not null",
         "HolicPoint:integer:not null",
+        "Gold:bigint:not null",
         "Ld:integer:not null",
         "DefaultRewardId:integer:not null",
         "DefaultRewardLevel:integer:not null",
@@ -202,7 +203,8 @@ public class ArcadiaQuestCatalogueModelTests
         var questResources = created.Single(operation => operation.Name == "QuestResources");
         questResources.Columns
             .Select(column => $"{column.Name}:{column.ColumnType}:{(column.IsNullable ? "optional" : "not null")}")
-            .Should().BeEquivalentTo(QuestResourceColumns);
+            .Should().BeEquivalentTo(QuestResourceColumns.Where(column => !column.StartsWith("Gold:")),
+                "the initial migration preceded the imported gold reward; QuestGoldReward adds it");
         questResources.PrimaryKey!.Columns.Should().Equal("Id");
 
         var questLinkResources = created.Single(operation => operation.Name == "QuestLinkResources");

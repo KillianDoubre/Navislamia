@@ -32,6 +32,9 @@ public class QuestCatalogueRepository : IQuestCatalogueRepository
             .ToList();
     }
 
+    public IReadOnlyList<JobResourceEntity> GetJobs() => _context.JobResources.AsNoTracking().ToArray();
+    public IReadOnlyList<RandomPoolResourceEntity> GetRandomPools() => _context.RandomPoolResources.AsNoTracking().ToArray();
+
     public IReadOnlyList<QuestLinkResourceEntity> GetLinks()
     {
         return _context.QuestLinkResources
