@@ -100,4 +100,10 @@ public interface ISkillResourceRepository
     IReadOnlyList<ResurrectionSkillRow> GetResurrectionSkills();
 
     IReadOnlyList<CastableSkillRow> GetCastableSkills();
+
+    /// <summary>
+    /// The rows of <paramref name="ids"/>, whatever their effect type: a monster casts skills no player
+    /// learns (<c>EF_PHYSICAL_SINGLE_DAMAGE_T1</c> 101, <c>EF_MAGIC_SINGLE_DAMAGE_T1_OLD</c> 201…).
+    /// </summary>
+    IReadOnlyList<CastableSkillRow> GetSkillRows(IReadOnlyCollection<int> ids);
 }

@@ -13,7 +13,8 @@ namespace Navislamia.Game.Services;
 /// <para>
 /// <see cref="Hp"/> is the real maximum (<see cref="MonsterCombatStats.MaxHp"/>), not the <c>hp</c> column:
 /// the column is only the resource's adjustment on top of level and vitality. <see cref="Combat"/> is shared
-/// by every instance of the resource.
+/// by every instance of the resource. <see cref="SkillLinkId"/> is <c>monster_skill_link_id</c>, the key of
+/// its skills in <see cref="MonsterSkillCatalog"/>.
 /// </para>
 /// </remarks>
 public readonly record struct MonsterInstance(
@@ -34,4 +35,5 @@ public readonly record struct MonsterInstance(
     float Scale,
     int TamingId,
     decimal TamingPercentage,
-    MonsterCombatStats Combat = null);
+    MonsterCombatStats Combat = null,
+    int SkillLinkId = 0);

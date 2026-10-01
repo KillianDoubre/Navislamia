@@ -51,6 +51,9 @@ public class MonsterWorldState
     private static readonly IReadOnlyList<ActiveBuff> EmptyStates = Array.Empty<ActiveBuff>();
     private ushort _nextStateHandle;
 
+    // A monster's skill cooldowns (skill id -> ready tick), sparse: only a monster that cast carries any.
+    private readonly Dictionary<long, Dictionary<int, uint>> _skillReady = new();
+
     // A monster's single aggro target, sparse like the rest: only a monster in combat carries one.
     private readonly Dictionary<long, AggroTarget> _aggro = new();
 
@@ -426,6 +429,62 @@ public class MonsterWorldState
             // A corpse chases nothing and a respawn inherits no target, the same rule as its states.
             _aggro.Remove(instanceId);
             _returningHome.Remove(instanceId);
+            _skillReady.Remove(instanceId);
+        }
+    }
+
+    /// <summary>Whether <paramref name="skillId"/> is off cooldown for this monster at <paramref name="now"/>.</summary>
+    public bool IsSkillReady(long instanceId, int skillId, uint now)
+    {
+        lock (_stateLock)
+        {
+            return !_skillReady.TryGetValue(instanceId, out var ready)
+                   || !ready.TryGetValue(skillId, out var tick)
+                   || unchecked((int)(now - tick)) >= 0;
+        }
+    }
+
+    public void SetSkillCooldown(long instanceId, int skillId, uint readyTick)
+    {
+        lock (_stateLock)
+        {
+            if (!_skillReady.TryGetValue(instanceId, out var ready))
+            {
+                ready = new Dictionary<int, uint>();
+                _skillReady[instanceId] = ready;
+            }
+
+            ready[skillId] = readyTick;
+        }
+    }
+
+    /// <summary>
+    /// Restores up to <paramref name="amount"/> HP to a living monster, capped at its maximum, and returns
+    /// what it really gained. A corpse gains nothing.
+    /// </summary>
+    public int Heal(long instanceId, int amount)
+    {
+        if (amount <= 0)
+        {
+            return 0;
+        }
+
+        lock (_stateLock)
+        {
+            var max = MaxHp(instanceId);
+            var hp = _currentHp.TryGetValue(instanceId, out var current) ? current : max;
+            if (hp <= 0 || _respawnAt.ContainsKey(instanceId))
+            {
+                return 0;
+            }
+
+            var healed = Math.Min(amount, max - hp);
+            if (healed > 0)
+            {
+                _currentHp[instanceId] = hp + healed;
+            }
+
+            return Math.Max(0, healed);
         }
     }
 

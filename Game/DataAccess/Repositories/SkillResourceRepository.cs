@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
@@ -75,6 +76,45 @@ public class SkillResourceRepository : ISkillResourceRepository
             .AsNoTracking()
             .Where(skill => effectTypes.Contains((int)skill.EffectType)
                             && skill.IsValid != SkillState.Invalid)
+            .Select(skill => new CastableSkillRow(
+                (int)skill.Id,
+                (int)skill.EffectType,
+                skill.IsHarmful,
+                (int)skill.Target,
+                (int?)skill.StateId,
+                skill.ToggleGroup,
+                skill.Values,
+                skill.StateSecond,
+                skill.StateSecondPerLevel,
+                skill.StateLevelBase,
+                skill.StateLevelPerSkill,
+                skill.CostMp,
+                skill.CostMpPerSkl,
+                skill.DelayCast,
+                skill.DelayCastPerSkl,
+                skill.DelayCommon,
+                skill.DelayCooltime,
+                skill.DelayCooltimePerSkl,
+                skill.RequiredLevel,
+                skill.HitBonus,
+                skill.Percentage,
+                skill.CriticalBonus,
+                skill.CriticalBonusPerSkl))
+            .ToList();
+    }
+
+    public IReadOnlyList<CastableSkillRow> GetSkillRows(IReadOnlyCollection<int> ids)
+    {
+        if (ids.Count == 0)
+        {
+            return Array.Empty<CastableSkillRow>();
+        }
+
+        var wanted = ids.Select(id => (long)id).ToArray();
+
+        return _context.SkillResources
+            .AsNoTracking()
+            .Where(skill => wanted.Contains(skill.Id))
             .Select(skill => new CastableSkillRow(
                 (int)skill.Id,
                 (int)skill.EffectType,

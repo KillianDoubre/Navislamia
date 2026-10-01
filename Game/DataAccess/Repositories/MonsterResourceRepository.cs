@@ -53,7 +53,8 @@ public class MonsterResourceRepository : IMonsterResourceRepository
                 Accuracy = resource.Accuracy,
                 Avoid = resource.Avoid,
                 MagicAccuracy = resource.MagicAccuracy,
-                MagicAvoid = resource.MagicAvoid
+                MagicAvoid = resource.MagicAvoid,
+                MonsterSkillLinkId = resource.MonsterSkillLinkId
             })
             .ToList();
     }

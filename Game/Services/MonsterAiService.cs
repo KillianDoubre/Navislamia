@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.MonsterSkills;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -38,12 +39,15 @@ public class MonsterAiService
     private readonly MonsterWorldState _worldState;
     private readonly NetworkService _networkService;
     private readonly ICombatService _combat;
+    private readonly IMonsterSkillService _skills;
 
-    public MonsterAiService(MonsterWorldState worldState, NetworkService networkService, ICombatService combat)
+    public MonsterAiService(MonsterWorldState worldState, NetworkService networkService, ICombatService combat,
+        IMonsterSkillService skills)
     {
         _worldState = worldState;
         _networkService = networkService;
         _combat = combat;
+        _skills = skills;
         _ = RunAsync();
     }
 
@@ -207,6 +211,16 @@ public class MonsterAiService
             _worldState.StopMove(instanceId);
             var startTime = unchecked(now + info.ClientClockOffset);
             client.Connection.Send(GameMovePackets.BuildStopMove(handle, startTime, info.Layer));
+        }
+
+        // A skill, when one comes up, replaces the swing (StructMonster::AI_processAttack). The next
+        // opportunity waits for the cast and for the attack interval, whichever is longer.
+        if (_skills.TryCast(client, instanceId, handle, now, out var castTicks))
+        {
+            var attackSpeed = _combat.GetMonsterStats(instanceId)?.AttackSpeed ?? 100f;
+            var wait = Math.Max(castTicks, CombatFormulas.AttackIntervalTicks(attackSpeed));
+            _worldState.SetNextAttack(instanceId, unchecked(now + wait));
+            return;
         }
 
         var hit = _combat.RollMonsterHit(instanceId, client, out var intervalTicks);

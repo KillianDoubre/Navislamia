@@ -509,7 +509,8 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
   client would get a fresh move every 300 ms tick and stutter.
 - **Attack**: within the melee reach and off cooldown, `TS_SC_ATTACK_EVENT` (`101`) with the monster as
   attacker and the player as target, rolled by `ICombatService.RollMonsterHit` against the player's
-  stats (the real rule, see *Combat*), at the monster's own attack interval, sent as the `hp` property. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
+  stats (the real rule, see *Combat*), at the monster's own attack interval, sent as the `hp` property. **Before swinging, the monster rolls its
+  skills** (see *Monster skills*); the first one that comes up replaces the swing. HP can reach 0: that is the player's death (see *Mort et réapparition du personnage
   joueur*), and a monster drops a target at 0 HP. **A monster stands still to attack**: if a chase move is still in flight when it strikes, `StopMove`
   freezes it at its current position and a `TS_SC_MOVE` stop is sent, so it does not slide through the
   swing (the reference's `SetMove(current, current, speed 0)` before `Attack`). The player is planted
@@ -546,6 +547,20 @@ is set to max (login and level-up); the former test damage read it, the real rul
 literals until `tools/Import-MonsterResourceColumns.ps1` backfilled `FirstAttack`, `GroupFirstAttack`,
 `VisibleRange`, `ChaseRange`, `AttackRange`, `RunSpeed`, `Size` and `Scale` from the 9.4 source — the
 same import trap the skill columns hit. See `docs/superpowers/specs/2026-07-17-monster-ai-design.md`.
+
+## Monster skills
+
+`docs/packet-specs/socle-competences-monstres.md`. `MonsterResource.monster_skill_link_id` keys
+`MonsterSkillResource`, exported to `DevConsole/monster-skills.73.json` (`tools/export_monster_skills.py`,
+entries with a probability above zero, in `id, sub_id` order) and joined to `SkillResources` by
+`MonsterSkillCatalog` at startup. **The pick is the official one** (`StructMonster::AI_processAttack`): when
+the monster may attack, each entry in order draws 0..9999 and is cast when `probability × 10000` exceeds it;
+a skill on cooldown moves on, and the first cast **replaces the swing**. A skill whose `is_harmful` is clear
+lands on the monster itself. Modelled: single-target damage 101/30001 (physical) and 201/231 (magic) through
+`ICombatService.RollMonsterHit` — the swing's rule with the skill's hit and critical bonuses —, states
+301/302 (harmful: on the player through `ISkillCastService.ApplyState`; otherwise on the monster, whose stats
+read them) and the self heal 501. 524 of 725 entries, 3 853 monsters. **Not modelled**: the region families
+(111, 113, 261, 262, 30013…) and the triggers, which call Lua.
 
 ## Equipment
 
@@ -1507,7 +1522,8 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding. **Damage, hit, block, critical
+  modelled: taming, group aggro (`GroupFirstAttack`) and pathfinding. **Monsters cast their single-target,
+  state and heal skills**; region skills and Lua triggers are not modelled. **Damage, hit, block, critical
   and attack speed follow the official rules on both sides** (`socle-combat-reel.md`); not modelled:
   double attack, dual wield, bow aiming, elements, additional damage, reflection and mana shield. A
   player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them back in town, or in place with a

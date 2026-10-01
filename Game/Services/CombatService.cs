@@ -223,12 +223,31 @@ public class CombatService : ICombatService
 
         var monster = MonsterStats(instanceId, instance);
         intervalTicks = CombatFormulas.AttackIntervalTicks(monster.AttackSpeed);
+        return RollMonsterHit(instance, monster, target, monster.AttackPointRight, DamageKind.Physical, 0, 0);
+    }
 
+    public HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus)
+    {
+        if (!_worldState.TryGetInstance(instanceId, out var instance))
+        {
+            return new HitResult(0, HitFlags.Miss);
+        }
+
+        return RollMonsterHit(instance, MonsterStats(instanceId, instance), target, baseDamage, kind,
+            accuracyBonus, criticalBonus);
+    }
+
+    public StatBlock GetMonsterStats(long instanceId) =>
+        _worldState.TryGetInstance(instanceId, out var instance) ? MonsterStats(instanceId, instance) : null;
+
+    private HitResult RollMonsterHit(MonsterInstance instance, StatBlock monster, GameClient target,
+        float baseDamage, DamageKind kind, int accuracyBonus, int criticalBonus)
+    {
         var info = target.ConnectionInfo;
         var player = _stats.Compute(info).Total;
         var hit = CombatFormulas.Resolve(Combatant.From(monster, instance.Level),
-            Combatant.From(player, info.CharacterLevel), monster.AttackPointRight, DamageKind.Physical, 0, 0,
-            _random);
+            Combatant.From(player, info.CharacterLevel), baseDamage, kind, accuracyBonus, criticalBonus, _random);
 
         // /immortal: the monster still swings and the dice still roll, but nothing is lost.
         return info.IsImmortal ? hit with { Damage = 0 } : hit;

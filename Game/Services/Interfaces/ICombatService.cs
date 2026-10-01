@@ -28,6 +28,16 @@ public interface ICombatService
     HitResult RollMonsterHit(long instanceId, GameClient target, out uint intervalTicks);
 
     /// <summary>
+    /// Rolls one hit of a monster's skill on a player: <paramref name="baseDamage"/> and the skill's bonuses
+    /// through the same rule as a swing. A player under <c>/immortal</c> takes 0.
+    /// </summary>
+    HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus);
+
+    /// <summary>The monster's current stats, its states included; null for an unknown instance.</summary>
+    Navislamia.Game.Services.Stats.StatBlock GetMonsterStats(long instanceId);
+
+    /// <summary>
     /// Applies damage to a monster and owns everything that follows: death, the corpse, its states, the
     /// drops, the reward and the respawn. Returns the monster's remaining HP.
     /// </summary>
