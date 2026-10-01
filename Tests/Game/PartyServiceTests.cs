@@ -299,10 +299,11 @@ public class PartyServiceTests
         var rates = new RateService(new StaticOptionsMonitor<RatesOptions>(new RatesOptions { EventStatePath = "" }));
         var quests = A.Fake<IQuestService>();
         var combat = new CombatService(world, A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
-            A.Fake<IGroundItemService>(), rates, _parties, quests);
+            A.Fake<IGroundItemService>(), rates, A.Fake<IStatService>(), A.Fake<IStateCatalog>(), _parties, quests);
 
-        combat.ApplyDamage(ana, 0, 500, 100).Should().Be(0);
-        combat.ApplyDamage(bo, 0, 500, 100).Should().Be(0);
+        // A level-5 monster has hp + 20 x level = 200 HP (MonsterCombatStats): deal more than that.
+        combat.ApplyDamage(ana, 0, 500, 1_000).Should().Be(0);
+        combat.ApplyDamage(bo, 0, 500, 1_000).Should().Be(0);
         A.CallTo(() => quests.OnMonsterKilledAsync(ana, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
         A.CallTo(() => quests.OnMonsterKilledAsync(bo, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
 

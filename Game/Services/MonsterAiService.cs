@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.MonsterSkills;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -23,13 +24,8 @@ namespace Navislamia.Game.Services;
 public class MonsterAiService
 {
     private const int TickIntervalMs = 300;
-    private const byte ChaseSpeed = 40;
-
-    /// <summary>Dropped monsters walk home at twice the chase speed.</summary>
-    private const byte ReturnSpeed = ChaseSpeed * 2;
-
-    private const ushort AttackSpeedMs = 1200;
-    private const uint AttackIntervalTicks = 120;
+    /// <summary>The move speed of a monster without combat stats (a creature's base).</summary>
+    private const float FallbackMoveSpeed = 120f;
 
     /// <summary>
     /// A chase move is only re-issued when the desired destination has drifted this far from the one
@@ -40,11 +36,16 @@ public class MonsterAiService
     private readonly ILogger _logger = Log.ForContext<MonsterAiService>();
     private readonly MonsterWorldState _worldState;
     private readonly NetworkService _networkService;
+    private readonly ICombatService _combat;
+    private readonly IMonsterSkillService _skills;
 
-    public MonsterAiService(MonsterWorldState worldState, NetworkService networkService)
+    public MonsterAiService(MonsterWorldState worldState, NetworkService networkService, ICombatService combat,
+        IMonsterSkillService skills)
     {
         _worldState = worldState;
         _networkService = networkService;
+        _combat = combat;
+        _skills = skills;
         _ = RunAsync();
     }
 
@@ -197,7 +198,16 @@ public class MonsterAiService
             return;
         }
 
-        Broadcast(client, handle, info, _worldState.BeginMove(instanceId, x, y, ChaseSpeed));
+        // The official chase speed: the real move speed (run_speed / 7, states included) times 1.00..1.09
+        // (AI_processAttack: XFastRandom / 100 + 1 before GetRealMoveSpeed; NGemity Monster.cpp:803-812).
+        var moveSpeed = _combat.GetMonsterStats(instanceId)?.MoveSpeed ?? FallbackMoveSpeed;
+        var speed = MonsterMovement.SpeedByte(moveSpeed * (1f + Random.Shared.Next(0, 10) / 100f));
+
+        // Around the obstacles; with no path the monster holds rather than walk through a wall.
+        if (_worldState.BeginWalk(instanceId, x, y, speed) is { } order)
+        {
+            Broadcast(client, instanceId, handle, info, order);
+        }
     }
 
     private void Attack(GameClient client, long instanceId, uint handle, ConnectionInfo info, uint now)
@@ -208,17 +218,39 @@ public class MonsterAiService
             _worldState.StopMove(instanceId);
             var startTime = unchecked(now + info.ClientClockOffset);
             client.Connection.Send(GameMovePackets.BuildStopMove(handle, startTime, info.Layer));
+            ToOtherWatchers(client, instanceId, false, (other, otherHandle) => GameMovePackets.BuildStopMove(
+                otherHandle, unchecked(now + other.ConnectionInfo.ClientClockOffset), other.ConnectionInfo.Layer));
         }
 
-        var damage = MonsterAiRules.PlayerDamage(info.CharacterMaxHp, info.IsImmortal);
-        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+        // A skill, when one comes up, replaces the swing (StructMonster::AI_processAttack). The next
+        // opportunity waits for the cast and for the attack interval, whichever is longer.
+        if (_skills.TryCast(client, instanceId, handle, now, out var castTicks))
+        {
+            var attackSpeed = _combat.GetMonsterStats(instanceId)?.AttackSpeed ?? 100f;
+            var wait = Math.Max(castTicks, CombatFormulas.AttackIntervalTicks(attackSpeed));
+            _worldState.SetNextAttack(instanceId, unchecked(now + wait));
+            return;
+        }
 
+        var hit = _combat.RollMonsterHit(instanceId, client, out var intervalTicks);
+        var playerHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
+
+        var intervalMs = CombatService.IntervalMs(intervalTicks);
+        var monsterHp = _worldState.GetHp(instanceId);
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
-            AttackSpeedMs, AttackSpeedMs, GameAttackPackets.ActionAttack, damage, info.CharacterHp,
-            _worldState.GetHp(instanceId)));
-        client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, playerHp,
+            monsterHp, (byte)hit.Flags));
 
-        _worldState.SetNextAttack(instanceId, unchecked(now + AttackIntervalTicks));
+        // The players who see both see the swing: the one that brings the player to 0 carries
+        // target_hp = 0, which is how they watch the player die (the client has no death packet).
+        ToOtherWatchers(client, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
+            otherHandle, info.CharacterHandle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
+            playerHp, monsterHp, (byte)hit.Flags));
+
+        // HP, property and, on the killing swing, the death penalty: after the swing that shows it.
+        _combat.DamagePlayer(client, hit.Damage);
+
+        _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
     }
 
     private void GoHome(GameClient client, long instanceId, uint handle, ConnectionInfo info, bool streamed)
@@ -232,17 +264,67 @@ public class MonsterAiService
             return;
         }
 
-        var order = _worldState.ReturnHome(instanceId, homeX, homeY, ReturnSpeed);
+        // Home at twice the move speed (NGemity Monster.cpp:688, 2 × move speed / 7).
+        var moveSpeed = _combat.GetMonsterStats(instanceId)?.MoveSpeed ?? FallbackMoveSpeed;
+        var order = _worldState.ReturnHome(instanceId, homeX, homeY, MonsterMovement.SpeedByte(2f * moveSpeed));
         if (streamed)
         {
-            Broadcast(client, handle, info, order);
+            Broadcast(client, instanceId, handle, info, order);
+        }
+        else
+        {
+            ToOtherWatchers(client, instanceId, false, (other, otherHandle) => MoveFrame(other, otherHandle, order));
         }
     }
 
-    private static void Broadcast(GameClient client, uint handle, ConnectionInfo info, MoveOrder order)
+    private void Broadcast(GameClient client, long instanceId, uint handle, ConnectionInfo info, MoveOrder order)
     {
-        var startTime = unchecked(order.StartTick + info.ClientClockOffset);
-        client.Connection.Send(GameMovePackets.BuildMove(handle, startTime, info.Layer, order.Speed,
-            order.DestX, order.DestY));
+        client.Connection.Send(MoveFrame(client, handle, order));
+        ToOtherWatchers(client, instanceId, false, (other, otherHandle) => MoveFrame(other, otherHandle, order));
+    }
+
+    /// <summary>A monster move for one client: its handle for the monster and its own clock.</summary>
+    private static byte[] MoveFrame(GameClient recipient, uint handle, MoveOrder order)
+    {
+        var info = recipient.ConnectionInfo;
+        return MonsterMovement.Frame(handle, unchecked(order.StartTick + info.ClientClockOffset), info.Layer, order);
+    }
+
+    /// <summary>
+    /// A frame about a monster for every other client that has it streamed, under that client's handle for
+    /// it (docs/packet-specs/socle-diffusion-combat.md). With <paramref name="mustSeeTarget"/>, only the
+    /// clients that also see the target player get it: an attack on a player they do not know is not theirs.
+    /// </summary>
+    private void ToOtherWatchers(GameClient target, long instanceId, bool mustSeeTarget,
+        Func<GameClient, uint, byte[]> build)
+    {
+        var targetHandle = target.ConnectionInfo.CharacterHandle;
+        foreach (var other in _networkService.AuthorizedGameClients.Values)
+        {
+            if (ReferenceEquals(other, target))
+            {
+                continue;
+            }
+
+            var otherInfo = other.ConnectionInfo;
+            var handle = otherInfo.GetMonsterHandle(instanceId);
+            if (handle == 0)
+            {
+                continue;
+            }
+
+            if (mustSeeTarget)
+            {
+                lock (otherInfo.PlayerVisibilityLock)
+                {
+                    if (!otherInfo.SpawnedPlayers.ContainsKey(targetHandle))
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            other.Connection.Send(build(other, handle));
+        }
     }
 }

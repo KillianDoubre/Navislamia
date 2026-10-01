@@ -41,4 +41,29 @@ public static class LevelCurve
         exp = cumulativeExp[level - 1];
         return true;
     }
+
+    /// <summary>
+    /// The experience a character loses when a monster kills it, <c>StructPlayer::GetDeadEXPPenalty</c>
+    /// (<c>0x1400c0de0</c>): <c>GetNeedExp(level) x (0.15 / (level - 1) + 0.0005)</c>, twice that on a PK
+    /// server (0.3 and 0.001). <c>GetNeedExp(level)</c> is the threshold to advance from the level, the same
+    /// row <see cref="Resolve"/> reads. Level 1 loses nothing: the official division by <c>level - 1</c> has
+    /// no meaning there. docs/packet-specs/socle-perte-experience.md.
+    /// </summary>
+    public static long DeathPenalty(long[] cumulativeExp, int maxLevel, int level, bool pkServer = false)
+    {
+        if (cumulativeExp == null || level <= 1)
+        {
+            return 0;
+        }
+
+        var row = System.Math.Min(System.Math.Min(level, maxLevel), cumulativeExp.Length - 1);
+        var need = cumulativeExp[row];
+        if (need <= 0 || need == long.MaxValue)
+        {
+            return 0;
+        }
+
+        var ratio = pkServer ? 0.3 / (level - 1) + 0.001 : 0.15 / (level - 1) + 0.0005;
+        return (long)(need * ratio);
+    }
 }

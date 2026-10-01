@@ -65,7 +65,7 @@ public class TerrainSeamlessWorldInfo
 
             if ((content = line.GetStringContent(TileLenHeader)) != null)
             {
-                TileLength = float.Parse(content);
+                TileLength = float.Parse(content, System.Globalization.CultureInfo.InvariantCulture);
             }
             
             if ((content = line.GetStringContent(TileCountPerSegmentHeader)) != null)
@@ -80,7 +80,7 @@ public class TerrainSeamlessWorldInfo
             
             if ((content = line.GetStringContent(FovHeader)) != null)
             {
-                GetFov = float.Parse(content);
+                GetFov = float.Parse(content, System.Globalization.CultureInfo.InvariantCulture);
             }
             
             if ((content = line.GetStringContent(MapLayerHeader)) != null)

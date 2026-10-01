@@ -4,8 +4,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.Rates;
 using Navislamia.Game.Services.Party;
+using Navislamia.Game.Services.Stats;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -13,11 +15,9 @@ namespace Navislamia.Game.Services;
 public class CombatService : ICombatService
 {
     private const int TickIntervalMs = 100;
-    private const ushort AttackDelayMs = 1200;
 
     /// <summary>How soon an out-of-reach swing re-checks range while the client walks the player in.</summary>
     private const int RangeRetryMs = 200;
-    private const int DamageHpDivisor = 3;
     private const int DeathAnimationSeconds = 6;
 
     private readonly ILogger _logger = Log.ForContext<CombatService>();
@@ -28,6 +28,10 @@ public class CombatService : ICombatService
     private readonly IRateService _rates;
     private readonly IPartyService _parties;
     private readonly IQuestService _quests;
+    private readonly IStatService _stats;
+    private readonly IStateCatalog _states;
+    private readonly ICombatRandom _random;
+    private readonly IPlayerVisibilityService _players;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
@@ -35,11 +39,16 @@ public class CombatService : ICombatService
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
-        IPartyService parties, IQuestService quests = null)
+        IStatService stats, IStateCatalog states, IPartyService parties, IQuestService quests = null,
+        ICombatRandom random = null, IPlayerVisibilityService players = null)
     {
         _parties = parties;
         _quests = quests;
+        _players = players;
         _rates = rates;
+        _stats = stats;
+        _states = states;
+        _random = random ?? CombatRandom.Shared;
         _worldState = worldState;
         _spawnService = spawnService;
         _levelingService = levelingService;
@@ -88,6 +97,8 @@ public class CombatService : ICombatService
         }
 
         client.Connection.Send(GameAttackPackets.BuildEndAttack(session.AttackerHandle, session.TargetHandle));
+        ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
+            (_, handle) => GameAttackPackets.BuildEndAttack(session.AttackerHandle, handle));
     }
 
     public void DropAggro(GameClient client)
@@ -172,8 +183,14 @@ public class CombatService : ICombatService
             return;
         }
 
-        var damage = GetHitDamage(session.TargetInstanceId);
-        var targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, damage);
+        var stats = _stats.Compute(info).Total;
+        var hit = CombatFormulas.Resolve(Combatant.From(stats, info.CharacterLevel),
+            MonsterCombatant(session.TargetInstanceId, instance), stats.AttackPointRight, DamageKind.Physical,
+            0, 0, _random);
+
+        // A miss still lands as an attack: the monster turns on the player either way.
+        var targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, hit.Damage);
+        var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
 
         // Plant the player during the swing, the same rule the monster follows: a unit stands still to
         // attack. Only ever sent in reach, where the client has already stopped the player at the
@@ -182,21 +199,127 @@ public class CombatService : ICombatService
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle, session.TargetHandle,
-            AttackDelayMs, AttackDelayMs, GameAttackPackets.ActionAttack, damage, targetHp, info.CharacterHp));
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, targetHp, info.CharacterHp,
+            (byte)hit.Flags));
+
+        // The players around see the swing too, each under its own handle for the monster: the killing one
+        // carries target_hp = 0, which is what plays the monster's death on their screen.
+        ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
+            (_, handle) => GameAttackPackets.BuildAttackEvent(session.AttackerHandle, handle, intervalMs, intervalMs,
+                GameAttackPackets.ActionAttack, hit.Damage, targetHp, info.CharacterHp, (byte)hit.Flags));
 
         if (targetHp <= 0)
         {
             return;
         }
 
-        session.NextSwingAt = now.AddMilliseconds(AttackDelayMs);
+        session.NextSwingAt = now.AddMilliseconds(intervalMs);
     }
 
-    public int GetHitDamage(long instanceId)
+    public HitResult RollHit(GameClient client, long instanceId, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus)
     {
-        return _worldState.TryGetInstance(instanceId, out var instance)
-            ? Math.Max(1, instance.Hp / DamageHpDivisor)
-            : 0;
+        if (!_worldState.TryGetInstance(instanceId, out var instance))
+        {
+            return new HitResult(0, HitFlags.Miss);
+        }
+
+        var info = client.ConnectionInfo;
+        var stats = _stats.Compute(info).Total;
+        return CombatFormulas.Resolve(Combatant.From(stats, info.CharacterLevel),
+            MonsterCombatant(instanceId, instance), baseDamage, kind, accuracyBonus, criticalBonus, _random);
+    }
+
+    public HitResult RollMonsterHit(long instanceId, GameClient target, out uint intervalTicks)
+    {
+        intervalTicks = CombatFormulas.AttackIntervalTicks(100f);
+        if (!_worldState.TryGetInstance(instanceId, out var instance))
+        {
+            return new HitResult(0, HitFlags.Miss);
+        }
+
+        var monster = MonsterStats(instanceId, instance);
+        intervalTicks = CombatFormulas.AttackIntervalTicks(monster.AttackSpeed);
+        return RollMonsterHit(instance, monster, target, monster.AttackPointRight, DamageKind.Physical, 0, 0);
+    }
+
+    public HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus)
+    {
+        if (!_worldState.TryGetInstance(instanceId, out var instance))
+        {
+            return new HitResult(0, HitFlags.Miss);
+        }
+
+        return RollMonsterHit(instance, MonsterStats(instanceId, instance), target, baseDamage, kind,
+            accuracyBonus, criticalBonus);
+    }
+
+    public int DamagePlayer(GameClient target, int damage)
+    {
+        var info = target.ConnectionInfo;
+        var wasAlive = MonsterAiRules.IsAlive(info.CharacterHp);
+        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+        target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+
+        if (wasAlive && !MonsterAiRules.IsAlive(info.CharacterHp))
+        {
+            // A dead character swings no more (the reference's onDead ends the attack), and a monster kill
+            // costs experience (StructPlayer::procDecreaseEXPAndDropItem). No death packet exists here.
+            StopAttack(target);
+            _levelingService.ApplyDeathPenalty(target);
+        }
+
+        return info.CharacterHp;
+    }
+
+    public StatBlock GetMonsterStats(long instanceId) =>
+        _worldState.TryGetInstance(instanceId, out var instance) ? MonsterStats(instanceId, instance) : null;
+
+    private HitResult RollMonsterHit(MonsterInstance instance, StatBlock monster, GameClient target,
+        float baseDamage, DamageKind kind, int accuracyBonus, int criticalBonus)
+    {
+        var info = target.ConnectionInfo;
+        var player = _stats.Compute(info).Total;
+        var hit = CombatFormulas.Resolve(Combatant.From(monster, instance.Level),
+            Combatant.From(player, info.CharacterLevel), baseDamage, kind, accuracyBonus, criticalBonus, _random);
+
+        // /immortal: the monster still swings and the dice still roll, but nothing is lost.
+        return info.IsImmortal ? hit with { Damage = 0 } : hit;
+    }
+
+    /// <summary>The swing interval in milliseconds, what <c>attack_speed</c>/<c>attack_delay</c> carry.</summary>
+    internal static ushort IntervalMs(uint intervalTicks) =>
+        (ushort)Math.Min(ushort.MaxValue, intervalTicks * (1000 / ServerClock.TicksPerSecond));
+
+    private Combatant MonsterCombatant(long instanceId, MonsterInstance instance) =>
+        Combatant.From(MonsterStats(instanceId, instance), instance.Level);
+
+    /// <summary>
+    /// The monster's stats with its active states folded in: a debuff now moves what it says it moves.
+    /// </summary>
+    private StatBlock MonsterStats(long instanceId, MonsterInstance instance)
+    {
+        if (instance.Combat is null)
+        {
+            var bare = new StatBlock();
+            StatCalculator.SeedFromLevel(Math.Max(1, instance.Level), bare);
+            return bare;
+        }
+
+        var states = _worldState.GetStates(instanceId);
+        if (states.Count == 0)
+        {
+            return instance.Combat.Plain;
+        }
+
+        var effects = new List<StatEffect>();
+        foreach (var state in states)
+        {
+            effects.AddRange(_states.Resolve(state.StateId, state.StateLevel));
+        }
+
+        return instance.Combat.Compute(effects);
     }
 
     public int ApplyDamage(GameClient client, long instanceId, uint targetHandle, int damage)
@@ -230,6 +353,21 @@ public class CombatService : ICombatService
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, ActorStatus.ForMonster(true)));
 
+        // The players who watched the kill see the corpse fall and later leave, like the killer: otherwise a
+        // dead monster stood on their screen until their next synchronisation.
+        var watchers = new List<PendingLeave>();
+        ObserverFrames.SendMonsterFrame(_players, client, instanceId, (observer, handle) =>
+        {
+            watchers.Add(new PendingLeave
+            {
+                Client = observer,
+                InstanceId = instanceId,
+                Handle = handle,
+                LeaveAt = now.AddSeconds(DeathAnimationSeconds)
+            });
+            return GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForMonster(true));
+        });
+
         lock (_lock)
         {
             _lastAttacker[instanceId] = client;
@@ -241,6 +379,7 @@ public class CombatService : ICombatService
                 Handle = targetHandle,
                 LeaveAt = now.AddSeconds(DeathAnimationSeconds)
             });
+            _pendingLeaves.AddRange(watchers);
         }
 
         var (dropX, dropY) = _worldState.GetPosition(instanceId);

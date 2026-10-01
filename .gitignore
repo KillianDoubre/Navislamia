@@ -485,3 +485,6 @@ tools/provision-navislamia/
 # Running /rate events, resumed after a restart (RateService). Local server state, never commit it.
 DevConsole/rate-events.json
 DevConsole/rate-events.json.tmp
+
+# Client map files, extracted by tools/Export-FieldProps --extract-maps
+DevConsole/Maps/

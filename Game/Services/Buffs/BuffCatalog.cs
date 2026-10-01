@@ -141,7 +141,11 @@ public class BuffCatalog : IBuffCatalog
             row.DelayCommon,
             row.DelayCooltime,
             row.DelayCooltimePerSkl,
-            row.RequiredLevel);
+            row.RequiredLevel,
+            row.HitBonus,
+            row.Percentage,
+            row.CriticalBonus,
+            row.CriticalBonusPerSkl);
         return true;
     }
 

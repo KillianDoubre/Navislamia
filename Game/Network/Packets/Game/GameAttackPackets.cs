@@ -14,6 +14,7 @@ public static class GameAttackPackets
     private const int AttackInfoSize = 61;
     private const int AttackInfoOffset = HeaderSize + EventHeaderSize;
     private const int DamageOffset = 0;
+    private const int FlagOffset = 8;
     private const int TargetHpOffset = 37;
     private const int AttackerHpOffset = 53;
     private const byte AttackFlagNone = 0;
@@ -24,7 +25,7 @@ public static class GameAttackPackets
     }
 
     public static byte[] BuildAttackEvent(uint attackerHandle, uint targetHandle, ushort attackSpeed,
-        ushort attackDelay, byte action, int damage, int targetHp, int attackerHp)
+        ushort attackDelay, byte action, int damage, int targetHp, int attackerHp, byte hitFlag = 0)
     {
         var total = HeaderSize + EventHeaderSize + AttackInfoSize;
         var packet = new byte[total];
@@ -41,6 +42,8 @@ public static class GameAttackPackets
 
         var info = p.Slice(AttackInfoOffset);
         BinaryPrimitives.WriteInt32LittleEndian(info.Slice(DamageOffset, 4), damage);
+        // ATTACK_INFO__FLAG after damage and mp_damage: 1 perfect block, 2 block, 4 miss, 8 critical.
+        info[FlagOffset] = hitFlag;
         BinaryPrimitives.WriteInt32LittleEndian(info.Slice(TargetHpOffset, 4), targetHp);
         BinaryPrimitives.WriteInt32LittleEndian(info.Slice(AttackerHpOffset, 4), attackerHp);
 

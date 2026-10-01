@@ -4,7 +4,10 @@ using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
+using Navislamia.Game.DataAccess.Entities.Arcadia;
+using Navislamia.Game.Maps.Collision;
 using Navislamia.Game.Services.Buffs;
+using Navislamia.Game.Services.Stats;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -14,12 +17,19 @@ namespace Navislamia.Game.Services;
 /// caller broadcasts <c>TS_SC_MOVE</c> with this start tick (plus each client's clock offset) and speed
 /// so every client interpolates the same path the server does.
 /// </summary>
-public readonly record struct MoveOrder(float DestX, float DestY, byte Speed, uint StartTick);
+/// <remarks>
+/// <see cref="Path"/> holds every waypoint (the destination last) when the move goes around an obstacle;
+/// null for a straight move.
+/// </remarks>
+public readonly record struct MoveOrder(float DestX, float DestY, byte Speed, uint StartTick,
+    IReadOnlyList<(float X, float Y)> Path = null);
 
 public class MonsterWorldState
 {
     private readonly ILogger _logger = Log.ForContext<MonsterWorldState>();
     private readonly IMonsterResourceRepository _repository;
+    private readonly IStatResourceRepository _statResources;
+    private readonly CollisionMap _collision;
     private readonly MonsterSpawnOptions _options;
     private const float WanderRadiusMin = 75f;
     private const float WanderRadiusMax = 150f;
@@ -48,15 +58,21 @@ public class MonsterWorldState
     private static readonly IReadOnlyList<ActiveBuff> EmptyStates = Array.Empty<ActiveBuff>();
     private ushort _nextStateHandle;
 
+    // A monster's skill cooldowns (skill id -> ready tick), sparse: only a monster that cast carries any.
+    private readonly Dictionary<long, Dictionary<int, uint>> _skillReady = new();
+
     // A monster's single aggro target, sparse like the rest: only a monster in combat carries one.
     private readonly Dictionary<long, AggroTarget> _aggro = new();
 
     private SpatialIndex<MonsterInstance> _index;
     private Dictionary<long, MonsterInstance> _byId;
 
-    public MonsterWorldState(IMonsterResourceRepository repository, IOptions<MonsterSpawnOptions> options)
+    public MonsterWorldState(IMonsterResourceRepository repository, IOptions<MonsterSpawnOptions> options,
+        IStatResourceRepository statResources = null, IWorldCollision collision = null)
     {
         _repository = repository;
+        _statResources = statResources;
+        _collision = collision?.Map ?? CollisionMap.Empty;
         _options = options.Value;
         Load();
     }
@@ -241,8 +257,11 @@ public class MonsterWorldState
             return Origin(instanceId);
         }
 
-        return MonsterMovement.PositionAt(move.StartX, move.StartY, move.DestX, move.DestY,
-            move.StartTick, move.EndTick, ServerClock.Now);
+        return move.Path is null
+            ? MonsterMovement.PositionAt(move.StartX, move.StartY, move.DestX, move.DestY, move.StartTick,
+                move.EndTick, ServerClock.Now)
+            : MonsterMovement.PositionAlong(move.StartX, move.StartY, move.Path, move.Ends, move.StartTick,
+                ServerClock.Now);
     }
 
     /// <summary>
@@ -267,6 +286,48 @@ public class MonsterWorldState
 
         _movement[instanceId] = new Movement(startX, startY, destX, destY, speed, start, end);
         return new MoveOrder(destX, destY, speed, start);
+    }
+
+    private MoveOrder BeginPathLocked(long instanceId, IReadOnlyList<(float X, float Y)> path, byte speed)
+    {
+        if (path.Count == 1)
+        {
+            return BeginMoveLocked(instanceId, path[0].X, path[0].Y, speed);
+        }
+
+        var (startX, startY) = CurrentPosition(instanceId);
+        var start = ServerClock.Now;
+        var ends = MonsterMovement.PathEndTicks(startX, startY, path, start, speed);
+        var (destX, destY) = path[^1];
+
+        _movement[instanceId] = new Movement(startX, startY, destX, destY, speed, start, ends[^1], path, ends);
+        return new MoveOrder(destX, destY, speed, start, path);
+    }
+
+    /// <summary>
+    /// Walks the monster toward (destX, destY) around the obstacles (docs/packet-specs/
+    /// socle-deplacement-monstres.md): straight when the line is free, along a found path otherwise, and
+    /// not at all — null — when no path is found, so it never walks through a wall.
+    /// </summary>
+    public MoveOrder? BeginWalk(long instanceId, float destX, float destY, byte speed)
+    {
+        lock (_stateLock)
+        {
+            var path = PlanLocked(instanceId, destX, destY);
+            return path is null ? null : BeginPathLocked(instanceId, path, speed);
+        }
+    }
+
+    /// <summary>The waypoints to (destX, destY) from the current position, or null when blocked.</summary>
+    private List<(float X, float Y)> PlanLocked(long instanceId, float destX, float destY)
+    {
+        var (x, y) = CurrentPosition(instanceId);
+        if (_collision.IsEmpty || !_collision.IsWalkBlocked(x, y, destX, destY))
+        {
+            return new List<(float X, float Y)> { (destX, destY) };
+        }
+
+        return PathFinder.Find(_collision, x, y, destX, destY);
     }
 
     public bool IsMoving(long instanceId)
@@ -306,7 +367,12 @@ public class MonsterWorldState
     {
         lock (_stateLock)
         {
-            var order = BeginMoveLocked(instanceId, homeX, homeY, speed);
+            // Home is reached whatever happens: around the obstacles when a path exists, straight otherwise
+            // (a monster left stranded away from home would keep its aggro state).
+            var path = PlanLocked(instanceId, homeX, homeY);
+            var order = path is null
+                ? BeginMoveLocked(instanceId, homeX, homeY, speed)
+                : BeginPathLocked(instanceId, path, speed);
             _returningHome.Add(instanceId);
             return order;
         }
@@ -377,9 +443,24 @@ public class MonsterWorldState
             var distance = WanderRadiusMin + Random.Shared.NextDouble() * (WanderRadiusMax - WanderRadiusMin);
             var destX = instance.X + (float)(Math.Cos(angle) * distance);
             var destY = instance.Y + (float)(Math.Sin(angle) * distance);
+            _nextMoveAt[instanceId] = now.AddMilliseconds(NextInterval());
+
+            // The official wander refuses a blocked destination (StructMonster::processMove, NGemity
+            // Monster::processWalk: IsBlocked); a wander that would cross an obstacle is refused as well
+            // rather than routed: the monster simply tries again next time.
+            var (fromX, fromY) = CurrentPosition(instanceId);
+            if (!_collision.IsEmpty
+                && (_collision.IsBlocked(destX, destY) || _collision.IsWalkBlocked(fromX, fromY, destX, destY)))
+            {
+                return false;
+            }
+
+            if (instance.Combat is { } combat)
+            {
+                speed = MonsterMovement.SpeedByte(combat.Plain.MoveSpeed);
+            }
 
             order = BeginMoveLocked(instanceId, destX, destY, speed);
-            _nextMoveAt[instanceId] = now.AddMilliseconds(NextInterval());
             return true;
         }
     }
@@ -428,7 +509,63 @@ public class MonsterWorldState
             // A corpse chases nothing and a respawn inherits no target, the same rule as its states.
             _aggro.Remove(instanceId);
             _returningHome.Remove(instanceId);
+            _skillReady.Remove(instanceId);
             return true;
+        }
+    }
+
+    /// <summary>Whether <paramref name="skillId"/> is off cooldown for this monster at <paramref name="now"/>.</summary>
+    public bool IsSkillReady(long instanceId, int skillId, uint now)
+    {
+        lock (_stateLock)
+        {
+            return !_skillReady.TryGetValue(instanceId, out var ready)
+                   || !ready.TryGetValue(skillId, out var tick)
+                   || unchecked((int)(now - tick)) >= 0;
+        }
+    }
+
+    public void SetSkillCooldown(long instanceId, int skillId, uint readyTick)
+    {
+        lock (_stateLock)
+        {
+            if (!_skillReady.TryGetValue(instanceId, out var ready))
+            {
+                ready = new Dictionary<int, uint>();
+                _skillReady[instanceId] = ready;
+            }
+
+            ready[skillId] = readyTick;
+        }
+    }
+
+    /// <summary>
+    /// Restores up to <paramref name="amount"/> HP to a living monster, capped at its maximum, and returns
+    /// what it really gained. A corpse gains nothing.
+    /// </summary>
+    public int Heal(long instanceId, int amount)
+    {
+        if (amount <= 0)
+        {
+            return 0;
+        }
+
+        lock (_stateLock)
+        {
+            var max = MaxHp(instanceId);
+            var hp = _currentHp.TryGetValue(instanceId, out var current) ? current : max;
+            if (hp <= 0 || _respawnAt.ContainsKey(instanceId))
+            {
+                return 0;
+            }
+
+            var healed = Math.Min(amount, max - hp);
+            if (healed > 0)
+            {
+                _currentHp[instanceId] = hp + healed;
+            }
+
+            return Math.Max(0, healed);
         }
     }
 
@@ -563,7 +700,8 @@ public class MonsterWorldState
         float HomeX, float HomeY);
 
     private readonly record struct Movement(
-        float StartX, float StartY, float DestX, float DestY, byte Speed, uint StartTick, uint EndTick);
+        float StartX, float StartY, float DestX, float DestY, byte Speed, uint StartTick, uint EndTick,
+        IReadOnlyList<(float X, float Y)> Path = null, uint[] Ends = null);
 
     public IReadOnlyList<long> CollectRespawns(DateTime now)
     {
@@ -604,6 +742,40 @@ public class MonsterWorldState
     private static int NextInterval()
     {
         return Random.Shared.Next(MoveIntervalMinMs, MoveIntervalMaxMs);
+    }
+
+    /// <summary>
+    /// The <c>StatResource</c> rows the loaded monsters name, in one query. A missing row leaves that
+    /// monster with level and columns only, and is reported once.
+    /// </summary>
+    private Dictionary<int, StatBaseStats> LoadBaseStats(IReadOnlyList<MonsterResourceEntity> resources)
+    {
+        var result = new Dictionary<int, StatBaseStats>();
+        if (_statResources is null)
+        {
+            return result;
+        }
+
+        var ids = new HashSet<int>();
+        foreach (var resource in resources)
+        {
+            ids.Add(resource.StatId);
+        }
+
+        foreach (var row in _statResources.GetByIds(ids))
+        {
+            result[(int)row.Id] = new StatBaseStats((int)row.Id, row.Strength, row.Vitality, row.Dexterity,
+                row.Agility, row.Intelligence, row.Wisdom, row.Luck);
+        }
+
+        var missing = ids.Count - result.Count;
+        if (missing > 0)
+        {
+            _logger.Warning("{missing} of {total} monster stat ids have no StatResource row; those monsters fight on level and columns alone",
+                missing, ids.Count);
+        }
+
+        return result;
     }
 
     private int MaxHp(long instanceId)
@@ -650,7 +822,10 @@ public class MonsterWorldState
         {
             var resourceIds = MonsterInstanceFactory.GetRequiredResourceIds(_options);
             var resources = _repository.GetByIds(resourceIds);
-            var instances = MonsterInstanceFactory.Build(_options, resources);
+            var baseStats = LoadBaseStats(resources);
+            var instances = MonsterInstanceFactory.Build(_options, resources,
+                statId => baseStats.TryGetValue(statId, out var stats) ? stats : null,
+                _collision.IsEmpty ? null : _collision.IsBlocked);
 
             var byId = new Dictionary<long, MonsterInstance>(instances.Count);
             foreach (var instance in instances)

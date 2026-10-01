@@ -8,6 +8,13 @@ public interface ILevelingService
 
     void ApplyJobLevelUp(GameClient client, uint targetHandle);
 
+    /// <summary>
+    /// A monster has just killed the character: takes the official death penalty off its experience and,
+    /// when the total falls below its level's threshold, takes the level down with it (the official
+    /// <c>onExpChange</c> recomputes the level from the total). Returns the experience lost.
+    /// </summary>
+    long ApplyDeathPenalty(GameClient client);
+
     /// <summary>The highest level the loaded curve describes, or 0 when leveling is disabled.</summary>
     int MaxLevel { get; }
 

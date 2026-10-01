@@ -118,11 +118,23 @@ public class ConnectionInfo
 
     /// <summary>
     /// The pet the character has out, called by its cage (<c>PetSummonService</c>), or null. Guarded by
-    /// <see cref="PetLock"/>: an item use and a warp can both move it.
+    /// <see cref="PetLock"/>: an item use and a warp can both move it. The player visibility reads the
+    /// reference <b>without</b> that lock (a reference read is atomic): it holds an observer's visibility lock
+    /// at that point, and the pet path takes the two in the other order.
     /// </summary>
     public Navislamia.Game.Services.Pets.ActivePet ActivePet { get; set; }
 
     public object PetLock { get; } = new();
+
+    /// <summary>
+    /// The summons this character has in the world (<c>SummonWorldService</c>), replaced whole on every change
+    /// under <see cref="SummonLock"/> so that a reader — the player visibility, under an observer's lock —
+    /// takes a consistent snapshot without it.
+    /// </summary>
+    public Navislamia.Game.Services.SummonPresence[] Summons { get; set; } =
+        Array.Empty<Navislamia.Game.Services.SummonPresence>();
+
+    public object SummonLock { get; } = new();
 
     /// <summary>
     /// The raw value of the last <c>TM_CS_SET_PET_FILTER</c> (355). Its meaning is not established: it is
@@ -205,7 +217,7 @@ public class ConnectionInfo
 
     /// <summary>
     /// Set by the GM command <c>/immortal</c>: monsters still swing but deal no damage
-    /// (<see cref="Navislamia.Game.Services.MonsterAiRules.PlayerDamage(int, bool)"/>). Session only.
+    /// (<see cref="Navislamia.Game.Services.ICombatService.RollMonsterHit"/>). Session only.
     /// </summary>
     public bool IsImmortal { get; set; }
 
@@ -537,6 +549,7 @@ public class ConnectionInfo
         CharacterChaos = 0;
         SummonSlots = Array.Empty<long>();
         ActivePet = null;
+        Summons = Array.Empty<Navislamia.Game.Services.SummonPresence>();
         PetPickupFilter = 0;
         DestinationX = 0;
         DestinationY = 0;

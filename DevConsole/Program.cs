@@ -18,6 +18,7 @@ using Navislamia.Game.Maps;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Interfaces;
 using Navislamia.Game.Scripting;
+using Navislamia.Game.Services.MonsterSkills;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.GmCommands;
@@ -100,6 +101,7 @@ public class Program
         ConfigureNpcDialogs(services, context);
         ConfigureSkillCatalog(services, context);
         ConfigureMonsterDrops(services, context);
+        ConfigureMonsterSkills(services, context);
         ConfigureFieldProps(services, context);
         ConfigureMarketCatalog(services, context);
         ConfigurePetCatalog(services, context);
@@ -191,6 +193,23 @@ public class Program
             options.Groups = catalog.Groups;
             options.Monsters = catalog.Monsters;
         });
+    }
+
+    private static void ConfigureMonsterSkills(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "monster-skills.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<MonsterSkillOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("MonsterSkillCatalog")
+            .Deserialize<MonsterSkillOptions>() ?? new MonsterSkillOptions();
+
+        services.Configure<MonsterSkillOptions>(options => options.Links = catalog.Links);
     }
 
     private static void ConfigureMonsterSpawns(IServiceCollection services, HostBuilderContext context)
@@ -356,6 +375,7 @@ public class Program
         services.AddSingleton<IBoothTradeService, BoothTradeService>();
         services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();
         services.AddSingleton<ISoulstoneCraftService, SoulstoneCraftService>();
+        services.AddSingleton<Navislamia.Game.Maps.Collision.IWorldCollision, Navislamia.Game.Maps.Collision.WorldCollision>();
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();
@@ -371,6 +391,8 @@ public class Program
         services.AddSingleton<NetworkService>();
         services.AddSingleton<INetworkService>(provider => provider.GetRequiredService<NetworkService>());
         services.AddSingleton<MonsterMovementService>();
+        services.AddSingleton<IMonsterSkillCatalog, MonsterSkillCatalog>();
+        services.AddSingleton<IMonsterSkillService, MonsterSkillService>();
         services.AddSingleton<MonsterAiService>();
         services.AddSingleton<ICharacterService, CharacterService>();
         services.AddSingleton<IBannedWordsRepository, BannedWordsRepository>();

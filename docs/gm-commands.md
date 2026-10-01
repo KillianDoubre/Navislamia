@@ -110,7 +110,7 @@ peut pas produire un état que le jeu lui-même ne produit pas.
   expiration par le tick de 500 ms, même rafraîchissement des statistiques. L'id doit exister dans
   `StateResource` (`IStateCatalog.Exists`), sinon le client recevrait un code d'état que rien ne décrit.
   La durée est en secondes, convertie en ticks `ar_time` (`× 100`).
-- **`/immortal`** : `ConnectionInfo.IsImmortal`, lu par `MonsterAiRules.PlayerDamage(maxHp, immortal)`.
+- **`/immortal`** : `ConnectionInfo.IsImmortal`, lu par `ICombatService.RollMonsterHit` (le coup est tiré, ses dégâts valent 0).
   Le monstre frappe toujours, le coup vaut 0. `/die` reste possible.
 - **`/pk`** : `ConnectionInfo.PkMode` et le masque de statut, exactement ce que feront 800/801 ; la
   sauvegarde de fin de session le persiste déjà.

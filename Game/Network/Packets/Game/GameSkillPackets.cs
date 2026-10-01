@@ -30,9 +30,11 @@ public enum SkillHitType : byte
 /// <remarks>
 /// The two payloads differ: <c>SHT_ADD_HP</c> carries <c>HIT_ADD_STAT</c> (two int32), while
 /// <c>SHT_DAMAGE</c> carries <c>HIT_DAMAGE_INFO</c> (<c>target_hp</c>, <c>damage_type</c>, <c>damage</c>,
-/// <c>flag</c>, then seven uint16 of elemental damage). Both fit the fixed 45-byte stride.
+/// <c>flag</c>, then seven uint16 of elemental damage). Both fit the fixed 45-byte stride. <see cref="Flag"/>
+/// is the damage hit's <c>flag</c> (int32 @14), with the <c>ATTACK_INFO__FLAG</c> values.
 /// </remarks>
-public readonly record struct SkillHit(SkillHitType Type, uint TargetHandle, int TargetStat, int IncStat);
+public readonly record struct SkillHit(SkillHitType Type, uint TargetHandle, int TargetStat, int IncStat,
+    byte Flag = 0);
 
 /// <summary>
 /// <c>TS_SC_SKILL</c> (401) and <c>TS_SC_STATE</c> (505), Epic 7.3 layouts.
@@ -106,6 +108,7 @@ public static class GameSkillPackets
                 BinaryPrimitives.WriteInt32LittleEndian(record.Slice(5, 4), hit.Value.TargetStat);
                 record[9] = 0;
                 BinaryPrimitives.WriteInt32LittleEndian(record.Slice(10, 4), hit.Value.IncStat);
+                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(14, 4), hit.Value.Flag);
             }
             else
             {

@@ -41,7 +41,20 @@ public class MonsterResourceRepository : IMonsterResourceRepository
                 AttackRange = resource.AttackRange,
                 RunSpeed = resource.RunSpeed,
                 Size = resource.Size,
-                Scale = resource.Scale
+                Scale = resource.Scale,
+                StatId = resource.StatId,
+                Mp = resource.Mp,
+                AttackPoint = resource.AttackPoint,
+                MagicPoint = resource.MagicPoint,
+                Defence = resource.Defence,
+                MagicDefence = resource.MagicDefence,
+                AttackSpeed = resource.AttackSpeed,
+                MagicSpeed = resource.MagicSpeed,
+                Accuracy = resource.Accuracy,
+                Avoid = resource.Avoid,
+                MagicAccuracy = resource.MagicAccuracy,
+                MagicAvoid = resource.MagicAvoid,
+                MonsterSkillLinkId = resource.MonsterSkillLinkId
             })
             .ToList();
     }

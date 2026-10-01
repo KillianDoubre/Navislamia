@@ -69,13 +69,16 @@ public class GameModule : IGameModule
 
     private void LoadMaps()
     {
+        // The flag used to be read backwards (true loaded, false skipped) and the warning was logged either
+        // way; it was harmless only because no Maps directory existed. The blocking polygons the monsters
+        // walk around are loaded apart, by WorldCollision, whatever this flag says.
         if (_mapOptions.SkipLoading)
         {
-            // TODO: MapContent should be printing messages
-            _mapService.Start($"{Directory.GetCurrentDirectory()}\\Maps");
+            _logger.LogWarning("Map loading disabled (Map:SkipLoading): no locations and no event areas");
+            return;
         }
-        
-        _logger.LogWarning("Map loading disabled!");
+
+        _mapService.Start($"{Directory.GetCurrentDirectory()}\\Maps");
     }
 
     private void LoadScripts()

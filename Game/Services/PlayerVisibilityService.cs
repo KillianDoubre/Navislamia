@@ -124,6 +124,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
         }
 
         var gone = new List<KeyValuePair<long, uint>>();
+        var now = ServerClock.Now;
 
         // (1) My own view, under my own lock only.
         lock (info.PlayerVisibilityLock)
@@ -148,6 +149,8 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
                 Send(client, BuildEnterFrame(peer, peerClient.ConnectionInfo));
                 if (peerClient.ConnectionInfo.WearFrame is { } peerWear)
                     Send(client, peerWear);
+                SendAll(client, CompanionFrames.Enter(peerClient.ConnectionInfo, now));
+                SendAll(client, CompanionFrames.States(peerClient.ConnectionInfo));
             }
 
             foreach (var entry in info.SpawnedPlayers)
@@ -161,9 +164,17 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             foreach (var entry in gone)
             {
                 info.SpawnedPlayers.Remove(entry.Key);
+                if (_registry.TryResolve(entry.Value, out var goneClient))
+                {
+                    SendAll(client, CompanionFrames.Leave(goneClient.ConnectionInfo));
+                }
+
                 Send(client, GameSpawnPackets.BuildLeave(entry.Value));
             }
         }
+
+        List<byte[]> myCompanions = null;
+        List<byte[]> myStates = null;
 
         // (2) The other side of every pair in range, one lock at a time, never nested.
         foreach (var peer in peers)
@@ -186,6 +197,8 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
                 Send(peerClient, BuildEnterFrame(mine, info));
                 if (info.WearFrame is { } mineWear)
                     Send(peerClient, mineWear);
+                SendAll(peerClient, myCompanions ??= CompanionFrames.Enter(info, now));
+                SendAll(peerClient, myStates ??= CompanionFrames.States(info));
             }
         }
 
@@ -203,6 +216,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             {
                 if (peerInfo.SpawnedPlayers.Remove(mine.Handle))
                 {
+                    SendAll(peerClient, CompanionFrames.Leave(info));
                     Send(peerClient, GameSpawnPackets.BuildLeave(mine.Handle));
                 }
             }
@@ -275,6 +289,11 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             {
                 foreach (var seen in info.SpawnedPlayers.Values)
                 {
+                    if (_registry.TryResolve(seen, out var seenClient))
+                    {
+                        SendAll(client, CompanionFrames.Leave(seenClient.ConnectionInfo));
+                    }
+
                     Send(client, GameSpawnPackets.BuildLeave(seen));
                 }
 
@@ -300,6 +319,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             {
                 if (observerInfo.SpawnedPlayers.Remove(handle))
                 {
+                    SendAll(observerClient, CompanionFrames.Leave(info));
                     Send(observerClient, GameSpawnPackets.BuildLeave(handle));
                 }
             }
@@ -426,6 +446,14 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
     /// Queues one frame, under its recipient's visibility lock (see the class remarks); one broken socket
     /// never costs the other observers theirs.
     /// </summary>
+    private void SendAll(GameClient recipient, List<byte[]> frames)
+    {
+        foreach (var frame in frames)
+        {
+            Send(recipient, frame);
+        }
+    }
+
     private void Send(GameClient recipient, byte[] data)
     {
         try

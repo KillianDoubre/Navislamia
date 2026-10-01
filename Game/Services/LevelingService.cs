@@ -63,6 +63,44 @@ public class LevelingService : ILevelingService
         client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "mp", maxMp));
     }
 
+    public long ApplyDeathPenalty(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        var penalty = Math.Min(LevelCurve.DeathPenalty(_cumulativeExp, _maxLevel, info.CharacterLevel),
+            info.CharacterExp);
+        if (penalty <= 0)
+        {
+            return 0;
+        }
+
+        info.CharacterExp -= penalty;
+        var handle = info.CharacterHandle;
+        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(handle, info.CharacterExp, info.CharacterJp));
+
+        var level = LevelCurve.Resolve(_cumulativeExp, _maxLevel, info.CharacterExp, 1);
+        if (level < info.CharacterLevel)
+        {
+            // A level lost: the stats follow it down. The character stays dead (0 HP); its maxima shrink.
+            info.CharacterLevel = level;
+            var result = _statService.Compute(info);
+            var maxHp = (int)result.Total.MaxHp;
+            var maxMp = (int)result.Total.MaxMp;
+            info.CharacterMaxHp = maxHp;
+            info.CharacterMp = Math.Min(info.CharacterMp, maxMp);
+
+            client.SendToSelfAndObservers(GameCharacterPackets.BuildLevelUpdate(handle, level, info.CharacterJobLevel));
+            client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.Total, StatInfoType.Total));
+            client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_hp", maxHp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "mp", info.CharacterMp));
+        }
+
+        _logger.Debug("{clientTag} lost {penalty} exp on death (level {level})", client.ClientTag, penalty,
+            info.CharacterLevel);
+        return penalty;
+    }
+
     public int MaxLevel => _cumulativeExp == null ? 0 : _maxLevel;
 
     public bool TryGetExperienceFor(int level, out long exp) =>

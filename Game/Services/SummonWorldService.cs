@@ -2,6 +2,7 @@ using System;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -37,6 +38,16 @@ public sealed class SummonWorldService
     public const int WarpNoiseRange = 35;
 
     private readonly ILogger _logger = Log.ForContext<SummonWorldService>();
+    private readonly IPlayerVisibilityService _players;
+
+    /// <param name="players">
+    /// The players who see the master get the summon's <c>TS_SC_ENTER</c> and <c>TS_SC_LEAVE</c> through it
+    /// (docs/packet-specs/socle-diffusion-compagnons.md); without it, only the master does.
+    /// </param>
+    public SummonWorldService(IPlayerVisibilityService players = null)
+    {
+        _players = players;
+    }
 
     /// <summary>
     /// Brings one summon into the world and returns the handle it was given, or 0 when the session or the
@@ -48,7 +59,8 @@ public sealed class SummonWorldService
     /// <c>x</c>/<c>y</c> and layer only.
     /// </para>
     /// </summary>
-    public uint Enter(ConnectionInfo session, string clientTag, Connection connection, SummonWorldEntry entry)
+    public uint Enter(ConnectionInfo session, string clientTag, Connection connection, SummonWorldEntry entry,
+        GameClient master = null)
     {
         if (session is null || connection is null || entry is null)
         {
@@ -62,9 +74,20 @@ public sealed class SummonWorldService
         connection.Send(GameSummonPackets.BuildAddSummonInfo(entry.CardHandle, handle, entry.Name, entry.Code,
             entry.Level, entry.Sp));
 
-        connection.Send(GameSpawnPackets.BuildEnterSummon(handle, x, y, entry.Z, session.Layer, entry.Hp,
-            entry.MaxHp, entry.Mp, entry.MaxMp, entry.Level, entry.FaceDirection, entry.IsFirstEnter,
-            session.CharacterHandle, (uint)entry.Code, entry.Name, entry.Enhance));
+        var presence = new SummonPresence(handle, entry, x, y, session.Layer);
+        connection.Send(CompanionFrames.SummonEnter(session.CharacterHandle, presence, entry.IsFirstEnter));
+
+        // Recorded before the observers are told, so a player who comes into view meanwhile is shown it by
+        // the visibility instead of missing it.
+        lock (session.SummonLock)
+        {
+            session.Summons = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Append(session.Summons, presence));
+        }
+
+        if (master is not null)
+        {
+            _players?.SendToObservers(master, CompanionFrames.SummonEnter(session.CharacterHandle, presence, false));
+        }
 
         _logger.Debug(
             "{ClientTag} summon {Handle} (code {Code}) enters the world at {X}/{Y}/{Z} layer {Layer} of master {MasterHandle} (noise {NoiseRange})",
@@ -83,7 +106,8 @@ public sealed class SummonWorldService
     /// The <paramref name="session"/> only labels the log line.
     /// Returns false, and sends nothing, on a missing connection or an empty handle.
     /// </summary>
-    public bool Leave(ConnectionInfo session, string clientTag, Connection connection, uint summonHandle)
+    public bool Leave(ConnectionInfo session, string clientTag, Connection connection, uint summonHandle,
+        GameClient master = null)
     {
         if (connection is null || summonHandle == 0)
         {
@@ -92,6 +116,19 @@ public sealed class SummonWorldService
 
         connection.Send(GameSummonPackets.BuildUnsummon(summonHandle));
         connection.Send(GameSpawnPackets.BuildLeave(summonHandle));
+
+        if (session is not null)
+        {
+            lock (session.SummonLock)
+            {
+                session.Summons = System.Array.FindAll(session.Summons, summon => summon.Handle != summonHandle);
+            }
+        }
+
+        if (master is not null)
+        {
+            _players?.SendToObservers(master, GameSpawnPackets.BuildLeave(summonHandle));
+        }
 
         _logger.Debug("{ClientTag} summon {Handle} leaves the world (master {MasterHandle})", clientTag,
             summonHandle, session?.CharacterHandle);

@@ -4,6 +4,7 @@ using FluentAssertions;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.Stats;
 
 namespace Tests.Game;
 
@@ -27,7 +28,7 @@ public class MonsterInstanceFactoryTests
         instances.Should().HaveCount(3);
         instances.Select(i => i.InstanceId).Should().BeEquivalentTo(new long[] { 0, 1, 2 });
         instances.Should().OnlyContain(i =>
-            i.MonsterId == 2101 && i.Level == 5 && i.Hp == 900 && i.Race == 1 &&
+            i.MonsterId == 2101 && i.Level == 5 && i.Hp == 900 + 20 * 5 && i.Race == 1 &&
             Math.Abs(i.X - 1000) <= 200 && Math.Abs(i.Y - 2000) <= 200);
         instances.Should().OnlyContain(i => i.FaceDirection >= 0f && i.FaceDirection < (float)(Math.PI * 2));
     }
@@ -52,7 +53,7 @@ public class MonsterInstanceFactoryTests
 
         monster.MonsterId.Should().Be(31002);
         monster.Level.Should().Be(7);
-        monster.Hp.Should().Be(1234);
+        monster.Hp.Should().Be(1234 + 20 * 7);
         monster.Race.Should().Be(2);
     }
 
@@ -86,9 +87,25 @@ public class MonsterInstanceFactoryTests
 
         monsters.Should().HaveCount(7);
         monsters.Should().OnlyContain(monster =>
-            monster.MonsterId == 150009 && monster.Level == 150 && monster.Hp == 423873 &&
+            monster.MonsterId == 150009 && monster.Level == 150 && monster.Hp == 423873 + 20 * 150 &&
             monster.X >= 94656 && monster.X <= 95760 &&
             monster.Y >= 126096 && monster.Y <= 126960);
+    }
+
+    [Test]
+    public void Build_GivesTheMonsterItsRealMaxHp_FromStatResourceLevelAndColumn()
+    {
+        // Monster 710 (Epic 7 data): level 1, stat_id 10100 (vit 1), hp column 105. The official
+        // server's maximum is 105 + 20 x 1 + 33 x 1 = 158, not the column.
+        var spawns = new[] { new MonsterSpawnPoint { MonsterId = 710, X = 0, Y = 0, Count = 1, Radius = 0 } };
+        var resources = new[] { new MonsterResourceEntity { Id = 710, Level = 1, Hp = 105, StatId = 10100 } };
+
+        var monster = MonsterInstanceFactory.Build(spawns, resources,
+            statId => statId == 10100 ? new StatBaseStats(10100, 1, 1, 0, 0, 0, 0, 10) : null).Single();
+
+        monster.Hp.Should().Be(158);
+        monster.Combat.Should().NotBeNull();
+        monster.Combat.MaxHp.Should().Be(158);
     }
 
     [Test]

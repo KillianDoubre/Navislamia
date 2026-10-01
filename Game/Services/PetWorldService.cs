@@ -1,6 +1,7 @@
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -18,8 +19,10 @@ namespace Navislamia.Game.Services;
 /// comes from the session: the pet belongs to the character (<c>CharacterEntity.PetId</c>, fiche §1, §9.2).
 /// </para>
 /// <para>
-/// What it does <b>not</b> do is stated with its reason in the sheet: it broadcasts to nobody (nothing in
-/// NavisLamia knows which other players see a session), it emits no <c>TM_CS_SET_PET_FILTER</c> answer
+/// Given the master's <see cref="GameClient"/>, the object also goes to the players who see the master: the
+/// <c>TS_SC_ENTER</c> when it comes in and a <c>TS_SC_LEAVE</c> when it goes (never the 351/350, which are the
+/// master's creature window; docs/packet-specs/socle-diffusion-compagnons.md). What it does <b>not</b> do is
+/// stated with its reason in the sheet: it emits no <c>TM_CS_SET_PET_FILTER</c> answer
 /// (355 has none, §7.2.4) and it touches no pet table (no service reads or writes them yet). The
 /// <c>TS_SC_LEAVE</c> after the 350 is carried <b>by symmetry</b> with the summon socle, not by proof: the
 /// client removes the actor on the 350 alone (fiche §11.5, <c>NON ÉTABLI</c>).
@@ -28,6 +31,12 @@ namespace Navislamia.Game.Services;
 public sealed class PetWorldService
 {
     private readonly ILogger _logger = Log.ForContext<PetWorldService>();
+    private readonly IPlayerVisibilityService _players;
+
+    public PetWorldService(IPlayerVisibilityService players = null)
+    {
+        _players = players;
+    }
 
     /// <summary>
     /// Brings one pet into the world and returns the handle it was given, or 0 when the session or the
@@ -37,7 +46,8 @@ public sealed class PetWorldService
     /// (fiche §16). No reference orders pet frames — the first order was copied from the summon socle.
     /// Returns 0 on a null session, connection or entry.
     /// </summary>
-    public uint Enter(ConnectionInfo session, string clientTag, Connection connection, PetWorldEntry entry)
+    public uint Enter(ConnectionInfo session, string clientTag, Connection connection, PetWorldEntry entry,
+        GameClient master = null)
     {
         if (session is null || connection is null || entry is null)
         {
@@ -46,12 +56,18 @@ public sealed class PetWorldService
 
         var handle = WorldObjectHandle.Next();
 
-        connection.Send(GameSpawnPackets.BuildEnterPet(handle, entry.X, entry.Y, entry.Z, entry.Layer,
+        var enter = GameSpawnPackets.BuildEnterPet(handle, entry.X, entry.Y, entry.Z, entry.Layer,
             entry.Hp, entry.MaxHp, entry.Mp, entry.MaxMp, entry.Level, entry.Race, entry.FaceDirection,
-            entry.IsFirstEnter, session.CharacterHandle, entry.PetCode, entry.Name));
+            entry.IsFirstEnter, session.CharacterHandle, entry.PetCode, entry.Name);
+        connection.Send(enter);
 
         connection.Send(GamePetPackets.BuildAddPetInfo(entry.CageHandle, handle, entry.Name, entry.Code,
             entry.Unknown));
+
+        if (master is not null)
+        {
+            _players?.SendToObservers(master, enter);
+        }
 
         _logger.Debug(
             "{ClientTag} pet {Handle} (code {PetCode}) enters the world at {X}/{Y}/{Z} layer {Layer} of master {MasterHandle}",
@@ -69,7 +85,8 @@ public sealed class PetWorldService
     /// <paramref name="session"/> only labels the log line. Returns false, and sends nothing, on a missing
     /// connection or an empty handle.
     /// </summary>
-    public bool Leave(ConnectionInfo session, string clientTag, Connection connection, uint petHandle)
+    public bool Leave(ConnectionInfo session, string clientTag, Connection connection, uint petHandle,
+        GameClient master = null)
     {
         if (connection is null || petHandle == 0)
         {
@@ -78,6 +95,10 @@ public sealed class PetWorldService
 
         connection.Send(GamePetPackets.BuildUnsummonPet(petHandle));
         connection.Send(GameSpawnPackets.BuildLeave(petHandle));
+        if (master is not null)
+        {
+            _players?.SendToObservers(master, GameSpawnPackets.BuildLeave(petHandle));
+        }
 
         _logger.Debug("{ClientTag} pet {Handle} leaves the world (master {MasterHandle})", clientTag,
             petHandle, session?.CharacterHandle);

@@ -54,7 +54,11 @@ public readonly record struct CastableBuffFields(
     decimal DelayCommon,
     decimal DelayCooltime,
     decimal DelayCooltimePerSkl,
-    int RequiredLevel);
+    int RequiredLevel,
+    int HitBonus = 0,
+    int Percentage = 0,
+    int CriticalBonus = 0,
+    int CriticalBonusPerSkl = 0);
 
 /// <summary>The raw fields the catalog classifies into a <see cref="SkillCastKind"/>.</summary>
 public readonly record struct CastableSkillRow(
@@ -76,7 +80,11 @@ public readonly record struct CastableSkillRow(
     decimal DelayCommon,
     decimal DelayCooltime,
     decimal DelayCooltimePerSkl,
-    int RequiredLevel);
+    int RequiredLevel,
+    int HitBonus = 0,
+    int Percentage = 0,
+    int CriticalBonus = 0,
+    int CriticalBonusPerSkl = 0);
 
 /// <summary>A resurrection skill (<c>EF_RESURRECTION</c> 504 or <c>EF_RESURRECTION_WITH_RECOVER</c> 30501).</summary>
 public readonly record struct ResurrectionSkillRow(int SkillId, int EffectType, decimal[] Vars);
@@ -92,4 +100,10 @@ public interface ISkillResourceRepository
     IReadOnlyList<ResurrectionSkillRow> GetResurrectionSkills();
 
     IReadOnlyList<CastableSkillRow> GetCastableSkills();
+
+    /// <summary>
+    /// The rows of <paramref name="ids"/>, whatever their effect type: a monster casts skills no player
+    /// learns (<c>EF_PHYSICAL_SINGLE_DAMAGE_T1</c> 101, <c>EF_MAGIC_SINGLE_DAMAGE_T1_OLD</c> 201…).
+    /// </summary>
+    IReadOnlyList<CastableSkillRow> GetSkillRows(IReadOnlyCollection<int> ids);
 }
