@@ -723,6 +723,22 @@ insuffisant dans la plage niveau ±4 et sont également exclus ; aucune cible ar
 Le système de faveur, l'exécution Lua et les paramètres autres que le chaos ne sont pas implémentés.
 Il reste à vérifier visuellement les fenêtres avec le client 7.3 en jeu.
 
+### Revue à l'intégration — 1ᵉʳ octobre 2026
+
+Intégré avec le combat réel (les PV max d'un monstre valent désormais `hp + 20 × niveau + 33 × vitalité` :
+le test de partage de groupe frappe à 1 000). Deux corrections :
+
+- **Index du sac des récompenses** : un sac vide donnait l'index 0 (`DefaultIfEmpty(-1).Max() + 1`), que le
+  client traite comme « non placé » et repousse en fin de grille. Il part maintenant de
+  `InventoryArrange.FirstIndex` (1). Test : `RewardsIntoAnEmptyBagStartAtTheFirstSlot`.
+- **Sondage d'une seconde** : il relisait en base quêtes et sac, chaque seconde, de tout joueur portant une
+  quête 201, 501 ou 601. Ces états changent à des événements qui déclenchent déjà le recalcul (apprentissage,
+  niveau de métier, flux d'inventaire pour l'équipement), et le dialogue comme la remise recalculent avant de
+  juger. Le sondage ne sert plus qu'aux quêtes à délai en cours.
+
+Restent ouverts, sans correction : les récompenses ne jugent pas le poids (`TooHeavy`), et le chaos ne change
+que par `/chaos`, sans recalcul immédiat (la quête 601 se met à jour au prochain dialogue ou changement de sac).
+
 ## Annexe — bloc destiné à `CLAUDE.md` (proposition historique)
 
 Ce bloc est à porter par la **description de la MR** : `CLAUDE.md` est un fichier d'instructions

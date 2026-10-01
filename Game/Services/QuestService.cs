@@ -272,7 +272,9 @@ public sealed class QuestService : IQuestService, IDisposable
                     }
                 }
                 var added = new List<ItemEntity>();
-                var nextIndex = character.Items.Select(i => i.Idx).DefaultIfEmpty(-1).Max() + 1;
+                // Bag indices are 1-based: the client treats 0 as unset and pushes that item to the end.
+                var nextIndex = Math.Max(InventoryArrange.FirstIndex,
+                    character.Items.Select(i => i.Idx).DefaultIfEmpty(0).Max() + 1);
                 void AddReward(int id, int level, int count)
                 {
                     if (id <= 0 || count <= 0) return;
@@ -386,8 +388,12 @@ public sealed class QuestService : IQuestService, IDisposable
                 }
                 await db.SaveChangesAsync();
                 foreach (var quest in changed) SendStatus(client, quest);
-                if (!quests.Any(q => q.Progress != 100 && _resources.TryGetValue(q.Code, out var r)
-                    && (r.Type is 201 or 501 or 601 || q.Progress == QuestRules.InProgress && Timed(r))))
+                // Only a running countdown needs the one-second refresh. Skills (201), job level (501) and
+                // chaos (601) change on events that already refresh (learning, job-level-up, the inventory
+                // feed), and the quest dialog and the hand-in refresh before they judge; polling them read the
+                // database every second for nothing.
+                if (!quests.Any(q => q.Progress == QuestRules.InProgress && _resources.TryGetValue(q.Code, out var r)
+                    && Timed(r)))
                     _lastTick.TryRemove(client.ConnectionInfo.CharacterHandle, out _);
             });
         }

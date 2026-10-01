@@ -164,6 +164,16 @@ public class QuestLifecycleTests
     }
 
     [Test]
+    public async Task RewardsIntoAnEmptyBagStartAtTheFirstSlot()
+    {
+        await Start(); await Kill(); await Kill(); await End(5);
+
+        await using var db = Db();
+        var indices = await db.Items.Select(i => i.Idx).OrderBy(i => i).ToArrayAsync();
+        indices.Should().Equal(InventoryArrange.FirstIndex, InventoryArrange.FirstIndex + 1);
+    }
+
+    [Test]
     public async Task UnfinishedQuestAndEmptyRewardSlotAndWrongNpcCannotPay()
     {
         await Start(); await End();
