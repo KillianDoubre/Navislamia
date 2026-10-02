@@ -49,7 +49,8 @@ public class GroundItemService : IGroundItemService
         _ = RunAsync();
     }
 
-    public void DropForMonster(GameClient killer, int monsterId, float x, float y, float z)
+    public void DropForMonster(GameClient killer, int monsterId, float x, float y, float z,
+        long monsterInstanceId = 0)
     {
         var entries = _catalog.GetDrops(monsterId);
         if (entries.Count == 0)
@@ -101,9 +102,32 @@ public class GroundItemService : IGroundItemService
 
             _items[item.Handle] = item;
 
-            ShowTo(killer, item);
-            ShowToNearby(item, killer);
+            ShowMonsterDrop(killer, item, monsterInstanceId);
         }
+    }
+
+    /// <summary>
+    /// Shows a monster's drop to the killer and to its witnesses, each recipient seeing
+    /// <c>TM_SC_ITEM_DROP_INFO</c> (282) right before the object's <c>ENTER</c>, as
+    /// <c>MonsterDropItemToWorld</c> (<c>0x140043cc0</c>) does. The monster handle is per observer: a client
+    /// that does not stream the monster cannot use the frame and is sent nothing.
+    /// </summary>
+    private void ShowMonsterDrop(GameClient owner, GroundItem item, long monsterInstanceId)
+    {
+        foreach (var peer in _players.Registry.Clients)
+        {
+            if (!ReferenceEquals(peer, owner) && !InView(peer.ConnectionInfo, item)) continue;
+            SendDropInfo(peer, item, monsterInstanceId);
+            ShowTo(peer, item);
+        }
+    }
+
+    private static void SendDropInfo(GameClient peer, GroundItem item, long monsterInstanceId)
+    {
+        if (monsterInstanceId == 0) return;
+        var monsterHandle = peer.ConnectionInfo.GetMonsterHandle(monsterInstanceId);
+        if (monsterHandle == 0) return;
+        peer.Connection.Send(GameRewardPackets.BuildItemDropInfo(monsterHandle, item.Handle));
     }
 
     public void DropQuestItem(GameClient owner, int itemId, float x, float y, float z)

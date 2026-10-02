@@ -30,6 +30,12 @@ public enum GamePackets : ushort
     /// <summary><c>TS_TRADE</c>: the player trade, the same 97-byte frame in both directions.</summary>
     TM_TRADE = 280,
     TM_CS_PUTON_ITEM_SET = 281,
+    // TM_SC_ITEM_DROP_INFO (282): what a monster leaves on the ground, 15 bytes with the 7 byte header —
+    // monster_handle @7, item_handle @11. Server to client only (the 7.3 client builds none of it), sent by
+    // MonsterDropItemToWorld (0x140043cc0) for the loot and for the gold alike; rzu gates the id to 282
+    // below EPIC_9_6_3, so no other name is declared here.
+    // See docs/packet-specs/socle-recompenses-monstres.md §3.5.
+    TM_SC_ITEM_DROP_INFO = 282,
     TM_SC_WEAR_INFO = 202,
     TM_CS_DROP_ITEM = 203,
     TM_SC_ITEM_WEAR_INFO = 287,
@@ -39,6 +45,12 @@ public enum GamePackets : ushort
     TM_CS_TAKE_ITEM = 204,
     TM_SC_DROP_RESULT = 205,
     TM_SC_TAKE_ITEM_RESULT = 210,
+    // TM_SC_GET_CHAOS (213): the chaos a character just gained, 25 bytes with the 7 byte header — hPlayer @7,
+    // hCorpse @11, nChaos @15, then the two one-byte bonuses of 7.3 and nBonus @21. Server to client only,
+    // broadcast to the region by procDropChaos (0x1400b6d08 writes the length 0x19 and the id 0xd5); rzu
+    // gates the id to 213 below EPIC_9_6_3.
+    // See docs/packet-specs/socle-recompenses-monstres.md §3.2.
+    TM_SC_GET_CHAOS = 213,
     TM_CS_PUTON_CARD = 214,
     // The storage family, declared with the item ids rather than after TM_CS_VERSION, where the sibling
     // packet branches anchor their own members.
