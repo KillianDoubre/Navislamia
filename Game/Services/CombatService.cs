@@ -36,6 +36,9 @@ public class CombatService : ICombatService
     /// <summary>The PK server's items lost on death (procDecreaseEXPAndDropItem).</summary>
     private readonly Death.IDeathDropService _deathDrops;
     private readonly IStateCatalog _states;
+
+    /// <summary>Where an arrow is spent.</summary>
+    private readonly ICharacterService _characters;
     private readonly ICombatRandom _random;
     private readonly IPlayerVisibilityService _players;
     private readonly object _lock = new();
@@ -47,8 +50,10 @@ public class CombatService : ICombatService
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
         IStatService stats, IStateCatalog states, IPartyService parties, IQuestService quests = null,
         ICombatRandom random = null, IPlayerVisibilityService players = null,
-        Casting.ICastInterrupts casts = null, Death.IDeathDropService deathDrops = null)
+        Casting.ICastInterrupts casts = null, Death.IDeathDropService deathDrops = null,
+        ICharacterService characters = null)
     {
+        _characters = characters;
         _deathDrops = deathDrops;
         _casts = casts;
         _parties = parties;
@@ -181,25 +186,103 @@ public class CombatService : ICombatService
             return;
         }
 
-        // Gate the swing on the same real reach the monster attacks at, so a player cannot hit from
-        // across the view while the monster cannot hit back. Out of reach, hold and re-check soon — the
-        // client is walking the player in — rather than land a hit or stop the attack.
+        var stats = _stats.Compute(info).Total;
+
+        // processAttack measures the player's own reach, its weapon's range plus both bodies (×1.2, ×1.5 on a
+        // walking target). Out of reach, hold and re-check soon — the client is walking the player in.
         var (monsterX, monsterY) = _worldState.GetPosition(session.TargetInstanceId);
-        var reach = CombatRange.MeleeReach(instance.AttackRange, instance.Size, instance.Scale);
-        if (!CombatRange.InReach(info.X, info.Y, monsterX, monsterY, reach))
+        var (playerX, playerY) = info.PositionAt(ServerClock.Now);
+        if (!Casting.CastRules.InRange(Casting.CastRules.WeaponRange, stats.AttackRange, playerX, playerY,
+                CombatRange.PlayerUnitSize, monsterX, monsterY, CombatRange.UnitSize(instance.Size, instance.Scale),
+                _worldState.IsMoving(session.TargetInstanceId)))
         {
             session.NextSwingAt = now.AddMilliseconds(RangeRetryMs);
             return;
         }
 
-        var stats = _stats.Compute(info).Total;
-        var hit = CombatFormulas.Resolve(Combatant.From(stats, info.CharacterLevel),
-            MonsterCombatant(session.TargetInstanceId, instance), stats.AttackPointRight, DamageKind.Physical,
-            0, 0, _random);
+        var weapon = info.EquippedWeapon;
+        var ranged = Combat.AttackMechanics.IsRanged(weapon);
+        var intervalTicks = CombatFormulas.AttackIntervalTicks(stats.AttackSpeed);
 
-        // A miss still lands as an attack: the monster turns on the player either way.
-        var targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, hit.Damage);
-        var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
+        // A bow shoots in two halves (processAttack): it aims for 0.8 of the interval, then shoots for the
+        // remaining 0.2, one arrow per shot from the shield slot. No arrow, no attack.
+        if (ranged)
+        {
+            if (info.LeftHand is not { WeaponType: null } arrows || arrows.Amount < 1)
+            {
+                StopAttack(client);
+                return;
+            }
+
+            if (!session.Aimed)
+            {
+                session.Aimed = true;
+                var aimMs = IntervalMs((uint)(intervalTicks * Combat.AttackMechanics.AimShare));
+                var aimFlag = Combat.AttackMechanics.AttackFlag(false, false, weapon);
+                client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle,
+                    session.TargetHandle, aimMs, aimMs, Combat.AttackMechanics.ActionAiming, aimFlag,
+                    Array.Empty<AttackHit>(), info.CharacterHp));
+                ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
+                    (_, handle) => GameAttackPackets.BuildAttackEvent(session.AttackerHandle, handle, aimMs, aimMs,
+                        Combat.AttackMechanics.ActionAiming, aimFlag, Array.Empty<AttackHit>(), info.CharacterHp));
+                session.NextSwingAt = now.AddMilliseconds(aimMs);
+                return;
+            }
+
+            session.Aimed = false;
+            ConsumeArrow(client, arrows);
+        }
+
+        var states = PlayerStates(info);
+        var dualWield = Combat.AttackMechanics.IsDualWield(weapon, info.LeftHand?.WeaponType);
+        var doubleAttack = _random.Next(100) + 1 < Combat.AttackMechanics.DoubleAttackRatio(states, weapon);
+        var count = Combat.AttackMechanics.HitCount(dualWield, doubleAttack);
+        var extras = Combat.AttackMechanics.AdditionalDamages(states, ranged);
+        var (leftAttack, leftAccuracy) = dualWield
+            ? Combat.AttackMechanics.LeftHand(stats, info.RightWeaponEffects, info.LeftHand?.Effects)
+            : (0f, 0f);
+
+        var monster = MonsterCombatant(session.TargetInstanceId, instance);
+        var hits = new List<AttackHit>(count);
+        var targetHp = 1;
+        for (var i = 0; i < count && targetHp > 0; i++)
+        {
+            // The odd hits of a dual wielder are the left hand's (Unit::Attack: bLeftHandAttack = i % 2).
+            var left = dualWield && i % 2 == 1;
+            var attacker = Combatant.From(stats, info.CharacterLevel);
+            if (left)
+            {
+                attacker = attacker with { AttackPoint = leftAttack, Accuracy = leftAccuracy };
+            }
+
+            var hit = CombatFormulas.Resolve(attacker, monster, attacker.AttackPoint, DamageKind.Physical, 0, 0,
+                _random);
+
+            // DealPhysicalNormalDamage: every additional damage rolls on a hit that landed, adding to the hit and to
+            // its element's share.
+            var damage = hit.Damage;
+            int[] elemental = null;
+            if ((hit.Flags & (HitFlags.Miss | HitFlags.PerfectBlock)) == 0)
+            {
+                foreach (var extra in extras)
+                {
+                    if (extra.Ratio > _random.Next(100) + 1)
+                    {
+                        var amount = Combat.AttackMechanics.AdditionalAmount(extra, hit.Damage);
+                        damage += amount;
+                        (elemental ??= new int[Combat.AttackMechanics.Elements])[extra.Element] += amount;
+                    }
+                }
+            }
+
+            // A miss still lands as an attack: the monster turns on the player either way.
+            targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, damage);
+            hits.Add(new AttackHit(damage, (byte)hit.Flags, targetHp, elemental));
+        }
+
+        var swingTicks = ranged ? (uint)(intervalTicks * (1f - Combat.AttackMechanics.AimShare)) : intervalTicks;
+        var intervalMs = IntervalMs(swingTicks);
+        var flag = Combat.AttackMechanics.AttackFlag(doubleAttack, dualWield, weapon);
 
         // Plant the player during the swing, the same rule the monster follows: a unit stands still to
         // attack. Only ever sent in reach, where the client has already stopped the player at the
@@ -208,14 +291,13 @@ public class CombatService : ICombatService
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle, session.TargetHandle,
-            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, targetHp, info.CharacterHp,
-            (byte)hit.Flags));
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, flag, hits, info.CharacterHp));
 
         // The players around see the swing too, each under its own handle for the monster: the killing one
         // carries target_hp = 0, which is what plays the monster's death on their screen.
         ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
             (_, handle) => GameAttackPackets.BuildAttackEvent(session.AttackerHandle, handle, intervalMs, intervalMs,
-                GameAttackPackets.ActionAttack, hit.Damage, targetHp, info.CharacterHp, (byte)hit.Flags));
+                GameAttackPackets.ActionAttack, flag, hits, info.CharacterHp));
 
         if (targetHp <= 0)
         {
@@ -223,6 +305,59 @@ public class CombatService : ICombatService
         }
 
         session.NextSwingAt = now.AddMilliseconds(intervalMs);
+    }
+
+    /// <summary>The player's active states with their rules, as the attack reads them.</summary>
+    private List<Combat.ActiveStateRule> PlayerStates(ConnectionInfo info)
+    {
+        Buffs.ActiveBuff[] active;
+        lock (info.BuffLock)
+        {
+            active = info.ActiveBuffs.ToArray();
+        }
+
+        var states = new List<Combat.ActiveStateRule>(active.Length);
+        foreach (var buff in active)
+        {
+            states.Add(new Combat.ActiveStateRule(_states.GetRule(buff.StateId), buff.StateLevel));
+        }
+
+        return states;
+    }
+
+    /// <summary>One arrow per shot (Player::EraseBullet): the stack update follows, the slot empties at the last one.</summary>
+    private void ConsumeArrow(GameClient client, Combat.LeftHandItem arrows)
+    {
+        arrows.Amount = Math.Max(0, arrows.Amount - 1);
+        if (arrows.Amount == 0)
+        {
+            client.ConnectionInfo.LeftHand = null;
+        }
+
+        if (_characters is null)
+        {
+            return;
+        }
+
+        var info = client.ConnectionInfo;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var remaining = await _characters.ConsumeItemAsync(info.CharacterName, arrows.Handle, 1);
+                if (remaining is { } left)
+                {
+                    client.Connection.Send(left == 0
+                        ? GameCharacterPackets.BuildDestroyItem(arrows.Handle)
+                        : GameCharacterPackets.BuildUpdateItemCount(arrows.Handle, left));
+                }
+            }
+            catch (Exception exception)
+            {
+                Serilog.Log.ForContext<CombatService>().Error(exception, "Could not spend an arrow of {clientTag}",
+                    client.ClientTag);
+            }
+        });
     }
 
     public HitResult RollHit(GameClient client, long instanceId, float baseDamage, DamageKind kind,
@@ -289,6 +424,52 @@ public class CombatService : ICombatService
         }
 
         return info.CharacterHp;
+    }
+
+    /// <summary>
+    /// <c>Unit::DealDamage</c>'s mana shield (the MP take their share of the hit, never more than they hold) and
+    /// <c>ReflectDamage</c>'s reflections (each rolls its chance and sends a flat amount or a share of the hit
+    /// back to the monster), around the ordinary damage (docs/packet-specs/socle-mecaniques-combat.md §4).
+    /// </summary>
+    public int DamagePlayer(GameClient target, int damage, long attackerInstanceId, bool magical)
+    {
+        var info = target.ConnectionInfo;
+        var states = PlayerStates(info);
+
+        var shield = Combat.AttackMechanics.ManaShieldRatio(states, magical);
+        if (shield > 0f && damage > 0 && MonsterAiRules.IsAlive(info.CharacterHp))
+        {
+            var absorbed = Combat.AttackMechanics.ManaShieldAbsorb(damage, shield, info.CharacterMp);
+            if (absorbed > 0)
+            {
+                damage -= absorbed;
+                info.CharacterMp -= absorbed;
+                target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", info.CharacterMp));
+            }
+        }
+
+        var hp = DamagePlayer(target, damage);
+        if (hp <= 0 || damage <= 0 || attackerInstanceId < 0)
+        {
+            return hp;
+        }
+
+        foreach (var reflect in Combat.AttackMechanics.Reflects(states))
+        {
+            if (reflect.Ratio <= _random.Next(100) + 1)
+            {
+                continue;
+            }
+
+            var amount = Combat.AttackMechanics.ReflectAmount(reflect, damage, magical);
+            var handle = info.GetMonsterHandle(attackerInstanceId);
+            if (amount > 0 && handle != 0 && _worldState.IsAlive(attackerInstanceId))
+            {
+                ApplyDamage(target, attackerInstanceId, handle, amount);
+            }
+        }
+
+        return hp;
     }
 
     public StatBlock GetPlayerStats(GameClient client) => _stats?.Compute(client.ConnectionInfo).Total;
@@ -500,6 +681,9 @@ public class CombatService : ICombatService
         public uint TargetHandle;
         public uint AttackerHandle;
         public DateTime NextSwingAt;
+
+        /// <summary>A bow's aiming half is done: the next turn shoots.</summary>
+        public bool Aimed;
     }
 
     private sealed class PendingLeave

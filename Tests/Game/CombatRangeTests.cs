@@ -11,14 +11,15 @@ public class CombatRangeTests
     public void a_small_monster_reaches_about_two_player_body_radii()
     {
         // attack_range 0.6, size 1, scale 1: weapon 0.072 + (12 + 12)/2 = ~12.07.
-        CombatRange.MeleeReach(0.6f, 1f, 1f).Should().BeApproximately(12.07f, 0.1f);
+        // 0.6 m x 12 = 7.2 units of weapon + (12 + 12) / 2 of bodies.
+        CombatRange.MeleeReach(0.6f, 1f, 1f).Should().BeApproximately(19.2f, 0.1f);
     }
 
     [Test]
     public void a_bigger_monster_reaches_farther()
     {
         // size 6, scale 2: unit size 6*12*2 = 144, reach ~ 0.072 + (144 + 12)/2 = ~78.
-        CombatRange.MeleeReach(0.6f, 6f, 2f).Should().BeApproximately(78.07f, 0.2f);
+        CombatRange.MeleeReach(0.6f, 6f, 2f).Should().BeApproximately(85.2f, 0.2f);
     }
 
     [Test]

@@ -251,7 +251,7 @@ public class MonsterAiService
             playerHp, monsterHp, (byte)hit.Flags));
 
         // HP, property and, on the killing swing, the death penalty: after the swing that shows it.
-        _combat.DamagePlayer(client, hit.Damage);
+        _combat.DamagePlayer(client, hit.Damage, instanceId, false);
 
         _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
     }

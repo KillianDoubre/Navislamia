@@ -208,6 +208,13 @@ public class MonsterSkillTests
             session.CharacterHp = Math.Max(0, session.CharacterHp - damage);
             return session.CharacterHp;
         });
+        A.CallTo(() => combat.DamagePlayer(A<GameClient>._, A<int>._, A<long>._, A<bool>._))
+            .ReturnsLazily((GameClient target, int damage, long _, bool _) =>
+            {
+                var session = StorageTestHarness.Session(target);
+                session.CharacterHp = Math.Max(0, session.CharacterHp - damage);
+                return session.CharacterHp;
+            });
         var skillCast = A.Fake<ISkillCastService>();
         var service = new MonsterSkillService(catalog, world, combat, skillCast, new FixedRandom());
 

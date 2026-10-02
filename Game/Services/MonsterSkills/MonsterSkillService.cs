@@ -180,7 +180,7 @@ public class MonsterSkillService : IMonsterSkillService
                     SkillDamageCurve.HitBonus(fields, instance.Level, info.CharacterLevel),
                     SkillDamageCurve.CriticalBonus(fields, skill.Level));
 
-                _combat.DamagePlayer(client, hit.Damage);
+                _combat.DamagePlayer(client, hit.Damage, instanceId, magical);
                 return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, info.CharacterHandle,
                     info.CharacterHp, hit.Damage, (byte)hit.Flags);
             }

@@ -17,6 +17,19 @@ public class ConnectionInfo
     public IReadOnlyList<StatEffect> BuffEffects { get; set; } = Array.Empty<StatEffect>();
     public ItemType? EquippedWeapon { get; set; }
 
+    /// <summary>
+    /// What the shield slot holds when it is not a shield: a second weapon (dual wield) or the arrows of an archer,
+    /// with its handle and count (docs/packet-specs/socle-mecaniques-combat.md). Seeded with the stats.
+    /// </summary>
+    public Navislamia.Game.Services.Combat.LeftHandItem LeftHand { get; set; }
+
+    /// <summary>The main-hand weapon's <c>AttackRange</c> (its range × 100); 0 bare-handed.</summary>
+    public float WeaponAttackRange { get; set; }
+
+    /// <summary>The main-hand weapon's own effects, which the left hand of a dual wielder does not share.</summary>
+    public IReadOnlyList<Navislamia.Game.Services.Stats.StatEffect> RightWeaponEffects { get; set; } =
+        Array.Empty<Navislamia.Game.Services.Stats.StatEffect>();
+
     /// <summary>Guards <see cref="ActiveBuffs"/>: the expiry tick and the client thread both touch it.</summary>
     public object BuffLock { get; } = new();
 
@@ -600,6 +613,8 @@ public class ConnectionInfo
         PassiveEffects = Array.Empty<StatEffect>();
         BuffEffects = Array.Empty<StatEffect>();
         EquippedWeapon = null;
+        LeftHand = null;
+        RightWeaponEffects = Array.Empty<Navislamia.Game.Services.Stats.StatEffect>();
         lock (BuffLock)
         {
             ActiveBuffs.Clear();

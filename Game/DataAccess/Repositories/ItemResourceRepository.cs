@@ -34,6 +34,15 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyDictionary<int, decimal> GetWeaponRanges()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Where(item => item.Range > 0)
+            .Select(item => new { Id = (int)item.Id, item.Range })
+            .ToDictionary(item => item.Id, item => item.Range);
+    }
+
     public IReadOnlyList<ItemEffectFields> GetInstantSkillItems()
     {
         const short skill = (short)ItemEffectInstant.Skill;

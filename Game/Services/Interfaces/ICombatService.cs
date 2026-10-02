@@ -51,6 +51,13 @@ public interface ICombatService
     int ApplyDamage(GameClient client, long instanceId, uint targetHandle, int damage, int hate) =>
         ApplyDamage(client, instanceId, targetHandle, damage);
 
+    /// <summary>
+    /// <see cref="DamagePlayer(GameClient,int)"/> from a known monster: the player's mana shield absorbs its share
+    /// first, and a reflection sends part of the hit back to <paramref name="attackerInstanceId"/>.
+    /// </summary>
+    int DamagePlayer(GameClient target, int damage, long attackerInstanceId, bool magical) =>
+        DamagePlayer(target, damage);
+
     /// <summary>The player's total stats, as the hit rolls read them; null when unknown.</summary>
     Navislamia.Game.Services.Stats.StatBlock GetPlayerStats(GameClient client) => null;
 
