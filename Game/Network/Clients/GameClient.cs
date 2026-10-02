@@ -2510,6 +2510,17 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_SC_GET_CHAOS (213) and TM_SC_ITEM_DROP_INFO (282): the two frames of a monster's death
+            // (docs/packet-specs/socle-recompenses-monstres.md §3.2, §3.5). Both are server to client only —
+            // the 7.3 client builds neither — so an incoming one is a protocol anomaly, logged and dropped
+            // rather than reaching the "Unknown Packet Type" throw below. The arm sits next to the isolated
+            // TM_SC_REGION_ACK one, out of the insertion zone the sibling branches share.
+            if (header.ID is (ushort)GamePackets.TM_SC_GET_CHAOS or (ushort)GamePackets.TM_SC_ITEM_DROP_INFO)
+            {
+                _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
             // TM_CS_SUMMON (304): rzu declares the frame, but the 7.3 client never builds it (summoning
             // goes through the summon creature skill, TM_CS_SKILL = 400) and NGemity has no handler for it
             // either ("Got unknown packet"). The id is declared and routed here so that a frame cannot reach

@@ -769,19 +769,39 @@ public class CombatService : ICombatService
         }
 
         var (dropX, dropY) = _worldState.GetPosition(instanceId);
-        _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z);
-        AwardKill(client, instanceId, targetHandle, instance.Rewards, dropX, dropY, instance.Z, info.Layer);
+        // StructMonster::onDead: one level-gap malus for the gold, the chaos and the loot of this kill.
+        var lootFactor = MonsterRewardRules.LootFactor(instance.Level, HighestRewardedLevel(client, dropX, dropY, info.Layer));
+        _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z, instanceId, lootFactor);
+        AwardKill(client, instanceId, targetHandle, instance, lootFactor, dropX, dropY, instance.Z, info.Layer);
         if (_quests is not null)
             foreach (var member in _parties.RewardMembers(client, dropX, dropY, info.Layer))
                 _ = _quests.OnMonsterKilledAsync(member, instance.MonsterId, dropX, dropY, instance.Z);
         return targetHp;
     }
 
-    private void AwardKill(GameClient killer, long instanceId, uint corpseHandle, MonsterRewardProfile profile,
-        float x, float y, float z, byte layer)
+    private int HighestRewardedLevel(GameClient killer, float x, float y, byte layer)
     {
-        var reward = CombatRewards.Roll(profile, _rates, _random);
-        if (reward.Gold > 0) _groundItemService.DropGoldForMonster(killer, reward.Gold, x, y, z);
+        var highest = killer.ConnectionInfo.CharacterLevel;
+        foreach (var member in _parties.RewardMembers(killer, x, y, layer))
+        {
+            highest = Math.Max(highest, member.ConnectionInfo.CharacterLevel);
+        }
+
+        return highest;
+    }
+
+    /// <summary>
+    /// The kill's rewards from the monster's own resource row (docs/packet-specs/socle-recompenses-monstres.md):
+    /// gold and chaos drawn once behind their per-cent chances (scaled by the rates and the level-gap loot
+    /// factor), the gold left on the ground, experience, JP and chaos shared by the party. A beneficiary farther
+    /// than 500 from the corpse takes nothing but keeps the denominator, and experience and JP lose 5 % per level
+    /// the beneficiary has over the monster (<c>StructPlayer::AddExp</c>).
+    /// </summary>
+    private void AwardKill(GameClient killer, long instanceId, uint corpseHandle, MonsterInstance monster,
+        double lootFactor, float x, float y, float z, byte layer)
+    {
+        var reward = CombatRewards.Roll(monster.Rewards, _rates, _random, lootFactor);
+        if (reward.Gold > 0) _groundItemService.DropGoldForMonster(killer, reward.Gold, x, y, z, instanceId);
         var members = _parties.RewardMembers(killer, x, y, layer).Distinct().ToArray();
         if (members.Length == 0) members = new[] { killer };
         for (var i = 0; i < members.Length; i++)
@@ -790,16 +810,32 @@ public class CombatService : ICombatService
             var info = client.ConnectionInfo;
             lock (info.ProgressLock)
             {
+                var (px, py) = Buffs.SkillCastRangeRules.PlayerPosition(info, ServerClock.Now);
+                if (!MonsterRewardRules.WithinRewardRange(px, py, x, y))
+                {
+                    continue;
+                }
+
+                var exp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(reward.Exp, members.Length, i),
+                    monster.Level, info.CharacterLevel);
+                var jp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(reward.Jp, members.Length, i),
+                    monster.Level, info.CharacterLevel);
                 var maxChaos = reward.Chaos > 0 ? CombatRewards.ChaosCapacity(_stats.Compute(info).Total.MaxChaos) : 0;
-                info.CharacterExp = CombatRewards.AddProgress(info.CharacterExp, CombatRewards.Share(reward.Exp, members.Length, i));
-                info.CharacterJp = CombatRewards.AddProgress(info.CharacterJp, CombatRewards.Share(reward.Jp, members.Length, i));
+                info.CharacterExp = CombatRewards.AddProgress(info.CharacterExp, exp);
+                info.CharacterJp = CombatRewards.AddProgress(info.CharacterJp, jp);
                 var gainedChaos = (int)Math.Min(CombatRewards.Share(reward.Chaos, members.Length, i),
                     Math.Max(0L, (long)maxChaos - info.CharacterChaos));
                 info.CharacterChaos += gainedChaos;
                 // Keep notifications and level resolution in the same order as concurrent kill credits.
                 client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
-                if (gainedChaos > 0) SendChaos(client, killer, instanceId, corpseHandle, gainedChaos);
-                client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+                if (gainedChaos > 0)
+                {
+                    // procDropChaos: 213 to the region, then StructPlayer::AddChaos's "chaos" property. The kill
+                    // sends no 1001: the gold is on the ground until it is picked up.
+                    SendChaos(client, killer, instanceId, corpseHandle, gainedChaos);
+                    client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "chaos", info.CharacterChaos));
+                }
+
                 _levelingService.ApplyExperience(client);
             }
         }
@@ -819,10 +855,11 @@ public class CombatService : ICombatService
             }
             var corpse = viewer.ConnectionInfo.GetMonsterHandle(instanceId);
             if (corpse == 0 && ReferenceEquals(viewer, killer)) corpse = killerCorpseHandle;
-            if (corpse != 0) viewer.Connection.Send(GameCharacterPackets.BuildGetChaos(
+            if (corpse != 0) viewer.Connection.Send(GameRewardPackets.BuildGetChaos(
                 recipient.ConnectionInfo.CharacterHandle, corpse, amount));
         }
     }
+
 
     private void ProcessPendingLeaves(DateTime now)
     {

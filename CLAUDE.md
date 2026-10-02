@@ -359,12 +359,18 @@ On death `CombatRewards.Roll` uses the instance's `MonsterRewardProfile`, frozen
 scale the imported amounts. `Gold`/`ChaosDrop` rates scale the percent chances, with inclusive resource
 bounds for amounts. Gold is an item of code 0 on the ground, capped at 1,000,000 per pile; it credits
 the wallet only on pickup, sharing among party members within 400 units of the picker regardless of
-item loot mode. EXP/JP and chaos share among eligible party members at death; chaos respects effective
-`MaxChaos` and sends packed `TS_SC_GET_CHAOS` (213), followed by `TS_SC_GOLD_UPDATE` (601).
+item loot mode. EXP/JP and chaos share among eligible party members at death, **within 500 units of the corpse**
+(an out-of-reach member keeps the denominator and takes nothing); EXP/JP lose `0.05 × (beneficiary level −
+monster level)` per beneficiary (`MonsterRewardRules.ScaleForLevelGap`), and the gold, chaos **and item**
+chances share one loot factor `max(1 − 0.2 × (gap − 10), 0)` over the party's highest level. Chaos respects
+effective `MaxChaos` and sends packed `TS_SC_GET_CHAOS` (213), then the `chaos` property (507); **the kill
+sends no `TS_SC_GOLD_UPDATE`** (1001). Every ground drop of a monster, gold pile included, is announced by
+`TM_SC_ITEM_DROP_INFO` (282) right before its `ENTER`.
 `MonsterSpawns.UseSecondaryRewards` selects Exp2/Jp2 and alternate bounds (default false).
 Progress is saved by `CharacterService.SaveProgressAsync` on disconnect and the existing save path;
 there are no per-kill database writes. Contribution weights, level penalties and dungeon/PC-bang bonuses
-remain unmodelled. See `docs/packet-specs/socle-recompenses-monstres.md`.
+remain unmodelled. See `docs/packet-specs/socle-recompenses-monstres.md` (§15 for the merge of the two
+implementations, MR #78 and Codex's).
 
 Experience levels the character server-side. `LevelResource` (300 rows, columns `level`/`exp`, extracted
 from the 9.4 Arcadia data into Postgres `LevelResources`) gives the cumulative exp threshold to advance

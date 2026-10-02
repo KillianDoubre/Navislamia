@@ -8,8 +8,15 @@ public interface IGroundItemService
     void Sync(GameClient client);
     void LeaveWorld(GameClient client);
 
-    void DropForMonster(GameClient killer, int monsterId, float x, float y, float z);
-    void DropGoldForMonster(GameClient killer, long amount, float x, float y, float z);
+    /// <summary>
+    /// The drops of a killed monster, on the ground where it fell. <paramref name="monsterInstanceId"/> is
+    /// the corpse the loot is announced from: each recipient sees <c>TM_SC_ITEM_DROP_INFO</c> (282) before
+    /// the object's <c>ENTER</c>. <paramref name="lootFactor"/> is the level-gap malus on every chance
+    /// (<see cref="Navislamia.Game.Services.MonsterRewardRules.LootFactor"/>).
+    /// </summary>
+    void DropForMonster(GameClient killer, int monsterId, float x, float y, float z,
+        long monsterInstanceId = 0, double lootFactor = 1);
+    void DropGoldForMonster(GameClient killer, long amount, float x, float y, float z, long monsterInstanceId = 0);
     void DropQuestItem(GameClient owner, int itemId, float x, float y, float z);
 
     /// <summary>

@@ -137,7 +137,7 @@ d'origine) par défaut.
 | `Exp` | exp gagnée par kill | NGemity `Game.EXPRate` |
 | `Jp` | JP gagnés par kill ; **absente, elle vaut `Exp`** | NGemity (son `EXPRate` multiplie les deux, `World.cpp:529`) |
 | `Gold` | chance de chute d'or, plafonnée à 100 % ; montant dans `MonsterResource.GoldMin/GoldMax` | officiel `procDropGold` |
-| `ChaosDrop` | chance de gain de chaos, plafonnée à 100 % ; montant dans `MonsterResource.ChaosMin/ChaosMax` | officiel `procDropChaos` |
+| `ChaosDrop` | facteur sur la **chance** (pas le montant) de gain de chaos : `chaos_drop_percentage × ChaosDrop` est comparé à `rand % 100`, plafonné à 100 % ; montant dans `MonsterResource.ChaosMin/ChaosMax` | officiel `GameRule::fChaosDropRate` (`0x1404f7dc0`), `procDropChaos` |
 | `ItemDrop` | chance de chaque emplacement de drop, plafonnée à 100 % | NGemity `Game.ItemDropRate` |
 | `CreatureCardDrop` | facteur de plus sur un emplacement dont l'objet **direct** est une carte d'invocation (groupe 13) | NGemity `Game.CreatureCardDropRate` |
 | `MonsterRespawnSeconds` | délai de réapparition d'un monstre tué (10) | constante du code |

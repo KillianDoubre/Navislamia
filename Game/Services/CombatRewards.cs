@@ -23,10 +23,18 @@ public static class CombatRewards
     /// <summary>GameRule::MAX_GOLD_DROP, applied after drawing the amount.</summary>
     public const long MaxGoldDrop = 1_000_000;
 
-    public static MonsterKillReward Roll(MonsterRewardProfile profile, IRateService rates, ICombatRandom random) => new(
-        rates.Scale(Math.Max(0, profile.Exp), RateType.Exp), rates.Scale(Math.Max(0, profile.Jp), RateType.Jp),
-        Math.Min(MaxGoldDrop, RollAmount(profile.GoldChance, profile.GoldMin, profile.GoldMax, rates.Get(RateType.Gold), random)),
-        RollAmount(profile.ChaosChance, profile.ChaosMin, profile.ChaosMax, rates.Get(RateType.ChaosDrop), random));
+    /// <param name="lootFactor">The level-gap malus of <see cref="MonsterRewardRules.LootFactor"/>, on both chances.</param>
+    public static MonsterKillReward Roll(MonsterRewardProfile profile, IRateService rates, ICombatRandom random,
+        double lootFactor = 1)
+    {
+        var loot = double.IsFinite(lootFactor) ? Math.Clamp(lootFactor, 0, 1) : 0;
+        return new(
+            rates.Scale(Math.Max(0, profile.Exp), RateType.Exp), rates.Scale(Math.Max(0, profile.Jp), RateType.Jp),
+            Math.Min(MaxGoldDrop, RollAmount(profile.GoldChance, profile.GoldMin, profile.GoldMax,
+                rates.Get(RateType.Gold) * loot, random)),
+            RollAmount(profile.ChaosChance, profile.ChaosMin, profile.ChaosMax, rates.Get(RateType.ChaosDrop) * loot,
+                random));
+    }
 
     public static int RollAmount(int chance, int min, int max, double rate, ICombatRandom random)
     {

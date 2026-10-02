@@ -16,7 +16,9 @@ namespace Navislamia.Game.Services;
 /// by every instance of the resource. <see cref="SkillLinkId"/> is <c>monster_skill_link_id</c>, the key of
 /// its skills in <see cref="MonsterSkillCatalog"/>. <see cref="MonsterGroup"/> and <see cref="GroupFirstAttack"/>
 /// are <c>monster_group</c> and <c>f_group_first_attack</c>, read by the official group aggro
-/// (<see cref="MonsterAiRules.JoinsGroupAttack"/>).
+/// (<see cref="MonsterAiRules.JoinsGroupAttack"/>). <see cref="Rewards"/> is the reward block of the same
+/// row, read by <see cref="MonsterRewardRules"/> at the monster's death (docs/packet-specs/
+/// socle-recompenses-monstres.md §9.1).
 /// </para>
 /// </remarks>
 public readonly record struct MonsterInstance(

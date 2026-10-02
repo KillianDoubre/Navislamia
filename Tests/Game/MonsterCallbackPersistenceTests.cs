@@ -84,7 +84,7 @@ public class MonsterCallbackPersistenceTests
         world.AddState(0, 4001, 0, 1, 100, 500);
         service.ApplyDamage(killer, 0, 0, 100).Should().Be(0);
         service.ApplyDamage(killer, 0, 0, 100).Should().Be(0);
-        A.CallTo(() => ground.DropForMonster(killer, 2101, 100, 100, 0)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => ground.DropForMonster(killer, 2101, 100, 100, 0, 0, A<double>._)).MustHaveHappenedOnceExactly();
         var status = observerWire.Sent.Single(p => BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4))
             == (ushort)GamePackets.TM_SC_STATUS_CHANGE);
         BinaryPrimitives.ReadUInt32LittleEndian(status.AsSpan(7)).Should().Be(700);
