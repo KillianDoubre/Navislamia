@@ -104,9 +104,10 @@ public static class ItemWearRules
     /// <summary>
     /// StructPlayer::TranslateWearPosition: class, race and job depth are whitelists.
     /// Race uses this repository's Deva/Asura/Gaia bits (1/2/4), not the original combined nLimit.
-    /// JobResource depths are already bits (1/2/4/8), so do not shift them a second time.
+    /// <paramref name="jobDepth"/> is the depth index 0..3 (<see cref="JobDepths"/>), tested as the official
+    /// <c>1 &lt;&lt; GetJobDepth() &amp; nJobDepth</c>.
     /// </summary>
-    public static bool IsWearAllowed(ItemWearFields fields, int characterLevel, int race, int jobClass, short jobDepth)
+    public static bool IsWearAllowed(ItemWearFields fields, int characterLevel, int race, int jobClass, int jobDepth)
     {
         var raceBit = race switch
         {
@@ -126,7 +127,7 @@ public static class ItemWearRules
         return IsWearAllowed(fields, characterLevel)
             && raceBit != ItemRaceRestriction.None && (fields.RaceRestriction & raceBit) != 0
             && classBit != ItemJobRestriction.None && (fields.JobRestriction & classBit) != 0
-            && jobDepth is 1 or 2 or 4 or 8 && (fields.JobDepth & jobDepth) != 0;
+            && jobDepth is >= 0 and <= 3 && (fields.JobDepth & (1 << jobDepth)) != 0;
     }
 
     /// <summary>

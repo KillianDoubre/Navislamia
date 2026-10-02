@@ -27,6 +27,7 @@ public class EquipmentService : IEquipmentService
     private readonly IPlayerVisibilityService _visibility;
     private readonly Weight.ICarriedWeightService _weights;
     private readonly FrozenDictionary<int, JobWearFields> _jobs;
+    private readonly bool _depthFlags;
 
     public EquipmentService(ICharacterService characterService, IStatService statService,
         IItemWearCatalog wearCatalog, IPlayerVisibilityService visibility,
@@ -38,6 +39,7 @@ public class EquipmentService : IEquipmentService
         _wearCatalog = wearCatalog;
         _visibility = visibility;
         _jobs = jobs.GetWearFields().ToFrozenDictionary(j => j.Job);
+        _depthFlags = JobDepths.AreFlags(_jobs.Values.Select(j => j.JobDepth));
     }
 
     public async Task EquipAsync(GameClient client, GameActionPackets.PutonItemRequest request)
@@ -256,7 +258,8 @@ public class EquipmentService : IEquipmentService
         var jobId = info.CharacterJob == 0 ? info.CharacterRace switch { 3 => 100, 4 => 200, 5 => 300, _ => 0 }
             : info.CharacterJob;
         return _jobs.TryGetValue(jobId, out var job)
-            && ItemWearRules.IsWearAllowed(fields, info.CharacterLevel, info.CharacterRace, job.JobClass, job.JobDepth);
+            && ItemWearRules.IsWearAllowed(fields, info.CharacterLevel, info.CharacterRace, job.JobClass,
+                JobDepths.ToIndex(job.JobDepth, _depthFlags));
     }
 
     /// <summary>

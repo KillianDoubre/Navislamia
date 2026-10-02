@@ -667,7 +667,10 @@ character level, or whose `use_max_level` (0 = none) is below it. The rank floor
 `max(level, expert level)`; no expert level exists here, so the character level alone decides. Race, class
 and job depth are **allow-lists** in the official (`ItemBase::nLimit`, `job_depth`). They are now checked
 on both paths using `ItemWearFields`: repository race bits Deva/Asura/Gaia = 1/2/4, class bits
-fighter/hunter/magician/summoner = 1024/2048/4096/8192, and depth bits 1/2/4/8. Zero allows nobody.
+fighter/hunter/magician/summoner = 1024/2048/4096/8192, and the item's depth mask tested with
+`1 << depth index` like the official. Zero allows nobody. **Whether `JobResources.JobDepth` holds the index
+0..3 (the 9.4 export) or a bit 1/2/4/8 is not established**: `JobDepths` reads the encoding from the whole
+table (a 0 or 3 is an index, a 4 or 8 a bit) for the equipment and quest gates alike.
 `EquipmentService` caches class/depth from `IJobResourceRepository.GetWearFields`, resolving the current
 job (100/200/300 for job 0 by race); an unknown job refuses the equip. Class is never guessed from job ID
 digits. `tools/import_epic7.py` converts all seven `limit_*` columns into the existing masks.

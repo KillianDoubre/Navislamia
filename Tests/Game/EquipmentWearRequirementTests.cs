@@ -316,10 +316,10 @@ public class EquipmentWearRequirementTests
         ItemWearRules.IsWearAllowed(item, 300, 3, jobClass, 1).Should().Be(allowed);
     }
 
-    [TestCase(1, 15, true)] [TestCase(2, 15, true)] [TestCase(4, 15, true)] [TestCase(8, 15, true)]
-    [TestCase(8, 8, true)] [TestCase(4, 8, false)] [TestCase(2, 8, false)] [TestCase(1, 8, false)]
-    [TestCase(8, 0, false)] [TestCase(0, 15, false)] [TestCase(3, 15, false)] [TestCase(16, 15, false)]
-    public void Depth_whitelist_uses_the_job_resource_bit_without_shifting_it_again(short depth, short mask, bool allowed)
+    [TestCase(0, 15, true)] [TestCase(1, 15, true)] [TestCase(2, 15, true)] [TestCase(3, 15, true)]
+    [TestCase(3, 8, true)] [TestCase(2, 8, false)] [TestCase(1, 8, false)] [TestCase(0, 8, false)]
+    [TestCase(3, 0, false)] [TestCase(-1, 15, false)] [TestCase(4, 15, false)] [TestCase(0, 1, true)]
+    public void Depth_whitelist_shifts_the_depth_index_like_the_official_server(int depth, short mask, bool allowed)
     {
         var item = Wear(ArmorResource, ItemWearType.Armor) with { JobDepth = mask };
         ItemWearRules.IsWearAllowed(item, 300, 3, 1, depth).Should().Be(allowed);
@@ -417,8 +417,35 @@ public class EquipmentWearRequirementTests
         return new Packet<TS_SC_RESULT>(harness.Connection.Sent[0]).GetDataStruct<TS_SC_RESULT>();
     }
 
+    [TestCase(new short[] { 0, 1, 2, 3 }, false)] [TestCase(new short[] { 1, 2, 4, 8 }, true)]
+    [TestCase(new short[] { 1, 2 }, true)] [TestCase(new short[] { 0, 1 }, false)]
+    public void The_job_depth_encoding_is_read_from_the_whole_table(short[] depths, bool flags)
+    {
+        JobDepths.AreFlags(depths).Should().Be(flags);
+        JobDepths.ToIndex(flags ? (short)1 : (short)0, flags).Should().Be(0);
+        JobDepths.ToIndex(flags ? (short)8 : (short)3, flags).Should().Be(3);
+    }
+
+    [TestCase(100, (short)1, true)] [TestCase(100, (short)2, false)]
+    [TestCase(101, (short)2, true)] [TestCase(120, (short)8, true)] [TestCase(120, (short)4, false)]
+    public async Task A_job_table_holding_the_9_4_depth_index_is_shifted_like_the_official(int job, short mask,
+        bool allowed)
+    {
+        // The 9.4 export: job 100 → depth 0, 101 → 1, 110 → 2, 120 → 3.
+        var item = Wear(ArmorResource, ItemWearType.Armor) with { JobDepth = mask };
+        var h = Build(300, Items((ArmorHandle, ArmorResource)), new[] { new JobWearFields(100, 1, 0),
+            new JobWearFields(101, 1, 1), new JobWearFields(110, 1, 2), new JobWearFields(120, 1, 3) }, item);
+        StorageTestHarness.Session(h.Client).CharacterJob = job;
+        await h.Service.EquipAsync(h.Client, new GameActionPackets.PutonItemRequest(2, ArmorHandle, 0));
+        A.CallTo(() => h.Characters.EquipItemAsync(Character, ArmorHandle, ItemWearType.Armor))
+            .MustHaveHappened(allowed ? 1 : 0, Times.Exactly);
+    }
+
     private static Harness Build(int characterLevel, IReadOnlyDictionary<uint, ItemEntity> items,
-        params ItemWearFields[] fields)
+        params ItemWearFields[] fields) => Build(characterLevel, items, null, fields);
+
+    private static Harness Build(int characterLevel, IReadOnlyDictionary<uint, ItemEntity> items,
+        JobWearFields[] jobTable, params ItemWearFields[] fields)
     {
         var characters = A.Fake<ICharacterService>();
         A.CallTo(() => characters.GetItemByHandleAsync(Character, A<uint>._))
@@ -439,7 +466,7 @@ public class EquipmentWearRequirementTests
         session.CharacterRace = (int)Race.Gaia;
 
         var jobs = A.Fake<IJobResourceRepository>();
-        A.CallTo(() => jobs.GetWearFields()).Returns(new[] { new JobWearFields(100, 1, 1),
+        A.CallTo(() => jobs.GetWearFields()).Returns(jobTable ?? new[] { new JobWearFields(100, 1, 1),
             new JobWearFields(200, 3, 1), new JobWearFields(300, 2, 1), new JobWearFields(123, 4, 8) });
 
         var service = new EquipmentService(characters, A.Fake<IStatService>(), new ItemWearCatalog(repository),

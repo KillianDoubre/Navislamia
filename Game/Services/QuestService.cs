@@ -35,6 +35,7 @@ public sealed class QuestService : IQuestService, IDisposable
     private readonly Dictionary<int, QuestResourceEntity> _resources;
     private readonly Dictionary<int, QuestLinkResourceEntity[]> _links;
     private readonly Dictionary<int, JobResourceEntity> _jobs;
+    private readonly bool _depthFlags;
     private readonly Dictionary<int, RandomPoolResourceEntity[]> _pools;
     private readonly ConcurrentDictionary<uint, DateTime> _lastTick = new();
     private readonly CancellationTokenSource _stop = new();
@@ -55,6 +56,7 @@ public sealed class QuestService : IQuestService, IDisposable
         _titles = titles; _scripts = scripts;
         _resources = (catalogue?.GetResources() ?? Array.Empty<QuestResourceEntity>()).ToDictionary(q => q.Id);
         _jobs = (catalogue?.GetJobs() ?? Array.Empty<JobResourceEntity>()).ToDictionary(j => (int)j.Id);
+        _depthFlags = JobDepths.AreFlags(_jobs.Values.Select(j => j.JobDepth));
         _pools = (catalogue?.GetRandomPools() ?? Array.Empty<RandomPoolResourceEntity>()).GroupBy(p => p.GroupId).ToDictionary(g => g.Key, g => g.ToArray());
         _links = (catalogue?.GetLinks() ?? Array.Empty<QuestLinkResourceEntity>())
             .GroupBy(l => (l.NpcId, l.QuestId)).Select(g => new QuestLinkResourceEntity
@@ -109,7 +111,7 @@ public sealed class QuestService : IQuestService, IDisposable
     private int JobDepth(ConnectionInfo player)
     {
         var jobId = player.CharacterJob == 0 ? (player.CharacterRace - 2) * 100 : player.CharacterJob;
-        return _jobs.GetValueOrDefault(jobId)?.JobDepth switch { 1 => 0, 2 => 1, 4 => 2, 8 => 3, _ => 0 };
+        return _jobs.TryGetValue(jobId, out var job) ? Math.Max(0, JobDepths.ToIndex(job.JobDepth, _depthFlags)) : 0;
     }
     private bool CanStart(QuestResourceEntity resource, ConnectionInfo player, CharacterQuestEntity[] active,
         Dictionary<int, DateTime> completed, Dictionary<int, DateTime> accepted = null, int favor = 0)
@@ -121,7 +123,7 @@ public sealed class QuestService : IQuestService, IDisposable
         // A job's class comes from JobResource; digits in its id do not encode its class.
         var jobClass = job?.JobClass ?? (resource.LimitFighter == "1" && resource.LimitHunter == "1"
             && resource.LimitMagician == "1" && resource.LimitSummoner == "1" ? 1 : 0);
-        var depth = job is null ? 0 : job.JobDepth switch { 1 => 0, 2 => 1, 4 => 2, 8 => 3, _ => -1 };
+        var depth = job is null ? 0 : JobDepths.ToIndex(job.JobDepth, _depthFlags);
         return depth >= 0 && QuestRules.CanStart(resource, player, active, completed, _time.GetUtcNow().UtcDateTime, jobClass, depth, favor);
     }
 

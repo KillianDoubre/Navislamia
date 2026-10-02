@@ -592,8 +592,13 @@ Pour les deux demandes 200 et 281, avant d'appeler `EquipItemAsync` :
    300 pour Asura, comme les prédicats officiels `IsFighter`/`IsHunter`/`IsMagician`/`IsSummoner`.
 3. Lire sa classe dans **`JobResource.JobClass`**, sans la deviner à partir des chiffres du métier.
 4. Exiger le bit de race et le bit de classe correspondants.
-5. Exiger le bit de profondeur correspondant. `JobResource.JobDepth` contient déjà 1/2/4/8 :
-   faire directement `item.JobDepth & job.JobDepth`, sans redécaler ce drapeau.
+5. Exiger le bit de profondeur correspondant, comme l'officiel : `1 << GetJobDepth() & nJobDepth`
+   (`StructPlayer::TranslateWearPosition`), la profondeur étant un **index** 0..3. **Correction de relecture
+   (2 octobre 2026)** : ce point affirmait que `JobResource.JobDepth` contient déjà 1/2/4/8, ce qu'aucune
+   lecture de la base n'a établi (§7.2) ; l'export 9.4 porte l'index (100 → 0, 101 → 1, 110 → 2, 120 → 3),
+   et un index lu comme un bit interdisait tout équipement aux métiers de base. `JobDepths` lit le codage
+   sur les 42 lignes au chargement (un 0 ou un 3 ne peut être qu'un index, un 4 ou un 8 qu'un bit) et rend
+   l'index ; `QuestService` en dépend aussi.
 
 Un métier inconnu, une race/classe invalide ou une profondeur invalide refuse le port. Les autorisations
 vides refusent également le port. Le résultat est **`NotActable` (5)**, jamais `LimitRace` ou `LimitJob`,
