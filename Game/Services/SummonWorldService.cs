@@ -123,6 +123,25 @@ public sealed class SummonWorldService
     }
 
     /// <summary>
+    /// A summon's base stats changed (a level, an evolution, its master's Creature Mastery): its buffs are folded in
+    /// again over the new ones (<see cref="SummonBuffStats"/>).
+    /// </summary>
+    public void RefreshStats(SummonPresence presence, Stats.StatBlock baseStats)
+    {
+        presence.Entry.BaseStats = baseStats;
+        if (_states is not null)
+        {
+            SummonBuffStats.Refresh(presence, _states);
+            return;
+        }
+
+        lock (presence.BuffLock)
+        {
+            presence.Stats = baseStats.Copy();
+        }
+    }
+
+    /// <summary>
     /// Takes one summon out of the world: <c>TS_SC_UNSUMMON</c> (305) then <c>TS_SC_LEAVE</c> (9), both to
     /// the master — the direct copy <c>Player::DoUnSummon</c> makes in addition to the regional broadcast
     /// (<c>src/Entities/Player/Player.cpp:1604-1611</c>: the frame is built at :1605, broadcast at :1606-1607,

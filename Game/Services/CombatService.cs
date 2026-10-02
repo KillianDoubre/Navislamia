@@ -958,10 +958,13 @@ public class CombatService : ICombatService
                         monster.Level, info.CharacterLevel);
                     var maxChaos = reward.Chaos > 0 ? CombatRewards.ChaosCapacity(_stats.Compute(info).Total.MaxChaos) : 0;
                     exp = MoralityRules.RewardExperience(exp, info.ImmoralPoint);
+                    exp = _creatures?.LimitPlayerExperience(client, exp) ?? exp;
                     var bonus = Progression.MonsterRewardBonuses.Apply(exp, jp, info.CharacterStamina, info.CharacterLevel,
                         _rules?.CurrentValue?.StaminaBonusRate ?? 1m, Progression.MonsterRewardBonuses.InDungeon(x, y),
                         _rules?.CurrentValue?.DungeonRewardBonusRate ?? 0m, HasStaminaSaver(info));
                     exp = bonus.Exp; jp = bonus.Jp;
+                    // distributeExpToSummons: after the bonuses, before the player's own exp is applied.
+                    _creatures?.ExperienceGained(client, exp);
                     if (info.CharacterStamina != bonus.Stamina)
                     {
                         info.CharacterStamina = bonus.Stamina;

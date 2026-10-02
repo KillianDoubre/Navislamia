@@ -193,6 +193,13 @@ public interface ICharacterService
         Task.FromResult(false);
 
     /// <summary>
+    /// <c>DB_UpdateSummon</c>: each summon's level, exp, JP, max reached level, vitals, resource (an evolution) and
+    /// former forms, written in one save. Rows of another character are ignored.
+    /// </summary>
+    Task<bool> SaveSummonProgressAsync(string characterName, IReadOnlyList<SummonProgress> summons) =>
+        Task.FromResult(false);
+
+    /// <summary>
     /// Persists a job change (docs/packet-specs/socle-changement-metier.md): the new job at job level 1, the jobs
     /// left behind with the job level each reached (<c>job_N</c>/<c>jlv_N</c>), the depth flag, and the talent
     /// points the master class grants. Returns the character's talent points afterwards, null when it does not exist.
@@ -210,6 +217,10 @@ public sealed record CreatureCardRecord(ItemEntity Card, SummonEntity Summon);
 
 /// <summary>What world entry needs of the creatures: the cards, the formation slots and the main summon.</summary>
 public sealed record CreatureState(IReadOnlyList<CreatureCardRecord> Cards, long[] Slots, long? MainSummonId);
+
+/// <summary>What <see cref="ICharacterService.SaveSummonProgressAsync"/> writes for one summon.</summary>
+public sealed record SummonProgress(long SummonId, int SummonResourceId, int Level, long Exp, int Jp, int MaxLevel,
+    int Hp, int Mp, long LastDecreasedExp, long[] PreviousSummonResourceIds, int[] PreviousLevels, string Name);
 
 /// <summary>
 /// A taming committed: the taming card left with <see cref="RemainingAmount"/> units (0 = deleted), and on success

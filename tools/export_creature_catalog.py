@@ -10,6 +10,10 @@ exist (data/epic7, tools/rdu.py) and from the 9.4 export for what the Epic 7 dum
   English text — GameContent::GetSummonName() draws one of each.
 - Monsters: the English name of every monster with a taming_id, for the TAMING_START|name| party line
   (BroadcastTamingMessage writes pMonster->GetName(), the server-side string).
+- Progression: CreatureLevelBonus (per-level stat growth, keyed by summon id: GameContent::GetSummonLevelBonus),
+  SummonLevelResource.normal_exp (the cumulative table GameContent::GetNeedSummonExp reads for every form) and
+  the Epic 7 CreatureEnhance rows (card enhance → stat amplifier, durability, wear slots, JP bonus). The first
+  two exist only in the 9.4 export: the Epic 7 dump has no such .rdu.
 
 Usage:
     python tools/export_creature_catalog.py
@@ -38,6 +42,8 @@ def number(value, kind=int):
 def main():
     strings = {row['code']: row['value'].rstrip('\0') for row in rows(os.path.join(SQL, 'StringResource_EN.csv'))}
     stats = {row['id']: row for row in rows(os.path.join(EPIC7, 'StatResource.csv'))}
+    level_bonus = {row['id']: row for row in rows(os.path.join(SQL, 'CreatureLevelBonus.csv'))}
+    seven = ('str', 'vit', 'dex', 'agi', 'int', 'men', 'luk')
 
     summons = []
     for row in rows(os.path.join(EPIC7, 'SummonResource.csv')):
@@ -56,9 +62,19 @@ def main():
             'AttackRange': number(row['attack_range'], float),
             'Size': number(row['size'], float),
             'Scale': number(row['scale'], float),
-            'Stats': None if stat is None else [number(stat[key], float)
-                                                for key in ('str', 'vit', 'dex', 'agi', 'int', 'men', 'luk')],
+            'Stats': None if stat is None else [number(stat[key], float) for key in seven],
+            'LevelBonus': None if row['id'] not in level_bonus
+            else [number(level_bonus[row['id']][key], float) for key in seven],
+            'RidingSpeed': number(row['riding_speed']),
+            'IsRidingOnly': number(row['is_riding_only']) != 0,
         })
+
+    summon_exp = [number(row['normal_exp'])
+                  for row in sorted(rows(os.path.join(SQL, 'SummonLevelResource.csv')), key=lambda r: int(r['level']))]
+    enhance = [{'Level': number(row['enhance_level']), 'StatAmplify': number(row['stat_amplify'], float),
+                'CardDurability': number(row['card_durability']), 'SlotAmount': number(row['slot_amount']),
+                'JpAddition': number(row['jp_addition'])}
+               for row in sorted(rows(os.path.join(EPIC7, 'CreatureEnhance.csv')), key=lambda r: int(r['enhance_level']))]
 
     prefixes, postfixes = [], []
     for row in rows(os.path.join(SQL, 'SummonDefaultNameResource.csv')):
@@ -73,20 +89,24 @@ def main():
 
     output = os.path.join(ROOT, 'DevConsole', 'creature-catalog.73.json')
     document = {
-        'Source': 'Epic 7 SummonResource/StatResource/MonsterResource, 9.4 SummonDefaultNameResource and English strings',
+        'Source': 'Epic 7 SummonResource/StatResource/MonsterResource/CreatureEnhance, 9.4 SummonDefaultNameResource/CreatureLevelBonus/SummonLevelResource and English strings',
         'CreatureCatalog': {
             'Summons': summons,
             'NamePrefixes': prefixes,
             'NamePostfixes': postfixes,
             'TamableMonsterNames': monsters,
+            'SummonExp': summon_exp,
+            'Enhance': enhance,
         },
     }
     with open(output, 'w', encoding='utf-8', newline='\n') as stream:
         json.dump(document, stream, ensure_ascii=False, separators=(',', ':'))
         stream.write('\n')
     missing = sum(1 for summon in summons if summon['Stats'] is None)
-    print(f'{output}: {len(summons)} summons ({missing} without stats), {len(prefixes)}+{len(postfixes)} name parts, '
-          f'{len(monsters)} tamable monsters')
+    bonus = sum(1 for summon in summons if summon['LevelBonus'] is not None)
+    print(f'{output}: {len(summons)} summons ({missing} without stats, {bonus} with a level bonus), '
+          f'{len(prefixes)}+{len(postfixes)} name parts, {len(monsters)} tamable monsters, '
+          f'{len(summon_exp)} exp levels, {len(enhance)} enhance levels')
 
 
 if __name__ == '__main__':

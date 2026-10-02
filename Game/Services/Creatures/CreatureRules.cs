@@ -55,27 +55,14 @@ public static class CreatureRules
     }
 
     /// <summary>
-    /// A summon's stats at a level: its <c>stat_id</c> row, the level seed and the derived bonuses every
-    /// creature gets (<c>StructCreature::CalculateStat</c>), and its own run speed like a monster's.
+    /// A summon's stats at a level (<see cref="SummonProgression.Stats"/>); without its master's context, the
+    /// summon is taken as its master's level, with no Creature Mastery and no card enhance.
     /// </summary>
-    public static StatBlock SummonStats(SummonResourceInfo summon, int level)
-    {
-        var block = new StatBlock();
-        if (summon.BaseStats is { } stats)
-        {
-            StatCalculator.ApplyBaseStats(stats, block);
-        }
+    public static StatBlock SummonStats(SummonResourceInfo summon, int level) =>
+        SummonProgression.Stats(summon, level, new SummonStatContext(Math.Max(1, level)));
 
-        StatCalculator.SeedFromLevel(Math.Max(1, level), block);
-        StatCalculator.ApplyDerivedBonuses(block);
-        if (summon.RunSpeed > 0)
-        {
-            block.MoveSpeed += summon.RunSpeed - 120;
-        }
-
-        block.MoveSpeed = Math.Max(block.MoveSpeed, 10f);
-        return block;
-    }
+    public static StatBlock SummonStats(SummonResourceInfo summon, int level, SummonStatContext context) =>
+        SummonProgression.Stats(summon, level, context);
 
     /// <summary>
     /// The reach between a summon and a monster: <c>12 × attack_range</c> plus both body radii

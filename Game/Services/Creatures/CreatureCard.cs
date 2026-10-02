@@ -1,4 +1,5 @@
 using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.Services;
 
 namespace Navislamia.Game.Services.Creatures;
 
@@ -23,6 +24,28 @@ public sealed class CreatureCard
     public int Hp { get; set; }
     public int Mp { get; set; }
     public uint SummonHandle { get; set; }
+
+    /// <summary>The summon's JP, gained on its level-ups (<c>m_nJobPoint</c>).</summary>
+    public int Jp { get; set; }
+
+    /// <summary><c>m_nMaxReachedLevel</c>, kept in <c>Summons.MaxLevel</c>: a level regained after a death penalty gives no JP.</summary>
+    public int MaxReachedLevel { get; set; } = 1;
+
+    public long LastDecreasedExp { get; set; }
+
+    /// <summary>The forms left behind by evolution (<c>m_nPrevJobId</c>/<c>m_nPrevJobLevel</c>), two at most.</summary>
+    public long[] PreviousSummonIds { get; set; } = new long[2];
+
+    public int[] PreviousLevels { get; set; } = new int[2];
+
+    /// <summary>A summon at 0 HP: dead, sent back by its master or by the 60-second hold, and kept dead until revived.</summary>
+    public bool IsDead => Hp <= 0 && HpKnown;
+
+    /// <summary>Whether <see cref="Hp"/> is a real value: a fresh summon row (0 HP) starts full, not dead.</summary>
+    public bool HpKnown { get; set; }
+
+    public SummonProgress Progress() => new(SummonId, SummonCode, Level, Exp, Jp, MaxReachedLevel, Hp, Mp,
+        LastDecreasedExp, PreviousSummonIds, PreviousLevels, SummonName);
 
     /// <summary>Whether 301 has been sent this session (login for a slotted card, formation otherwise).</summary>
     public bool InfoSent { get; set; }

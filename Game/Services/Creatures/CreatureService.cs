@@ -203,6 +203,26 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
                 _moves.Remove(summon.Handle);
             }
         }
+
+        // The summons' exp, level and vitals go with the master's save (Summons rows, DB_UpdateSummon).
+        var info = client.ConnectionInfo;
+        foreach (var (card, presence) in OutCards(info))
+        {
+            card.Hp = presence.Hp;
+            card.Mp = presence.Mp;
+            card.HpKnown = true;
+        }
+
+        List<CreatureCard> cards;
+        lock (info.SummonLock)
+        {
+            cards = info.CreatureCards.Values.Where(c => c.HasSummon).ToList();
+        }
+
+        if (cards.Count > 0 && !string.IsNullOrEmpty(info.CharacterName))
+        {
+            _ = SaveProgressAsync(info, cards);
+        }
     }
 
     private static CreatureCard ToCard(CreatureCardRecord record) => new()
@@ -219,8 +239,25 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         Exp = record.Summon?.Exp ?? 0,
         Sp = record.Summon?.Sp ?? 0,
         Hp = record.Summon?.Hp ?? 0,
-        Mp = record.Summon?.Mp ?? 0
+        Mp = record.Summon?.Mp ?? 0,
+        HpKnown = record.Summon is not null,
+        Jp = record.Summon?.Jp ?? 0,
+        MaxReachedLevel = Math.Max(1, Math.Max(record.Summon?.MaxLevel ?? 1, record.Summon?.Lv ?? 1)),
+        LastDecreasedExp = record.Summon?.LastDecreasedExp ?? 0,
+        PreviousSummonIds = Pad(record.Summon?.PreviousSummonResourceIds),
+        PreviousLevels = Pad(record.Summon?.PreviousLevel)
     };
+
+    private static T[] Pad<T>(T[] values)
+    {
+        var padded = new T[2];
+        if (values is not null)
+        {
+            Array.Copy(values, padded, Math.Min(values.Length, padded.Length));
+        }
+
+        return padded;
+    }
 
     private static List<CreatureCard> SlottedCards(ConnectionInfo info)
     {
@@ -248,7 +285,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             card.SummonHandle = WorldObjectHandle.Next();
         }
 
-        var stats = CreatureRules.SummonStats(resource, card.Level);
+        var stats = StatsOf(client.ConnectionInfo, card, resource);
         var (hp, mp) = Vitals(card, stats);
         client.Connection.Send(GameSummonPackets.BuildAddSummonInfo(card.Handle, card.SummonHandle, card.SummonName,
             card.SummonCode, card.Level, card.Sp));
@@ -256,8 +293,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         client.Connection.Send(GameStatPackets.BuildStatInfo(card.SummonHandle, new StatBlock(), StatInfoType.ByItem));
         client.Connection.Send(GameStatPackets.BuildHpMp(card.SummonHandle, 0, hp, (int)stats.MaxHp, 0, mp,
             (int)stats.MaxMp));
-        client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(card.SummonHandle, card.Level, 1));
-        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(card.SummonHandle, card.Exp, 0));
+        client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(card.SummonHandle, card.Level, card.Level));
+        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(card.SummonHandle, card.Exp, card.Jp));
         card.InfoSent = true;
     }
 
@@ -266,9 +303,192 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     {
         var maxHp = Math.Max(1, (int)stats.MaxHp);
         var maxMp = Math.Max(0, (int)stats.MaxMp);
-        var hp = card.Hp <= 0 ? maxHp : Math.Min(card.Hp, maxHp);
-        var mp = card.Mp <= 0 ? maxMp : Math.Min(card.Mp, maxMp);
+        // A row never written with vitals starts full; a known 0 HP is a dead summon and stays dead.
+        var hp = !card.HpKnown ? maxHp : Math.Clamp(card.Hp, 0, maxHp);
+        var mp = !card.HpKnown ? maxMp : Math.Clamp(card.Mp, 0, maxMp);
         return (hp, mp);
+    }
+
+    private static int CreatureMastery(ConnectionInfo info) =>
+        info.LearnedSkills.TryGetValue(SummonProgression.CreatureMasterySkill, out var level) ? level : 0;
+
+    /// <summary>The master's side of a summon's stats: its level, its Creature Mastery and the card's enhance.</summary>
+    private SummonStatContext Context(ConnectionInfo info, CreatureCard card) =>
+        new(Math.Max(1, info.CharacterLevel), CreatureMastery(info), _catalog.Enhance(card.Enhance).StatAmplify);
+
+    private StatBlock StatsOf(ConnectionInfo info, CreatureCard card, SummonResourceInfo resource) =>
+        CreatureRules.SummonStats(resource, card.Level, Context(info, card));
+
+    // ---- experience -------------------------------------------------------------------------------------------
+
+    public long OnLimitPlayerExperience(GameClient player, long exp)
+    {
+        var info = player.ConnectionInfo;
+        var above = OutCards(info).Any(pair => pair.Card.Level > info.CharacterLevel);
+        return above ? Math.Min(exp, SummonProgression.PlayerExpLimit(Math.Max(1, info.CharacterLevel))) : exp;
+    }
+
+    /// <summary>
+    /// <c>distributeExpToSummons</c>: every summon out in the world, alive, within <c>VISIBLE_RANGE</c> of its master
+    /// and below its level takes the master's hunting exp whole (the master loses nothing). A summon kept in its card
+    /// takes <c>m_fDeactiveSummonExpAmp</c> = 0 of it: nothing.
+    /// </summary>
+    public void OnExperienceGained(GameClient player, long exp)
+    {
+        if (exp <= 0)
+        {
+            return;
+        }
+
+        var info = player.ConnectionInfo;
+        var (px, py) = info.PositionAt(ServerClock.Now);
+        foreach (var (card, presence) in OutCards(info))
+        {
+            if (presence.Hp <= 0 || card.Level >= info.CharacterLevel
+                || SummonProgression.IsExpLimitReached(card.Exp, _catalog.NeedExp))
+            {
+                continue;
+            }
+
+            var (sx, sy) = SummonPosition(presence.Handle, ServerClock.Now);
+            if (CombatRange.Distance(px, py, sx, sy) > SummonProgression.VisibleRange)
+            {
+                continue;
+            }
+
+            GainExperience(player, card, exp);
+        }
+    }
+
+    /// <summary>The cards whose summon is out in the world, with their presence.</summary>
+    private static List<(CreatureCard Card, SummonPresence Presence)> OutCards(ConnectionInfo info)
+    {
+        var result = new List<(CreatureCard, SummonPresence)>();
+        lock (info.SummonLock)
+        {
+            foreach (var presence in info.Summons)
+            {
+                var card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == presence.Handle);
+                if (card is not null)
+                {
+                    result.Add((card, presence));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary><c>StructSummon::AddExp</c> then <c>onExpChange</c>: the exp update, and a level-up when one is reached.</summary>
+    public void GainExperience(GameClient master, CreatureCard card, long gain, bool force = false)
+    {
+        if (!_catalog.TryGetSummon(card.SummonCode, out var resource))
+        {
+            return;
+        }
+
+        var info = master.ConnectionInfo;
+        long exp;
+        int previous;
+        SummonLevelChange change;
+        lock (info.SummonLock)
+        {
+            gain = SummonProgression.CapGain(card.Exp, gain, card.Level, Math.Max(1, resource.Form), _catalog.NeedExp,
+                force);
+            if (gain <= 0)
+            {
+                return;
+            }
+
+            card.Exp += gain;
+            exp = card.Exp;
+            previous = card.Level;
+            change = SummonProgression.ResolveLevel(card.Exp, Math.Max(1, resource.Form), card.MaxReachedLevel,
+                card.Level, _catalog.NeedExp);
+            card.Level = change.Level;
+            card.MaxReachedLevel = change.MaxReachedLevel;
+            card.Jp += change.JpGained;
+        }
+
+        // SendExpMsg: the master's creature window.
+        master.Connection.Send(GameCharacterPackets.BuildExpUpdate(card.SummonHandle, exp, card.Jp));
+        if (change.LevelChanged(previous))
+        {
+            OnLevelChanged(master, card, resource, previous);
+        }
+    }
+
+    /// <summary>
+    /// The level part of <c>onExpChange</c>: stats again, full HP/MP on a gain (alive), the <c>jp</c> property, the
+    /// level to the master and to whoever sees the summon, and the summon row saved (<c>DB_UpdateSummon</c>).
+    /// </summary>
+    private void OnLevelChanged(GameClient master, CreatureCard card, SummonResourceInfo resource, int previous)
+    {
+        var info = master.ConnectionInfo;
+        var stats = StatsOf(info, card, resource);
+        var presence = Array.Find(info.Summons, s => s.Handle == card.SummonHandle);
+        var gained = card.Level > previous;
+        int prevHp, prevMp, hp, mp;
+        lock (info.SummonLock)
+        {
+            prevHp = presence?.Hp ?? card.Hp;
+            prevMp = presence?.Mp ?? card.Mp;
+            hp = prevHp;
+            mp = prevMp;
+            if (gained && !(card.IsDead || presence is { Hp: <= 0 }))
+            {
+                hp = (int)stats.MaxHp;
+                mp = (int)stats.MaxMp;
+            }
+
+            card.Hp = hp;
+            card.Mp = mp;
+            card.HpKnown = true;
+        }
+
+        if (presence is not null)
+        {
+            presence.Entry.Level = card.Level;
+            _summons.RefreshStats(presence, stats);
+            presence.Hp = Math.Min(hp, (int)presence.Stats.MaxHp);
+            presence.Mp = Math.Min(mp, (int)presence.Stats.MaxMp);
+            hp = presence.Hp;
+            mp = presence.Mp;
+        }
+
+        var maxHp = (int)(presence?.Stats ?? stats).MaxHp;
+        var maxMp = (int)(presence?.Stats ?? stats).MaxMp;
+        var hpmp = GameStatPackets.BuildHpMp(card.SummonHandle, hp - prevHp, hp, maxHp, mp - prevMp, mp, maxMp);
+        var level = GameCharacterPackets.BuildLevelUpdate(card.SummonHandle, card.Level, card.Level);
+        master.Connection.Send(GameStatPackets.BuildStatInfo(card.SummonHandle, presence?.Stats ?? stats,
+            StatInfoType.Total));
+        master.Connection.Send(hpmp);
+        if (gained)
+        {
+            master.Connection.Send(GameStatPackets.BuildProperty(card.SummonHandle, "jp", card.Jp));
+        }
+
+        master.Connection.Send(level);
+        if (presence is not null)
+        {
+            _players?.SendToObservers(master, hpmp);
+            _players?.SendToObservers(master, level);
+        }
+
+        _ = SaveProgressAsync(info, new[] { card });
+    }
+
+    private async Task SaveProgressAsync(ConnectionInfo info, IReadOnlyList<CreatureCard> cards)
+    {
+        try
+        {
+            var progress = cards.Where(c => c.HasSummon).Select(c => c.Progress()).ToList();
+            await _characters.SaveSummonProgressAsync(info.CharacterName, progress);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not save the summons of {name}", info.CharacterName);
+        }
     }
 
     // ---- taming -----------------------------------------------------------------------------------------------
@@ -422,7 +642,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             if (success && _catalog.TryGetSummon(monster.TamingId, out var resource))
             {
                 name = _catalog.RandomName(_random.Next);
-                var stats = CreatureRules.SummonStats(resource, 1);
+                var stats = CreatureRules.SummonStats(resource, 1, new SummonStatContext(info.CharacterLevel,
+                    CreatureMastery(info)));
                 hp = (int)stats.MaxHp;
                 mp = (int)stats.MaxMp;
             }
@@ -638,7 +859,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             return false;
         }
 
-        var stats = CreatureRules.SummonStats(resource, 1);
+        var stats = CreatureRules.SummonStats(resource, 1, new SummonStatContext(info.CharacterLevel,
+            CreatureMastery(info), _catalog.Enhance(card.Enhance).StatAmplify));
         var summon = await _characters.CreateSummonAsync(info.CharacterName, card.ItemId, resource.Id,
             _catalog.RandomName(_random.Next), (int)stats.MaxHp, (int)stats.MaxMp);
         if (summon is null)
@@ -652,6 +874,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         card.Level = Math.Max(1, summon.Lv);
         card.Hp = summon.Hp;
         card.Mp = summon.Mp;
+        card.HpKnown = true;
+        card.MaxReachedLevel = Math.Max(1, summon.MaxLevel);
         return true;
     }
 
@@ -783,7 +1007,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             SendSummonInfo(client, card);
         }
 
-        var stats = CreatureRules.SummonStats(resource, card.Level);
+        var stats = StatsOf(info, card, resource);
         var (hp, mp) = Vitals(card, stats);
         var entry = new SummonWorldEntry
         {
@@ -1007,7 +1231,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
             // The summon's own stats, its buffs included (SummonBuffStats), once it is in the world.
             var presence = Array.Find(info.Summons, s => s.Handle == handle);
-            var stats = presence?.Stats ?? CreatureRules.SummonStats(resource, card.Level);
+            var stats = presence?.Stats ?? StatsOf(info, card, resource);
             var defender = _combat.GetMonsterStats(swing.TargetInstanceId) ?? new StatBlock();
             var hit = CombatFormulas.Resolve(Combatant.From(stats, card.Level), Combatant.From(defender, monster.Level),
                 stats.AttackPointRight, DamageKind.Physical, 0, 0, _random);

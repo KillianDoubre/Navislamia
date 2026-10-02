@@ -10,7 +10,7 @@ namespace Navislamia.Game.Services;
 /// </summary>
 public sealed class SummonWorldEntry
 {
-    public Stats.StatBlock BaseStats { get; init; }
+    public Stats.StatBlock BaseStats { get; set; }
     /// <summary>
     /// The card the summon belongs to — <c>card_handle</c>, the first field of <c>TS_SC_ADD_SUMMON_INFO</c>
     /// (301, absolute offset 7, <c>BuildAddSummonInfo</c>) and of <c>TS_SC_REMOVE_SUMMON_INFO</c> (302).
@@ -25,13 +25,13 @@ public sealed class SummonWorldEntry
     /// <c>SummonResource.id</c> (<c>NON ÉTABLI</c> 3). Written as an <c>int32</c> in the 301 and as an
     /// encoded <c>uint32</c> in the 3: the two fields carry one value, the cast is the only difference.
     /// </summary>
-    public int Code { get; init; }
+    public int Code { get; set; }
 
     /// <summary>The summon's display name — <c>SummonEntity.Name</c>, 18 usable characters (§3.1, offset 76).</summary>
-    public string Name { get; init; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
 
     /// <summary><c>SummonEntity.Lv</c>: level of the entry (offset 50) and of the 301 (offset 44).</summary>
-    public int Level { get; init; }
+    public int Level { get; set; }
 
     /// <summary><c>SummonEntity.Sp</c> — the 301 only; the entry tram carries no SP (§3.1).</summary>
     public int Sp { get; init; }

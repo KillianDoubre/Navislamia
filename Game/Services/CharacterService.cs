@@ -1183,6 +1183,51 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<bool> SaveSummonProgressAsync(string characterName, IReadOnlyList<SummonProgress> summons)
+    {
+        if (summons is null || summons.Count == 0)
+        {
+            return Task.FromResult(true);
+        }
+
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            var rows = (await repository.GetSummonsAsync(character.Id)).ToDictionary(s => s.Id);
+            foreach (var progress in summons)
+            {
+                if (!rows.TryGetValue(progress.SummonId, out var row))
+                {
+                    continue;
+                }
+
+                row.SummonResourceId = progress.SummonResourceId;
+                row.Lv = progress.Level;
+                row.Jlv = progress.Level;
+                row.Exp = progress.Exp;
+                row.Jp = progress.Jp;
+                row.MaxLevel = progress.MaxLevel;
+                row.Hp = progress.Hp;
+                row.Mp = progress.Mp;
+                row.LastDecreasedExp = progress.LastDecreasedExp;
+                row.PreviousSummonResourceIds = (long[])progress.PreviousSummonResourceIds.Clone();
+                row.PreviousLevel = (int[])progress.PreviousLevels.Clone();
+                if (!string.IsNullOrEmpty(progress.Name))
+                {
+                    row.Name = progress.Name;
+                }
+            }
+
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
+
     /// <summary><c>AllocNewSummon</c>: level 1, the drawn name, the card linked (<c>DB_InsertSummon</c>).</summary>
     private static SummonEntity NewSummon(CharacterEntity character, long cardItemId, int summonCode, string name,
         int hp, int mp) => new()
