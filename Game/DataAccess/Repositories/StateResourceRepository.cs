@@ -28,6 +28,15 @@ public class StateResourceRepository : IStateResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<StateRuleFields> GetStateRules()
+    {
+        return _context.StateResources
+            .AsNoTracking()
+            .Select(state => new StateRuleFields((int)state.Id, state.DuplicateGroup, state.ReiterationCount,
+                state.StateTimeType, (int)state.EffectType, state.Values))
+            .ToList();
+    }
+
     public IReadOnlyList<int> GetEraseOnRequestStateIds()
     {
         const StateTimeType flag = StateTimeType.EraseOnRequest;

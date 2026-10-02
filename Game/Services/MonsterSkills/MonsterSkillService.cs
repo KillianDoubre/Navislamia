@@ -147,7 +147,12 @@ public class MonsterSkillService : IMonsterSkillService
             case MonsterSkillEffect.State:
             {
                 var duration = BuffCurve.DurationTicks(fields, skill.Level);
-                if (duration > 0 && !info.IsImmortal)
+                var chance = Casting.CastRules.StateLandingChance(fields.EffectType,
+                    _combat.GetMonsterStats(instanceId)?.MagicAccuracy ?? 0f,
+                    _combat.GetPlayerStats(client)?.MagicAvoid ?? 0f,
+                    SkillDamageCurve.HitBonus(fields, instance.Level, info.CharacterLevel), fields.ProbabilityOnHit,
+                    fields.ProbabilityIncBySlv, skill.Level);
+                if (duration > 0 && !info.IsImmortal && Casting.CastRules.StateLands(chance, _random.Next(100)))
                 {
                     _skillCast.ApplyState(client, fields.StateId, BuffCurve.StateLevel(fields, skill.Level),
                         duration);

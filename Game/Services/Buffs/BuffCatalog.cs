@@ -101,6 +101,11 @@ public class BuffCatalog : IBuffCatalog
         return _countByKind.TryGetValue(kind, out var count) ? count : 0;
     }
 
+    /// <summary><c>casting_type</c> and <c>casting_level</c> are text columns holding 0, 1 or 2.</summary>
+    private static byte SmallNumber(string value) =>
+        byte.TryParse(value, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var number) ? number : (byte)0;
+
     public bool TryGet(int skillId, out CastableBuffFields fields)
     {
         return _skills.TryGetValue(skillId, out fields);
@@ -145,7 +150,17 @@ public class BuffCatalog : IBuffCatalog
             row.HitBonus,
             row.Percentage,
             row.CriticalBonus,
-            row.CriticalBonusPerSkl);
+            row.CriticalBonusPerSkl,
+            row.CastRange,
+            row.ProbabilityOnHit,
+            row.ProbabilityIncBySlv,
+            SmallNumber(row.CastingType),
+            SmallNumber(row.CastingLevel),
+            // is_passive marks the cancellable skills in this data: 976 of the 977 with a cast delay carry it,
+            // and StructSkill::Cancel refuses a skill without it (socle-lancer-competences.md §5).
+            row.IsPassive,
+            row.EffectType,
+            row.IsHarmful);
         return true;
     }
 

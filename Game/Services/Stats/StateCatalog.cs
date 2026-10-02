@@ -33,6 +33,7 @@ public class StateCatalog : IStateCatalog
     private readonly ILogger _logger = Log.ForContext<StateCatalog>();
     private readonly FrozenDictionary<int, StateEffectTemplate[]> _states;
     private readonly FrozenSet<int> _eraseOnRequest;
+    private readonly FrozenDictionary<int, Casting.StateRule> _rules;
     private readonly FrozenSet<int> _stateIds;
     private readonly FrozenDictionary<int, ResurrectionStateValues> _resurrections;
 
@@ -54,9 +55,23 @@ public class StateCatalog : IStateCatalog
                           ?? Array.Empty<StateEffectFields>())
             .ToFrozenDictionary(state => state.StateId, state => ResurrectionStateValues.From(state.Values));
         _eraseOnRequest = (repository.GetEraseOnRequestStateIds() ?? Array.Empty<int>()).ToFrozenSet();
+        _rules = (repository.GetStateRules() ?? Array.Empty<StateRuleFields>())
+            .ToFrozenDictionary(row => row.StateId, ToRule);
         _logger.Debug("Loaded {count} stat states and {cancellable} cancellable states", _states.Count,
             _eraseOnRequest.Count);
     }
+
+    public Casting.StateRule GetRule(int stateId) =>
+        _rules.TryGetValue(stateId, out var rule) ? rule : Casting.StateRule.None with { StateId = stateId };
+
+    /// <summary>
+    /// <c>reiteration_count</c> is a text column: anything that is not a number reads as no reiteration.
+    /// </summary>
+    private static Casting.StateRule ToRule(StateRuleFields row) => new(row.StateId,
+        row.DuplicateGroups ?? Array.Empty<int>(),
+        int.TryParse(row.ReiterationCount, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var count) ? count : 0,
+        row.StateTimeType, row.EffectType, row.Values ?? Array.Empty<decimal>());
 
     public bool IsEraseOnRequest(int stateId)
     {

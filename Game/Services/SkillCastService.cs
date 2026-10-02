@@ -8,6 +8,7 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Buffs;
+using Navislamia.Game.Services.Casting;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.Props;
 using Navislamia.Game.Services.Stats;
@@ -38,6 +39,9 @@ public class SkillCastService : ISkillCastService
 {
     private const int TickIntervalMs = 500;
 
+    /// <summary>How often the casts in progress are looked at: a cast fires at most this late.</summary>
+    private const int CastTickIntervalMs = 50;
+
     /// <summary>An aura never expires; it stays until the player toggles it off.</summary>
     private const uint NeverExpires = uint.MaxValue;
 
@@ -50,15 +54,19 @@ public class SkillCastService : ISkillCastService
     private readonly IFieldPropCatalog _fieldPropCatalog;
     private readonly IWarpService _warpService;
     private readonly IPlayerVisibilityService _players;
+    private readonly ICombatRandom _random;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
     public SkillCastService(IBuffCatalog catalog, IStatService statService, IStateCatalog stateCatalog,
         MonsterWorldState monsterState,
         ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService,
-        IPlayerVisibilityService players = null)
+        IPlayerVisibilityService players = null, CastInterrupts interrupts = null, ICombatRandom random = null,
+        bool runTicks = true)
     {
         _players = players;
+        _random = random ?? CombatRandom.Shared;
+        interrupts?.Attach(this);
         _catalog = catalog;
         _statService = statService;
         _stateCatalog = stateCatalog;
@@ -72,7 +80,11 @@ public class SkillCastService : ISkillCastService
             _logger.Warning("The skill catalog is empty; casting will be unavailable");
         }
 
-        _ = RunAsync();
+        if (runTicks)
+        {
+            _ = RunAsync();
+            _ = RunCastsAsync();
+        }
     }
 
     public void Register(GameClient client)
@@ -92,6 +104,11 @@ public class SkillCastService : ISkillCastService
         {
             _clients.Remove(client);
         }
+
+        lock (client.ConnectionInfo.CastLock)
+        {
+            client.ConnectionInfo.PendingCast = null;
+        }
     }
 
     public void Cast(GameClient client, GameActionPackets.SkillRequest request)
@@ -106,9 +123,31 @@ public class SkillCastService : ISkillCastService
             return;
         }
 
-        var mpCost = BuffCurve.MpCost(fields, skillLevel);
-        var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
+        if (!InCastRange(info, fields, targetInstanceId, now))
+        {
+            SendCastFailed(client, request, ResultCode.TooFar);
+            return;
+        }
 
+        var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
+        var pending = new PendingCast(request, fields, skillLevel, targetInstanceId, now, unchecked(now + castDelay));
+
+        // One cast at a time: a second request while one is being cast is refused, never queued.
+        lock (info.CastLock)
+        {
+            if (info.PendingCast is not null)
+            {
+                SendCastFailed(client, request, ResultCode.NotActable);
+                return;
+            }
+
+            if (castDelay > 0)
+            {
+                info.PendingCast = pending;
+            }
+        }
+
+        var mpCost = BuffCurve.MpCost(fields, skillLevel);
         info.CharacterMp -= mpCost;
         var cooldown = BuffCurve.CooldownTicks(fields, skillLevel);
         if (cooldown > 0)
@@ -117,6 +156,152 @@ public class SkillCastService : ISkillCastService
         }
 
         SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Casting, mpCost, castDelay);
+
+        if (castDelay == 0)
+        {
+            Fire(client, pending);
+        }
+    }
+
+    /// <summary>
+    /// Fires every cast whose time has come. The tick calls it; the tests call it with their own clock.
+    /// </summary>
+    public void ProcessCasts(uint now)
+    {
+        GameClient[] clients;
+        lock (_lock)
+        {
+            if (_clients.Count == 0)
+            {
+                return;
+            }
+
+            clients = _clients.ToArray();
+        }
+
+        foreach (var client in clients)
+        {
+            PendingCast due;
+            lock (client.ConnectionInfo.CastLock)
+            {
+                due = client.ConnectionInfo.PendingCast;
+                if (due is null || unchecked((int)(now - due.FireTick)) < 0)
+                {
+                    continue;
+                }
+
+                client.ConnectionInfo.PendingCast = null;
+            }
+
+            try
+            {
+                Fire(client, due);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Skill {skillId} of {clientTag} failed to fire", due.Request.SkillId,
+                    client.ClientTag);
+            }
+        }
+    }
+
+    public bool CancelCast(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        PendingCast cancelled;
+        lock (info.CastLock)
+        {
+            cancelled = info.PendingCast;
+
+            // StructSkill::Cancel refuses a skill that is not flagged cancellable.
+            if (cancelled is null || !cancelled.Fields.Cancelable)
+            {
+                return false;
+            }
+
+            info.PendingCast = null;
+        }
+
+        SendSkill(client, cancelled.Request, cancelled.Fields.Kind, cancelled.TargetInstanceId,
+            SkillPacketType.Cancel, 0, 0);
+        _logger.Debug("{clientTag} cast of {skillId} was cancelled", client.ClientTag, cancelled.Request.SkillId);
+        return true;
+    }
+
+    public void OnCasterDamaged(GameClient client, int damage)
+    {
+        var info = client.ConnectionInfo;
+        PendingCast pending;
+        lock (info.CastLock)
+        {
+            pending = info.PendingCast;
+        }
+
+        if (pending is null)
+        {
+            return;
+        }
+
+        var castingSpeed = (int)_statService.Compute(info).Total.CastingSpeed;
+        var disturbance = CastRules.DamageDisturbance(pending.Fields.CastingType, pending.Fields.CastingLevel,
+            damage, info.CharacterMaxHp, castingSpeed);
+        if (disturbance <= 0)
+        {
+            return;
+        }
+
+        if (pending.Fields.CastingType == CastRules.Breakable)
+        {
+            if (_random.Next(100) < disturbance)
+            {
+                CancelCast(client);
+            }
+
+            return;
+        }
+
+        uint total;
+        lock (info.CastLock)
+        {
+            if (!ReferenceEquals(info.PendingCast, pending))
+            {
+                return;
+            }
+
+            pending.FireTick = unchecked(pending.FireTick + (uint)disturbance);
+            total = unchecked(pending.FireTick - pending.StartTick);
+        }
+
+        // ST_CastingUpdate goes to the caster alone (PendMessage in StructSkill::onDamage).
+        client.Connection.Send(GameSkillPackets.BuildSkill((ushort)pending.Request.SkillId,
+            pending.Request.SkillLevel, info.CharacterHandle, pending.Request.Target, pending.Request.X,
+            pending.Request.Y, pending.Request.Z, (byte)pending.Request.Layer, SkillPacketType.CastingUpdate, 0, 0,
+            info.CharacterHp, info.CharacterMp, total, 0));
+    }
+
+    /// <summary>
+    /// The effect, <c>ST_Fire</c>, <c>ST_Complete</c> and the cooldown in the skill list. A caster who died, or
+    /// a monster target that died while the spell was being cast, drops it instead.
+    /// </summary>
+    private void Fire(GameClient client, PendingCast cast)
+    {
+        var info = client.ConnectionInfo;
+        var request = cast.Request;
+        var fields = cast.Fields;
+        var skillLevel = cast.SkillLevel;
+        var targetInstanceId = cast.TargetInstanceId;
+        var now = ServerClock.Now;
+
+        if (info.CharacterHp <= 0)
+        {
+            return;
+        }
+
+        if (TargetsAMonster(fields.Kind) && !_monsterState.IsAlive(targetInstanceId))
+        {
+            SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+            return;
+        }
 
         SkillHit? hit = null;
         switch (fields.Kind)
@@ -157,11 +342,30 @@ public class SkillCastService : ISkillCastService
 
         SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Complete, 0, 0);
 
+        var cooldown = BuffCurve.CooldownTicks(fields, skillLevel);
         client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
             new[] { new SkillListEntry(request.SkillId, skillLevel, cooldown, cooldown) }));
 
         _logger.Debug("{clientTag} cast {kind} {skillId} level {level}", client.ClientTag, fields.Kind,
             request.SkillId, skillLevel);
+    }
+
+    /// <summary>
+    /// <c>StructCreature::CastSkill</c>'s range: only a cast on a monster is measured, from body to body,
+    /// against <c>cast_range</c> (<see cref="CastRules.InRange"/>). A prop's activation keeps its own checks.
+    /// </summary>
+    private bool InCastRange(ConnectionInfo info, CastableBuffFields fields, long targetInstanceId, uint now)
+    {
+        if (!TargetsAMonster(fields.Kind) || !_monsterState.TryGetInstance(targetInstanceId, out var instance))
+        {
+            return true;
+        }
+
+        var (cx, cy) = info.PositionAt(now);
+        var (tx, ty) = _monsterState.GetPosition(targetInstanceId);
+        var attackRange = _statService.Compute(info).Total.AttackRange;
+        return CastRules.InRange(fields.CastRange, attackRange, cx, cy, CombatRange.PlayerUnitSize, tx, ty,
+            CombatRange.UnitSize(instance.Size, instance.Scale), _monsterState.IsMoving(targetInstanceId));
     }
 
     /// <summary>
@@ -582,49 +786,118 @@ public class SkillCastService : ISkillCastService
         long instanceId)
     {
         var info = client.ConnectionInfo;
+
+        // STATE_SKILL_FUNCTOR::onCreature: a harmful state has to land first (CastRules.StateLandingChance).
+        var targetLevel = _monsterState.TryGetInstance(instanceId, out var instance) ? instance.Level : 0;
+        var chance = CastRules.StateLandingChance(fields.EffectType, _statService.Compute(info).Total.MagicAccuracy,
+            _combatService.GetMonsterStats(instanceId)?.MagicAvoid ?? 0f,
+            SkillDamageCurve.HitBonus(fields, info.CharacterLevel, targetLevel), fields.ProbabilityOnHit,
+            fields.ProbabilityIncBySlv, skillLevel);
+        if (!CastRules.StateLands(chance, _random.Next(100)))
+        {
+            _logger.Debug("{clientTag} debuff {skillId} was resisted (chance {chance})", client.ClientTag,
+                fields.SkillId, chance);
+            return;
+        }
+
         var duration = BuffCurve.DurationTicks(fields, skillLevel);
         var stateLevel = BuffCurve.StateLevel(fields, skillLevel);
-        var state = _monsterState.AddState(instanceId, fields.StateId, fields.SkillId, stateLevel, now,
-            unchecked(now + duration));
+        if (!_monsterState.TryAddState(instanceId, fields.StateId, fields.SkillId, stateLevel, now,
+                unchecked(now + duration), _stateCatalog.GetRule(fields.StateId), _stateCatalog.GetRule,
+                out var state, out var displaced))
+        {
+            return;
+        }
 
+        stateLevel = state.StateLevel;
         var handle = info.GetMonsterHandle(instanceId);
         if (handle != 0)
         {
+            foreach (var old in displaced)
+            {
+                client.Connection.Send(GameSkillPackets.BuildStateRemoval(handle, old.StateHandle, (uint)old.StateId));
+            }
+
             client.Connection.Send(GameSkillPackets.BuildState(handle, state.StateHandle,
                 (uint)state.StateId, (ushort)stateLevel, state.EndTick, now));
         }
 
         // The players watching see the debuff on the monster too, under their own handle for it.
+        foreach (var old in displaced)
+        {
+            ObserverFrames.SendMonsterFrame(_players, client, instanceId, (_, watcherHandle) =>
+                GameSkillPackets.BuildStateRemoval(watcherHandle, old.StateHandle, (uint)old.StateId));
+        }
+
         ObserverFrames.SendMonsterFrame(_players, client, instanceId, (_, watcherHandle) =>
             GameSkillPackets.BuildState(watcherHandle, state.StateHandle, (uint)state.StateId, (ushort)stateLevel,
                 state.EndTick, now));
     }
 
-    private void ApplyState(GameClient client, int stateId, int skillId, int stateLevel, uint now,
+    /// <summary>
+    /// Puts a state on the player under the official stacking rule (<see cref="StateStacking"/>, result 9
+    /// on a refusal): the states it displaces are taken off on the wire, the same state is refreshed in place,
+    /// and a stun-like state breaks the cast in progress (<see cref="CastRules.InterruptsCasting"/>).
+    /// </summary>
+    private bool ApplyState(GameClient client, int stateId, int skillId, int stateLevel, uint now,
         uint endTick)
     {
         var info = client.ConnectionInfo;
+        var rule = _stateCatalog.GetRule(stateId);
 
         ushort stateHandle;
+        int level;
+        var displaced = new List<ActiveBuff>();
         lock (info.BuffLock)
         {
-            var existing = info.ActiveBuffs.FindIndex(buff => buff.StateId == stateId);
-            if (existing >= 0)
+            var decision = StateStacking.Decide(info.ActiveBuffs, stateId, rule, stateLevel, endTick,
+                _stateCatalog.GetRule, force: endTick == NeverExpires);
+            if (decision.Refused)
             {
-                stateHandle = info.ActiveBuffs[existing].StateHandle;
-                info.ActiveBuffs.RemoveAt(existing);
-            }
-            else
-            {
-                stateHandle = ++info.NextStateHandle;
+                return false;
             }
 
-            info.ActiveBuffs.Add(new ActiveBuff(stateHandle, stateId, skillId, stateLevel, now, endTick));
+            level = decision.Level;
+            stateHandle = decision.RefreshIndex >= 0
+                ? info.ActiveBuffs[decision.RefreshIndex].StateHandle
+                : ++info.NextStateHandle;
+
+            var indices = new List<int>(decision.Removed);
+            if (decision.RefreshIndex >= 0)
+            {
+                indices.Add(decision.RefreshIndex);
+            }
+
+            indices.Sort();
+            for (var i = indices.Count - 1; i >= 0; i--)
+            {
+                if (indices[i] != decision.RefreshIndex)
+                {
+                    displaced.Add(info.ActiveBuffs[indices[i]]);
+                }
+
+                info.ActiveBuffs.RemoveAt(indices[i]);
+            }
+
+            info.ActiveBuffs.Add(new ActiveBuff(stateHandle, stateId, skillId, level, now, endTick));
+        }
+
+        foreach (var state in displaced)
+        {
+            SendToSelfAndWatchers(client, GameSkillPackets.BuildStateRemoval(info.CharacterHandle, state.StateHandle,
+                (uint)state.StateId));
         }
 
         // An aura has no deadline: the wire wants -1, which is what uint.MaxValue writes.
         SendToSelfAndWatchers(client, GameSkillPackets.BuildState(info.CharacterHandle, stateHandle,
-            (uint)stateId, (ushort)stateLevel, endTick, now));
+            (uint)stateId, (ushort)level, endTick, now));
+
+        if (CastRules.InterruptsCasting(stateId, rule.EffectType, rule.Values))
+        {
+            CancelCast(client);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -706,6 +979,22 @@ public class SkillCastService : ISkillCastService
             catch (Exception exception)
             {
                 _logger.Error(exception, "The buff expiry tick failed");
+            }
+        }
+    }
+
+    private async Task RunCastsAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(CastTickIntervalMs));
+        while (await timer.WaitForNextTickAsync())
+        {
+            try
+            {
+                ProcessCasts(ServerClock.Now);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "The cast tick failed");
             }
         }
     }

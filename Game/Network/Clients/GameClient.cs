@@ -832,6 +832,9 @@ public class GameClient : Client
         var handle = GameActionPackets.ReadCancelActionHandle(buffer);
         _logger.Verbose("{clientTag} cancelled action for handle {handle}", ClientTag, handle);
         _networkService.CombatService.StopAttack(this);
+
+        // onCancelAction also cancels the cast in progress (StructCreature::CancelSkill).
+        _networkService.SkillCastService?.CancelCast(this);
     }
 
     private void HandleResurrection(byte[] buffer)

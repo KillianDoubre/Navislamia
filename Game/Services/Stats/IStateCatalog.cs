@@ -25,4 +25,10 @@ public interface IStateCatalog
     /// state. False for any other state.
     /// </summary>
     bool TryGetResurrection(int stateId, out ResurrectionStateValues values);
+
+    /// <summary>
+    /// What stacking and casting read of a state (<see cref="Casting.StateRule"/>);
+    /// <see cref="Casting.StateRule.None"/> for an unknown id, which then shares no group with anything.
+    /// </summary>
+    Casting.StateRule GetRule(int stateId) => Casting.StateRule.None;
 }

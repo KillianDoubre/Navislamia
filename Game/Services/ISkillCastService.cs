@@ -32,4 +32,13 @@ public interface ISkillCastService
     /// and the stat refresh, exactly as the expiry tick does. False when no such state is active.
     /// </summary>
     bool RemoveState(GameClient client, int stateId);
+
+    /// <summary>
+    /// Cancels the cast in progress, if it can be cancelled (<c>StructSkill::Cancel</c>): <c>ST_Cancel</c> goes
+    /// to the caster and the players who see them. False when there is none or it cannot be.
+    /// </summary>
+    bool CancelCast(GameClient client) => false;
+
+    /// <summary>A hit taken while casting pushes the fire back or may break the cast (<c>casting_type</c>).</summary>
+    void OnCasterDamaged(GameClient client, int damage) { }
 }

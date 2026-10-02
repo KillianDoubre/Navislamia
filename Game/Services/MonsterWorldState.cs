@@ -124,6 +124,58 @@ public class MonsterWorldState
         }
     }
 
+    /// <summary>
+    /// <see cref="AddState"/> under the official stacking rule (<see cref="Casting.StateStacking"/>): false when
+    /// a stronger or longer state of the same group refuses it; otherwise the states it displaced are in
+    /// <paramref name="removed"/> and the applied one, refreshed in place when it was already there, in
+    /// <paramref name="applied"/>.
+    /// </summary>
+    public bool TryAddState(long instanceId, int stateId, int skillId, int stateLevel, uint startTick, uint endTick,
+        Casting.StateRule rule, Func<int, Casting.StateRule> rules, out ActiveBuff applied,
+        out IReadOnlyList<ActiveBuff> removed)
+    {
+        lock (_stateLock)
+        {
+            if (!_states.TryGetValue(instanceId, out var states))
+            {
+                states = new List<ActiveBuff>();
+                _states[instanceId] = states;
+            }
+
+            var decision = Casting.StateStacking.Decide(states, stateId, rule, stateLevel, endTick, rules);
+            if (decision.Refused)
+            {
+                applied = default;
+                removed = Array.Empty<ActiveBuff>();
+                return false;
+            }
+
+            var handle = decision.RefreshIndex >= 0 ? states[decision.RefreshIndex].StateHandle : ++_nextStateHandle;
+            var dropped = new List<ActiveBuff>();
+            var indices = new List<int>(decision.Removed);
+            if (decision.RefreshIndex >= 0)
+            {
+                indices.Add(decision.RefreshIndex);
+            }
+
+            indices.Sort();
+            for (var i = indices.Count - 1; i >= 0; i--)
+            {
+                if (indices[i] != decision.RefreshIndex)
+                {
+                    dropped.Add(states[indices[i]]);
+                }
+
+                states.RemoveAt(indices[i]);
+            }
+
+            applied = new ActiveBuff(handle, stateId, skillId, decision.Level, startTick, endTick);
+            states.Add(applied);
+            removed = dropped;
+            return true;
+        }
+    }
+
     public IReadOnlyList<ActiveBuff> GetStates(long instanceId)
     {
         lock (_stateLock)

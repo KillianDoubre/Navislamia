@@ -158,7 +158,8 @@ public class MonsterSkillCatalog : IMonsterSkillCatalog
             row.StateSecond, row.StateSecondPerLevel, row.StateLevelBase, row.StateLevelPerSkill, row.CostMp,
             row.CostMpPerSkl, row.DelayCast, row.DelayCastPerSkl, row.DelayCommon, row.DelayCooltime,
             row.DelayCooltimePerSkl, row.RequiredLevel, row.HitBonus, row.Percentage, row.CriticalBonus,
-            row.CriticalBonusPerSkl);
+            row.CriticalBonusPerSkl, row.CastRange, row.ProbabilityOnHit, row.ProbabilityIncBySlv,
+            EffectType: row.EffectType, IsHarmful: row.IsHarmful);
         skill = new MonsterSkill(fields, effect, level, probability, onSelf);
         return true;
     }

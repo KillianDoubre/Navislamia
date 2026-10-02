@@ -313,6 +313,9 @@ public class Program
         services.AddSingleton<IStateResourceRepository, StateResourceRepository>();
         services.AddSingleton<IStateCatalog, StateCatalog>();
         services.AddSingleton<IBuffCatalog, BuffCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Casting.CastInterrupts>();
+        services.AddSingleton<Navislamia.Game.Services.Casting.ICastInterrupts>(provider =>
+            provider.GetRequiredService<Navislamia.Game.Services.Casting.CastInterrupts>());
         services.AddSingleton<ISkillCastService, SkillCastService>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();

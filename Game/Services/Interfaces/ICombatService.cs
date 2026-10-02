@@ -44,6 +44,9 @@ public interface ICombatService
     /// <summary>The monster's current stats, its states included; null for an unknown instance.</summary>
     Navislamia.Game.Services.Stats.StatBlock GetMonsterStats(long instanceId);
 
+    /// <summary>The player's total stats, as the hit rolls read them; null when unknown.</summary>
+    Navislamia.Game.Services.Stats.StatBlock GetPlayerStats(GameClient client) => null;
+
     /// <summary>
     /// Applies damage to a monster and owns everything that follows: death, the corpse, its states, the
     /// drops, the reward and the respawn. Returns the monster's remaining HP.

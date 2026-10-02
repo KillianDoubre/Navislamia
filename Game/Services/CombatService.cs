@@ -29,6 +29,9 @@ public class CombatService : ICombatService
     private readonly IPartyService _parties;
     private readonly IQuestService _quests;
     private readonly IStatService _stats;
+
+    /// <summary>Where a hit or a death tells the cast in progress (StructSkill::onDamage, CancelSkill).</summary>
+    private readonly Casting.ICastInterrupts _casts;
     private readonly IStateCatalog _states;
     private readonly ICombatRandom _random;
     private readonly IPlayerVisibilityService _players;
@@ -40,8 +43,10 @@ public class CombatService : ICombatService
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
         IStatService stats, IStateCatalog states, IPartyService parties, IQuestService quests = null,
-        ICombatRandom random = null, IPlayerVisibilityService players = null)
+        ICombatRandom random = null, IPlayerVisibilityService players = null,
+        Casting.ICastInterrupts casts = null)
     {
+        _casts = casts;
         _parties = parties;
         _quests = quests;
         _players = players;
@@ -267,11 +272,18 @@ public class CombatService : ICombatService
             // A dead character swings no more (the reference's onDead ends the attack), and a monster kill
             // costs experience (StructPlayer::procDecreaseEXPAndDropItem). No death packet exists here.
             StopAttack(target);
+            _casts?.Interrupt(target);
             _levelingService.ApplyDeathPenalty(target);
+        }
+        else if (wasAlive && damage > 0)
+        {
+            _casts?.Damaged(target, damage);
         }
 
         return info.CharacterHp;
     }
+
+    public StatBlock GetPlayerStats(GameClient client) => _stats?.Compute(client.ConnectionInfo).Total;
 
     public StatBlock GetMonsterStats(long instanceId) =>
         _worldState.TryGetInstance(instanceId, out var instance) ? MonsterStats(instanceId, instance) : null;

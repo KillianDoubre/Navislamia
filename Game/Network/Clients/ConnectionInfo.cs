@@ -158,6 +158,11 @@ public class ConnectionInfo
     /// </summary>
     public const byte EchoedMoveSpeed = 17;
 
+    /// <summary>The cast between its <c>ST_Casting</c> and its fire, under <see cref="CastLock"/>.</summary>
+    public Navislamia.Game.Services.Casting.PendingCast PendingCast { get; set; }
+
+    public readonly object CastLock = new();
+
     /// <summary>
     /// The speed of the character's current walk: <see cref="EchoedMoveSpeed"/> slowed by its load
     /// (<see cref="Navislamia.Game.Services.Weight.WeightRules.MoveSpeed"/>), set at each move request and used
@@ -562,6 +567,11 @@ public class ConnectionInfo
         IsBattleMode = false;
         IsWalking = false;
         IsImmortal = false;
+        lock (CastLock)
+        {
+            PendingCast = null;
+        }
+
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
         NextInventoryArrangeAt = default;
