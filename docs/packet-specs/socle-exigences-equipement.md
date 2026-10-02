@@ -299,15 +299,37 @@ Chaque point est formulé comme la question exacte à trancher, pour qu'aucun de
    `CharacterEntity.MaxReachedLv` (`CharacterEntity.cs:32`) est le seul candidat. Tant que ce n'est pas
    tranché, le lot 1 doit **juger sur le niveau seul**, ce qui est *plus strict* que l'officiel : un écart
    assumé et bénin (refuser là où l'officiel accepte), à écrire dans la MR.
+
+   *État du code (2026-10-02, lot 1 livré, commit `6f91d23`)* : le plafond est jugé sur le niveau du
+   personnage **seul** (`ItemWearRules.IsWearAllowed`, appelé par `EquipmentService.JudgeWearAsync` pour la
+   200 et par la branche de `EquipSetAsync` pour la 281) ; `MaxReachedLv` n'a **pas** été retenu, faute de
+   preuve d'équivalence. La question reste ouverte pour le lot 2.
+
 4. **L'ordre des contrôles et la valeur de refus pour la position hors bornes** : le dépôt refuse
    `InvalidArgument` avant toute lecture d'objet (`EquipmentService.cs:48-52`) alors que l'officiel traduit
    d'abord `wear_type == -1` en 5. Les deux chemins refusent, mais pas avec le même code ni au même moment ;
    aucun test client ne le départage ici.
+
+   *État du code (2026-10-02, lot 1 livré, commit `6f91d23`)* : inchangé, le lot 1 n'y touche pas. La
+   position est toujours jugée avant toute lecture d'objet (`EquipmentService.EquipAsync`), et un test le
+   fige (`EquipAsync_AnswersAPositionOutsideTheWearInfoBeforeReadingTheItem`, qui vérifie en plus qu'aucun
+   `GetItemByHandleAsync` n'a eu lieu). Un objet `wear_type == -1` portant une position **valide** passe
+   cette porte et reçoit 5 du prédicat d'exigence (voir la réserve 7 ci-dessous).
 5. **L'infobulle du client** (niveau requis, restrictions affichées) n'a pas été lue : rien n'établit que le
    client calcule son texte depuis `use_min_level`/le plancher de rang plutôt que depuis `level`.
 6. **Le masque `nLimit` d'une ligne 9.4-only** : 3 499 lignes de `ItemResources` n'existent pas dans le
    fichier Epic 7 et gardent les valeurs d'un import antérieur. Comme aucun objet du client 7.3 ne les
    référence (`import_epic7.py:8`), elles ne devraient pas passer par la porte — non vérifié en base.
+7. **Le code de refus d'un objet `wear_type == -1`** (réserve montée par le dev au lot 1) : sur l'officiel,
+   un tel objet est refusé par `StructItem::IsWearable` au contrôle **§5.1-3**, donc avant
+   `TranslateWearPosition`, avec **6** `AccessDenied` — le §5.2-1 (`wear_type == -1` dans
+   `TranslateWearPosition`) est inatteignable par ce chemin. Le lot 1 applique la consigne de la fiche
+   (§5.6-1 et §6 : « le seul code à retenir ici est 5 ») et répond **5** `NotActable`. À trancher : garder la
+   consigne de la fiche, ou aligner le code 6 d'`IsWearable` — le bit `ITEM_FLAG_FAILED` et la durabilité à 0
+   du même contrôle ne sont, eux, pas jugés du tout (voir §10.5).
+
+*État du code (2026-10-02, lot 1 livré, commit `6f91d23`)* : les questions 1, 2, 5 et 6 ne sont pas touchées
+par le lot 1 ; la 3 est appliquée « au plus strict » ; la 4 reste en l'état ; la 7 naît du lot 1.
 
 ## 8. Commits et binaires épinglés
 
@@ -398,10 +420,16 @@ d'abord, `StructPlayer::TranslateWearPosition` ensuite.
 - Tout échec répond **`TM_SC_RESULT` (0) code 5 `NotActable`** : l'officiel ne distingue pas les causes, et
   `LimitMin` / `LimitMax` / `LimitRace` / `LimitJob` servent à l'*utilisation* d'un objet, pas au port.
 
-Ce que la branche applique (`navis-dev`, lot 1) : le prédicat d'exigence posé à côté de `ItemWearRules` refuse
-l'objet par `NotActable` quand le plancher de rang ou la fenêtre `use_min_level` / `use_max_level` n'est pas
-satisfaite, sur les deux chemins (200 et 281). Le plafond se juge sur le niveau du personnage **seul**, faute
-d'équivalent établi de `m_nUnitExpertLevel` dans le dépôt.
+Ce que la branche applique (`navis-dev`, lot 1, commit `6f91d23`) : `ItemWearRules.IsWearAllowed` juge l'objet
+avant `EquipItemAsync` — un `wear_type == -1` refuse tout le monde, puis
+`max(plancherDeRang(rank), use_min_level) > niveau du personnage` refuse, puis la fenêtre `use_max_level`
+(0 = pas de plafond) — et l'appelant répond `NotActable` (5) sur les deux chemins (200 et 281), un handle
+refusé au sein d'une 281 n'interrompant pas les suivants. Le plancher de rang est la constante de code
+`{0, 0, 20, 50, 80, 100, 120, 150, 170}` indexée par le rang clampé 0..8, et les trois colonnes viennent du
+catalogue (`ItemWearFields`, projeté par `ItemResourceRepository.GetWearFields`), pas d'une lecture en base
+par équipement. Le plafond se juge sur le niveau du personnage **seul**, faute d'équivalent établi de
+`m_nUnitExpertLevel` dans le dépôt. Race, classe et profondeur (lot 2) ne sont pas jugées, et un handle ou une
+ressource que le catalogue ne peut pas lire reste jugé par le chemin d'équipement lui-même.
 
 ### Current limitations
 
@@ -413,3 +441,91 @@ d'équivalent établi de `m_nUnitExpertLevel` dans le dépôt.
 - Le port sur invocation (`target_handle` visant un familier), `TM_CS_SWAP_EQUIP` (223) et la restauration
   des objets portés à la connexion ne passent pas par cette règle.
 ~~~
+
+## 10. Implémentation livrée (`navis-dev`, lot 1)
+
+Branche `hermes/packet-socle-exigences-equipement`, base `fca9110`, commit de code **`6f91d23`**. **Lot 1
+seulement** : les lots 2 (race, classe, profondeur) et 3 (223, invocation, restauration) ne sont pas touchés.
+
+### 10.1 Checklist du lot 1 (§5.6)
+
+- [x] **1. `IsWearAllowed` à côté de `ItemWearRules`** — `ItemWearRules.IsWearAllowed(wearType, rank,
+      useMinLevel, useMaxLevel, characterLevel)` et sa surcharge prenant un `ItemWearFields`, à côté de
+      `IsWearableSlot` / `TryResolveSlot`. Ordre appliqué : `wear_type == -1` → refus ; plancher → refus ;
+      plafond → refus. Table des rangs en **constante de code** (`RankLevelFloor`, même tableau que §5.2).
+- [x] **2. Les trois champs exposés par le catalogue** — `ItemWearFields` porte `Rank`, `UseMinLevel` et
+      `UseMaxLevel` ; `ItemResourceRepository.GetWearFields()` projette les trois colonnes et
+      `IItemWearCatalog.TryGetWearFields(long, out ItemWearFields)` les sert. Le dictionnaire gelé les porte
+      tous les trois : **aucune lecture en base par équipement**.
+- [x] **3. Branchement avant `EquipItemAsync`, sur les deux chemins** — `EquipmentService.JudgeWearAsync`
+      pour la 200 (après le contrôle de position, avant `EquipAtSlotAsync`) ; `ResolveSlotAsync` rend
+      désormais les `ItemWearFields` avec l'emplacement, donc la 281 juge sans seconde lecture et **un
+      handle refusé n'interrompt pas les suivants**. Refus `ResultCode.NotActable` (5).
+- [x] **4. Tests** — table du prédicat (rangs 0..8, `use_min_level` 0/1/20/155/160, `use_max_level` 0/300),
+      suite d'offsets de la 200 (16 octets, `position` à 7, `item_handle` à 8, `target_handle` à 12) et le
+      chemin de refus des deux chemins de service.
+
+### 10.2 Fichiers touchés
+
+| Fichier | Ce qui change |
+|---|---|
+| `Game/Services/ItemWearRules.cs` | `RankLevelFloor` (table de code, index clampé 0..8) ; `IsWearAllowed` et sa surcharge |
+| `Game/DataAccess/Repositories/Interfaces/IItemResourceRepository.cs` | `ItemWearFields` gagne `Rank`, `UseMinLevel`, `UseMaxLevel` (record positionnel, ordre figé par un test) |
+| `Game/DataAccess/Repositories/ItemResourceRepository.cs` | `GetWearFields()` projette les trois colonnes |
+| `Game/Services/Interfaces/IItemWearCatalog.cs` | `TryGetWearType` remplacé par `TryGetWearFields(long, out ItemWearFields)` |
+| `Game/Services/ItemWearCatalog.cs` | le dictionnaire gelé porte le port entier (emplacement + exigences) |
+| `Game/Services/EquipmentService.cs` | `JudgeWearAsync` (200) ; `ResolveSlotAsync` rend les champs ; branche d'exigence de `EquipSetAsync` (281) |
+| `Tests/Game/EquipmentWearRequirementTests.cs` | nouveau, 61 tests : table du prédicat, table des rangs, refus des deux chemins |
+| `Tests/Game/PutonItemPacketsTests.cs` | nouveau, 9 tests : offsets de la 200 |
+| `Tests/Game/ItemWearTests.cs` | +1 test (le port entier) ; les dix existants portés sur `TryGetWearFields` |
+
+`CLAUDE.md` n'est **pas** touché (fichier d'instructions protégé) : le bloc du §9 part dans la description de
+la MR.
+
+### 10.3 Réponses émises par le code livré
+
+| Cas | Avant le lot | Après le lot |
+|---|---|---|
+| objet sous son plancher de rang (200 et 281) | équipé | `TM_SC_RESULT` (0), id 200/281, **5** `NotActable` |
+| objet au-dessus de `use_max_level` | équipé | **5** `NotActable` |
+| objet `wear_type == -1` sur une position valide | équipé | **5** `NotActable` (voir la réserve §7.7 : l'officiel répond 6 par `IsWearable`) |
+| objet porté par le personnage mais absent du dossier `ItemResources` | équipé | équipé, le prédicat ne juge pas ce qu'il ne peut pas lire |
+| handle inconnu du personnage | 6 `AccessDenied` (chemin d'équipement) | inchangé |
+| position hors bornes | 3 `InvalidArgument`, avant toute lecture | inchangé |
+| 281 mixte (objet refusé puis objet valide) | tout équipé | seul le valide est équipé, la réponse porte le **premier refus** (5) |
+
+### 10.4 Ce qui n'est pas porté (et par où ça fuit)
+
+- **§5.1-3, `StructItem::IsWearable`** : le bit `ITEM_FLAG_FAILED` (`[item+0x15c]` bit 3) et la durabilité à
+  0 ne sont jugés ni avant ni après ce lot ; seul `wear_type == -1` l'est. Refus officiel : 6 `AccessDenied`.
+  Le dépôt ne dispose pas d'un état d'instance équivalent typé (`ItemEntity.Flag`, `Endurance`,
+  `EtherealDurability`) — c'est une décision à prendre, pas un oubli de lecture.
+- **§5.2-4 (min) et §5.2-5 (max)** : la borne basse `use_min_level` est portée par le `max()` du plancher
+  (aucune divergence mesurable : `use_min_level` est toujours ≥ 0), la borne haute est un contrôle à part.
+- 281 : la 223, le port sur invocation et la restauration des objets portés à la connexion (§5.6, lot 3).
+- Les emplacements `position` de la 200 continuent d'être jugés **avant** l'objet (réserve §7.4, inchangée).
+
+### 10.5 Commandes et codes de sortie mesurés (2026-10-02, VPS du pipeline)
+
+    export NUGET_PACKAGES=/srv/navislamia/.nuget-cache
+    dotnet build Navislamia.sln -c Debug        # code 0, 0 erreur
+    dotnet test Tests/Tests.csproj              # code 0, Failed 0, Passed 2625, Total 2625
+
+Base mesurée sur ce clone au même commit que le PO (`fca9110`, worktree détaché) : `Passed 2554`. Le lot
+ajoute **+71** tests et n'en supprime aucun (§5.6-4 : 61 pour le prédicat et les chemins de refus, 9 pour les
+offsets de la 200, 1 pour le catalogue).
+
+Invariant d'énumération : aucun membre de `GamePackets` n'est ajouté par ce lot ; contrôle de l'état final,
+110 membres `TM_CS_*` et **0** absent du dispatch de `GameClient` (les 54 non dispatchés sont des `TM_SC_*`,
+sortants par construction).
+
+### 10.6 Réserves transmises à la QA
+
+1. Le code de refus d'un `wear_type == -1` : **5** dans ce lot (consigne de la fiche), **6** sur l'officiel
+   par `IsWearable` — réserve §7.7, à ne pas « corriger » sans arbitrage.
+2. Le plafond est jugé sur le niveau du personnage seul (réserve §7.3) : plus strict que l'officiel, écart
+   assumé et borné.
+3. `use_min_level` en dessous du `max()` du plancher n'est pas un contrôle séparé (aucune divergence possible
+   pour des valeurs ≥ 0) — à dire dans la MR pour qu'un relecteur ne le compte pas comme un oubli.
+4. Les tests de service montent un `ICharacterService` factice qui répond `NotFound` : ils figent le chemin
+   de refus, pas le chemin d'écriture en base (déjà couvert par les fiches 200/281).
