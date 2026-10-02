@@ -76,7 +76,7 @@ public sealed class QuestService : IQuestService, IDisposable
         return _jobs.GetValueOrDefault(jobId)?.JobDepth switch { 1 => 0, 2 => 1, 4 => 2, 8 => 3, _ => 0 };
     }
     private bool CanStart(QuestResourceEntity resource, ConnectionInfo player, CharacterQuestEntity[] active,
-        Dictionary<int, DateTime> completed, Dictionary<int, DateTime> accepted = null)
+        Dictionary<int, DateTime> completed, Dictionary<int, DateTime> accepted = null, int favor = 0)
     {
         if (accepted is not null && accepted.TryGetValue(resource.Id, out var last)
             && _time.GetUtcNow().UtcDateTime < last.AddSeconds(Math.Max(0, resource.AcceptCoolTime))) return false;
@@ -86,7 +86,7 @@ public sealed class QuestService : IQuestService, IDisposable
         var jobClass = job?.JobClass ?? (resource.LimitFighter == "1" && resource.LimitHunter == "1"
             && resource.LimitMagician == "1" && resource.LimitSummoner == "1" ? 1 : 0);
         var depth = job is null ? 0 : job.JobDepth switch { 1 => 0, 2 => 1, 4 => 2, 8 => 3, _ => -1 };
-        return depth >= 0 && QuestRules.CanStart(resource, player, active, completed, _time.GetUtcNow().UtcDateTime, jobClass, depth);
+        return depth >= 0 && QuestRules.CanStart(resource, player, active, completed, _time.GetUtcNow().UtcDateTime, jobClass, depth, favor);
     }
 
     public async Task<IReadOnlyList<NpcDialogMenuEntry>> GetNpcOffersAsync(GameClient client, int npcId)
@@ -104,7 +104,8 @@ public sealed class QuestService : IQuestService, IDisposable
         {
             if (!_resources.TryGetValue(link.QuestId, out var resource) || !QuestRules.Supported(resource)) continue;
             var quest = active.FirstOrDefault(q => q.Code == link.QuestId);
-            var offered = quest is null ? link.FlagStart == "1" && CanStart(resource, client.ConnectionInfo, active, completed, accepted)
+            var offered = quest is null ? link.FlagStart == "1" && CanStart(resource, client.ConnectionInfo, active, completed, accepted,
+                    await FavorAsync(db, character.Id, resource, npcId))
                 : quest.Progress == QuestRules.Finishable ? link.FlagEnd == "1" : link.FlagProgress == "1";
             if (offered) menu.Add(new NpcDialogMenuEntry { Label = $"@{resource.TextIdQuest}", Trigger = $"quest_info({resource.Id})" });
         }
@@ -125,7 +126,8 @@ public sealed class QuestService : IQuestService, IDisposable
         if (quest is null)
         {
             if (link.FlagStart != "1" || !CanStart(resource, client.ConnectionInfo, active,
-                await Completions(db, character.Id), await Acceptances(db, character.Id))) return null;
+                await Completions(db, character.Id), await Acceptances(db, character.Id),
+                await FavorAsync(db, character.Id, resource, npcId))) return null;
             dialog.Text = $"QUEST|{code}|{link.TextIdStart}";
             dialog.Menu.Add(new NpcDialogMenuEntry { Label = "START", Trigger = $"start_quest({code},{link.TextIdStart})" });
             dialog.Menu.Add(new NpcDialogMenuEntry { Label = "REJECT" });
@@ -163,7 +165,8 @@ public sealed class QuestService : IQuestService, IDisposable
                 var character = await db.Characters.SingleOrDefaultAsync(c => c.CharacterName == client.ConnectionInfo.CharacterName);
                 if (character is null) return false;
                 var active = await db.CharacterQuests.Where(q => q.CharacterId == character.Id).ToArrayAsync();
-                if (!CanStart(resource, client.ConnectionInfo, active, await Completions(db, character.Id))) return false;
+                if (!CanStart(resource, client.ConnectionInfo, active, await Completions(db, character.Id),
+                    favor: await FavorAsync(db, character.Id, resource, npcId))) return false;
                 var last = await db.CharacterQuests.IgnoreQueryFilters().Where(q => q.CharacterId == character.Id && q.Code == code)
                     .OrderByDescending(q => q.CreatedOn).FirstOrDefaultAsync();
                 if (last is not null && _time.GetUtcNow().UtcDateTime < last.CreatedOn.AddSeconds(Math.Max(0, resource.AcceptCoolTime))) return false;
@@ -289,6 +292,16 @@ public sealed class QuestService : IQuestService, IDisposable
                 var exp = checked((long)(Math.Max(0, resource.Exp) * factor));
                 var jp = checked((long)(Math.Max(0, resource.Jp) * factor));
                 var gold = checked((long)(Math.Max(0, resource.Gold) * factor));
+                // StructPlayer::EndQuest refuses a hand-in whose gold would pass the carried ceiling and says
+                // so on the quest line; nothing is consumed, since nothing is saved. It judges no weight.
+                if (!GoldRules.Fits(info.CharacterGold, gold, GoldRules.MaxCarried))
+                {
+                    Chat(client, $"END|TOO_MUCH_MONEY|{request.Code}");
+                    return ResultCode.TooMuchMoney;
+                }
+                // StructPlayer::AddFavor: +favor on favor_group_id, -favor on hate_group_id (999 = this NPC).
+                await AddFavorAsync(db, character.Id, QuestRules.FavorId(resource.FavorGroupId, npcId), resource.Favor);
+                await AddFavorAsync(db, character.Id, QuestRules.FavorId(resource.HateGroupId, npcId), -resource.Favor);
                 character.Exp = checked(info.CharacterExp + exp);
                 character.Jp = checked(info.CharacterJp + jp);
                 character.Gold = checked(info.CharacterGold + gold);
@@ -403,6 +416,22 @@ public sealed class QuestService : IQuestService, IDisposable
     private static Dictionary<int, long> Counts(IEnumerable<ItemEntity> items) => items
         .Where(i => i.Amount > 0 && i.DeletedOn == null && i.StorageId == null && i.AuctionId == null && i.WearInfo == ItemWearType.None && i.EquippedBySummonId == null)
         .GroupBy(i => (int)i.ItemResourceId).ToDictionary(g => g.Key, g => g.Sum(i => i.Amount));
+    private static async Task<int> FavorAsync(TelecasterContext db, long characterId, QuestResourceEntity resource, int npcId)
+    {
+        if (resource.LimitFavor <= 0) return 0;
+        var id = QuestRules.FavorId(resource.LimitFavorGroupId, npcId);
+        return await db.CharacterFavors.AsNoTracking().Where(f => f.CharacterId == characterId && f.FavorId == id)
+            .Select(f => f.Value).FirstOrDefaultAsync();
+    }
+    /// <summary>An unbounded id → value counter; a group id of 0 names nothing.</summary>
+    private static async Task AddFavorAsync(TelecasterContext db, long characterId, int favorId, int amount)
+    {
+        if (favorId == 0 || amount == 0) return;
+        var row = db.CharacterFavors.Local.FirstOrDefault(f => f.CharacterId == characterId && f.FavorId == favorId)
+                  ?? await db.CharacterFavors.SingleOrDefaultAsync(f => f.CharacterId == characterId && f.FavorId == favorId);
+        if (row is null) db.CharacterFavors.Add(new CharacterFavorEntity { CharacterId = characterId, FavorId = favorId, Value = amount });
+        else row.Value = (int)Math.Clamp((long)row.Value + amount, int.MinValue, int.MaxValue);
+    }
     private static async Task<Dictionary<int, DateTime>> Completions(TelecasterContext db, long id) => await db.CharacterQuestCompletions.AsNoTracking().Where(q => q.CharacterId == id).ToDictionaryAsync(q => q.Code, q => q.CompletedAt);
     private static async Task<Dictionary<int, DateTime>> Acceptances(TelecasterContext db, long id) =>
         await db.CharacterQuests.IgnoreQueryFilters().AsNoTracking().Where(q => q.CharacterId == id)

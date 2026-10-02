@@ -263,24 +263,72 @@ public class StorageServiceTests
         A.CallTo(() => harness.Repository.MoveAsync(A<string>._, A<uint>._, A<bool>._, A<long>._)).MustNotHaveHappened();
     }
 
-    [TestCase(2, 1, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_OneUnit")]
-    [TestCase(3, 1, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_OneUnitBack")]
-    [TestCase(2, 100000000000, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_TheReferenceBound")]
-    [TestCase(3, 9223372036854775807, TestName = "Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace_MaxInt64")]
-    public async Task Handle_RefusesTheGoldModesWhileTheStoredGoldHasNoPlace(int mode, long count)
+    [TestCase(2, 1_000L, 0L, 500L, 500L, 500L)]
+    [TestCase(3, 0L, 800L, 300L, 300L, 500L)]
+    public async Task Handle_MovesGoldBetweenTheBagAndTheAccountStorage(int mode, long carried, long stored,
+        long amount, long expectedCarried, long expectedStored)
     {
-        // The stored gold has no column in this repository and NGemity keeps it in a dummy item row of code
-        // 0 (CharacterDatabase.cpp:97): the scope is an open decision (§7.5), so no gold moves in either
-        // direction rather than moving into a value the server could not give back. Every amount is refused
-        // the same way — no bound of the gold is decided here, NGemity's own 1e11 included (§7.5, A
-        // VERIFIER 3), and the item path is never reached.
+        // Modes 2/3 of the official onStorage: the stored gold is the account's, and both balances are
+        // written in one save (socle-entrepot-or.md §2).
         var harness = Build();
+        harness.Session.CharacterGold = carried;
+        A.CallTo(() => harness.Repository.GetStorageGoldAsync(Character)).Returns(Task.FromResult(stored));
 
-        await Send(harness, (byte)mode, count);
+        await Send(harness, (byte)mode, amount);
+
+        harness.Session.CharacterGold.Should().Be(expectedCarried);
+        A.CallTo(() => harness.Repository.SaveGoldAsync(Character, expectedCarried, expectedStored))
+            .MustHaveHappenedOnceExactly();
+        harness.Connection.Sent.Select(IdOf).Should().Equal((ushort)GamePackets.TM_SC_GOLD_UPDATE,
+            (ushort)GamePackets.TM_SC_PROPERTY);
+        PropertyNameOf(harness.Connection.Sent[1]).Should().Be("storage_gold");
+        PropertyValueOf(harness.Connection.Sent[1]).Should().Be(expectedStored);
+    }
+
+    [TestCase(2, 100L, 0L, 101L, ResultCode.NotEnoughMoney)]
+    [TestCase(3, 0L, 100L, 101L, ResultCode.NotEnoughMoney)]
+    [TestCase(2, 10L, GoldRules.MaxStored, 1L, ResultCode.TooMuchMoney)]
+    [TestCase(3, GoldRules.MaxCarried, 10L, 1L, ResultCode.TooMuchMoney)]
+    public async Task Handle_RefusesAGoldMoveTheBalancesCannotTake(int mode, long carried, long stored,
+        long amount, ResultCode expected)
+    {
+        var harness = Build();
+        harness.Session.CharacterGold = carried;
+        A.CallTo(() => harness.Repository.GetStorageGoldAsync(Character)).Returns(Task.FromResult(stored));
+
+        await Send(harness, (byte)mode, amount);
 
         harness.Connection.Sent.Should().ContainSingle();
-        AssertRefusal(harness.Connection.Sent[0], (ushort)ResultCode.NotActable, unchecked((int)Handle));
+        AssertRefusal(harness.Connection.Sent[0], (ushort)expected, unchecked((int)Handle));
+        harness.Session.CharacterGold.Should().Be(carried);
+        A.CallTo(() => harness.Repository.SaveGoldAsync(A<string>._, A<long>._, A<long>._)).MustNotHaveHappened();
         A.CallTo(() => harness.Repository.MoveAsync(A<string>._, A<uint>._, A<bool>._, A<long>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task Handle_GivesTheGoldBackWhenTheSaveFails()
+    {
+        var harness = Build();
+        harness.Session.CharacterGold = 1_000;
+        A.CallTo(() => harness.Repository.SaveGoldAsync(A<string>._, A<long>._, A<long>._))
+            .ThrowsAsync(new InvalidOperationException("database down"));
+
+        await Send(harness, StorageRules.GoldToStorage, 400);
+
+        harness.Session.CharacterGold.Should().Be(1_000);
+        AssertRefusal(harness.Connection.Sent.Single(), (ushort)ResultCode.DBError, unchecked((int)Handle));
+    }
+
+    [Test]
+    public async Task Handle_RefusesADepositIntoAFullStorage()
+    {
+        var harness = Build();
+        A.CallTo(() => harness.Repository.MoveAsync(Character, Handle, true, 5))
+            .Returns(Task.FromResult(StorageMoveResult.Refused(StorageMoveOutcome.StorageFull)));
+
+        await Send(harness, StorageRules.ItemToStorage, 5);
+
+        AssertRefusal(harness.Connection.Sent.Single(), (ushort)ResultCode.TooHeavy, unchecked((int)Handle));
     }
 
     [Test]

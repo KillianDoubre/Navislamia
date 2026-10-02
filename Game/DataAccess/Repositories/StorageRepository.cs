@@ -85,7 +85,17 @@ public class StorageRepository : IStorageRepository
             return StorageMoveResult.Refused(StorageMoveOutcome.Ignored);
         }
 
-        var slot = StorageRules.NextFreeIndex(await DestinationIndicesAsync(context, character, accountId, toStorage));
+        var used = await DestinationIndicesAsync(context, character, accountId, toStorage);
+
+        // The official onStorage refuses a deposit once the storage holds its maximum count of stacks
+        // (game.max_storage_item_count, 1000). Its exception, a stack joining an existing one, has no
+        // case here: a moved stack always takes a row of its own.
+        if (toStorage && used.Length >= StorageRules.Capacity)
+        {
+            return StorageMoveResult.Refused(StorageMoveOutcome.StorageFull);
+        }
+
+        var slot = StorageRules.NextFreeIndex(used);
 
         if (moved == item.Amount)
         {
@@ -101,6 +111,40 @@ public class StorageRepository : IStorageRepository
         context.Items.Add(destination);
         await context.SaveChangesAsync();
         return new StorageMoveResult(StorageMoveOutcome.Split, destination, item, item.Amount);
+    }
+
+    public async Task<long> GetStorageGoldAsync(string characterName)
+    {
+        await using var context = new TelecasterContext(_options);
+        var accountId = await context.Characters.AsNoTracking().Where(c => c.CharacterName == characterName)
+            .Select(c => (long?)c.AccountId).FirstOrDefaultAsync();
+        if (accountId is null)
+        {
+            return 0;
+        }
+
+        return await context.AccountStorageGolds.AsNoTracking().Where(row => row.AccountId == accountId)
+            .Select(row => row.Gold).FirstOrDefaultAsync();
+    }
+
+    public async Task SaveGoldAsync(string characterName, long carried, long stored)
+    {
+        await using var context = new TelecasterContext(_options);
+        var character = await context.Characters.FirstOrDefaultAsync(c => c.CharacterName == characterName)
+                        ?? throw new InvalidOperationException($"No character named {characterName}");
+
+        var row = await context.AccountStorageGolds.FirstOrDefaultAsync(r => r.AccountId == character.AccountId);
+        if (row is null)
+        {
+            context.AccountStorageGolds.Add(new AccountStorageGoldEntity { AccountId = character.AccountId, Gold = stored });
+        }
+        else
+        {
+            row.Gold = stored;
+        }
+
+        character.Gold = carried;
+        await context.SaveChangesAsync();
     }
 
     /// <summary>

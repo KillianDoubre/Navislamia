@@ -564,8 +564,9 @@ clamped to the client view. **Attack range is the reference's real value**, in `
 body-size term dominates the tiny weapon term, so a small monster reaches ~12 units and a big one
 (`size` up to 12.45, `scale` up to 7) hundreds — **big monsters really do hit from farther**. The same
 per-monster reach gates both the monster's attack and the player's swing, keeping them symmetric.
-`GroupFirstAttack` is imported but group aggro is not
-modelled.
+**Group aggro is the official one** (`docs/packet-specs/socle-aggro-groupe.md`): a monster with
+`f_group_first_attack` that takes a player on sight gives it to the monsters of its `monster_group` the player
+sees, within its sight range (`MonsterWorldState.RallyGroup`); a retaliation rallies nobody.
 
 `CharacterMaxHp` was added to `ConnectionInfo` next to `CharacterHp`, seeded at the same two points HP
 is set to max (login and level-up); the former test damage read it, the real rule reads the stats. The AI columns were NOT NULL
@@ -1428,7 +1429,7 @@ premiers octets de chaque enregistrement de 703), 706 = 19, 707 = 11 + 4 × H, 7
   observateurs (`IPlayerVisibilityService.SendToObservers`) ; 707 reçoit les noms des étals ouverts.
 - **Commerce** : il faut regarder l'étal (702). Le `gold` déclaré est un **prix unitaire**. Ordre : réserver
   les unités de l'étal sous `BoothLock` (`ConnectionInfo.UpdateBooth` + `BoothTradeRules`, pur), puis l'or sous
-  `GoldLock` de chaque session (`TryDebitGold` / `TryCreditGold`, plafond NGemity 100 000 000 000), puis
+  `GoldLock` de chaque session (`TryDebitGold` / `TryCreditGold`, plafond officiel 10 000 000 000, `GoldRules`), puis
   `ICharacterService.TransferItemsAsync` : tout ou rien, sous les **deux** verrous de personnage pris dans un
   ordre fixe (`CharacterGate.RunPairAsync` — une tranche n'est pas réentrante, deux noms sur la même tranche
   ne la prennent qu'une fois), pile entière = même ligne, partie de pile = nouvelle ligne aux mêmes attributs,
@@ -1472,9 +1473,12 @@ premiers octets de chaque enregistrement de 703), 706 = 19, 707 = 11 + 4 × H, 7
 - Migrations : `QuestLifecycle` (historique, temps restant, échéance, index unique des seules quêtes
   actives), `QuestGoldReward` (colonne or et reprise des 765 montants importés), `RandomQuestPools`
   (table et 1 637 cibles). Elles sont appliquées par le démarrage existant du serveur.
-- Limites mesurées du catalogue : 52 quêtes 701 nécessitent un contrôle par scripts et ne sont pas
+- Limites mesurées du catalogue : 52 quêtes 701 sont pilotées par des scripts Lua et ne sont pas
   proposées. Six contrats 901 ont trop peu de cibles dans la plage niveau ±4 et sont également refusés.
-  Les systèmes de faveur et les scripts Lua restent hors du cycle natif.
+- **Faveur et plafond d'or** (fiche §12) : la remise crédite `favor` au PNJ (groupe 999) dans
+  `CharacterFavors` et retire `favor` au groupe de haine ; `limit_favor` est jugé au démarrage (aucune quête
+  Epic 7 n'en porte) ; une remise qui dépasserait l'or porté maximal répond `END|TOO_MUCH_MONEY|code` et ne
+  consomme rien. Le poids n'est pas jugé, comme chez l'officiel.
 - Vérification : `QuestLifecycleTests`, tests de groupe, modèles EF et essai PostgreSQL explicite
   avec migrations des deux contextes et échec SQL forcé pendant la récompense. Détail :
   `docs/packet-specs/socle-cycle-quete.md`, §11.
@@ -1553,7 +1557,7 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming and group aggro (`GroupFirstAttack`); **they walk at their `run_speed` and around the
+  modelled: taming; group aggro follows the official rule; **they walk at their `run_speed` and around the
   `.nfa` obstacles** (paths for chase and return), and a death costs experience. **Monsters cast their single-target,
   state and heal skills**; region skills and Lua triggers are not modelled. **Damage, hit, block, critical
   and attack speed follow the official rules on both sides** (`socle-combat-reel.md`); not modelled:
@@ -1582,10 +1586,10 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   **titles still contribute nothing because nothing can grant one**. `ParameterB` is undecoded for both
   items (63) and states. **Stats drive combat**: attack, defence, accuracy, avoid, block, critical and
   attack speed all reach the damage and the swing interval
-- Inventory sorting and drag-swap work; the character storage (211/212) moves items between the bag and
-  the account storage, but its capacity is unbounded and the two gold modes answer `NotActable` (no
-  column holds the stored gold), and the sort order follows the client's tab categories rather than the
-  original server's comparator
+- Inventory sorting and drag-swap work; the character storage (211/212) moves items and gold between the
+  bag and the account storage, capped at 1 000 stacks (`socle-entrepot-or.md`; a deposit never joins an
+  existing stack), and the sort order follows the client's tab categories rather than the original
+  server's comparator
 - The client clock is synchronized and `game_time` carries Unix time, but movement still applies
   `ClientClockOffset` by hand rather than trusting the sync
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
@@ -1828,6 +1832,10 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   `212` n'a pas été identifié ; le mode 4 (fermeture) doit être accepté sans erreur mais ne doit pas
   être le seul chemin de libération de l'état serveur ; la persistance de l'or d'entrepôt reste à
   trancher (NGemity détourne une ligne d'objet de code 0 — défaut visible à ne pas répliquer).
+- **Livré depuis (2026-10-02, `socle-entrepot-or.md`)** : capacité de **1 000 piles** (`StorageRules.Capacity`,
+  refus `TS_SC_RESULT(212, 11)`), modes d'or **2/3** jugés comme l'officiel (`NotEnoughMoney` puis
+  `TooMuchMoney`, plafonds `GoldRules` : 10 000 000 000 porté, 100 000 000 000 stocké), l'or stocké **par
+  compte** dans `AccountStorageGolds`, écrit avec l'or porté en une sauvegarde, et envoyé en `storage_gold`.
 
 ### Paquet 253 — `TM_CS_USE_ITEM` (utilisation d'un objet)
 

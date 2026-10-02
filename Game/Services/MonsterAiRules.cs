@@ -48,6 +48,18 @@ public static class MonsterAiRules
     /// may never act on a player it is not streamed to.</param>
     /// <param name="cooldownElapsed">Whether the attack cooldown has passed.</param>
     /// <param name="attackReach">The real per-monster melee reach from <see cref="CombatRange"/>.</param>
+    /// <summary>
+    /// The official group aggro (<c>StructMonster::processFirstAttack</c>, 2012-11 <c>0x140160c90</c>): when a
+    /// monster carrying <c>f_group_first_attack</c> takes a target on sight, every monster of the same
+    /// <c>monster_group</c> within its first-attack range takes it too. The range is taken as the sight
+    /// range the acquisition itself uses (docs/packet-specs/socle-aggro-groupe.md).
+    /// </summary>
+    public static bool JoinsGroupAttack(MonsterInstance leader, float leaderX, float leaderY,
+        MonsterInstance member, float memberX, float memberY)
+        => leader.GroupFirstAttack && leader.MonsterGroup != 0
+           && member.InstanceId != leader.InstanceId && member.MonsterGroup == leader.MonsterGroup
+           && Distance(leaderX, leaderY, memberX, memberY) <= ScaledVisibleRange(leader.VisibleRange);
+
     public static MonsterAiAction Decide(
         bool hasTarget,
         bool isAggressive,

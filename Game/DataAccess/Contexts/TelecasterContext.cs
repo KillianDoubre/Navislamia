@@ -20,6 +20,8 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<PartyEntity> Parties { get; set; }
     public DbSet<PetEntity> Pets { get; set; }
     public DbSet<PaidItemEntity> PaidItems { get; set; }
+    public DbSet<AccountStorageGoldEntity> AccountStorageGolds { get; set; }
+    public DbSet<CharacterFavorEntity> CharacterFavors { get; set; }
     public DbSet<SummonEntity> Summons { get; set; }
     public DbSet<StarterItemsEntity> StarterItems { get; set; }
     public DbSet<GlobalVariableEntity> GlobalVariables { get; set; }
@@ -37,6 +39,27 @@ public class TelecasterContext : SoftDeletionContext
         ConfigurePets(modelBuilder);
         ConfigureSummons(modelBuilder);
         ConfigurePaidItems(modelBuilder);
+        ConfigureStorageGoldAndFavors(modelBuilder);
+    }
+
+    /// <summary>
+    /// One stored-gold row per account and one favor counter per character and id. Both unique indexes
+    /// ignore soft-deleted rows, the way the active-quest index does.
+    /// </summary>
+    private static void ConfigureStorageGoldAndFavors(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<AccountStorageGoldEntity>()
+            .HasIndex(row => row.AccountId)
+            .IsUnique().HasFilter("\"DeletedOn\" IS NULL");
+
+        modelBuilder.Entity<CharacterFavorEntity>()
+            .HasIndex(row => new { row.CharacterId, row.FavorId })
+            .IsUnique().HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<CharacterFavorEntity>()
+            .HasOne<CharacterEntity>()
+            .WithMany()
+            .HasForeignKey(row => row.CharacterId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 
     /// <summary>

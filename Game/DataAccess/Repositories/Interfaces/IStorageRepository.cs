@@ -15,4 +15,13 @@ public interface IStorageRepository
     Task<ItemEntity[]> GetStorageItemsAsync(string characterName);
 
     Task<StorageMoveResult> MoveAsync(string characterName, uint itemHandle, bool toStorage, long count);
+
+    /// <summary>The gold kept in the storage of the character's account, 0 when nothing was ever stored.</summary>
+    Task<long> GetStorageGoldAsync(string characterName);
+
+    /// <summary>
+    /// Writes the two balances of one gold move in a single save: the character's carried gold and its
+    /// account's stored gold, so a crash cannot keep one side of the move without the other.
+    /// </summary>
+    Task SaveGoldAsync(string characterName, long carried, long stored);
 }

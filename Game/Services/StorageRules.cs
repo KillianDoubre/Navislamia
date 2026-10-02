@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.Network.Packets;
 
 namespace Navislamia.Game.Services;
 
@@ -32,6 +33,31 @@ public static class StorageRules
 
     /// <summary>Window closed (<c>STORAGE_CLOSE</c>, WorldSession.h:29).</summary>
     public const byte CloseMode = 4;
+
+    /// <summary>
+    /// The stacks a storage holds: the official server's <c>game.max_storage_item_count</c> default
+    /// (docs/packet-specs/socle-entrepot-or.md §1).
+    /// </summary>
+    public const int Capacity = 1000;
+
+    /// <summary>
+    /// The verdict of a gold move, in the order the official <c>onStorage</c> tests it: the source must hold
+    /// the amount (<c>NotEnoughMoney</c>, 10), then the destination must stay within its ceiling
+    /// (<c>TooMuchMoney</c>, 53) — <see cref="GoldRules.MaxStored"/> for a deposit,
+    /// <see cref="GoldRules.MaxCarried"/> for a withdrawal.
+    /// </summary>
+    public static ResultCode JudgeGold(bool toStorage, long amount, long carried, long stored)
+    {
+        var source = toStorage ? carried : stored;
+        if (amount <= 0 || source < amount)
+        {
+            return ResultCode.NotEnoughMoney;
+        }
+
+        return toStorage
+            ? GoldRules.Fits(stored, amount, GoldRules.MaxStored) ? ResultCode.Success : ResultCode.TooMuchMoney
+            : GoldRules.Fits(carried, amount, GoldRules.MaxCarried) ? ResultCode.Success : ResultCode.TooMuchMoney;
+    }
 
     /// <summary>
     /// rzu types the field <c>int8_t</c> and NGemity switches on it with no bound check

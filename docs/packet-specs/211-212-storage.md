@@ -1,5 +1,9 @@
 # 211 — TM_SC_OPEN_STORAGE / 212 — TM_CS_STORAGE (socle « entrepôt de personnage »)
 
+> **Mise à jour 2026-10-02** : la capacité (1 000 piles) et les modes d'or 2/3, avec l'or stocké par compte,
+> sont livrés d'après le serveur officiel — voir `socle-entrepot-or.md`. Les §5.3 (or), §7.2 et §7.5 ci-dessous
+> décrivent l'état d'avant.
+
 Fiche de paquet établie par `navis-ref` (archéologue de protocole), branche
 `hermes/packet-socle-entrepot-personnage`, à partir de `master`
 `ec76b218cd0bd7c6498d725f253abb8b431f0cd6` (merge de `hermes/packet-203-drop-item`).

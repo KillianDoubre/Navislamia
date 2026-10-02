@@ -24,15 +24,26 @@ public static class QuestRules
         quest.Value7, quest.Value8, quest.Value9, quest.Value10, quest.Value11, quest.Value12
     };
 
+    /// <summary>
+    /// The favor group every Epic 7 quest uses: the official <c>StructPlayer::EndQuest</c> and
+    /// <c>IsStartableQuest</c> read it as the NPC the player is talking to.
+    /// </summary>
+    public const int NpcFavorGroup = 999;
+
+    /// <summary>The favor counter a group names: the NPC id for <see cref="NpcFavorGroup"/>, the group otherwise.</summary>
+    public static int FavorId(int groupId, int npcId) => groupId == NpcFavorGroup ? npcId : groupId;
+
+    /// <param name="favor">The character's favor on <c>limit_favor_group_id</c> (see <see cref="FavorId"/>).</param>
     public static bool CanStart(QuestResourceEntity quest, ConnectionInfo player,
         IReadOnlyCollection<CharacterQuestEntity> active, IReadOnlyDictionary<int, DateTime> completed,
-        DateTime now, int jobClass = 1, int jobDepth = 0)
+        DateTime now, int jobClass = 1, int jobDepth = 0, int favor = 0)
     {
         if (!Supported(quest) || active.Count >= MaxActive || active.Any(q => q.Code == quest.Id)) return false;
         var seconds = (int)now.ToLocalTime().TimeOfDay.TotalSeconds;
         if (quest.LimitBeginTime > 0 && seconds < quest.LimitBeginTime
             || quest.LimitEndTime > 0 && seconds > quest.LimitEndTime) return false;
-        if (quest.LimitFavor > 0) return false;
+        // IsStartableQuest: the favor must reach limit_favor (no Epic 7 quest sets one).
+        if (quest.LimitFavor > 0 && favor < quest.LimitFavor) return false;
         if (completed.TryGetValue(quest.Id, out var last))
         {
             if (quest.Repeatable != "1" || now < last.AddSeconds(Math.Max(0, quest.CoolTime))) return false;

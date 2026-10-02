@@ -122,6 +122,8 @@ public class MonsterAiService
                 if (action == MonsterAiAction.Acquire)
                 {
                     _worldState.SetAggro(instanceId, client);
+                    // Only the aggro on sight rallies the group, not a retaliation (processFirstAttack).
+                    _worldState.RallyGroup(instance, _visible, client);
                 }
             }
         }

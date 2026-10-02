@@ -44,8 +44,11 @@ public static class BoothTradeRules
     public const byte SellBooth = 1;
     public const byte BuyBooth = 2;
 
-    /// <summary>NGemity <c>MAX_GOLD_FOR_INVENTORY</c> (<c>Entities/Item/ItemTemplate.hpp:4</c>).</summary>
-    public const long MaxGold = 100_000_000_000;
+    /// <summary>
+    /// The carried gold ceiling of the official server (<see cref="GoldRules.MaxCarried"/>); NGemity's
+    /// <c>MAX_GOLD_FOR_INVENTORY</c> (<c>Entities/Item/ItemTemplate.hpp:4</c>) is ten times higher.
+    /// </summary>
+    public const long MaxGold = GoldRules.MaxCarried;
 
     /// <summary>
     /// A <c>TM_CS_BUY_FROM_BOOTH</c> (705) against a sell booth: each asked item must be one the booth

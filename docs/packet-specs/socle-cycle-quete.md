@@ -739,6 +739,32 @@ le test de partage de groupe frappe à 1 000). Deux corrections :
 Restent ouverts, sans correction : les récompenses ne jugent pas le poids (`TooHeavy`), et le chaos ne change
 que par `/chaos`, sans recalcul immédiat (la quête 601 se met à jour au prochain dialogue ou changement de sac).
 
+## 12. Reliquat — 2 octobre 2026 (plafond d'or, faveur, quêtes 701)
+
+Sources : `CaptainHerlockServer.exe` 2012-11, `StructPlayer::EndQuest` (`0x1400ea4d0`),
+`StructPlayer::AddFavor` (`0x1400e4c20`), `StructPlayer::GetFavor` (`0x1400c62b0`),
+`StructPlayer::IsStartableQuest` (`0x1400d45d0`) ; chaînes de l'exécutable (`END|TOO_MUCH_MONEY|%d`).
+
+- **Poids** : l'officiel **ne juge pas** le poids à la remise ; les récompenses vont au sac. Rien à corriger,
+  la remarque de la revue est close.
+- **Plafond d'or** : une remise dont l'or ferait passer l'or porté au-delà de 10 000 000 000
+  (`GoldRules.MaxCarried`, plafond de `ChangeGold`) est refusée et le dit sur la ligne de quête :
+  `END|TOO_MUCH_MONEY|<code>`. Rien n'est consommé ni sauvegardé ; la 605 répond `TooMuchMoney` (53), code
+  choisi par le dépôt (l'officiel n'a pas été relu sur ce point).
+- **Faveur** : `AddFavor` tient une table identifiant → valeur par personnage, sans borne, une valeur absente
+  valant 0. À la remise, `+favor` sur `favor_group_id` et `-favor` sur `hate_group_id` ; le groupe **999** désigne
+  le PNJ de la remise (`QuestRules.FavorId`). Table Telecaster `CharacterFavors` (unique sur personnage +
+  identifiant), écrite dans la même sauvegarde que la remise. Les 765 quêtes Epic 7 donnent toutes leur faveur au
+  PNJ (999), aucune ne porte de groupe de haine.
+- **`limit_favor`** : `IsStartableQuest` exige `GetFavor(limit_favor_group_id) >= limit_favor` (999 = le PNJ qui
+  propose). Le refus en bloc de ces quêtes est remplacé par ce test ; aucune quête Epic 7 n'en porte, il est
+  donc inerte sur les données actuelles. La valeur de faveur n'est envoyée au client par aucun paquet connu.
+- **Quêtes 701 (52)** : toutes pilotées par des scripts Lua (`quest_start_NNNN()` / `quest_end_NNNN()`, sauf
+  1260 qui n'en a pas). Elles restent hors du cycle natif, puisque ce dépôt n'exécute aucun Lua.
+
+Tests : `HandInCreditsTheNpcFavorAndTakesTheHateGroup`, `LimitFavorGatesTheStartOnTheNpcFavor`,
+`HandInPassingTheCarriedGoldCeilingIsRefusedAndConsumesNothing`.
+
 ## Annexe — bloc destiné à `CLAUDE.md` (proposition historique)
 
 Ce bloc est à porter par la **description de la MR** : `CLAUDE.md` est un fichier d'instructions

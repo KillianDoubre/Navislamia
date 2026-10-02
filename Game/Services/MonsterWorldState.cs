@@ -230,6 +230,43 @@ public class MonsterWorldState
         }
     }
 
+    /// <summary>
+    /// Gives <paramref name="enemy"/> to every living, idle monster among <paramref name="instanceIds"/> that
+    /// joins <paramref name="leader"/>'s group attack (<see cref="MonsterAiRules.JoinsGroupAttack"/>). The ids
+    /// are the monsters the enemy sees: one it does not see could not reach it, and would drop it at once.
+    /// </summary>
+    public int RallyGroup(MonsterInstance leader, IReadOnlyList<long> instanceIds, GameClient enemy)
+    {
+        var byId = _byId;
+        if (byId is null || !leader.GroupFirstAttack || leader.MonsterGroup == 0)
+        {
+            return 0;
+        }
+
+        var rallied = 0;
+        lock (_stateLock)
+        {
+            var (lx, ly) = CurrentPosition(leader.InstanceId);
+            foreach (var instanceId in instanceIds)
+            {
+                if (!byId.TryGetValue(instanceId, out var member)
+                    || _aggro.ContainsKey(instanceId) || _respawnAt.ContainsKey(instanceId))
+                {
+                    continue;
+                }
+
+                var (mx, my) = CurrentPosition(instanceId);
+                if (MonsterAiRules.JoinsGroupAttack(leader, lx, ly, member, mx, my))
+                {
+                    SetAggro(instanceId, enemy);
+                    rallied++;
+                }
+            }
+        }
+
+        return rallied;
+    }
+
     public bool TryGetInstance(long instanceId, out MonsterInstance instance)
     {
         if (_byId != null && _byId.TryGetValue(instanceId, out instance))

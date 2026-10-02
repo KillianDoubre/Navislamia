@@ -371,6 +371,51 @@ public class QuestLifecycleTests
         await Start(); await using (var db = Db()) (await db.CharacterQuests.CountAsync(q => q.Code == 1005)).Should().Be(0);
     }
 
+    [Test]
+    public async Task HandInCreditsTheNpcFavorAndTakesTheHateGroup()
+    {
+        _resource.FavorGroupId = QuestRules.NpcFavorGroup; _resource.HateGroupId = 77; _resource.Favor = 5;
+        await Start(); await Kill(); await Kill(); await End(5);
+
+        EndResults().Last().Should().Be(ResultCode.Success);
+        await using var db = Db();
+        var favors = await db.CharacterFavors.OrderBy(f => f.FavorId).Select(f => new { f.FavorId, f.Value }).ToArrayAsync();
+        favors.Should().BeEquivalentTo(new[] { new { FavorId = 77, Value = -5 }, new { FavorId = 3011, Value = 5 } },
+            "group 999 is the NPC handing the quest in");
+    }
+
+    [Test]
+    public async Task LimitFavorGatesTheStartOnTheNpcFavor()
+    {
+        _resource.LimitFavorGroupId = QuestRules.NpcFavorGroup; _resource.LimitFavor = 10;
+        await Start();
+        await using (var db = Db()) (await db.CharacterQuests.CountAsync()).Should().Be(0);
+
+        await using (var db = Db())
+        {
+            db.CharacterFavors.Add(new CharacterFavorEntity { CharacterId = 1, FavorId = 3011, Value = 10 });
+            await db.SaveChangesAsync();
+        }
+        await Start();
+        (await Quest()).Code.Should().Be(1005);
+    }
+
+    [Test]
+    public async Task HandInPassingTheCarriedGoldCeilingIsRefusedAndConsumesNothing()
+    {
+        await Start(); await Kill(); await Kill();
+        StorageTestHarness.Session(_client).CharacterGold = GoldRules.MaxCarried - 10;
+
+        await End(5);
+
+        EndResults().Last().Should().Be(ResultCode.TooMuchMoney);
+        _connection.Sent.Should().Contain(p => Encoding.ASCII.GetString(p).Contains("END|TOO_MUCH_MONEY|1005"));
+        await using var db = Db();
+        (await db.CharacterQuests.CountAsync()).Should().Be(1);
+        (await db.Items.CountAsync()).Should().Be(0);
+        StorageTestHarness.Session(_client).CharacterGold.Should().Be(GoldRules.MaxCarried - 10);
+    }
+
     [Test, Explicit("Runs migrations and rollback checks in an isolated schema on the configured local PostgreSQL server.")]
     public async Task PostgreSqlMigrationsAndFailedRewardInsertRollBackTheWholeHandIn()
     {

@@ -14,7 +14,9 @@ namespace Navislamia.Game.Services;
 /// <see cref="Hp"/> is the real maximum (<see cref="MonsterCombatStats.MaxHp"/>), not the <c>hp</c> column:
 /// the column is only the resource's adjustment on top of level and vitality. <see cref="Combat"/> is shared
 /// by every instance of the resource. <see cref="SkillLinkId"/> is <c>monster_skill_link_id</c>, the key of
-/// its skills in <see cref="MonsterSkillCatalog"/>.
+/// its skills in <see cref="MonsterSkillCatalog"/>. <see cref="MonsterGroup"/> and <see cref="GroupFirstAttack"/>
+/// are <c>monster_group</c> and <c>f_group_first_attack</c>, read by the official group aggro
+/// (<see cref="MonsterAiRules.JoinsGroupAttack"/>).
 /// </para>
 /// </remarks>
 public readonly record struct MonsterInstance(
@@ -36,4 +38,6 @@ public readonly record struct MonsterInstance(
     int TamingId,
     decimal TamingPercentage,
     MonsterCombatStats Combat = null,
-    int SkillLinkId = 0);
+    int SkillLinkId = 0,
+    int MonsterGroup = 0,
+    bool GroupFirstAttack = false);

@@ -25,7 +25,13 @@ public enum StorageMoveOutcome
     AccessDenied,
 
     /// <summary>Nothing to do: the item already sits on the requested side, or the stack is empty.</summary>
-    Ignored
+    Ignored,
+
+    /// <summary>
+    /// The storage already holds <see cref="StorageRules.Capacity"/> stacks: the official
+    /// <c>onStorage</c> refuses the deposit with result 11 (docs/packet-specs/socle-entrepot-or.md §1).
+    /// </summary>
+    StorageFull
 }
 
 /// <summary>

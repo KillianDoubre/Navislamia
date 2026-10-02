@@ -122,7 +122,8 @@ public static class MonsterInstanceFactory
                 resource.Level, combat.MaxHp, race, faceDirection,
                 resource.FirstAttack != 0, resource.VisibleRange, resource.ChaseRange,
                 (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale,
-                resource.TamingId, resource.TamingPercentage, combat, resource.MonsterSkillLinkId));
+                resource.TamingId, resource.TamingPercentage, combat, resource.MonsterSkillLinkId,
+                resource.MonsterGroup, resource.GroupFirstAttack != 0));
         }
     }
 

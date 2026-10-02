@@ -55,8 +55,9 @@ public class StorageService : IStorageService
 
         try
         {
-            var items = await _gate.RunAsync(info.CharacterName,
-                () => _repository.GetStorageItemsAsync(info.CharacterName));
+            var (items, gold) = await _gate.RunAsync(info.CharacterName, async () =>
+                (await _repository.GetStorageItemsAsync(info.CharacterName),
+                 await _repository.GetStorageGoldAsync(info.CharacterName)));
 
             // NGemity marks the session as using the storage before it sends anything
             // (Player::openStorage, Player.cpp:2961-2965) and sends the item list ahead of the frame
@@ -70,11 +71,9 @@ public class StorageService : IStorageService
                 client.Connection.Send(packet);
             }
 
-            // No stored gold exists yet: the value has no column of its own in this repository and the
-            // mode-2/3 path that would create one is not open (§7.5). The property is still sent, the way
-            // NGemity sends it after every gold change, so the client does not keep a stale reading.
+            // The stored gold of the account (AccountStorageGolds, socle-entrepot-or.md §3).
             client.Connection.Send(
-                GameStatPackets.BuildProperty(info.CharacterHandle, StorageGoldProperty, 0));
+                GameStatPackets.BuildProperty(info.CharacterHandle, StorageGoldProperty, gold));
 
             _logger.Debug("Opened the storage of {characterName} ({itemCount} items)", info.CharacterName,
                 items.Length);
@@ -122,11 +121,7 @@ public class StorageService : IStorageService
 
         if (StorageRules.IsGoldMode(request.Mode))
         {
-            // The gold modes are wired but not open: NGemity keeps the stored gold in a dummy item row of
-            // code 0 (CharacterDatabase.cpp:97) and this repository has no column for it, so the table and
-            // the scope of the gold are an open decision (§7.5). Refusing keeps the character's own gold
-            // intact instead of taking gold the server could not give back.
-            client.SendResult(RequestId, (ushort)ResultCode.NotActable, target);
+            await MoveGoldAsync(client, StorageRules.MovesToStorage(request.Mode), request.Count, target);
             return;
         }
 
@@ -178,6 +173,11 @@ public class StorageService : IStorageService
                     client.SendResult(RequestId, (ushort)ResultCode.NotExist, target);
                     break;
 
+                case StorageMoveOutcome.StorageFull:
+                    // The official onStorage answers 11 once the storage holds its capacity (§1).
+                    client.SendResult(RequestId, (ushort)ResultCode.TooHeavy, target);
+                    break;
+
                 case StorageMoveOutcome.AccessDenied:
                     client.SendResult(RequestId, (ushort)ResultCode.AccessDenied, target);
                     break;
@@ -199,6 +199,67 @@ public class StorageService : IStorageService
         {
             _logger.Error(exception, "Could not process storage mode {mode} for {clientTag}", request.Mode,
                 client.ClientTag);
+            client.SendResult(RequestId, (ushort)ResultCode.DBError, target);
+        }
+    }
+
+    /// <summary>
+    /// Modes 2 and 3 of the official <c>onStorage</c>: the stored gold belongs to the account
+    /// (<c>smp_update_storage_gold</c>), the carried gold to the character, and both balances are written in
+    /// one save. A refusal is <c>NotEnoughMoney</c> (10) or <c>TooMuchMoney</c> (53); a success answers with
+    /// the gold update (1001) and the <c>storage_gold</c> property (socle-entrepot-or.md §2).
+    /// </summary>
+    private async Task MoveGoldAsync(GameClient client, bool toStorage, long amount, int target)
+    {
+        var info = client.ConnectionInfo;
+        try
+        {
+            var outcome = await _gate.RunAsync<(ResultCode Verdict, long Stored)>(info.CharacterName, async () =>
+            {
+                var stored = await _repository.GetStorageGoldAsync(info.CharacterName);
+                var verdict = StorageRules.JudgeGold(toStorage, amount, info.CharacterGold, stored);
+                if (verdict != ResultCode.Success)
+                {
+                    return (verdict, stored);
+                }
+
+                // The session balance moves under its own lock: loot or a trade may have changed it since
+                // the judgement, and TryDebit/TryCredit re-check it where it is written.
+                var moved = toStorage
+                    ? info.TryDebitGold(amount)
+                    : info.TryCreditGold(amount, GoldRules.MaxCarried);
+                if (!moved)
+                {
+                    return (toStorage ? ResultCode.NotEnoughMoney : ResultCode.TooMuchMoney, stored);
+                }
+
+                var newStored = toStorage ? stored + amount : stored - amount;
+                try
+                {
+                    await _repository.SaveGoldAsync(info.CharacterName, info.CharacterGold, newStored);
+                }
+                catch
+                {
+                    info.AddGold(toStorage ? amount : -amount);
+                    throw;
+                }
+
+                return (ResultCode.Success, newStored);
+            });
+
+            if (outcome.Verdict != ResultCode.Success)
+            {
+                client.SendResult(RequestId, (ushort)outcome.Verdict, target);
+                return;
+            }
+
+            client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+            client.Connection.Send(
+                GameStatPackets.BuildProperty(info.CharacterHandle, StorageGoldProperty, outcome.Stored));
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not move {amount} gold for {clientTag}", amount, client.ClientTag);
             client.SendResult(RequestId, (ushort)ResultCode.DBError, target);
         }
     }
