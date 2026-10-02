@@ -151,10 +151,12 @@ public class ConnectionInfo
     public float DestinationY { get; set; }
 
     /// <summary>
-    /// The speed the server echoes a player's moves at (<c>GameClient.HandleMoveRequest</c>), which is also
-    /// what it assumes to estimate where a walking character is.
+    /// The <c>TS_SC_MOVE</c> speed of a character with no stats known: the default move speed of 120 on the
+    /// wire. The official <c>onMoveRequest</c> echoes <c>GetRealMoveSpeed()</c>, the move speed divided by 7
+    /// (docs/packet-specs/socle-vitesse-echo.md); this used to be 100, which the peers saw as a run six times
+    /// too fast.
     /// </summary>
-    public const byte EchoedMoveSpeed = 100;
+    public const byte EchoedMoveSpeed = 17;
 
     /// <summary>
     /// The speed of the character's current walk: <see cref="EchoedMoveSpeed"/> slowed by its load

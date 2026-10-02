@@ -229,9 +229,10 @@ public class GameClient : Client
             return;
         }
 
-        // The load slows the walk (StructPlayer::GetMoveSpeed): the echo, the peers' copy and the position
-        // estimate all use the same speed (docs/packet-specs/socle-poids.md).
-        var speed = _networkService.CarriedWeightService?.MoveSpeed(ConnectionInfo, ConnectionInfo.EchoedMoveSpeed)
+        // onMoveRequest echoes GetRealMoveSpeed(): the stat move speed, slowed by the load
+        // (StructPlayer::GetMoveSpeed), divided by 7. The echo, the peers' copy and the position estimate all
+        // use it (docs/packet-specs/socle-vitesse-echo.md, socle-poids.md).
+        var speed = _networkService.CarriedWeightService?.RealMoveSpeed(ConnectionInfo)
                     ?? ConnectionInfo.EchoedMoveSpeed;
         ConnectionInfo.MoveSpeed = speed;
         var total = 7 + 12 + count * 8;

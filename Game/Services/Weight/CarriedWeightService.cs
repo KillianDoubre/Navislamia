@@ -85,6 +85,9 @@ public interface ICarriedWeightService
     /// <summary>The speed a move of this character goes at, its load applied to <paramref name="speed"/>.</summary>
     byte MoveSpeed(ConnectionInfo info, byte speed);
 
+    /// <summary>The character's <c>TS_SC_MOVE</c> speed: its stat move speed, its load, divided by 7.</summary>
+    byte RealMoveSpeed(ConnectionInfo info);
+
     Task RefreshAsync(GameClient client);
 }
 
@@ -139,6 +142,17 @@ public sealed class CarriedWeightService : ICarriedWeightService
 
     public byte MoveSpeed(ConnectionInfo info, byte speed) =>
         WeightRules.MoveSpeed(speed, info.CarriedWeight, MaxWeight(info));
+
+    public byte RealMoveSpeed(ConnectionInfo info)
+    {
+        var total = _stats?.Compute(info).Total;
+        if (total is null)
+        {
+            return ConnectionInfo.EchoedMoveSpeed;
+        }
+
+        return WeightRules.RealMoveSpeed(total.MoveSpeed, info.CarriedWeight, total.MaxWeight);
+    }
 
     public async Task RefreshAsync(GameClient client)
     {

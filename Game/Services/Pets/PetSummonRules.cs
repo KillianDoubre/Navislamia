@@ -207,10 +207,10 @@ public static class PetSummonDefaults
     public const int Unknown = 0;
 
     /// <summary>
-    /// The pet's <c>TS_SC_MOVE</c> speed. The server echoes its players at 100; the pet walks a little faster
-    /// so it catches up once its master stops.
+    /// The pet's <c>TS_SC_MOVE</c> speed: <c>StructPet::GetMoveSpeed</c> returns a fixed 100
+    /// (2012-11 <c>0x1400bf480</c>), divided by 7 on the wire like every creature's.
     /// </summary>
-    public const byte MoveSpeed = 120;
+    public const byte MoveSpeed = 100 / 7;
 
     /// <summary>The pet stays put while its master's destination is within 3 m of it.</summary>
     public const float FollowDistance = 3 * PetSummonRules.UnitsPerMeter;
