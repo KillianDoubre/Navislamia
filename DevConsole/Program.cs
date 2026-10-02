@@ -214,11 +214,11 @@ public class Program
 
     private static void ConfigureMonsterSpawns(IServiceCollection services, HostBuilderContext context)
     {
+        services.Configure<MonsterSpawnOptions>(context.Configuration.GetSection("MonsterSpawns"));
         var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "monster-spawns.73.json");
 
         if (!File.Exists(catalogPath))
         {
-            services.Configure<MonsterSpawnOptions>(context.Configuration.GetSection("MonsterSpawns"));
             return;
         }
 
@@ -387,6 +387,7 @@ public class Program
         services.AddSingleton<IResurrectionService, ResurrectionService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
+        services.AddSingleton<SkillEffectScheduler>();
         services.AddSingleton<IMapService, MapService>();
         services.AddSingleton<NetworkService>();
         services.AddSingleton<INetworkService>(provider => provider.GetRequiredService<NetworkService>());

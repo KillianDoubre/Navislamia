@@ -13,7 +13,7 @@ public static class MonsterInstanceFactory
         Func<float, float, bool> isBlocked = null)
     {
         var instances = new List<MonsterInstance>(GetInstanceCount(options));
-        var resourcesById = IndexResources(resources, baseStats);
+        var resourcesById = IndexResources(resources, baseStats, options.UseSecondaryRewards);
         long instanceId = 0;
 
         foreach (var spawn in options.Spawns)
@@ -39,10 +39,10 @@ public static class MonsterInstanceFactory
 
     public static IReadOnlyList<MonsterInstance> Build(IEnumerable<MonsterSpawnPoint> spawns,
         IReadOnlyList<MonsterResourceEntity> resources, Func<int, StatBaseStats?> baseStats = null,
-        Func<float, float, bool> isBlocked = null)
+        Func<float, float, bool> isBlocked = null, bool useSecondaryRewards = false)
     {
         var instances = new List<MonsterInstance>();
-        var resourcesById = IndexResources(resources, baseStats);
+        var resourcesById = IndexResources(resources, baseStats, useSecondaryRewards);
         long instanceId = 0;
 
         foreach (var spawn in spawns)
@@ -80,22 +80,22 @@ public static class MonsterInstanceFactory
     /// Indexes the resources with their combat stats, built once per resource. Without a base-stat source
     /// (the tests) a resource gets no <c>StatResource</c> row, so only its level and columns count.
     /// </summary>
-    private static Dictionary<int, (MonsterResourceEntity Resource, MonsterCombatStats Combat)> IndexResources(
-        IReadOnlyList<MonsterResourceEntity> resources, Func<int, StatBaseStats?> baseStats)
+    private static Dictionary<int, (MonsterResourceEntity Resource, MonsterCombatStats Combat, MonsterRewardProfile Rewards)> IndexResources(
+        IReadOnlyList<MonsterResourceEntity> resources, Func<int, StatBaseStats?> baseStats, bool useSecondaryRewards)
     {
-        var resourcesById = new Dictionary<int, (MonsterResourceEntity, MonsterCombatStats)>(resources.Count);
+        var resourcesById = new Dictionary<int, (MonsterResourceEntity, MonsterCombatStats, MonsterRewardProfile)>(resources.Count);
 
         foreach (var resource in resources)
         {
             var combat = MonsterCombatStats.From(resource, baseStats?.Invoke(resource.StatId));
-            resourcesById[(int)resource.Id] = (resource, combat);
+            resourcesById[(int)resource.Id] = (resource, combat, MonsterRewardProfile.From(resource, useSecondaryRewards));
         }
 
         return resourcesById;
     }
 
     private static void AddInstances(List<MonsterInstance> instances,
-        IReadOnlyDictionary<int, (MonsterResourceEntity Resource, MonsterCombatStats Combat)> resourcesById,
+        IReadOnlyDictionary<int, (MonsterResourceEntity Resource, MonsterCombatStats Combat, MonsterRewardProfile Rewards)> resourcesById,
         ref long instanceId, int monsterId, int resourceId, int count, int x1, int y1, int x2, int y2,
         Func<float, float, bool> isBlocked)
     {
@@ -104,7 +104,7 @@ public static class MonsterInstanceFactory
             return;
         }
 
-        var (resource, combat) = entry;
+        var (resource, combat, rewards) = entry;
         var race = resource.Race is >= 0 and <= byte.MaxValue ? (byte)resource.Race : (byte)0;
         var left = Math.Min(x1, x2);
         var right = Math.Max(x1, x2);
@@ -123,7 +123,7 @@ public static class MonsterInstanceFactory
                 resource.FirstAttack != 0, resource.VisibleRange, resource.ChaseRange,
                 (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale,
                 resource.TamingId, resource.TamingPercentage, combat, resource.MonsterSkillLinkId,
-                resource.MonsterGroup, resource.GroupFirstAttack != 0));
+                resource.MonsterGroup, resource.GroupFirstAttack != 0, Rewards: rewards));
         }
     }
 

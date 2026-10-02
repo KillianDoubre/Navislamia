@@ -146,6 +146,7 @@ public class RateService : IRateService
         RateType.Gold => options.Gold,
         RateType.ItemDrop => options.ItemDrop,
         RateType.CreatureCardDrop => options.CreatureCardDrop,
+        RateType.ChaosDrop => options.ChaosDrop,
         _ => 1
     });
 

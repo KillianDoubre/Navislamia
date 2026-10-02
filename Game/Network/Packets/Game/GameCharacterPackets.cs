@@ -275,6 +275,17 @@ public static class GameCharacterPackets
         return packet;
     }
 
+    /// <summary>TS_SC_GET_CHAOS: player, corpse, amount, no PC-bang bonus (packed, 25 bytes).</summary>
+    public static byte[] BuildGetChaos(uint player, uint corpse, int amount)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_GET_CHAOS, HeaderSize + 18);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(7, 4), player);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(11, 4), corpse);
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(15, 4), Math.Max(0, amount));
+        WriteChecksum(packet);
+        return packet;
+    }
+
     public static byte[] BuildLevelUpdate(uint handle, int level, int jobLevel)
     {
         var packet = CreatePacket(GamePackets.TM_SC_LEVEL_UPDATE, HeaderSize + 12);

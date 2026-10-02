@@ -8,6 +8,7 @@ using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.Maps.Collision;
 using Navislamia.Game.Services.Buffs;
 using Navislamia.Game.Services.Stats;
+using Navislamia.Game.Services.MonsterSkills;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -60,12 +61,51 @@ public class MonsterWorldState
 
     // A monster's skill cooldowns (skill id -> ready tick), sparse: only a monster that cast carries any.
     private readonly Dictionary<long, Dictionary<int, uint>> _skillReady = new();
+    private readonly Dictionary<long, uint> _skillOpportunity = new();
+    private readonly Dictionary<long, uint> _combatStarted = new();
+    private readonly Dictionary<long, uint[]> _triggerFlags = new();
+    private readonly Dictionary<long, int> _lifeVersions = new();
+
+    public int LifeVersion(long instanceId)
+    { lock (_stateLock) return _lifeVersions.GetValueOrDefault(instanceId); }
+
+    public bool CheckTrigger(long instanceId, IReadOnlyList<MonsterTriggerOptions> triggers,
+        int index, uint now, ICombatRandom random)
+    {
+        lock (_stateLock)
+        {
+            if (!_triggerFlags.TryGetValue(instanceId, out var flags) || flags.Length != triggers.Count)
+            {
+                flags = new uint[triggers.Count];
+                for (var i = 0; i < flags.Length; i++)
+                    if (triggers[i].Type is 3 or 4) flags[i] = Math.Max(1u, _combatStarted.GetValueOrDefault(instanceId, now));
+                _triggerFlags[instanceId] = flags;
+            }
+            var hpPercentage = (int)((long)GetHp(instanceId) * 100 / Math.Max(1, MaxHp(instanceId)));
+            return MonsterTriggerRules.Check(triggers[index], hpPercentage, now, ref flags[index], random);
+        }
+    }
+
+    public bool TrySkillOpportunity(long instanceId, uint now, uint interval)
+    {
+        lock (_stateLock)
+        {
+            if (_skillOpportunity.TryGetValue(instanceId, out var ready) && unchecked((int)(now - ready)) < 0) return false;
+            _skillOpportunity[instanceId] = unchecked(now + Math.Max(1u, interval));
+            return true;
+        }
+    }
+
+    public bool HasLineOfSight(float x, float y, float targetX, float targetY) =>
+        _collision.IsEmpty || !_collision.IsWalkBlocked(x, y, targetX, targetY);
 
     // A monster's single aggro target, sparse like the rest: only a monster in combat carries one.
     private readonly Dictionary<long, AggroTarget> _aggro = new();
 
     private SpatialIndex<MonsterInstance> _index;
     private Dictionary<long, MonsterInstance> _byId;
+    private readonly Dictionary<long, MonsterInstance> _scriptSpawns = new();
+    private long _nextInstanceId;
 
     public MonsterWorldState(IMonsterResourceRepository repository, IOptions<MonsterSpawnOptions> options,
         IStatResourceRepository statResources = null, IWorldCollision collision = null)
@@ -79,14 +119,83 @@ public class MonsterWorldState
 
     public IReadOnlyList<MonsterInstance> WithinRange(float x, float y, float range)
     {
-        return GetIndex()?.WithinRange(x, y, range) ?? Array.Empty<MonsterInstance>();
+        var staticMonsters = GetIndex()?.WithinRange(x, y, range) ?? Array.Empty<MonsterInstance>();
+        lock (_stateLock)
+        {
+            if (_scriptSpawns.Count == 0) return staticMonsters;
+            var result = new List<MonsterInstance>(staticMonsters);
+            foreach (var monster in _scriptSpawns.Values)
+            {
+                var p = CurrentPosition(monster.InstanceId);
+                if (CombatRange.Distance(x, y, p.X, p.Y) <= range) result.Add(monster);
+            }
+            return result;
+        }
+    }
+
+    /// <summary>Script reinforcements start at the caster, spread out, and inherit its enemy.</summary>
+    public IReadOnlyList<(MonsterInstance Instance, MoveOrder Move)> RespawnNearMonster(long sourceId, int monsterId, int count)
+    {
+        if (count <= 0) return Array.Empty<(MonsterInstance, MoveOrder)>();
+        lock (_loadLock)
+        {
+            var resources = _repository.GetByIds(new[] { monsterId });
+            var baseStats = LoadBaseStats(resources);
+            var templates = MonsterInstanceFactory.Build(new[] { new MonsterSpawnPoint
+                { MonsterId = monsterId, Count = 1 } }, resources,
+                id => baseStats.TryGetValue(id, out var stats) ? stats : null,
+                useSecondaryRewards: _options.UseSecondaryRewards);
+            if (templates.Count == 0) return Array.Empty<(MonsterInstance, MoveOrder)>();
+            lock (_stateLock)
+            {
+                if (!TryGetInstance(sourceId, out var source) || !IsAlive(sourceId) || GetHp(sourceId) <= 0)
+                    return Array.Empty<(MonsterInstance, MoveOrder)>();
+                var p = CurrentPosition(sourceId);
+                if (!_collision.IsEmpty && _collision.IsBlocked(p.X, p.Y)) return Array.Empty<(MonsterInstance, MoveOrder)>();
+                var result = new List<(MonsterInstance, MoveOrder)>();
+                for (var i = 0; i < count; i++)
+                {
+                    var x = p.X + Random.Shared.NextSingle() * 120 - 60;
+                    var y = p.Y + Random.Shared.NextSingle() * 120 - 60;
+                    if (!HasLineOfSight(p.X, p.Y, x, y)) { x = p.X; y = p.Y; }
+                    var instance = templates[0] with { InstanceId = _nextInstanceId++, X = p.X, Y = p.Y,
+                        Z = source.Z, Layer = source.Layer };
+                    _scriptSpawns.Add(instance.InstanceId, instance);
+                    if (_aggro.TryGetValue(sourceId, out var aggro)) SetAggro(instance.InstanceId, aggro.Enemy);
+                    var move = BeginMoveLocked(instance.InstanceId, x, y,
+                        MonsterMovement.SpeedByte((instance.Combat?.Plain.MoveSpeed ?? 120) * 3));
+                    result.Add((instance, move));
+                }
+                return result;
+            }
+        }
+    }
+
+    /// <summary>Area skills use current positions, including monsters that moved from another cell.</summary>
+    public IReadOnlyList<MonsterInstance> WithinCurrentRange(float x, float y, float range)
+    {
+        var candidates = new Dictionary<long, MonsterInstance>();
+        foreach (var m in WithinRange(x, y, range)) candidates[m.InstanceId] = m;
+        lock (_stateLock)
+        {
+            foreach (var id in _movement.Keys)
+                if (TryGetInstance(id, out var moved)) candidates[id] = moved;
+            var result = new List<MonsterInstance>();
+            foreach (var m in candidates.Values)
+            {
+                var p = CurrentPosition(m.InstanceId);
+                if (!_respawnAt.ContainsKey(m.InstanceId) && GetHp(m.InstanceId) > 0
+                    && CombatRange.Distance(x, y, p.X, p.Y) <= range) result.Add(m);
+            }
+            return result;
+        }
     }
 
     public bool IsAlive(long instanceId)
     {
         lock (_stateLock)
         {
-            return !_respawnAt.ContainsKey(instanceId);
+            return TryGetInstance(instanceId, out _) && !_respawnAt.ContainsKey(instanceId);
         }
     }
 
@@ -218,7 +327,7 @@ public class MonsterWorldState
         {
             foreach (var instanceId in instanceIds)
             {
-                if (!byId.TryGetValue(instanceId, out var instance) || !instance.FirstAttack
+                if (!TryGetInstance(instanceId, out var instance) || !instance.FirstAttack
                     || _aggro.ContainsKey(instanceId) || _respawnAt.ContainsKey(instanceId))
                 {
                     continue;
@@ -249,7 +358,7 @@ public class MonsterWorldState
             var (lx, ly) = CurrentPosition(leader.InstanceId);
             foreach (var instanceId in instanceIds)
             {
-                if (!byId.TryGetValue(instanceId, out var member)
+                if (!TryGetInstance(instanceId, out var member)
                     || _aggro.ContainsKey(instanceId) || _respawnAt.ContainsKey(instanceId))
                 {
                     continue;
@@ -269,6 +378,8 @@ public class MonsterWorldState
 
     public bool TryGetInstance(long instanceId, out MonsterInstance instance)
     {
+        lock (_stateLock)
+            if (_scriptSpawns.TryGetValue(instanceId, out instance)) return true;
         if (_byId != null && _byId.TryGetValue(instanceId, out instance))
         {
             return true;
@@ -471,7 +582,7 @@ public class MonsterWorldState
                 return false;
             }
 
-            if (_byId == null || !_byId.TryGetValue(instanceId, out var instance))
+            if (!TryGetInstance(instanceId, out var instance))
             {
                 return false;
             }
@@ -547,6 +658,10 @@ public class MonsterWorldState
             _aggro.Remove(instanceId);
             _returningHome.Remove(instanceId);
             _skillReady.Remove(instanceId);
+            _triggerFlags.Remove(instanceId);
+            _lifeVersions[instanceId] = _lifeVersions.GetValueOrDefault(instanceId) + 1;
+            _skillOpportunity.Remove(instanceId);
+            _combatStarted.Remove(instanceId);
             return true;
         }
     }
@@ -623,6 +738,9 @@ public class MonsterWorldState
 
             var (homeX, homeY) = CurrentPosition(instanceId);
             _aggro[instanceId] = new AggroTarget(enemy, 0, homeX, homeY);
+            _triggerFlags.Remove(instanceId);
+            _skillOpportunity.Remove(instanceId);
+            _combatStarted[instanceId] = ServerClock.Now;
             // Re-acquiring cancels any in-progress return home.
             _returningHome.Remove(instanceId);
         }
@@ -699,6 +817,9 @@ public class MonsterWorldState
         lock (_stateLock)
         {
             _aggro.Remove(instanceId);
+            _skillOpportunity.Remove(instanceId);
+            _combatStarted.Remove(instanceId);
+            _triggerFlags.Remove(instanceId);
         }
     }
 
@@ -726,7 +847,7 @@ public class MonsterWorldState
 
             foreach (var id in cleared)
             {
-                _aggro.Remove(id);
+                ClearAggro(id);
             }
 
             return cleared;
@@ -770,6 +891,11 @@ public class MonsterWorldState
                 _movement.Remove(id);
                 _nextMoveAt.Remove(id);
                 _returningHome.Remove(id);
+                if (_scriptSpawns.Remove(id))
+                {
+                    _states.Remove(id);
+                    _lifeVersions.Remove(id);
+                }
             }
 
             return respawned;
@@ -817,12 +943,12 @@ public class MonsterWorldState
 
     private int MaxHp(long instanceId)
     {
-        return _byId != null && _byId.TryGetValue(instanceId, out var instance) ? instance.Hp : 1;
+        return TryGetInstance(instanceId, out var instance) ? instance.Hp : 1;
     }
 
     private (float X, float Y) Origin(long instanceId)
     {
-        return _byId != null && _byId.TryGetValue(instanceId, out var instance)
+        return TryGetInstance(instanceId, out var instance)
             ? (instance.X, instance.Y)
             : (0f, 0f);
     }
@@ -871,6 +997,7 @@ public class MonsterWorldState
             }
 
             _byId = byId;
+            _nextInstanceId = instances.Count;
             _index = new SpatialIndex<MonsterInstance>(instances, monster => monster.X, monster => monster.Y,
                 WorldVisibility.ViewRange);
 

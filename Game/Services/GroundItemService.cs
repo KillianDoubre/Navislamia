@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
@@ -119,6 +120,23 @@ public class GroundItemService : IGroundItemService
         _items[item.Handle] = item;
         ShowTo(owner, item);
         ShowToNearby(item, owner);
+    }
+
+    public void DropGoldForMonster(GameClient killer, long amount, float x, float y, float z)
+    {
+        if (amount <= 0) return;
+        var p = NextScatter();
+        var item = new GroundItem
+        {
+            Handle = WorldObjectHandle.Next(), ItemCode = 0, Count = amount,
+            X = x + p.X, Y = y + p.Y, Z = z, Layer = killer.ConnectionInfo.Layer,
+            Owner = killer, OwnerHandle = killer.ConnectionInfo.CharacterHandle,
+            PartyId = killer.ConnectionInfo.PartyId, MonsterDrop = true,
+            ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
+        };
+        _items[item.Handle] = item;
+        ShowTo(killer, item);
+        ShowToNearby(item, killer);
     }
 
     private bool IsSummonCard(int itemId) =>
@@ -251,6 +269,7 @@ public class GroundItemService : IGroundItemService
     /// </summary>
     private async Task<ResultCode> TakeAsync(GameClient client, GroundItem item, uint takerHandle)
     {
+        if (item.ItemCode == 0) return TakeGold(client, item, takerHandle);
         var recipient = item.MonsterDrop && _parties is not null
             ? _parties.LootRecipient(client, item.PartyId, item.X, item.Y, item.Layer)
             : client;
@@ -291,6 +310,52 @@ public class GroundItemService : IGroundItemService
             _logger.Error(exception, "Could not take item {itemHandle} for {clientTag}", item.Handle,
                 client.ClientTag);
             return ResultCode.DBError;
+        }
+    }
+
+    private ResultCode TakeGold(GameClient picker, GroundItem item, uint takerHandle)
+    {
+        if (Interlocked.CompareExchange(ref item.TakenBy, 1, 0) != 0) return ResultCode.NotExist;
+        var credited = false;
+        try
+        {
+            var info = picker.ConnectionInfo;
+            var members = (_parties?.RewardMembers(picker, info.X, info.Y, info.Layer) ?? new[] { picker })
+                .Where(c => c.ConnectionInfo.Layer == info.Layer
+                    && CombatRange.Distance(info.X, info.Y, c.ConnectionInfo.X, c.ConnectionInfo.Y) <= 400)
+                .Distinct().OrderBy(c => c.ConnectionInfo.CharacterHandle).ToArray();
+            if (members.Length == 0) members = new[] { picker };
+            var locked = 0;
+            try
+            {
+                foreach (var member in members) { Monitor.Enter(member.ConnectionInfo.GoldLock); locked++; }
+                for (var i = 0; i < members.Length; i++)
+                    if (!GoldRules.Fits(members[i].ConnectionInfo.CharacterGold,
+                        CombatRewards.Share(item.Count, members.Length, i), GoldRules.MaxCarried))
+                    { item.TakenBy = 0; return ResultCode.TooMuchMoney; }
+                for (var i = 0; i < members.Length; i++)
+                    members[i].ConnectionInfo.AddGold(CombatRewards.Share(item.Count, members.Length, i));
+                credited = true;
+            }
+            finally
+            {
+                while (locked > 0) Monitor.Exit(members[--locked].ConnectionInfo.GoldLock);
+            }
+            // Consume before notifying: a network failure must never make credited gold available again.
+            _items.TryRemove(item.Handle, out _);
+            picker.Connection.Send(GameSpawnPackets.BuildTakeItemResult(item.Handle, takerHandle));
+            Remove(item);
+            foreach (var member in members)
+                member.Connection.Send(GameCharacterPackets.BuildGoldUpdate(
+                    member.ConnectionInfo.CharacterGold, member.ConnectionInfo.CharacterChaos));
+            return ResultCode.Success;
+        }
+        catch (Exception exception)
+        {
+            if (!credited) item.TakenBy = 0;
+            else _items.TryRemove(item.Handle, out _);
+            _logger.Error(exception, "Could not complete gold pickup notification for {Handle}", item.Handle);
+            return credited ? ResultCode.Success : ResultCode.DBError;
         }
     }
 

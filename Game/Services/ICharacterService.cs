@@ -25,6 +25,9 @@ public interface ICharacterService
 
     Task<CharacterEntity> GetCharacterByNameAsync(string characterName);
 
+    /// <summary>Marks this character, or clears every character of its account (Lua set_auto_user).</summary>
+    Task<bool> SetAutoUsedAsync(string accountName, string characterName, bool value);
+
     Task DeleteCharacterByNameAsync(string characterName);
 
     Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo);

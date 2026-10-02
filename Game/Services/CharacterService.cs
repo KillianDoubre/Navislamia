@@ -72,6 +72,9 @@ public class CharacterService : ICharacterService
                 await repository.SaveChangesAsync();
             }
 
+            if (character is not null && !character.AutoUsed)
+                character.AutoUsed = (await repository.GetCharactersByAccountNameAsync(accountName))
+                    .Any(c => c.AutoUsed);
             return character;
         });
     }
@@ -104,6 +107,20 @@ public class CharacterService : ICharacterService
             await repository.SaveChangesAsync();
 
             return result;
+        });
+    }
+
+    public Task<bool> SetAutoUsedAsync(string accountName, string characterName, bool value)
+    {
+        return RunExclusiveAsync("auto-account:" + accountName, async repository =>
+        {
+            var characters = (await repository.GetCharactersByAccountNameAsync(accountName)).ToArray();
+            var target = characters.FirstOrDefault(c => c.CharacterName == characterName);
+            if (target is null) return false;
+            if (value) target.AutoUsed = true;
+            else foreach (var character in characters) character.AutoUsed = false;
+            await repository.SaveChangesAsync();
+            return true;
         });
     }
 

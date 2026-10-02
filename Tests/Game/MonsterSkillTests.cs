@@ -57,9 +57,9 @@ public class MonsterSkillTests
         Skill(Row(6, 301, true, 100)).Should().Match<MonsterSkill>(s => s.Effect == MonsterSkillEffect.State && !s.OnSelf);
         Skill(Row(7, 301, false, 100)).OnSelf.Should().BeTrue();
 
-        MonsterSkillCatalog.TryClassify(Row(8, 113, true), 1, 1.0, out _).Should().BeFalse("a region skill");
+        MonsterSkillCatalog.TryClassify(Row(8, 113, true), 1, 1.0, out _).Should().BeTrue("regions are implemented");
         MonsterSkillCatalog.TryClassify(Row(9, 301, true), 1, 1.0, out _).Should().BeFalse("a state skill without a state");
-        MonsterSkillCatalog.TryClassify(Row(1, 101, true), 1, 0.0, out _).Should().BeFalse("never rolled");
+        MonsterSkillCatalog.TryClassify(Row(1, 101, true), 1, 0.0, out _).Should().BeTrue("Lua can cast a zero-probability slot");
     }
 
     [Test]

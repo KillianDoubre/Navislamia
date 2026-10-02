@@ -12,7 +12,8 @@ public enum RateType
     Jp,
     Gold,
     ItemDrop,
-    CreatureCardDrop
+    CreatureCardDrop,
+    ChaosDrop
 }
 
 /// <summary>The chat names of the rate types, and the labels the announcements use.</summary>
@@ -26,7 +27,8 @@ public static class RateTypes
         ["jp"] = RateType.Jp,
         ["gold"] = RateType.Gold,
         ["drop"] = RateType.ItemDrop,
-        ["card"] = RateType.CreatureCardDrop
+        ["card"] = RateType.CreatureCardDrop,
+        ["chaos"] = RateType.ChaosDrop
     }.ToFrozenDictionary();
 
     /// <summary>
@@ -61,6 +63,7 @@ public static class RateTypes
         RateType.Gold => "Gold",
         RateType.ItemDrop => "Drop",
         RateType.CreatureCardDrop => "Card drop",
+        RateType.ChaosDrop => "Chaos drop",
         _ => type.ToString()
     };
 

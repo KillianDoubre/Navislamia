@@ -280,7 +280,7 @@ public class PartyServiceTests
     }
 
     [Test]
-    public void MonsterKillSharesExpJpAndGoldWithoutLosingRemainders()
+    public void MonsterKillSharesResourceExpJpWithoutLosingRemaindersAndDropsGoldOnce()
     {
         var ana = Player(1, "Ana");
         var bo = Player(2, "Bo");
@@ -294,12 +294,14 @@ public class PartyServiceTests
         };
         var repository = A.Fake<IMonsterResourceRepository>();
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
-            .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = 100 } });
+            .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = 100,
+                Exp = 735, Jp = 115, GoldDropPercentage = 100, GoldMin = 20, GoldMax = 20 } });
         var world = new MonsterWorldState(repository, Options.Create(options));
         var rates = new RateService(new StaticOptionsMonitor<RatesOptions>(new RatesOptions { EventStatePath = "" }));
         var quests = A.Fake<IQuestService>();
+        var ground = A.Fake<IGroundItemService>();
         var combat = new CombatService(world, A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
-            A.Fake<IGroundItemService>(), rates, A.Fake<IStatService>(), A.Fake<IStateCatalog>(), _parties, quests);
+            ground, rates, A.Fake<IStatService>(), A.Fake<IStateCatalog>(), _parties, quests);
 
         // A level-5 monster has hp + 20 x level = 200 HP (MonsterCombatStats): deal more than that.
         combat.ApplyDamage(ana, 0, 500, 1_000).Should().Be(0);
@@ -307,9 +309,10 @@ public class PartyServiceTests
         A.CallTo(() => quests.OnMonsterKilledAsync(ana, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
         A.CallTo(() => quests.OnMonsterKilledAsync(bo, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
 
-        (Info(ana).CharacterExp + Info(bo).CharacterExp).Should().Be(35);
-        (Info(ana).CharacterJp + Info(bo).CharacterJp).Should().Be(15);
-        (Info(ana).CharacterGold + Info(bo).CharacterGold).Should().Be(20);
+        (Info(ana).CharacterExp + Info(bo).CharacterExp).Should().Be(735);
+        (Info(ana).CharacterJp + Info(bo).CharacterJp).Should().Be(115);
+        (Info(ana).CharacterGold + Info(bo).CharacterGold).Should().Be(0);
+        A.CallTo(() => ground.DropGoldForMonster(ana, 20, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
         Math.Abs(Info(ana).CharacterExp - Info(bo).CharacterExp).Should().Be(1);
     }
 

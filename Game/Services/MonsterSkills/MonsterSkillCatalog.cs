@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Services.Buffs;
 using Serilog;
 
 namespace Navislamia.Game.Services.MonsterSkills;
@@ -11,6 +12,7 @@ namespace Navislamia.Game.Services.MonsterSkills;
 /// <summary>What a monster skill does, the families this server models.</summary>
 public enum MonsterSkillEffect
 {
+    Unsupported,
     /// <summary><c>EF_PHYSICAL_SINGLE_DAMAGE_T1</c> (101): <c>attack + var0 + var1 × lvl</c>.</summary>
     PhysicalFlat,
 
@@ -43,13 +45,12 @@ public interface IMonsterSkillCatalog
     IReadOnlyList<MonsterSkill> Get(int linkId);
 
     int Count { get; }
+    IReadOnlyList<MonsterTriggerOptions> GetTriggers(int linkId) => System.Array.Empty<MonsterTriggerOptions>();
 }
 
 /// <summary>
 /// <c>MonsterSkillResource</c> (<c>monster-skills.73.json</c>) joined to the <c>SkillResources</c> rows it
-/// names, frozen at startup. An entry whose skill is not one of the modelled families is left out with a
-/// count in the log: the region families (111, 113, 261, 262, 30013…) need area shapes and multi-target
-/// hits that are not ported (docs/packet-specs/socle-competences-monstres.md).
+/// names, frozen at startup. Unsupported entries keep a placeholder so Lua indices stay stable.
 /// </summary>
 public class MonsterSkillCatalog : IMonsterSkillCatalog
 {
@@ -65,10 +66,12 @@ public class MonsterSkillCatalog : IMonsterSkillCatalog
 
     private readonly ILogger _logger = Log.ForContext<MonsterSkillCatalog>();
     private readonly FrozenDictionary<int, MonsterSkill[]> _links;
+    private readonly FrozenDictionary<int, MonsterTriggerOptions[]> _triggers;
 
     public MonsterSkillCatalog(IOptions<MonsterSkillOptions> options, ISkillResourceRepository skills)
     {
         var links = options.Value.Links ?? new Dictionary<int, List<MonsterSkillEntryOptions>>();
+        _triggers = (options.Value.Triggers ?? new()).ToFrozenDictionary(p => p.Key, p => p.Value.ToArray());
         var ids = links.Values.SelectMany(entries => entries).Select(entry => entry.SkillId).ToHashSet();
         var rows = new Dictionary<int, CastableSkillRow>();
         foreach (var row in skills.GetSkillRows(ids))
@@ -93,6 +96,9 @@ public class MonsterSkillCatalog : IMonsterSkillCatalog
                 else
                 {
                     dropped++;
+                    // Lua indexes the original list. Unsupported entries must not shift later slots.
+                    resolved.Add(new MonsterSkill(new CastableBuffFields { SkillId = entry.SkillId },
+                        MonsterSkillEffect.Unsupported, entry.Level, entry.Probability, false));
                 }
             }
 
@@ -113,6 +119,9 @@ public class MonsterSkillCatalog : IMonsterSkillCatalog
     public IReadOnlyList<MonsterSkill> Get(int linkId) =>
         linkId != 0 && _links.TryGetValue(linkId, out var skills) ? skills : None;
 
+    public IReadOnlyList<MonsterTriggerOptions> GetTriggers(int linkId) =>
+        _triggers.TryGetValue(linkId, out var triggers) ? triggers : System.Array.Empty<MonsterTriggerOptions>();
+
     /// <summary>
     /// Sorts a skill into a modelled family. The official AI casts a skill on the monster itself when one
     /// flag of the skill is clear (<c>AI_processAttack</c> tests <c>SkillBase+0xc</c>), read here as
@@ -122,7 +131,7 @@ public class MonsterSkillCatalog : IMonsterSkillCatalog
     public static bool TryClassify(CastableSkillRow row, int level, double probability, out MonsterSkill skill)
     {
         skill = null;
-        if (probability <= 0)
+        if (probability < 0 || !double.IsFinite(probability) || level <= 0)
         {
             return false;
         }
@@ -151,14 +160,18 @@ public class MonsterSkillCatalog : IMonsterSkillCatalog
                 (effect, kind) = (MonsterSkillEffect.Heal, SkillCastKind.Heal);
                 break;
             default:
-                return false;
+                if (onSelf || !SkillAreaRules.IsSupportedDamage(row.EffectType)) return false;
+                (effect, kind) = SkillAreaRules.IsMagical(row.EffectType)
+                    ? (MonsterSkillEffect.MagicScaled, SkillCastKind.MagicAttack)
+                    : (MonsterSkillEffect.PhysicalScaled, SkillCastKind.PhysicalAttack);
+                break;
         }
 
         var fields = new CastableBuffFields(row.SkillId, kind, row.StateId ?? 0, row.ToggleGroup, row.Vars,
             row.StateSecond, row.StateSecondPerLevel, row.StateLevelBase, row.StateLevelPerSkill, row.CostMp,
             row.CostMpPerSkl, row.DelayCast, row.DelayCastPerSkl, row.DelayCommon, row.DelayCooltime,
             row.DelayCooltimePerSkl, row.RequiredLevel, row.HitBonus, row.Percentage, row.CriticalBonus,
-            row.CriticalBonusPerSkl);
+            row.CriticalBonusPerSkl, row.EffectType, row.Target, row.RequiredTarget, row.CastRange);
         skill = new MonsterSkill(fields, effect, level, probability, onSelf);
         return true;
     }

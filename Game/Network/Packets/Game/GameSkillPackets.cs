@@ -1,5 +1,7 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.Linq;
 using Navislamia.Game.Network.Packets.Enums;
 
 namespace Navislamia.Game.Network.Packets.Game;
@@ -61,9 +63,12 @@ public static class GameSkillPackets
 
     public static byte[] BuildSkill(ushort skillId, byte skillLevel, uint caster, uint target,
         float x, float y, float z, byte layer, SkillPacketType type, int hpCost, int mpCost,
-        int casterHp, int casterMp, uint castDelayTicks = 0, ushort errorCode = 0, SkillHit? hit = null)
+        int casterHp, int casterMp, uint castDelayTicks = 0, ushort errorCode = 0, SkillHit? hit = null,
+        IReadOnlyList<SkillHit> hits = null, bool multiple = false, float range = 0, byte fireCount = 1)
     {
-        var hitCount = hit.HasValue ? 1 : 0;
+        hits ??= hit is { } single ? new[] { single } : Array.Empty<SkillHit>();
+        var hitCount = hits.Count;
+        if (hitCount > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(hits));
         var total = HeaderSize + SkillFixedSize + UnionSize + hitCount * HitStride;
         var p = new byte[total];
         var s = p.AsSpan();
@@ -90,36 +95,39 @@ public static class GameSkillPackets
             BinaryPrimitives.WriteUInt32LittleEndian(s.Slice(48, 4), castDelayTicks);
             BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(52, 2), errorCode);
         }
-        else if (hit.HasValue)
+        else if (type is SkillPacketType.Fire or SkillPacketType.RegionFire)
         {
-            // The FIRE header is exactly 9 bytes: bMultiple @48, range @49, target_count @53,
-            // fire_count @54, hits @55. bMultiple and range stay zero for a single-target skill.
-            s[53] = 1;
-            s[54] = 1;
-            BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(55, 2), 1);
+            // FIRE: bMultiple @48, range @49, target_count @53, fire_count @54, hits @55.
+            s[48] = multiple ? (byte)1 : (byte)0;
+            BinaryPrimitives.WriteSingleLittleEndian(s.Slice(49, 4), range);
+            s[53] = (byte)Math.Min(byte.MaxValue, hits.Select(h => h.TargetHandle).Distinct().Count());
+            s[54] = hitCount > 0 ? fireCount : (byte)0;
+            BinaryPrimitives.WriteUInt16LittleEndian(s.Slice(55, 2), (ushort)hitCount);
 
-            var record = s.Slice(HeaderSize + SkillFixedSize + UnionSize, HitStride);
-            record[0] = (byte)hit.Value.Type;
-            BinaryPrimitives.WriteUInt32LittleEndian(record.Slice(1, 4), hit.Value.TargetHandle);
-
-            if (hit.Value.Type is SkillHitType.Damage or SkillHitType.MagicDamage)
+            for (var i = 0; i < hitCount; i++)
             {
-                // HIT_DAMAGE_INFO: target_hp, damage_type, damage, flag, elemental_damage[7].
-                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(5, 4), hit.Value.TargetStat);
-                record[9] = 0;
-                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(10, 4), hit.Value.IncStat);
-                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(14, 4), hit.Value.Flag);
-            }
-            else
-            {
-                // HIT_ADD_STAT: target_stat, nIncStat.
-                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(5, 4), hit.Value.TargetStat);
-                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(9, 4), hit.Value.IncStat);
+                var entry = hits[i];
+                var record = s.Slice(HeaderSize + SkillFixedSize + UnionSize + i * HitStride, HitStride);
+                record[0] = (byte)entry.Type;
+                BinaryPrimitives.WriteUInt32LittleEndian(record.Slice(1, 4), entry.TargetHandle);
+                if (entry.Type is SkillHitType.Damage or SkillHitType.MagicDamage)
+                {
+                    // HIT_DAMAGE_INFO: target_hp, damage_type, damage, flag, elemental_damage[7].
+                    BinaryPrimitives.WriteInt32LittleEndian(record.Slice(5, 4), entry.TargetStat);
+                    record[9] = 0;
+                    BinaryPrimitives.WriteInt32LittleEndian(record.Slice(10, 4), entry.IncStat);
+                    BinaryPrimitives.WriteInt32LittleEndian(record.Slice(14, 4), entry.Flag);
+                }
+                else
+                {
+                    // HIT_ADD_STAT: target_stat, nIncStat.
+                    BinaryPrimitives.WriteInt32LittleEndian(record.Slice(5, 4), entry.TargetStat);
+                    BinaryPrimitives.WriteInt32LittleEndian(record.Slice(9, 4), entry.IncStat);
+                }
             }
         }
 
-        // Without a hit the FIRE header stays all zero: not multiple, no range, no targets, no hits.
-        // A buff, an aura and a debuff all fire that way; their effect travels in TS_SC_STATE.
+        // States travel in TS_SC_STATE; an empty ground FIRE can still carry its radius.
         WriteChecksum(p);
         return p;
     }

@@ -1,5 +1,9 @@
 # Socle — compétences des monstres
 
+**Mise à jour du 2 octobre 2026 :** les zones, multi-coups, indices à probabilité nulle et conditions
+Lua sont implémentés dans [le socle complémentaire](socle-competences-zone-multi-coups.md).
+Les exclusions et les nombres de l'étude initiale ci-dessous décrivent l'ancien périmètre.
+
 | | |
 |---|---|
 | Paquets | `TM_SC_SKILL` (401), `TM_SC_STATE` (505), propriété `hp` — **aucun identifiant nouveau** |

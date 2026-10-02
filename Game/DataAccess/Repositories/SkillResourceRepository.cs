@@ -99,7 +99,8 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.HitBonus,
                 skill.Percentage,
                 skill.CriticalBonus,
-                skill.CriticalBonusPerSkl))
+                skill.CriticalBonusPerSkl,
+                (int)skill.RequiredTarget, skill.CastRange))
             .ToList();
     }
 
@@ -138,7 +139,8 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.HitBonus,
                 skill.Percentage,
                 skill.CriticalBonus,
-                skill.CriticalBonusPerSkl))
+                skill.CriticalBonusPerSkl,
+                (int)skill.RequiredTarget, skill.CastRange))
             .ToList();
     }
 

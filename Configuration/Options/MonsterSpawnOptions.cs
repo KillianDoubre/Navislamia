@@ -4,6 +4,8 @@ namespace Navislamia.Configuration.Options;
 
 public class MonsterSpawnOptions
 {
+    /// <summary>Official game.change_monster_drop_set: select Exp2/Jp2 and the alternate money/chaos bounds.</summary>
+    public bool UseSecondaryRewards { get; set; }
     public List<MonsterSpawnPoint> Spawns { get; set; } = new();
     public List<MonsterSpawnArea> Areas { get; set; } = new();
 }

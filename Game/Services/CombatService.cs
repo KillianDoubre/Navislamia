@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
@@ -342,74 +343,89 @@ public class CombatService : ICombatService
         var now = DateTime.UtcNow;
         if (!_worldState.TryKill(instanceId, now + _rates.MonsterRespawnDelay)) return 0;
 
-        // A corpse keeps no debuff, and a respawn must not inherit one either.
-        foreach (var state in _worldState.ClearStates(instanceId))
+        // An area can kill a monster outside the caster's view. Each viewer receives its own handle.
+        var removedStates = _worldState.ClearStates(instanceId);
+        var recipients = new HashSet<GameClient> { client };
+        if (_players is not null)
         {
-            client.Connection.Send(GameSkillPackets.BuildStateRemoval(targetHandle, state.StateHandle,
-                (uint)state.StateId));
+            foreach (var observer in _players.Observers(client)) recipients.Add(observer);
+            if (_players.Registry is not null)
+                foreach (var observer in _players.Registry.Clients) recipients.Add(observer);
         }
-
-        client.Connection.Send(GameMovePackets.BuildStopMove(targetHandle,
-            unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
-        client.Connection.Send(GameCharacterPackets.BuildStatusChange(targetHandle, ActorStatus.ForMonster(true)));
-
-        // The players who watched the kill see the corpse fall and later leave, like the killer: otherwise a
-        // dead monster stood on their screen until their next synchronisation.
-        var watchers = new List<PendingLeave>();
-        ObserverFrames.SendMonsterFrame(_players, client, instanceId, (observer, handle) =>
+        var leaves = new List<PendingLeave>();
+        foreach (var recipient in recipients)
         {
-            watchers.Add(new PendingLeave
-            {
-                Client = observer,
-                InstanceId = instanceId,
-                Handle = handle,
-                LeaveAt = now.AddSeconds(DeathAnimationSeconds)
-            });
-            return GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForMonster(true));
-        });
-
+            var handle = ReferenceEquals(recipient, client) ? targetHandle
+                : recipient.ConnectionInfo.GetMonsterHandle(instanceId);
+            if (handle == 0) continue;
+            foreach (var state in removedStates)
+                recipient.Connection.Send(GameSkillPackets.BuildStateRemoval(handle, state.StateHandle, (uint)state.StateId));
+            recipient.Connection.Send(GameMovePackets.BuildStopMove(handle,
+                unchecked(ServerClock.Now + recipient.ConnectionInfo.ClientClockOffset), recipient.ConnectionInfo.Layer));
+            recipient.Connection.Send(GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForMonster(true)));
+            leaves.Add(new PendingLeave { Client = recipient, InstanceId = instanceId, Handle = handle,
+                LeaveAt = now.AddSeconds(DeathAnimationSeconds) });
+        }
         lock (_lock)
         {
             _lastAttacker[instanceId] = client;
             _sessions.Remove(client);
-            _pendingLeaves.Add(new PendingLeave
-            {
-                Client = client,
-                InstanceId = instanceId,
-                Handle = targetHandle,
-                LeaveAt = now.AddSeconds(DeathAnimationSeconds)
-            });
-            _pendingLeaves.AddRange(watchers);
+            _pendingLeaves.AddRange(leaves);
         }
 
         var (dropX, dropY) = _worldState.GetPosition(instanceId);
         _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z);
-        AwardKill(client, instance.Level, dropX, dropY, info.Layer);
+        AwardKill(client, instanceId, targetHandle, instance.Rewards, dropX, dropY, instance.Z, info.Layer);
         if (_quests is not null)
             foreach (var member in _parties.RewardMembers(client, dropX, dropY, info.Layer))
                 _ = _quests.OnMonsterKilledAsync(member, instance.MonsterId, dropX, dropY, instance.Z);
         return targetHp;
     }
 
-    private void AwardKill(GameClient killer, int monsterLevel, float x, float y, byte layer)
+    private void AwardKill(GameClient killer, long instanceId, uint corpseHandle, MonsterRewardProfile profile,
+        float x, float y, float z, byte layer)
     {
-        // The rates apply to the reward, rounded at random so a fractional rate is exact on average.
-        var (baseExp, baseJp, baseGold) = CombatRewards.Compute(monsterLevel);
-        var exp = _rates.Scale(baseExp, RateType.Exp);
-        var jp = _rates.Scale(baseJp, RateType.Jp);
-        var gold = _rates.Scale(baseGold, RateType.Gold);
-        var members = _parties.RewardMembers(killer, x, y, layer);
-        if (members.Count == 0) members = new[] { killer };
-        for (var i = 0; i < members.Count; i++)
+        var reward = CombatRewards.Roll(profile, _rates, _random);
+        if (reward.Gold > 0) _groundItemService.DropGoldForMonster(killer, reward.Gold, x, y, z);
+        var members = _parties.RewardMembers(killer, x, y, layer).Distinct().ToArray();
+        if (members.Length == 0) members = new[] { killer };
+        for (var i = 0; i < members.Length; i++)
         {
             var client = members[i];
             var info = client.ConnectionInfo;
-            info.CharacterExp += exp / members.Count + (i < exp % members.Count ? 1 : 0);
-            info.CharacterJp += jp / members.Count + (i < jp % members.Count ? 1 : 0);
-            info.AddGold(gold / members.Count + (i < gold % members.Count ? 1 : 0));
-            client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
-            client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
-            _levelingService.ApplyExperience(client);
+            lock (info.ProgressLock)
+            {
+                var maxChaos = reward.Chaos > 0 ? CombatRewards.ChaosCapacity(_stats.Compute(info).Total.MaxChaos) : 0;
+                info.CharacterExp = CombatRewards.AddProgress(info.CharacterExp, CombatRewards.Share(reward.Exp, members.Length, i));
+                info.CharacterJp = CombatRewards.AddProgress(info.CharacterJp, CombatRewards.Share(reward.Jp, members.Length, i));
+                var gainedChaos = (int)Math.Min(CombatRewards.Share(reward.Chaos, members.Length, i),
+                    Math.Max(0L, (long)maxChaos - info.CharacterChaos));
+                info.CharacterChaos += gainedChaos;
+                // Keep notifications and level resolution in the same order as concurrent kill credits.
+                client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
+                if (gainedChaos > 0) SendChaos(client, killer, instanceId, corpseHandle, gainedChaos);
+                client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+                _levelingService.ApplyExperience(client);
+            }
+        }
+    }
+
+    private void SendChaos(GameClient recipient, GameClient killer, long instanceId, uint killerCorpseHandle, int amount)
+    {
+        var viewers = new HashSet<GameClient> { recipient };
+        if (_players is not null && _players.Registry is not null)
+            foreach (var viewer in _players.Registry.Clients) viewers.Add(viewer);
+        foreach (var viewer in viewers)
+        {
+            if (!ReferenceEquals(viewer, recipient))
+            {
+                lock (viewer.ConnectionInfo.PlayerVisibilityLock)
+                    if (!viewer.ConnectionInfo.SpawnedPlayers.ContainsKey(recipient.ConnectionInfo.CharacterHandle)) continue;
+            }
+            var corpse = viewer.ConnectionInfo.GetMonsterHandle(instanceId);
+            if (corpse == 0 && ReferenceEquals(viewer, killer)) corpse = killerCorpseHandle;
+            if (corpse != 0) viewer.Connection.Send(GameCharacterPackets.BuildGetChaos(
+                recipient.ConnectionInfo.CharacterHandle, corpse, amount));
         }
     }
 

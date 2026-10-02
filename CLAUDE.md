@@ -354,14 +354,17 @@ once per resource at load. **Its max HP is `hp + 20 × level + 33 × vitality`, 
 is what `MonsterInstance.Hp` now holds. A monster's active states are folded into its stats on each hit.
 `ICombatRandom` is the dice, scripted in the tests.
 
-On death the killer is rewarded: `CombatRewards.Compute(level)` returns level-based placeholder exp, jp
-and gold (`10 + level * 5`, `5 + level * 2`, `5 + level * 3`), added to `ConnectionInfo`
-(`CharacterExp`/`CharacterJp`/`CharacterGold`, seeded in `OnLogin`) and sent with `TS_SC_EXP_UPDATE`
-(`1003`) and `TS_SC_GOLD_UPDATE` (`1001`). The `Exp`/`Jp`/`Gold` rates multiply the three amounts (see
-*Rates*). Real per-monster exp and gold live in the `MonsterResource`
-reward columns (`Exp`, `GoldMin`, `GoldMax`) and replace the placeholder once backfilled. Progress
-persists once per session: `GameClient.OnDisconnect` calls `CharacterService.SaveProgress`, which writes
-exp, jp, gold and chaos; there are no per-kill database writes.
+On death `CombatRewards.Roll` uses the instance's `MonsterRewardProfile`, frozen from its loaded
+`MonsterResource` (including replacement resources and scripted reinforcements). `Exp`/`Jp` rates
+scale the imported amounts. `Gold`/`ChaosDrop` rates scale the percent chances, with inclusive resource
+bounds for amounts. Gold is an item of code 0 on the ground, capped at 1,000,000 per pile; it credits
+the wallet only on pickup, sharing among party members within 400 units of the picker regardless of
+item loot mode. EXP/JP and chaos share among eligible party members at death; chaos respects effective
+`MaxChaos` and sends packed `TS_SC_GET_CHAOS` (213), followed by `TS_SC_GOLD_UPDATE` (601).
+`MonsterSpawns.UseSecondaryRewards` selects Exp2/Jp2 and alternate bounds (default false).
+Progress is saved by `CharacterService.SaveProgressAsync` on disconnect and the existing save path;
+there are no per-kill database writes. Contribution weights, level penalties and dungeon/PC-bang bonuses
+remain unmodelled. See `docs/packet-specs/socle-recompenses-monstres.md`.
 
 Experience levels the character server-side. `LevelResource` (300 rows, columns `level`/`exp`, extracted
 from the 9.4 Arcadia data into Postgres `LevelResources`) gives the cumulative exp threshold to advance
@@ -417,7 +420,8 @@ rather than sent immediately. Item drops are a later milestone that will hook th
 ## Item drops
 
 On death `CombatService` calls `GroundItemService.DropForMonster`, which rolls the monster's table and
-puts each result on the ground near the corpse. Gold stays automatic and is not part of this path.
+puts each result on the ground near the corpse. Resource gold uses `DropGoldForMonster`, independently
+of item drop slots, and is credited through the ground pickup path.
 
 `DevConsole/monster-drops.73.json` is the runtime catalog, from the **Epic 7 tables** (5,289 tables,
 179 direct entries, 56,708 group-reference entries, 5,726 drop groups, 5,672 monsters), filtered against
@@ -578,15 +582,16 @@ same import trap the skill columns hit. See `docs/superpowers/specs/2026-07-17-m
 
 `docs/packet-specs/socle-competences-monstres.md`. `MonsterResource.monster_skill_link_id` keys
 `MonsterSkillResource`, exported to `DevConsole/monster-skills.73.json` (`tools/export_monster_skills.py`,
-entries with a probability above zero, in `id, sub_id` order) and joined to `SkillResources` by
+entries, including zero-probability Lua slots, in `id, sub_id` order) and joined to `SkillResources` by
 `MonsterSkillCatalog` at startup. **The pick is the official one** (`StructMonster::AI_processAttack`): when
 the monster may attack, each entry in order draws 0..9999 and is cast when `probability × 10000` exceeds it;
 a skill on cooldown moves on, and the first cast **replaces the swing**. A skill whose `is_harmful` is clear
 lands on the monster itself. Modelled: single-target damage 101/30001 (physical) and 201/231 (magic) through
 `ICombatService.RollMonsterHit` — the swing's rule with the skill's hit and critical bonuses —, states
 301/302 (harmful: on the player through `ISkillCastService.ApplyState`; otherwise on the monster, whose stats
-read them) and the self heal 501. 524 of 725 entries, 3 853 monsters. **Not modelled**: the region families
-(111, 113, 261, 262, 30013…) and the triggers, which call Lua.
+read them) and the self heal 501. The region families (111, 113, 261, 262, 30013…), multi-hit effects,
+timed ground damage and Lua trigger conditions/casts/states are implemented; the export now retains
+1,067 slots and 784 triggers. See `socle-competences-zone-multi-coups.md` for coverage and remaining limits.
 
 ## Equipment
 
@@ -1022,8 +1027,9 @@ Whether this client renders a state icon on a monster at all is **unverified**.
 ### Offensive skills
 
 `effect_type` 30001 (`PhysicalSingleDamage`, 36 player skills) and 231 (`MagicSingleDamage`, 19), both
-`is_harmful` and `target = 1`. The multi-hit (30011, 232) and region (261, 271) variants need several hit
-records or area resolution and are out.
+`is_harmful` and `target = 1`. Region 30011/261, sequential 232/263, at-once 241/30016 and persistent
+ground 271 now use `SkillAreaRules`, multi-result packets and `SkillEffectScheduler`.
+See `socle-competences-zone-multi-coups.md` for the supported families and precise limitations.
 
 **One damage rule, one death path.** `CombatService` owns damage, death, the corpse, drops, reward and
 respawn; the cast path must never reimplement any of it. `ICombatService` exposes `RollHit` and
@@ -1525,11 +1531,11 @@ the `/rate` event running on that type. A x5 server in a x2 event runs at x10. `
 (`Game/Services/Rates/`) is the only reader; the keys, their NGemity origin and the GM commands are in
 `docs/gm-commands.md`, *Rates*.
 
-- **What they touch**: exp, JP and gold per kill (`CombatService.AwardKill`), the drop chance and the
+- **What they touch**: EXP/JP amounts and gold/chaos chances per kill (`CombatService.AwardKill`), the drop chance and the
   summon-card factor (`GroundItemService.DropForMonster` → `DropRoll.Roll`), the monster respawn delay,
   the ground-item lifetime, and the JP cost of a skill level (`SkillCatalog.Evaluate`) and of a job level
-  (`LevelingService`). A key exists only once something reads it: no quest, chaos-drop or PvP rate until
-  those systems do.
+  (`LevelingService`). Separate quest and PvP rates are not exposed. `/rate chaos` and `/rate all`
+  include `ChaosDrop`.
 - **`Jp` follows `Exp` when unset**, which is NGemity's single `EXPRate` (`World.cpp:529`).
 - **Amounts are rounded at random** (`RateMath.ScaleRandom`: 7 × 1.5 gives 10 or 11), which is what
   NGemity's `GetIntValueByRandomInt64` means to do — **its test is always true, so it always truncates**;
@@ -1559,13 +1565,20 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
   modelled: taming; group aggro follows the official rule; **they walk at their `run_speed` and around the
   `.nfa` obstacles** (paths for chase and return), and a death costs experience. **Monsters cast their single-target,
-  state and heal skills**; region skills and Lua triggers are not modelled. **Damage, hit, block, critical
+  state, heal, region and multi-hit skills**, including Lua triggers for casts/states, reinforcements
+  (`respawn_near_monster`, no automatic respawn after death) and persisted anti-bot flags
+  (`set_auto_user`, account-wide clearing). Area damage includes victims outside caster streaming;
+  per-observer handles filter packets and death reaches all monster viewers. Area/multi-hit casts
+  validate target and weapon range before costs/cooldowns, including Lua; selection uses interpolated
+  player positions. Missing script branches
+  and raid adjustments remain unported. **Damage, hit, block, critical
   and attack speed follow the official rules on both sides** (`socle-combat-reel.md`); not modelled:
   double attack, dual wield, bow aiming, elements, additional damage, reflection and mana shield. A
   player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them back in town, or in place with a
   resurrection state or a Resurrection Scroll (resurrection by another player is not implemented). Kill
-  rewards are still the per-level placeholder
-- Ground items are seen by the players around them but taken by their owner only
+  rewards use the loaded resource EXP/JP, gold and chaos; contribution weights and level penalties remain
+  unmodelled (`socle-recompenses-monstres.md`)
+- Ground items are seen by nearby players; monster drops can be taken by the owner and eligible party members
 - NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
   warp**; other gameplay actions such as shops and quest mutation are not executed yet
 - **Field props stream and warp gates work**: 203 of 3 189 props teleport. Not modelled: `use_count`,
@@ -1576,8 +1589,9 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot
 - **Casting works for buffs, toggle auras, heals, monster debuffs and single-target offensive skills**
   (physical 30001 and magic 231): MP cost, cooldown, cast delay, duration, expiry, damage, death and
-  reward. **Debuffs move the monster's stats.** Not implemented: multi-hit and
-  region offensive skills, `cast_range`, expanding a region buff beyond the caster, buffing other players
+  reward, including region/multi-hit offensive skills and timed ground damage 271.
+  **Debuffs move the monster's stats.** Not implemented: `cast_range` outside new ground-target casts,
+  expanding a region buff beyond the caster, buffing other players
   (no party), summon buffs, resurrection, region heals, debuff resistance, `state_type` stacking rules,
   cast interruption and buff persistence across sessions
 - Equipping and unequipping work and persist and now feed the stats, but item requirements (level, job,
@@ -1728,7 +1742,8 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
 - **En mémoire** : un groupe survit à la sortie de ses membres (LOGOUT, puis LOGIN et PINFO au retour),
   pas au redémarrage. `ConnectionInfo.PartyId` vient du service, **plus de `Characters.PartyId`** (la table
   `Parties` n'a pas le mot de passe et son `LeadPartyId` auto-référent est obligatoire). Les membres
-  en ligne à 540 unités du monstre partagent l'expérience, les JP et l'or. Les membres du groupe
+  en ligne à 540 unités du monstre partagent l'expérience, les JP et le chaos. L'or se partage au
+  ramassage entre membres à 400 unités du ramasseur, indépendamment du mode. Les membres du groupe
   peuvent ramasser le butin du monstre ; `monopoly` l'attribue au ramasseur, `random` tire un
   bénéficiaire proche et `linear` tourne entre les bénéficiaires proches.
 - Fiche, adresses des fonctions officielles, écarts et `NON ÉTABLI` : `docs/packet-specs/socle-groupe.md`.

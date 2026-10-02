@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
@@ -22,7 +23,8 @@ public class MonsterSpawnService : IMonsterSpawnService
         try
         {
             var info = client.ConnectionInfo;
-            var inRange = _worldState.WithinRange(info.X, info.Y, WorldVisibility.ViewRange);
+            var inRange = _worldState.WithinRange(info.X, info.Y, WorldVisibility.ViewRange)
+                .Where(monster => monster.Layer == info.Layer).ToArray();
 
             WorldObjectStreamer.Stream(client, info.MonsterVisibilityLock, inRange,
                 monster => monster.InstanceId,

@@ -19,4 +19,13 @@ public class MonsterSkillEntryOptions
 public class MonsterSkillOptions
 {
     public Dictionary<int, List<MonsterSkillEntryOptions>> Links { get; set; } = new();
+    public Dictionary<int, List<MonsterTriggerOptions>> Triggers { get; set; } = new();
+}
+
+public class MonsterTriggerOptions
+{
+    public int Type { get; set; }
+    public double Value1 { get; set; }
+    public double Value2 { get; set; }
+    public string Function { get; set; }
 }

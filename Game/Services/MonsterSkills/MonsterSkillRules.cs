@@ -10,7 +10,7 @@ public static class MonsterSkillRules
     /// <summary>
     /// The official pick (<c>StructMonster::AI_processAttack</c>, <c>0x140166a40</c>-<c>0x140166b40</c>): when
     /// the monster may attack, each entry in order draws a value in 0..9999 and is cast when
-    /// <c>probability × 10000</c> exceeds it; a cast that is refused (here: on cooldown) moves on to the next
+    /// <c>probability × 10000</c> exceeds it; a cast refused by the readiness/range gate moves on to the next
     /// entry, and the first cast replaces the swing. Null when nothing is cast.
     /// </summary>
     public static MonsterSkill Pick(IReadOnlyList<MonsterSkill> skills, Func<MonsterSkill, bool> ready,
@@ -18,6 +18,7 @@ public static class MonsterSkillRules
     {
         foreach (var skill in skills)
         {
+            if (skill.Effect == MonsterSkillEffect.Unsupported || skill.Probability <= 0) continue;
             var roll = random.Next(10000);
             if (skill.Probability * 10000 > roll && ready(skill))
             {
@@ -42,7 +43,7 @@ public static class MonsterSkillRules
             MonsterSkillEffect.PhysicalFlat => Flat(attackPoint, vars, level),
             MonsterSkillEffect.MagicFlat => Flat(magicPoint, vars, level),
             MonsterSkillEffect.PhysicalScaled or MonsterSkillEffect.MagicScaled =>
-                SkillDamageCurve.BaseDamage(skill.Fields.Kind, vars, level, attackPoint, magicPoint),
+                SkillAreaRules.Damage(skill.Fields, level, attackPoint, magicPoint),
             _ => 0f
         };
     }

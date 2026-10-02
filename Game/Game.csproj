@@ -26,4 +26,7 @@
     <PackageReference Include="System.Linq.Expressions" Version="4.3.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Scripting/Scripts/monster_triggers.lua" LogicalName="Navislamia.MonsterTriggers.lua" />
+  </ItemGroup>
 </Project>

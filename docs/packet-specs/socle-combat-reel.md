@@ -103,5 +103,5 @@ résultat passe par `ICombatService.RollHit`, donc par la même règle qu'un cou
 - Le rang exact où l'officiel applique les états d'un monstre par rapport à `onApplyAttributeAdjustment` :
   les appliquer après les colonnes est un choix (sinon une malédiction de défense ne toucherait pas la partie
   « colonne », qui est l'essentiel).
-- Les récompenses (expérience, JP, or) restent les valeurs provisoires par niveau : les colonnes `exp`, `jp`,
-  `gold_min/max` de `MonsterResource` sont en base mais le branchement est hors de ce lot.
+- Les récompenses de `MonsterResource` (expérience, JP, or, chaos) sont désormais branchées ;
+  voir `socle-recompenses-monstres.md` pour les règles, tests et limites.

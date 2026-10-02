@@ -114,6 +114,7 @@ public class MonsterAiService
 
             foreach (var (instance, mx, my) in _candidates)
             {
+                if (instance.Layer != info.Layer) continue;
                 var instanceId = instance.InstanceId;
                 var action = MonsterAiRules.Decide(false, true, true, false,
                     mx, my, instance.X, instance.Y, info.X, info.Y,
@@ -153,7 +154,7 @@ public class MonsterAiService
             // A character at 0 HP is not a target any more: the monster stops swinging and walks home
             // instead of hitting a corpse. Death carries no packet of its own (§3.2), so the value of
             // CharacterHp is the whole of the dead state.
-            if (!MonsterAiRules.IsAlive(info.CharacterHp))
+            if (!MonsterAiRules.IsAlive(info.CharacterHp) || instance.Layer != info.Layer)
             {
                 GoHome(enemy, instanceId, handle, info, streamed);
                 continue;
@@ -167,6 +168,12 @@ public class MonsterAiService
                 unchecked((int)(now - nextAttackTick)) >= 0,
                 mx, my, instance.X, instance.Y, info.X, info.Y,
                 instance.VisibleRange, instance.ChaseRange, reach);
+
+            // Monster skills and Lua triggers are tried before the melee distance gate (official AI).
+            if (action is MonsterAiAction.Chase or MonsterAiAction.Attack
+                && unchecked((int)(now - nextAttackTick)) >= 0
+                && _worldState.HasLineOfSight(mx, my, info.X, info.Y)
+                && TryAttackSkill(enemy, instanceId, handle, info, now)) continue;
 
             switch (action)
             {
@@ -214,6 +221,24 @@ public class MonsterAiService
 
     private void Attack(GameClient client, long instanceId, uint handle, ConnectionInfo info, uint now)
     {
+        StopToAttack(client, instanceId, handle, info, now);
+        var hit = _combat.RollMonsterHit(instanceId, client, out var intervalTicks);
+        var playerHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
+
+        var intervalMs = CombatService.IntervalMs(intervalTicks);
+        var monsterHp = _worldState.GetHp(instanceId);
+        client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, playerHp,
+            monsterHp, (byte)hit.Flags));
+        ToOtherWatchers(client, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
+            otherHandle, info.CharacterHandle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
+            playerHp, monsterHp, (byte)hit.Flags));
+        _combat.DamagePlayer(client, hit.Damage);
+        _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
+    }
+
+    private void StopToAttack(GameClient client, long instanceId, uint handle, ConnectionInfo info, uint now)
+    {
         // Stand still to attack: a chase move still in flight would slide the monster through its swing.
         if (_worldState.IsMoving(instanceId))
         {
@@ -224,35 +249,17 @@ public class MonsterAiService
                 otherHandle, unchecked(now + other.ConnectionInfo.ClientClockOffset), other.ConnectionInfo.Layer));
         }
 
-        // A skill, when one comes up, replaces the swing (StructMonster::AI_processAttack). The next
-        // opportunity waits for the cast and for the attack interval, whichever is longer.
-        if (_skills.TryCast(client, instanceId, handle, now, out var castTicks))
-        {
-            var attackSpeed = _combat.GetMonsterStats(instanceId)?.AttackSpeed ?? 100f;
-            var wait = Math.Max(castTicks, CombatFormulas.AttackIntervalTicks(attackSpeed));
-            _worldState.SetNextAttack(instanceId, unchecked(now + wait));
-            return;
-        }
+    }
 
-        var hit = _combat.RollMonsterHit(instanceId, client, out var intervalTicks);
-        var playerHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, hit.Damage);
-
-        var intervalMs = CombatService.IntervalMs(intervalTicks);
-        var monsterHp = _worldState.GetHp(instanceId);
-        client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
-            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, playerHp,
-            monsterHp, (byte)hit.Flags));
-
-        // The players who see both see the swing: the one that brings the player to 0 carries
-        // target_hp = 0, which is how they watch the player die (the client has no death packet).
-        ToOtherWatchers(client, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
-            otherHandle, info.CharacterHandle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
-            playerHp, monsterHp, (byte)hit.Flags));
-
-        // HP, property and, on the killing swing, the death penalty: after the swing that shows it.
-        _combat.DamagePlayer(client, hit.Damage);
-
-        _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
+    private bool TryAttackSkill(GameClient client, long instanceId, uint handle, ConnectionInfo info, uint now)
+    {
+        var attackSpeed = _combat.GetMonsterStats(instanceId)?.AttackSpeed ?? 100f;
+        var interval = CombatFormulas.AttackIntervalTicks(attackSpeed);
+        if (!_worldState.TrySkillOpportunity(instanceId, now, interval)
+            || !_skills.TryCast(client, instanceId, handle, now, out var castTicks)) return false;
+        StopToAttack(client, instanceId, handle, info, now);
+        _worldState.SetNextAttack(instanceId, unchecked(now + Math.Max(castTicks, interval)));
+        return true;
     }
 
     private void GoHome(GameClient client, long instanceId, uint handle, ConnectionInfo info, bool streamed)

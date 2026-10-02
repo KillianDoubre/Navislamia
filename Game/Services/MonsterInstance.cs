@@ -40,4 +40,6 @@ public readonly record struct MonsterInstance(
     MonsterCombatStats Combat = null,
     int SkillLinkId = 0,
     int MonsterGroup = 0,
-    bool GroupFirstAttack = false);
+    bool GroupFirstAttack = false,
+    byte Layer = 0,
+    MonsterRewardProfile Rewards = default);

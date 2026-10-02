@@ -16,8 +16,11 @@ public class RatesOptions
     /// </summary>
     public double? Jp { get; set; }
 
-    /// <summary>Gold per kill. NGemity <c>Game.GoldDropRate</c>.</summary>
+    /// <summary>Chance of a gold drop. Official <c>GameRule::fGoldDropRate</c>; the amount uses the monster's bounds.</summary>
     public double Gold { get; set; } = 1;
+
+    /// <summary>Chance of a chaos drop. Official <c>GameRule::fChaosDropRate</c>.</summary>
+    public double ChaosDrop { get; set; } = 1;
 
     /// <summary>Chance of every drop slot, capped at 100 %. NGemity <c>Game.ItemDropRate</c>.</summary>
     public double ItemDrop { get; set; } = 1;

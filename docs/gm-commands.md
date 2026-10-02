@@ -57,7 +57,7 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/save` | oui | Lua `save` | sauvegarde la progression sans se déconnecter |
 | `/chaos <montant>` | oui | Navislamia | ajoute ou retire du chaos, entre 0 et `int.MaxValue` |
 | `/rate` | oui | Navislamia | rates effectifs (base × événement), temps restant et réglages non multiplicateurs |
-| `/rate <type> <multiplicateur> <durée>` | oui | Navislamia | événement de rates annoncé à tous, `type` = `exp`, `jp`, `gold`, `drop`, `card` ou `all` |
+| `/rate <type> <multiplicateur> <durée>` | oui | Navislamia | événement de rates annoncé à tous, `type` = `exp`, `jp`, `gold`, `drop`, `card`, `chaos` ou `all` |
 | `/rate reset [type]` | oui | Navislamia | fin anticipée, d'un type ou de tous |
 | `/rates` | non | Navislamia | rates effectifs, en lecture seule |
 | `/gametime [heures]` | oui | Navislamia | décale l'heure du monde (`TS_SC_GAME_TIME`) pour tous et la renvoie ; `0` remet l'heure réelle, sans argument affiche l'heure |
@@ -136,7 +136,8 @@ d'origine) par défaut.
 |---|---|---|
 | `Exp` | exp gagnée par kill | NGemity `Game.EXPRate` |
 | `Jp` | JP gagnés par kill ; **absente, elle vaut `Exp`** | NGemity (son `EXPRate` multiplie les deux, `World.cpp:529`) |
-| `Gold` | or gagné par kill | NGemity `Game.GoldDropRate` |
+| `Gold` | chance de chute d'or, plafonnée à 100 % ; montant dans `MonsterResource.GoldMin/GoldMax` | officiel `procDropGold` |
+| `ChaosDrop` | chance de gain de chaos, plafonnée à 100 % ; montant dans `MonsterResource.ChaosMin/ChaosMax` | officiel `procDropChaos` |
 | `ItemDrop` | chance de chaque emplacement de drop, plafonnée à 100 % | NGemity `Game.ItemDropRate` |
 | `CreatureCardDrop` | facteur de plus sur un emplacement dont l'objet **direct** est une carte d'invocation (groupe 13) | NGemity `Game.CreatureCardDropRate` |
 | `MonsterRespawnSeconds` | délai de réapparition d'un monstre tué (10) | constante du code |
@@ -147,7 +148,7 @@ d'origine) par défaut.
 | `EventReminderMinutes` | rappel annoncé avant la fin d'un événement (5, 0 = aucun) | Navislamia |
 | `EventStatePath` | fichier des événements en cours, relatif à la racine du serveur | Navislamia |
 
-Un rate négatif, infini ou non numérique compte comme 0. Les quantités sont **arrondies au hasard** :
+Un rate négatif, infini ou non numérique compte comme 0. Les gains EXP/JP sont **arrondis au hasard** :
 7 exp × 1,5 donne 10 ou 11 avec une chance sur deux, donc un rate fractionnaire est juste en moyenne.
 C'est l'intention de NGemity (`GameRule::GetIntValueByRandomInt64`), pas son comportement : son test
 `(rand % 100) / 100.0 + v >= v` est toujours vrai, donc il tronque toujours. Les **coûts** en JP sont
@@ -178,8 +179,8 @@ Code : `Game/Services/Rates/` — `RateEventBook` (règles pures), `RateService`
 fichier), `RateEventTicker` (fin et rappel, toutes les secondes). Tests : `Tests/Game/RatesTests.cs`.
 
 **Pas encore de clé** — la fonctionnalité n'existe pas, et une clé sans effet ferait croire que ça
-marche : `QuestExp`/`QuestJp`/`QuestGold` (604/605 ne sont pas traités), `ChaosDrop` (le chaos ne tombe
-pas des monstres), `PvpDamage` (pas de PvP), stamina, artisanat, enchantement, apprivoisement.
+marche : `QuestExp`/`QuestJp`/`QuestGold` (rates distincts non exposés), `PvpDamage` (pas de PvP),
+stamina, artisanat, enchantement, apprivoisement.
 
 ## Ce qui n'est pas porté, et pourquoi
 

@@ -52,7 +52,8 @@ public class BuffCatalog : IBuffCatalog
     public static readonly int[] CastableEffectTypes =
     {
         MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, ToggleAura, ToggleDifferentialAura,
-        PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming
+        PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming,
+        30011, 30012, 30013, 30016, 232, 241, 261, 262, 263, 271
     };
 
     /// <summary>
@@ -145,7 +146,7 @@ public class BuffCatalog : IBuffCatalog
             row.HitBonus,
             row.Percentage,
             row.CriticalBonus,
-            row.CriticalBonusPerSkl);
+            row.CriticalBonusPerSkl, row.EffectType, row.Target, row.RequiredTarget, row.CastRange);
         return true;
     }
 
@@ -185,8 +186,16 @@ public class BuffCatalog : IBuffCatalog
             return true;
         }
 
-        // Single-target offensive skills. The multi-hit and region variants need more than one hit
-        // record or area resolution, so they stay out.
+        if (SkillAreaRules.IsSupportedDamage(row.EffectType) && row.EffectType is not (101 or 201 or 30001 or 231))
+        {
+            if (!row.IsHarmful || row.Target is not (1 or 2 or 3 or 4)) return false;
+            if (!SkillAreaRules.IsArea(row.EffectType) && row.Target != 1) return false;
+            kind = SkillAreaRules.IsMagical(row.EffectType)
+                ? SkillCastKind.MagicAttack : SkillCastKind.PhysicalAttack;
+            return true;
+        }
+
+        // Existing single-target families retain their target gate.
         if (row.EffectType is PhysicalSingleDamage or MagicSingleDamage)
         {
             if (row.Target != (int)SkillTarget.Target || !row.IsHarmful)

@@ -44,6 +44,7 @@ public class ConnectionInfo
     public int CharacterJob { get; set; }
     public int CharacterJobLevel { get; set; }
     public long CharacterExp { get; set; }
+    public object ProgressLock { get; } = new();
     public long CharacterJp { get; set; }
     /// <summary>
     /// The gold the session holds, persisted on save. A booth trade moves gold between two sessions from
@@ -205,6 +206,7 @@ public class ConnectionInfo
     /// privileged GM commands — NGemity's own threshold (docs/gm-commands.md).
     /// </summary>
     public int CharacterPermission { get; set; }
+    public bool AutoUsed { get; set; }
 
     /// <summary>
     /// The three actor states the GM commands toggle. They reach the client only through the status
@@ -556,6 +558,7 @@ public class ConnectionInfo
         MoveStartTick = 0;
         PkMode = false;
         CharacterPermission = 0;
+        AutoUsed = false;
         IsSitting = false;
         IsBattleMode = false;
         IsWalking = false;

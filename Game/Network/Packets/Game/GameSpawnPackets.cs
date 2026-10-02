@@ -23,9 +23,31 @@ public static class GameSpawnPackets
     private const byte ObjectTypeNpc = 1;
     private const byte ObjectTypeItem = 2;
     private const byte ObjectTypeMonster = 3;
+    private const byte ObjectTypeSkillProp = 5;
     private const byte ObjectTypeSummon = 4;
     private const byte ObjectTypeFieldProp = 6;
     private const byte ObjectTypePet = 7;
+
+    /// <summary>Official TS_ENTER::SkillInfo: caster, start_time, skill_num after the static prefix.</summary>
+    public static byte[] BuildEnterSkillProp(uint handle, float x, float y, float z, byte layer,
+        uint caster, uint startTime, int skillId)
+    {
+        const int length = 38;
+        var packet = new byte[length];
+        var span = packet.AsSpan();
+        WriteHeader(span, length, GamePackets.TM_SC_ENTER);
+        packet[7] = EnterTypeStaticObject;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(8, 4), handle);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(12, 4), x);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(16, 4), y);
+        BinaryPrimitives.WriteSingleLittleEndian(span.Slice(20, 4), z);
+        packet[24] = layer; packet[25] = ObjectTypeSkillProp;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(26, 4), caster);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(30, 4), startTime);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(34, 4), skillId);
+        WriteChecksum(packet);
+        return packet;
+    }
 
     public static byte[] BuildEnterNpc(uint handle, float x, float y, float z, byte layer,
         int hp, int level, byte race, int npcId)

@@ -129,6 +129,7 @@ public class GameActions : IActions
         info.CharacterChaos = character.Chaos;
         info.PkMode = character.PkMode;
         info.CharacterPermission = character.Permission;
+        info.AutoUsed = character.AutoUsed;
         info.Layer = (byte)character.Layer;
         info.X = position[0];
         info.Y = position[1];

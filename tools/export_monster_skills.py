@@ -8,8 +8,7 @@ ORDER BY id, sub_id") appends, for every row of an id and in sub_id order, each 
 {id, level, probability} entry; the official AI (StructMonster::AI_processAttack, 0x140166350) then rolls
 the entries in that order.
 
-Only entries with a probability above zero are written: the AI never rolls the others, which only the
-trigger scripts (Lua, trigger_N_function) reach. The triggers are not exported: this repository runs no Lua.
+Zero-probability slots and triggers are retained: Lua indexes the original skill list.
 
 Usage:
     python tools/export_monster_skills.py [--source data/epic7]
@@ -36,7 +35,8 @@ def main(argv):
     table.sort(key=lambda row: (int(row["id"]), int(row["sub_id"])))
 
     links = {}
-    skipped = 0
+    triggers = {}
+    zero_probability = 0
     for row in table:
         entries = links.setdefault(int(row["id"]), [])
         for slot in range(1, SLOTS + 1):
@@ -45,10 +45,16 @@ def main(argv):
                 continue
             probability = float(row[f"skill{slot}_probability"] or 0)
             if probability <= 0:
-                skipped += 1
-                continue
+                zero_probability += 1
             entries.append({"SkillId": skill, "Level": int(row[f"skill{slot}_lv"] or 0),
                             "Probability": probability})
+        trigger_entries = triggers.setdefault(int(row["id"]), [])
+        for slot in range(1, SLOTS + 1):
+            kind = int(row[f"trigger_{slot}_type"] or 0)
+            function = row[f"trigger_{slot}_function"].strip()
+            if kind and function not in ("", "0"):
+                trigger_entries.append({"Type": kind, "Value1": float(row[f"trigger_{slot}_value_1"] or 0),
+                                        "Value2": float(row[f"trigger_{slot}_value_2"] or 0), "Function": function})
 
     links = {link: entries for link, entries in links.items() if entries}
     document = {
@@ -57,9 +63,11 @@ def main(argv):
             "Source": f"MonsterSkillResource ({source.name}), ordered by id, sub_id",
             "Links": len(links),
             "Entries": sum(len(entries) for entries in links.values()),
-            "ZeroProbabilityEntriesSkipped": skipped,
+            "ZeroProbabilityEntries": zero_probability,
+            "Triggers": sum(len(entries) for entries in triggers.values()),
         },
-        "MonsterSkillCatalog": {"Links": {str(link): entries for link, entries in sorted(links.items())}},
+        "MonsterSkillCatalog": {"Links": {str(link): entries for link, entries in sorted(links.items())},
+                                "Triggers": {str(link): entries for link, entries in sorted(triggers.items()) if entries}},
     }
     OUTPUT.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
     print(f"{OUTPUT.name}: {document['Metadata']}")

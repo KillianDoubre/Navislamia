@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
@@ -50,15 +51,18 @@ public class SkillCastService : ISkillCastService
     private readonly IFieldPropCatalog _fieldPropCatalog;
     private readonly IWarpService _warpService;
     private readonly IPlayerVisibilityService _players;
+    private readonly SkillEffectScheduler _effects;
+    private readonly HashSet<GameClient> _casting = new();
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
     public SkillCastService(IBuffCatalog catalog, IStatService statService, IStateCatalog stateCatalog,
         MonsterWorldState monsterState,
         ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService,
-        IPlayerVisibilityService players = null)
+        IPlayerVisibilityService players = null, SkillEffectScheduler effects = null)
     {
         _players = players;
+        _effects = effects ?? new SkillEffectScheduler();
         _catalog = catalog;
         _statService = statService;
         _stateCatalog = stateCatalog;
@@ -91,6 +95,7 @@ public class SkillCastService : ISkillCastService
         lock (_lock)
         {
             _clients.Remove(client);
+            _casting.Remove(client);
         }
     }
 
@@ -98,6 +103,10 @@ public class SkillCastService : ISkillCastService
     {
         var info = client.ConnectionInfo;
         var now = ServerClock.Now;
+
+        lock (_lock)
+            if (_casting.Contains(client))
+            { SendCastFailed(client, request, ResultCode.NotActable); return; }
 
         if (!TryValidate(info, request, now, out var fields, out var targetInstanceId, out var skillLevel,
                 out var error))
@@ -108,6 +117,7 @@ public class SkillCastService : ISkillCastService
 
         var mpCost = BuffCurve.MpCost(fields, skillLevel);
         var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
+        request = request with { SkillLevel = skillLevel };
 
         info.CharacterMp -= mpCost;
         var cooldown = BuffCurve.CooldownTicks(fields, skillLevel);
@@ -117,6 +127,13 @@ public class SkillCastService : ISkillCastService
         }
 
         SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Casting, mpCost, castDelay);
+
+        if (fields.Kind is SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
+            && fields.EffectType is not (0 or 231 or 30001))
+        {
+            CastDamageSequence(client, request, fields, targetInstanceId, skillLevel, now, castDelay);
+            return;
+        }
 
         SkillHit? hit = null;
         switch (fields.Kind)
@@ -308,9 +325,41 @@ public class SkillCastService : ISkillCastService
                 return false;
             }
 
-            if (!TryValidateTarget(info, request, fields.Kind, out targetInstanceId, out error))
+            if (fields.Kind is SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
+                && fields.EffectType is not (0 or 231 or 30001) && info.Layer != 0)
+            { error = ResultCode.NotActable; return false; }
+            if (SkillCastRangeRules.AppliesTo(fields.EffectType) && request.Layer != info.Layer)
+            { error = ResultCode.InvalidArgument; return false; }
+
+            if (fields.Kind is SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
+                && SkillAreaRules.IsArea(fields.EffectType) && fields.RequiredTarget is 0 or 2)
+            {
+                if (!float.IsFinite(request.X) || !float.IsFinite(request.Y) || !float.IsFinite(request.Z)
+                    || request.Layer != info.Layer)
+                { error = ResultCode.InvalidArgument; return false; }
+                if (fields.RequiredTarget == 2)
+                {
+                    var p = SkillCastRangeRules.PlayerPosition(info, now);
+                    if (!SkillCastRangeRules.GroundInRange(fields.CastRange, _statService.Compute(info).Total.AttackRange,
+                        CombatRange.Distance(p.X, p.Y, request.X, request.Y)))
+                    { error = ResultCode.TooFar; return false; }
+                }
+            }
+            else if (!TryValidateTarget(info, request, fields.Kind, out targetInstanceId, out error))
             {
                 return false;
+            }
+
+            if (SkillCastRangeRules.AppliesTo(fields.EffectType) && targetInstanceId >= 0)
+            {
+                if (!_monsterState.TryGetInstance(targetInstanceId, out var target) || target.Layer != info.Layer)
+                { error = ResultCode.NotActable; return false; }
+                var p = SkillCastRangeRules.PlayerPosition(info, now);
+                var q = _monsterState.GetPosition(targetInstanceId);
+                if (!SkillCastRangeRules.InRange(fields.CastRange, _statService.Compute(info).Total.AttackRange,
+                    CombatRange.Distance(p.X, p.Y, q.X, q.Y), CombatRange.PlayerUnitSize,
+                    CombatRange.UnitSize(target.Size, target.Scale), _monsterState.IsMoving(targetInstanceId)))
+                { error = ResultCode.TooFar; return false; }
             }
 
             // Étape 0 of the socle (docs/packet-specs/socle-apprivoisement-invocation.md §11) classifies
@@ -576,6 +625,126 @@ public class SkillCastService : ISkillCastService
         var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
 
         return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags);
+    }
+
+    private void CastDamageSequence(GameClient client, GameActionPackets.SkillRequest request,
+        CastableBuffFields fields, long targetId, int level, uint now, uint castDelay)
+    {
+        var info = client.ConnectionInfo;
+        var layer = info.Layer;
+        var caster = info.CharacterHandle;
+        var area = SkillAreaRules.Area(fields);
+        var count = SkillAreaRules.FireCount(fields, level);
+        var ground = fields.EffectType == 271;
+        var created = false;
+        var targetLife = _monsterState.LifeVersion(targetId);
+        uint startedAt = 0;
+        float groundMagic = 0;
+        var (fixedX, fixedY) = fields.RequiredTarget == 0 ? SkillCastRangeRules.PlayerPosition(info, now)
+            : targetId >= 0 ? _monsterState.GetPosition(targetId) : (request.X, request.Y);
+        request = request with { X = fixedX, Y = fixedY, Target = fields.RequiredTarget == 0 ? caster : request.Target };
+        lock (_lock) _casting.Add(client);
+        void Finish()
+        {
+            if (!ground || !created) lock (_lock) _casting.Remove(client);
+            if (info.CharacterHandle == caster && (!ground || !created))
+                SendDamageSkill(client, request, fields, targetId, SkillPacketType.Complete, Array.Empty<(long, SkillHit)>());
+        }
+        bool Fire(uint tick)
+        {
+            if (info.CharacterHandle != caster || info.CharacterHp <= 0 || info.Layer != layer) return false;
+            if (_players is not null && (!_players.Registry.TryResolve(caster, out var current) || !ReferenceEquals(current, client))) return false;
+            if (!ground && targetId >= 0 && (!_monsterState.IsAlive(targetId) || _monsterState.GetHp(targetId) <= 0
+                || _monsterState.LifeVersion(targetId) != targetLife)) return false;
+            if (ground)
+            {
+                if (!created)
+                {
+                    created = true;
+                    startedAt = tick;
+                    groundMagic = _statService.Compute(info).Total.MagicPoint;
+                    _effects.Track(new GroundSkillProp(fixedX, fixedY, request.Z, layer, tick,
+                        SkillAreaRules.Duration(fields, level), fields.SkillId,
+                        () => _players?.Registry.Clients ?? new[] { client },
+                        recipient =>
+                        {
+                            if (ReferenceEquals(recipient, client)) return caster;
+                            lock (recipient.ConnectionInfo.PlayerVisibilityLock)
+                                return recipient.ConnectionInfo.SpawnedPlayers.ContainsKey(caster) ? caster : 0;
+                        },
+                        () => info.CharacterHandle == caster && info.CharacterHp > 0 && info.Layer == layer
+                            && (_players is null || (_players.Registry.TryResolve(caster, out var owner) && ReferenceEquals(owner, client)))), tick);
+                    SendDamageSkill(client, request, fields, targetId, SkillPacketType.Fire, Array.Empty<(long, SkillHit)>());
+                    lock (_lock) _casting.Remove(client);
+                    SendDamageSkill(client, request, fields, targetId, SkillPacketType.Complete, Array.Empty<(long, SkillHit)>());
+                }
+                if (unchecked((int)(tick - startedAt)) > SkillAreaRules.Duration(fields, level)) return false;
+            }
+            var (tx, ty) = ground || targetId < 0 ? (fixedX, fixedY) : _monsterState.GetPosition(targetId);
+            var stats = _statService.Compute(info).Total;
+            var damage = SkillAreaRules.Damage(fields, level, stats.AttackPointRight, ground ? groundMagic : stats.MagicPoint);
+            var targets = new List<MonsterInstance>();
+            if (SkillAreaRules.IsArea(fields.EffectType))
+            {
+                var (cx, cy) = SkillCastRangeRules.PlayerPosition(info, tick);
+                var (ox, oy) = area.TargetOrigin ? (tx, ty) : (cx, cy);
+                targets = SkillAreaRules.Select(_monsterState.WithinCurrentRange(ox, oy, area.Radius)
+                    .Where(m => m.Layer == layer), area,
+                    cx, cy, tx, ty, m => _monsterState.GetPosition(m.InstanceId), ref damage);
+            }
+            else if (_monsterState.TryGetInstance(targetId, out var single)) targets.Add(single);
+            var hits = new List<(long, SkillHit)>();
+            foreach (var monster in targets.Take(255))
+            {
+                var handle = info.GetMonsterHandle(monster.InstanceId);
+                if (!_monsterState.IsAlive(monster.InstanceId) || _monsterState.GetHp(monster.InstanceId) <= 0) continue;
+                var repetitions = SkillAreaRules.IsAtOnceMultiple(fields.EffectType) ? count : 1;
+                for (var i = 0; i < repetitions && _monsterState.IsAlive(monster.InstanceId) && _monsterState.GetHp(monster.InstanceId) > 0; i++)
+                {
+                    var hit = _combatService.RollHit(client, monster.InstanceId, damage,
+                        fields.Kind == SkillCastKind.MagicAttack ? DamageKind.Magical : DamageKind.Physical,
+                        SkillDamageCurve.HitBonus(fields, info.CharacterLevel, monster.Level), SkillDamageCurve.CriticalBonus(fields, level));
+                    var hp = _combatService.ApplyDamage(client, monster.InstanceId, handle, hit.Damage);
+                    hits.Add((monster.InstanceId, new SkillHit(fields.Kind == SkillCastKind.MagicAttack ? SkillHitType.MagicDamage : SkillHitType.Damage,
+                        handle, hp, hit.Damage, (byte)hit.Flags)));
+                    if (hp <= 0) break;
+                }
+            }
+            SendDamageSkill(client, request, fields, targetId, ground ? SkillPacketType.RegionFire : SkillPacketType.Fire,
+                hits, SkillAreaRules.IsAtOnceMultiple(fields.EffectType) ? (byte)count : (byte)1);
+            return true;
+        }
+        var sequential = SkillAreaRules.IsSequential(fields.EffectType) || ground;
+        _effects.Schedule(unchecked(now + castDelay), SkillAreaRules.Interval(fields), sequential ? count : 1, Fire, Finish);
+        var cooldown = BuffCurve.CooldownTicks(fields, level);
+        client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
+            new[] { new SkillListEntry(fields.SkillId, (byte)level, cooldown, cooldown) }));
+        if (castDelay == 0) _effects.Tick(now);
+    }
+
+    private void SendDamageSkill(GameClient client, GameActionPackets.SkillRequest request, CastableBuffFields fields,
+        long targetId, SkillPacketType type, IReadOnlyList<(long InstanceId, SkillHit Hit)> hits, byte fireCount = 1)
+    {
+        byte[] Frame(GameClient recipient)
+        {
+            var mapped = hits.Select(h => (h.Hit, Handle: recipient.ConnectionInfo.GetMonsterHandle(h.InstanceId)))
+                .Where(h => h.Handle != 0).Select(h => h.Hit with { TargetHandle = h.Handle }).ToArray();
+            var target = targetId >= 0 ? recipient.ConnectionInfo.GetMonsterHandle(targetId) : request.Target;
+            return GameSkillPackets.BuildSkill(request.SkillId, request.SkillLevel, client.ConnectionInfo.CharacterHandle,
+                target, request.X, request.Y, request.Z, (byte)request.Layer, type, 0, 0,
+                client.ConnectionInfo.CharacterHp, client.ConnectionInfo.CharacterMp, hits: mapped,
+                multiple: SkillAreaRules.IsSequential(fields.EffectType), range: SkillAreaRules.Area(fields).Radius, fireCount: fireCount);
+        }
+        client.Connection.Send(Frame(client));
+        if (_players is not null)
+        {
+            var recipients = new HashSet<GameClient>(_players.Observers(client));
+            foreach (var other in _players.Registry.Clients)
+                if (hits.Any(h => other.ConnectionInfo.GetMonsterHandle(h.InstanceId) != 0)) recipients.Add(other);
+            recipients.Remove(client);
+            foreach (var other in recipients)
+                if (other.ConnectionInfo.Layer == client.ConnectionInfo.Layer) other.Connection.Send(Frame(other));
+        }
     }
 
     private void ApplyDebuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now,

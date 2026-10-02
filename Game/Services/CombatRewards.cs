@@ -1,17 +1,53 @@
+using System;
+using Navislamia.Game.DataAccess.Entities.Arcadia;
+using Navislamia.Game.Services.Rates;
+using Navislamia.Game.Services.Stats;
+
 namespace Navislamia.Game.Services;
+
+/// <summary>The loaded resource's rewards, also carried by replacement resources and scripted spawns.</summary>
+public readonly record struct MonsterRewardProfile(int Exp, int Jp, int GoldChance, int GoldMin, int GoldMax,
+    int ChaosChance, int ChaosMin, int ChaosMax)
+{
+    public static MonsterRewardProfile From(MonsterResourceEntity row, bool secondary = false) => new(
+        secondary ? row.Exp2 : row.Exp, secondary ? row.Jp2 : row.Jp, row.GoldDropPercentage,
+        secondary ? row.GoldMin2 : row.GoldMin, secondary ? row.GoldMax2 : row.GoldMax,
+        row.ChaosDropPercentage, secondary ? row.ChaosMin2 : row.ChaosMin,
+        secondary ? row.ChaosMax2 : row.ChaosMax);
+}
+
+public readonly record struct MonsterKillReward(long Exp, long Jp, long Gold, int Chaos);
 
 public static class CombatRewards
 {
-    private const long ExpBase = 10;
-    private const long ExpPerLevel = 5;
-    private const long JpBase = 5;
-    private const long JpPerLevel = 2;
-    private const long GoldBase = 5;
-    private const long GoldPerLevel = 3;
+    /// <summary>GameRule::MAX_GOLD_DROP, applied after drawing the amount.</summary>
+    public const long MaxGoldDrop = 1_000_000;
 
-    public static (long Exp, long Jp, long Gold) Compute(int monsterLevel)
+    public static MonsterKillReward Roll(MonsterRewardProfile profile, IRateService rates, ICombatRandom random) => new(
+        rates.Scale(Math.Max(0, profile.Exp), RateType.Exp), rates.Scale(Math.Max(0, profile.Jp), RateType.Jp),
+        Math.Min(MaxGoldDrop, RollAmount(profile.GoldChance, profile.GoldMin, profile.GoldMax, rates.Get(RateType.Gold), random)),
+        RollAmount(profile.ChaosChance, profile.ChaosMin, profile.ChaosMax, rates.Get(RateType.ChaosDrop), random));
+
+    public static int RollAmount(int chance, int min, int max, double rate, ICombatRandom random)
     {
-        var level = monsterLevel > 0 ? monsterLevel : 1;
-        return (ExpBase + level * ExpPerLevel, JpBase + level * JpPerLevel, GoldBase + level * GoldPerLevel);
+        var low = Math.Max(0, Math.Min(min, max));
+        var high = Math.Max(0, Math.Max(min, max));
+        if (chance <= 0 || high == 0 || RateMath.Sanitize(rate) == 0
+            || Math.Min(100, chance * rate) <= random.Next(100)) return 0;
+        if (low == high) return low;
+        var span = (long)high - low + 1;
+        // The only span above int.MaxValue is 0..int.MaxValue; compose a uniform 31-bit draw.
+        var draw = span <= int.MaxValue ? random.Next((int)span)
+            : ((long)random.Next(65536) << 15) + random.Next(32768);
+        return (int)(low + draw);
     }
+
+    public static long Share(long total, int count, int index) =>
+        total / count + (index < total % count ? 1 : 0);
+
+    public static long AddProgress(long current, long amount) =>
+        Math.Max(0, current) + Math.Min(Math.Max(0, amount), long.MaxValue - Math.Max(0, current));
+
+    public static int ChaosCapacity(float maximum) =>
+        !float.IsFinite(maximum) || maximum <= 0 ? 0 : (int)Math.Min(int.MaxValue, Math.Floor(maximum));
 }

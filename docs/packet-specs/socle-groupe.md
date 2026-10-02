@@ -83,9 +83,17 @@ vers elles. `MINFO` suit `SendVitalProperty` et la régénération, **seulement 
 ## 5.1 Récompenses et ramassage (deuxième étape)
 
 À la mort d'un monstre, les membres du groupe en ligne, sur la même couche et à 540 unités ou moins
-du monstre se partagent à parts entières l'expérience, les JP et l'or. Les restes vont aux premiers
+du monstre se partagent à parts entières l'expérience, les JP et le chaos tirés de `MonsterResource`.
+Le chaos reçu est limité à la capacité effective de chacun. Les restes vont aux premiers
 membres dans l'ordre du groupe ; chaque bénéficiaire reçoit ses mises à jour et sa montée de niveau.
 Sans autre membre éligible, le tueur garde la totalité.
+
+L'or du monstre tombe au sol (`item_code = 0`) selon les probabilités et bornes de sa ressource.
+Au ramassage, il se partage entre les membres en ligne de la même couche à 400 unités ou moins
+du ramasseur, indépendamment de `monopoly`/`random`/`linear`, sans avancer le tour des objets.
+Les restes vont aux premiers handles de personnage. Si un portefeuille dépasse son plafond,
+personne n'est crédité et l'or reste disponible. Voir `socle-recompenses-monstres.md` pour les
+sources officielles, les tests et les écarts.
 
 Le butin du monstre conserve l'identifiant du groupe à la chute (premier `party_id` du bloc
 `pick_up_order` dans `TS_SC_ENTER`). Le propriétaire et les membres encore présents dans ce groupe
