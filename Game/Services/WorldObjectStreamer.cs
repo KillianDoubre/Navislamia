@@ -27,6 +27,10 @@ public static class WorldObjectStreamer
     /// <param name="canEnter">Whether the object may be streamed. One that may not but is already
     /// visible stays visible rather than leaving: a monster's corpse outlives its death, and its
     /// <c>TS_SC_LEAVE</c> is deferred by the combat tick so the client can play the animation.</param>
+    /// <param name="onEntered">Optional follow-up, called under the same lock and with the same handle,
+    /// once the object's handle is recorded. It exists so a frame that races this one cannot miss the
+    /// object: a monster brings the states it already carries here (docs/packet-specs/
+    /// socle-etats-monstre-entree.md).</param>
     public static void Stream<T>(
         GameClient client,
         object visibilityLock,
@@ -35,7 +39,8 @@ public static class WorldObjectStreamer
         Func<T, uint, byte[]> buildEnter,
         Dictionary<long, uint> handlesById,
         Dictionary<uint, long> idsByHandle = null,
-        Func<T, bool> canEnter = null)
+        Func<T, bool> canEnter = null,
+        Action<T, uint> onEntered = null)
     {
         var visible = new HashSet<long>(inRange.Count);
 
@@ -69,6 +74,11 @@ public static class WorldObjectStreamer
                 {
                     idsByHandle[handle] = id;
                 }
+
+                // Only once the handle is recorded: a pose that races this frame finds the observer through
+                // this map (GetMonsterHandle) and would send the state nowhere if the handle were not on
+                // record yet.
+                onEntered?.Invoke(item, handle);
             }
 
             DespawnMissing(client.Connection, handlesById, visible, idsByHandle);

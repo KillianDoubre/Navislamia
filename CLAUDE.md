@@ -265,7 +265,13 @@ champ ; `TS_SC_LEAVE` fait 11 octets et `TS_SC_MOVE` `19 + 8 × N`. Ce qui manqu
   partent aux observateurs (`CompanionFrames`, handle global). La visibilité lit `ActivePet` et `Summons`
   **sans verrou** — l'inverse de l'ordre de verrouillage du familier serait un interblocage.
 - **Icônes d'états diffusées** : états (505) et auras (407) d'un joueur à ses observateurs, et à l'entrée d'un pair
-  dans une vue (`CompanionFrames.States`) ; malus et bonus d'un monstre aux observateurs qui le voient.
+  dans une vue (`CompanionFrames.States`) ; malus et bonus d'un monstre aux observateurs qui le voient, **et à
+  l'entrée du monstre dans une vue** (`docs/packet-specs/socle-etats-monstre-entree.md`) : `MonsterSpawnService.Sync`
+  fait suivre l'`ENTER` d'un 505 par état actif, avec le handle de ce client, comme `SendEnterMsg` de l'officiel
+  (NGemity n'en fait rien). Les trames partent sous `MonsterVisibilityLock` et **après** l'enregistrement du
+  handle (`WorldObjectStreamer`, `onEntered`) : une pose concurrente retrouve l'observateur par ce handle.
+  Ordre des verrous `MonsterVisibilityLock` → `_stateLock`, jamais l'inverse. Un état échu que le tick de 500 ms
+  n'a pas encore retiré n'est pas annoncé (décision du dépôt).
 - **Hors lot** : un pair déjà en marche (vu immobile jusqu'à sa prochaine trame).
   `BoothWatchService` cherche encore le propriétaire d'un étal par balayage : le registre peut le remplacer.
 - Fiche, sources et réserves : `docs/packet-specs/socle-visibilite-joueurs.md`.

@@ -58,7 +58,6 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Éléments : les dégâts élémentaires partent sur le fil mais aucune résistance n'est modélisée.
 - Récompenses : pondération selon les dégâts, bonus de donjon/PC bang et stamina restent à modéliser ; le
   partage égal du groupe est conservé (le malus d'écart de niveau et la portée de 500 sont faits, MR #78).
-- États actifs d'un monstre non envoyés quand il entre dans la vue d'un joueur.
 - Buffs : ni persistance à la déconnexion, ni buff sur les membres du groupe ou les invocations, ni soins de
   zone.
 - Équipement : race, classe et profondeur de métier non jugées (colonnes `limit_*` non importées).
