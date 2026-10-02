@@ -195,6 +195,10 @@ Les 7 colonnes `limit_*` sont des **chaînes** dans la source (`limit_deva` … 
 
 ### 5.6 Découpage — lot minimal, puis les suites
 
+**Le socle se scinde en deux :** le plancher de niveau (§5.2) est autonome et sera implémenté sur cette
+branche ; la race, la classe et la profondeur (§5.3) dépendent d'un prérequis de données et **ne peuvent pas
+partir avant** que les masques soient remplis. C'est le PO qui scinde la carte Trello — pas l'archéologue.
+
 **Lot 1 — le plancher de niveau. Autonome, à faire maintenant.**
 
 1. `IsWearAllowed` (à côté de `ItemWearRules`, qui est déjà le domicile des règles de port) appliquant, dans
@@ -275,7 +279,9 @@ d. La profondeur, elle, n'a **rien** à importer : `ItemResource.JobDepth` est a
   l'officiel répond 5 puis 6. Aligner ces codes n'appartient pas à ce socle (ils sont couverts par les fiches
   200/281) ; le seul code à retenir ici est **5** pour une exigence non satisfaite.
 
-## 7. NON ÉTABLI
+## 7. NON ÉTABLI — A VERIFIER PAR KILLIAN
+
+Chaque point est formulé comme la question exacte à trancher, pour qu'aucun dev n'ait à le deviner.
 
 1. **Le client 7.3 refuse-t-il localement ?** Le PDB client ne nomme aucun prédicat « peut porter »
    (seuls `Rq_PutOnOffItem` et les `IsEquip*` d'inventaire existent) ; savoir si le bouton est grisé avant
@@ -310,11 +316,20 @@ d. La profondeur, elle, n'a **rien** à importer : `ItemResource.JobDepth` est a
 | `reference/rzu` (format de fil) | `87c1e83bf84efe29bb6405e8e6da80349712f3fa` — « packets: fix TS_SC_INVENTORY with older epics » | — |
 | `reference/ngemity` (logique serveur) | `38ceb2c6065fabf6ff4ba71d52f955f362c6c839` — « Fix compilation issue for GCC » | — |
 | `reference/epic7part4/server/2012-11/CaptainHerlockServer.exe` (autorité) | serveur officiel, x64, branche `gameserver_release/2011-12-12`, build 2012-11-22 | sha256 `83b54fe18f15601578e35bcad1832a5c254bb09f512ab6297217fa49d9dd3eac` |
-| `reference/client73/SFrame.exe` (le client tranche) | Epic 7.3, `pei-i386`, 9 841 664 octets | sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` |
+| `reference/client73/SFrame.exe` (le client tranche) | Epic 7.3, `pei-i386`, 9 841 664 octets ; **aucun SHA client à épingler** (dossier non git) | sha256 `41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` — donné pour re-vérification, non exploité ici |
+| `reference/epic7part4/client-pdb/2011-12-14-part4-design/SFrame_Release.symbols.tsv` | build client du 2011-12-14 (le plus proche de 7.3) | lecture **statique** des noms de fonctions, aucune exécution |
 | `reference/epic7part4/csv/ItemResource.csv` | données Epic 7 Part 4 (29 647 lignes) | — |
 | branche de base | `master` `45f35713c5ee8e300c5ecdbdeed7e006bf3464ea` | — |
 
 ### 8.1 Emplacements relevés, pour re-vérification
+
+**Ce qui a été lu du côté client, et comment.** `reference/client73/` n'est pas un dépôt git et le client
+**n'a pas été exécuté** (`SFrame.exe`, ni Lua, ni script). La seule lecture client de cette fiche est
+**statique** : les noms de fonctions du PDB d'un build contemporain
+(`reference/epic7part4/client-pdb/2011-12-14-part4-design/SFrame_Release.symbols.tsv`), qui donnent
+`SGameObject::Rq_PutOnOffItem`, `SGameSystem::Rq_PutOnOffItem`, `SGameWorld::Rq_PutOnOffItem` et les
+`SInventoryMgr::IsEquip*` — aucune de ses ressources (`db_item.rdb`) n'a été ouverte. La question client qui
+demanderait une ressource ou un corps de fonction est la réserve §7.1.
 
 `reference/client73/` et `reference/epic7part4/` **ne sont pas des dépôts git** : d'où les empreintes.
 
@@ -352,3 +367,49 @@ Types du PDB — les numéros de ligne renvoient au dump régénéré dans le d�
 | `StructCreature::m_nUnitExpertLevel` (offset 452) | ligne 106206 |
 | `StructPlayer::GetJobId` (slot 184), `GetRace` (352), `GetJobDepth` (216) | listes de méthodes, lignes 105648, 105527 et voisines |
 | `RESULT_*` (`LIMIT_RACE = 24`, `LIMIT_JOB = 25`, `NOT_ACTABLE`, `ACCESS_DENIED`) | `LF_ENUMERATE RESULT_*`, ligne 203522 |
+
+## 9. Bloc destiné à `CLAUDE.md`
+
+À porter dans la description de la MR par `navis-qa` : la fiche ne modifie pas `CLAUDE.md` (fichier
+d'instructions protégé, écriture refusée sans opérateur). Les faits ci-dessous tiennent quel que soit ce que
+`navis-dev` livre ; le dernier paragraphe, lui, décrit ce que la branche applique et doit être ajusté (ou
+retiré) selon le code réellement commité.
+
+~~~markdown
+### Equipment — ce qui décide qu'un objet peut être porté
+
+`TM_CS_PUTON_ITEM` (200) et `TM_CS_PUTON_ITEM_SET` (281) entrent par `EquipmentService` et n'appliquaient
+aucune exigence avant le socle `docs/packet-specs/socle-exigences-equipement.md`. La règle est celle du
+serveur officiel Epic 7 Part 4 (`reference/epic7part4/server/2012-11/`) : `StructCreature::TranslateWearPosition`
+d'abord, `StructPlayer::TranslateWearPosition` ensuite.
+
+- **Niveau** : `max(plancherDeRang(rank), use_min_level)` est comparé à `max(niveau, niveau expert)`, puis la
+  fenêtre `use_min_level` / `use_max_level`. La table des rangs du binaire est `{0, 20, 50, 80, 100, 120, 150,
+  170}` pour les rangs 1..8 — NGemity dit 180 au rang 8, l'officiel tranche. Le champ `level` de la ressource
+  n'entre pas dans le port : il n'alimente que le niveau *recommandé* de l'infobulle.
+- **Race, classe, profondeur** : des **listes blanches**. Le bit du camp du joueur doit être posé dans
+  `ItemBase::nLimit` (`LIMIT_DEVA 4`, `LIMIT_ASURA 8`, `LIMIT_GAIA 16`, `LIMIT_FIGHTER 1024`, `LIMIT_HUNTER
+  2048`, `LIMIT_MAGICIAN 4096`, `LIMIT_SUMMONER 8192`) et dans `job_depth` (bit indexé par la profondeur du
+  métier). Un champ à zéro refuse **tout le monde** : même piège que les `limit_*` des props de terrain, et
+  l'inverse de la lecture de NGemity.
+- La classe d'un personnage se lit dans `JobResource.job_class` (1 fighter, 2 hunter, 3 magician,
+  4 summoner) ; sa race dans `JobResource` (`GAIA = 3`, `DEVA = 4`, `ASURA = 5`) ; son métier de base dans
+  les identifiants 100/200/300 quand `GetJobId` rend 0.
+- Tout échec répond **`TM_SC_RESULT` (0) code 5 `NotActable`** : l'officiel ne distingue pas les causes, et
+  `LimitMin` / `LimitMax` / `LimitRace` / `LimitJob` servent à l'*utilisation* d'un objet, pas au port.
+
+Ce que la branche applique (`navis-dev`, lot 1) : le prédicat d'exigence posé à côté de `ItemWearRules` refuse
+l'objet par `NotActable` quand le plancher de rang ou la fenêtre `use_min_level` / `use_max_level` n'est pas
+satisfaite, sur les deux chemins (200 et 281). Le plafond se juge sur le niveau du personnage **seul**, faute
+d'équivalent établi de `m_nUnitExpertLevel` dans le dépôt.
+
+### Current limitations
+
+- `ItemResources.RaceRestriction` et `JobRestriction` sont **vides** : `tools/import_epic7.py` apparie les
+  colonnes par nom et la source Epic 7 n'en porte pas, tandis que ses sept colonnes `limit_*` ne sont pas
+  importées. Un contrôle race/classe construit sur ces deux colonnes refuserait **tous** les équipements.
+- Les bits de race du dépôt (`ItemRaceRestriction` : `Deva = 1`, `Asura = 2`, `Gaia = 4`) ne sont pas ceux de
+  l'officiel (`4` / `8` / `16`) ; `ItemJobRestriction` est déjà conforme.
+- Le port sur invocation (`target_handle` visant un familier), `TM_CS_SWAP_EQUIP` (223) et la restauration
+  des objets portés à la connexion ne passent pas par cette règle.
+~~~
