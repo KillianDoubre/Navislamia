@@ -40,11 +40,45 @@ public class MonsterSpawnService : IMonsterSpawnService
                 info.SpawnedMonsters,
                 // Asked only for a monster about to enter (WorldObjectStreamer): this used to copy the set of
                 // every dead monster in the world on every sync, i.e. on every step of every player.
-                canEnter: monster => _worldState.IsAlive(monster.InstanceId));
+                canEnter: monster => _worldState.IsAlive(monster.InstanceId),
+                // A monster that enters a view brings the states it already carries
+                // (docs/packet-specs/socle-etats-monstre-entree.md) : the official server puts them in
+                // SendEnterMsg, right after the ENTER frame. Sent here, with the handle the ENTER was built
+                // for, and after that handle is recorded — a pose landing at the same instant finds this
+                // observer by it and must not lose the state it just applied.
+                onEntered: (monster, handle) => SendStates(client, monster.InstanceId, handle));
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "{clientTag} monster sync failed", client.ClientTag);
+        }
+    }
+
+    /// <summary>
+    /// The <c>TM_SC_STATE</c> (505) frames a monster's enter frame is followed by, one per active state,
+    /// to the single client whose view just received it.
+    /// </summary>
+    private void SendStates(GameClient client, long instanceId, uint handle)
+    {
+        var states = _worldState.GetStates(instanceId);
+        if (states.Count == 0)
+        {
+            return;
+        }
+
+        var now = ServerClock.Now;
+        foreach (var state in states)
+        {
+            // A state whose deadline has passed is not announced: the expiry tick runs every 500 ms, so
+            // between two ticks a state can be over and still be in the list — the client would get a
+            // removal frame for a state it never saw (reserve §7.2 of the fiche).
+            if (unchecked((int)(now - state.EndTick)) >= 0)
+            {
+                continue;
+            }
+
+            client.Connection.Send(GameSkillPackets.BuildState(handle, state.StateHandle, (uint)state.StateId,
+                (ushort)state.StateLevel, state.EndTick, state.StartTick));
         }
     }
 }
