@@ -72,11 +72,14 @@ public readonly record struct ItemSoulstoneCraftFields(
     decimal[] OptVar1);
 
 /// <summary>
-/// The wear slot an item resource belongs to (<c>wear_type</c> column of the <c>ItemResource</c>
-/// table), the only way to know where <c>TM_CS_PUTON_ITEM_SET</c> (281) must place a handle: that
-/// request carries no position.
+/// Everything the port of an item resource depends on: the wear slot it belongs to (<c>wear_type</c>
+/// column of the <c>ItemResource</c> table, the only way to know where
+/// <c>TM_CS_PUTON_ITEM_SET</c> (281) must place a handle, since that request carries no position) and
+/// the level requirements <c>TM_CS_PUTON_ITEM</c> (200) and 281 judge before equipping: the rank
+/// floor, <c>use_min_level</c> and <c>use_max_level</c> (sheet §5.2).
 /// </summary>
-public readonly record struct ItemWearFields(int Id, ItemWearType WearType);
+public readonly record struct ItemWearFields(int Id, ItemWearType WearType, int Rank, int UseMinLevel,
+    int UseMaxLevel);
 
 public readonly record struct ItemSocketFields(int Id, int SocketCount, ItemBaseType BaseType, ItemType ItemType,
     ItemGroup Group);

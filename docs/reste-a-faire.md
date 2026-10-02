@@ -21,6 +21,10 @@ Liste de ce qui n'est pas fini sur `master`, par priorité. Le détail de chaque
   (animation `HIT_REBIRTH`), expérience rendue.
 - **Duel** (`socle-competition-joueurs.md` §10) : invitation, compte à rebours, fin, résurrection type 3,
   à deux clients.
+- **Exigences d'équipement** (`socle-exigences-equipement.md`) : refus `NotActable` d'un objet de rang trop
+  élevé, à 200 comme à 281.
+- **Récompenses des monstres** : malus d'écart de niveau, portée de 500, trame 282 avant chaque objet et tas
+  d'or, propriété `chaos` (`socle-recompenses-monstres.md` §15).
 - **Vitesse d'écho** (`socle-vitesse-echo.md`) : marche du joueur et du familier vue par les autres.
 - **Diffusion** (`socle-diffusion-combat.md`, `socle-diffusion-compagnons.md`) : à deux clients, coups, mort,
   assis, PK, familier, invocations, icônes d'états.
@@ -38,7 +42,8 @@ Liste de ce qui n'est pas fini sur `master`, par priorité. Le détail de chaque
 Lot initial : cartes `jPLdNuge`, `XPItUChw` et `WF2LPAb1`. Restent à traiter :
 
 - états actifs d'un monstre envoyés quand il entre dans la vue d'un joueur ;
-- exigences d'équipement (niveau, métier, race) jugées au `TS_CS_PUTON_ITEM`.
+- exigences d'équipement : le **niveau** est jugé (MR #79) ; race, classe et profondeur de métier attendent
+  l'import des colonnes `limit_*` (`socle-exigences-equipement.md`, lot 2).
 
 Les récompenses de `MonsterResource` sont désormais branchées et testées localement
 (`socle-recompenses-monstres.md`). Le statut externe des cartes n'a pas été modifié.

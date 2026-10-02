@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
@@ -51,6 +52,13 @@ public class EquipmentService : IEquipmentService
             return;
         }
 
+        var refusal = await JudgeWearAsync(info, request.ItemHandle);
+        if (refusal != (ushort)ResultCode.Success)
+        {
+            client.SendResult(EquipRequestId, refusal, 0);
+            return;
+        }
+
         var step = await EquipAtSlotAsync(client, info, request.ItemHandle, (ItemWearType)request.Position);
         if (!step.Succeeded)
         {
@@ -89,9 +97,11 @@ public class EquipmentService : IEquipmentService
             try
             {
                 var placement = await ResolveSlotAsync(info.CharacterName, itemHandle);
-                step = placement.Code == (ushort)ResultCode.Success
-                    ? await EquipAtSlotAsync(client, info, itemHandle, placement.Slot)
-                    : new EquipStep(placement.Code, null);
+                step = placement.Code != (ushort)ResultCode.Success
+                    ? new EquipStep(placement.Code, null)
+                    : !ItemWearRules.IsWearAllowed(placement.Fields.Value, info.CharacterLevel)
+                        ? new EquipStep((ushort)ResultCode.NotActable, null)
+                        : await EquipAtSlotAsync(client, info, itemHandle, placement.Slot);
             }
             catch (Exception exception)
             {
@@ -185,23 +195,57 @@ public class EquipmentService : IEquipmentService
     /// the character does not own is <c>AccessDenied</c>, the code 200 answers for an unknown handle. A
     /// resource the catalog does not know, or one whose wear type is not a slot <c>TM_SC_WEAR_INFO</c>
     /// can report, is <c>InvalidArgument</c>: the index of the handle in the request is never used as a
-    /// fallback, since the sheet leaves that reading open (§7.3).
+    /// fallback, since the sheet leaves that reading open (§7.3). The port requirements come back with
+    /// the slot, so the caller judges them without a second read of the item.
     /// </summary>
-    private async Task<(ushort Code, ItemWearType Slot)> ResolveSlotAsync(string characterName, uint itemHandle)
+    private async Task<(ushort Code, ItemWearType Slot, ItemWearFields? Fields)> ResolveSlotAsync(
+        string characterName, uint itemHandle)
     {
         var item = await _characterService.GetItemByHandleAsync(characterName, itemHandle);
         if (item is null)
         {
-            return ((ushort)ResultCode.AccessDenied, ItemWearType.None);
+            return ((ushort)ResultCode.AccessDenied, ItemWearType.None, null);
         }
 
-        if (!_wearCatalog.TryGetWearType(item.ItemResourceId, out var wearType) ||
-            !ItemWearRules.TryResolveSlot(wearType, out var slot))
+        if (!_wearCatalog.TryGetWearFields(item.ItemResourceId, out var fields) ||
+            !ItemWearRules.TryResolveSlot(fields.WearType, out var slot))
         {
-            return ((ushort)ResultCode.InvalidArgument, ItemWearType.None);
+            return ((ushort)ResultCode.InvalidArgument, ItemWearType.None, null);
         }
 
-        return ((ushort)ResultCode.Success, slot);
+        return ((ushort)ResultCode.Success, slot, fields);
+    }
+
+    /// <summary>
+    /// The refusal the port requirements of an item handle give (<c>NotActable</c>, the code the
+    /// official server answers for an unmet requirement), or <c>Success</c> when the item may be judged
+    /// and passes. A handle the character does not own, and a resource no catalog knows, are left to
+    /// the equip path itself: that is where the code for an unknown handle lives, and an unreadable
+    /// resource must not be refused by a rule that could not be read (the same choice as
+    /// <c>ICharacterService.UnbindSkillCardAsync</c>). A read that throws is answered <c>DBError</c>,
+    /// the code the equip path already sends for a database failure, so the request is never left
+    /// unanswered.
+    /// </summary>
+    private async Task<ushort> JudgeWearAsync(ConnectionInfo info, uint itemHandle)
+    {
+        try
+        {
+            var item = await _characterService.GetItemByHandleAsync(info.CharacterName, itemHandle);
+            if (item is null || !_wearCatalog.TryGetWearFields(item.ItemResourceId, out var fields))
+            {
+                return (ushort)ResultCode.Success;
+            }
+
+            return ItemWearRules.IsWearAllowed(fields, info.CharacterLevel)
+                ? (ushort)ResultCode.Success
+                : (ushort)ResultCode.NotActable;
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not judge the wear requirements of item {itemHandle} of {characterName}",
+                itemHandle, info.CharacterName);
+            return (ushort)ResultCode.DBError;
+        }
     }
 
     /// <summary>

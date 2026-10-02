@@ -650,6 +650,15 @@ relog. The response order is: `TS_SC_ITEM_WEAR_INFO` for the displaced item (equ
 affected item, stat info, `TS_SC_RESULT` tagged with the request id, and finally the refreshed
 `TS_SC_WEAR_INFO` (a cleared slot falls back to the base body model through `InjectBaseModelIfEmpty`).
 
+**Wear requirements** (`docs/packet-specs/socle-exigences-equipement.md`, official
+`StructCreature::TranslateWearPosition` `0x140080e40`): before `EquipItemAsync`, both 200 and 281 refuse with
+`NotActable` (5) an item whose `wear_type` is -1, whose floor `max(rank floor, use_min_level)` exceeds the
+character level, or whose `use_max_level` (0 = none) is below it. The rank floors are the official server's
+`{0, 0, 20, 50, 80, 100, 120, 150, 170}` (NGemity says 180 at rank 8). The official compares with
+`max(level, expert level)`; no expert level exists here, so the character level alone decides. Race, class
+and job depth are **allow-lists** in the official (`ItemBase::nLimit`, `job_depth`), and the repository's
+`RaceRestriction`/`JobRestriction` are empty: a check built on them would refuse everything.
+
 Equipping recomputes the stats and refreshes the cached item effects, the equipped weapon class and the
 passive effects on `ConnectionInfo` — a weapon change turns the gated masteries on and off, so all three
 are re-seeded together. The `max_hp`/`max_mp` properties travel with the two stat packets here too. See
@@ -1626,8 +1635,9 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   states, warp) follow the official server (`socle-lancer-competences.md`). Not implemented: expanding a
   region buff beyond the caster, buffing other players, summon buffs, region heals and buff persistence
   across sessions
-- Equipping and unequipping work and persist and now feed the stats, but item requirements (level, job,
-  race) are still not validated
+- Equipping and unequipping work and persist and feed the stats; the **level** requirement is judged
+  (`ItemWearRules.IsWearAllowed`, see *Equipment*), race, class and job depth are not: their columns are empty
+  (`limit_*` not imported, `docs/packet-specs/socle-exigences-equipement.md` lot 2)
 - Stats cover job/JLv/level, equipment, the supported passive skills, active buffs and toggled auras;
   **titles still contribute nothing because nothing can grant one**. `ParameterB` is undecoded for both
   items (63) and states. **Stats drive combat**: attack, defence, accuracy, avoid, block, critical and

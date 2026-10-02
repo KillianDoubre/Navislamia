@@ -7,13 +7,20 @@ using Navislamia.Game.Services;
 namespace Tests.Game;
 
 /// <summary>
-/// The destination slot of an equipment-set handle (<c>TM_CS_PUTON_ITEM_SET</c>, 281): the request
-/// carries no position, so the slot comes from the <c>wear_type</c> of the item resource, and only a
-/// slot <c>TM_SC_WEAR_INFO</c> (202) can report is usable.
+/// The port of an item resource: the destination slot of an equipment-set handle
+/// (<c>TM_CS_PUTON_ITEM_SET</c>, 281 — the request carries no position, so the slot comes from the
+/// <c>wear_type</c> of the item resource, and only a slot <c>TM_SC_WEAR_INFO</c> (202) can report is
+/// usable) and the level requirements the equip path reads out of the same row.
 /// </summary>
 [TestFixture]
 public class ItemWearTests
 {
+    private static ItemWearFields Wear(int id, ItemWearType wearType, int rank = 0, int useMinLevel = 0,
+        int useMaxLevel = 0)
+    {
+        return new ItemWearFields(id, wearType, rank, useMinLevel, useMaxLevel);
+    }
+
     private static ItemWearCatalog Catalog(params ItemWearFields[] fields)
     {
         var repository = A.Fake<IItemResourceRepository>();
@@ -24,31 +31,49 @@ public class ItemWearTests
     [Test]
     public void Catalog_ExposesTheWearTypeOfAKnownResource()
     {
-        var catalog = Catalog(new ItemWearFields(100201, ItemWearType.Armor),
-            new ItemWearFields(100101, ItemWearType.Weapon));
+        var catalog = Catalog(Wear(100201, ItemWearType.Armor), Wear(100101, ItemWearType.Weapon));
 
-        catalog.TryGetWearType(100201, out var armor).Should().BeTrue();
-        armor.Should().Be(ItemWearType.Armor);
-        catalog.TryGetWearType(100101, out var weapon).Should().BeTrue();
-        weapon.Should().Be(ItemWearType.Weapon);
+        catalog.TryGetWearFields(100201, out var armor).Should().BeTrue();
+        armor.WearType.Should().Be(ItemWearType.Armor);
+        catalog.TryGetWearFields(100101, out var weapon).Should().BeTrue();
+        weapon.WearType.Should().Be(ItemWearType.Weapon);
+    }
+
+    [Test]
+    public void Catalog_ExposesTheLevelRequirementsOfTheSameResource()
+    {
+        // The equip path reads rank, use_min_level and use_max_level from the row it already has to
+        // read for the slot: no second query per equip (sheet §5.6-2).
+        var catalog = Catalog(Wear(100201, ItemWearType.Armor, rank: 7, useMinLevel: 160, useMaxLevel: 300),
+            Wear(100101, ItemWearType.Weapon));
+
+        catalog.TryGetWearFields(100201, out var armor).Should().BeTrue();
+        armor.Rank.Should().Be(7);
+        armor.UseMinLevel.Should().Be(160);
+        armor.UseMaxLevel.Should().Be(300);
+
+        catalog.TryGetWearFields(100101, out var weapon).Should().BeTrue();
+        weapon.Rank.Should().Be(0);
+        weapon.UseMinLevel.Should().Be(0);
+        weapon.UseMaxLevel.Should().Be(0);
     }
 
     [Test]
     public void Catalog_LeavesAnUnknownResourceUnknown()
     {
-        var catalog = Catalog(new ItemWearFields(100201, ItemWearType.Armor));
+        var catalog = Catalog(Wear(100201, ItemWearType.Armor));
 
-        catalog.TryGetWearType(999999, out _).Should().BeFalse();
+        catalog.TryGetWearFields(999999, out _).Should().BeFalse();
     }
 
     [Test]
     public void Catalog_ReportsANonWearableResourceAsItIs()
     {
         // The catalog stays a faithful reader of wear_type: refusing the value is the caller's rule.
-        var catalog = Catalog(new ItemWearFields(700001, ItemWearType.CantWear));
+        var catalog = Catalog(Wear(700001, ItemWearType.CantWear));
 
-        catalog.TryGetWearType(700001, out var wearType).Should().BeTrue();
-        wearType.Should().Be(ItemWearType.CantWear);
+        catalog.TryGetWearFields(700001, out var fields).Should().BeTrue();
+        fields.WearType.Should().Be(ItemWearType.CantWear);
     }
 
     [Test]
