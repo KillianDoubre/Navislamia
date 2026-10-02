@@ -72,8 +72,10 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 
 - Changement de métier : livré (`socle-changement-metier.md`) ; restent le changement de race, la réinitialisation des
   compétences de classe maître et les compétences de talent.
-- Invocations et apprivoisement (`socle-apprivoisement-invocation.md`) : rien n'émet 301/305, aucune carte
-  n'est liée, les sorts 4001-4003 sont refusés : l'invocateur n'est pas jouable.
+- Invocations et apprivoisement : apprivoisement, formation, invocation, renvoi, marche et attaque de
+  l'invocation livrés (`socle-apprivoisement-invocation.md` §15), **à vérifier en jeu**. Restent : l'invocation
+  qui prend des dégâts, son expérience, sa mort, ses compétences (452), l'évolution (307), la monture (320/321),
+  le miroir d'apprivoisement.
 - Guildes : création (`show_guild_create`), alliance, taxe, donjon de guilde et siège (`warp_to_siege_dungeon`).
 - Donjons d'instance et donjons secrets (20 dialogues `warp_to_instance_dungeon`, `question_secret_dungeon_*`) :
   `enter_dungeon` ne fait que téléporter.

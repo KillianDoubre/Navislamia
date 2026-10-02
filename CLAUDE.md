@@ -147,9 +147,9 @@ The summon socle's server-to-client layouts live in `GameSummonPackets`, sized f
 (306)` 15, `TS_SC_SUMMON_EVOLUTION (307)` 38, `TS_SC_MOUNT_SUMMON (320)` 24,
 `TS_SC_UNMOUNT_SUMMON (321)` 16. Epic 7.3 gives the name field 19 bytes — 18 usable
 characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
-Nothing emits these packets yet: how many summons exist, for how long, at what cost and
-what they become is still an open decision, so `BuildAddSummonInfo` takes `code` (source not
-established) and `summon_handle` from its caller instead of inventing either.
+301 and 305 are emitted by `CreatureService` (formation, login, summon, unsummon; see *Apprivoisement et
+invocation des créatures*); 302, 306, 307, 320 and 321 still have no caller. `BuildAddSummonInfo` takes `code`
+and `summon_handle` from its caller instead of inventing either.
 
 A summon enters the world as `TS_SC_ENTER` (`3`) with `type = ET_NPC (1)` and `objType = EOT_Summon (4)` — the
 same rzu authority that fixes 1/2/3/6 for npc/item/monster/field prop, corroborated by NGemity's `SubType`
@@ -165,8 +165,9 @@ permuted `summon_code` is a summon that never shows up. `race`, `skin_color` and
 them for a summon. `max_hp` @38 and
 `max_mp` @46 are *not* copies of `hp`/`mp`: the caller supplies them, no reference settles a summon's maxima.
 `SummonWorldService.Enter(session, tag, connection, entry)` is their caller: it allocates the handle with
-`WorldObjectHandle.Next()`, emits 301 (it fills the creature window) then 3 (it puts the object in the world) —
-one call because no login-properties emission exists for summons yet — and `Leave` emits `TS_SC_UNSUMMON` (305)
+`WorldObjectHandle.Next()` (or takes the caller's), emits 301 (it fills the creature window) then 3 (it puts the
+object in the world) — `CreatureService` passes `sendInfo: false`, since its 301 already went with the formation
+or the login — and `Leave` emits `TS_SC_UNSUMMON` (305)
 then `TS_SC_LEAVE` (9) on the master's connection; given the master's `GameClient`, the players who see the
 master get the summon's `TS_SC_ENTER`/`TS_SC_LEAVE` too, and `ConnectionInfo.Summons` keeps it so a player who
 comes into view later is shown it (`docs/packet-specs/socle-diffusion-compagnons.md`). A summon's position is
@@ -176,8 +177,9 @@ warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `
 region-cancel step of `AddNoise` is not portable either, since nothing resolves a position to a location id
 here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summon.cpp:35,88-91`), supplied by
 the caller. 302, 306, 307, 320 and 321 still have no caller: their trigger is untranched game policy (unbind
-rule, summon duration, evolution table, mount rules). No service writes `MainSummonId`/`SummonSlotItemIds` yet,
-and the reference stores *summon* sids in those six columns, not card ids.
+rule, summon duration, evolution table, mount rules). `CharacterService` writes `MainSummonId` and
+`SummonSlotItemIds`, and those six columns hold *summon* sids like the official character row, not card ids:
+the session and the 303 speak card handles, `CharacterService` translates both ways.
 
 Epic 7.3 key bindings are character data, not a local `.opt` setting. The server sends the single
 string property `client_info` with `TS_SC_PROPERTY (507)` during world entry, and the client writes it
@@ -1609,7 +1611,7 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: taming; group aggro follows the official rule; **they walk at their `run_speed` and around the
+  modelled: a summon taking damage (monsters retaliate on its master); group aggro follows the official rule; **they walk at their `run_speed` and around the
   `.nfa` obstacles** (paths for chase and return), and a death costs experience. **Monsters cast their single-target,
   state, heal, region and multi-hit skills**, including Lua triggers for casts/states, reinforcements
   (`respawn_near_monster`, no automatic respawn after death) and persisted anti-bot flags
@@ -2033,20 +2035,19 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - **Réponse : 303 seul**, 32 octets, `open_dialog` à l'offset 7 puis six handles aux offsets 8, 12, 16,
   20, 24, 28 (NGemity `WorldSession.cpp:692-695`, `Messages.cpp:122-135`). Aucune écriture en base.
   `BuildEquipSummon(slots, openDialog)` sert les deux sites : l'entrée en jeu passe `false`.
-- Les six handles viennent de `ConnectionInfo.SummonSlots`, posé **une seule fois** à l'entrée en jeu
-  depuis `CharacterEntity.SummonSlotItemIds` (et remis à vide par `ClearCharacterSession`) : les deux 303
-  ne peuvent pas diverger. La colonne n'est alimentée par personne, donc la réponse vaut **six zéros**
-  aujourd'hui ; une carte qui l'écrira devra aussi rafraîchir `SummonSlots`.
+- Les six handles (des poignées de **carte**) viennent de `ConnectionInfo.SummonSlots`, posé par
+  `CreatureService` à l'entrée en jeu (traduit des sids d'invocation de `CharacterEntity.SummonSlotItemIds`)
+  et à chaque formation, remis à vide par `ClearCharacterSession`. La 303 d'entrée en jeu part **après** les
+  301 des invocations formées (`SendCharacterInfo`), donc depuis `CreatureService.OnWorldEntryAsync`, plus
+  depuis l'amorçage de `GameActions`.
 - **303 va dans les deux sens.** Le client émet aussi 303 (constructeur VA `0x48cd10`, 32 octets,
   `open_dialog = 0`, six `card_handle`) quand le joueur valide sa formation ; sans bras, il atteignait le
   `throw` (observé en jeu : deux `Unknown Packet Type` juste après l'ouverture de la fenêtre).
   `GameClient.HandleEquipSummon` le lit (`TryReadEquipSummon`, 32 octets exacts), le journalise et
-  **renvoie la formation stockée** avec l'`open_dialog` reçu. C'est la réponse de NGemity
-  (`onEquipSummon`) quand aucune carte n'est retenue : il ne garde qu'une carte d'invocation du joueur
-  portant `ITEM_FLAG_SUMMON` (bit 31, carte apprivoisée), dans la limite de Creature Control (1801), puis
-  renvoie **toujours** la formation résultante. Rien ne pose ce bit ici (pas d'apprivoisement, `/item`
-  n'écrit aucun drapeau) : toute carte est refusée, rien n'est écrit. Le jour où une carte peut être
-  apprivoisée, ce bras devient le portage d'`onEquipSummon`.
+  le confie à `CreatureService.EquipAsync`, portage de `StructPlayer::EquipSummon` : seules les cartes du
+  joueur portant `ITEM_FLAG_SUMMON` (bit 31, carte apprivoisée) sont liées, dans la limite de Creature
+  Control (1801), une invocation dehors ne peut pas être retirée, et la formation résultante est
+  **toujours** renvoyée avec l'`open_dialog` reçu.
 - Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
 - Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
 
@@ -2059,9 +2060,9 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   le message interne `SMSG_SUMMON_CARD_ITEM_INFO`.
 - **Aucune réponse.** NGemity le déclare sans gestionnaire, rzu ne fournit que le côté client. La seule
   réponse déductible, `TM_SC_SKILL_LIST` (403) avec `target` = handle de l'invocation (NGemity
-  `Messages::SendSkillList`), exige la résolution carte → invocation, qui n'existe pas
-  (`SummonSlotItemIds`, `MainSummonId`, `SubSummonId` ne sont alimentés nulle part). **Ne pas inventer de
-  table carte → invocation, ni réémettre `item_handle` comme `target`.**
+  `Messages::SendSkillList`), exige la résolution carte → invocation — elle existe désormais
+  (`ConnectionInfo.CreatureCards`, `CreatureService`), mais les compétences d'une invocation ne sont pas
+  modélisées, donc rien n'est envoyé. **Ne pas réémettre `item_handle` comme `target`.**
 - `item_handle` est journalisé en `Debug` : c'est le relevé qui dira ce que le client y met.
 - Gating : 452 à l'Epic 7.3, `1452` seulement à partir d'`EPIC_9_6_3` (et `1452` n'a pas de sens en 7.3,
   `op_codes.md`) : ne pas le déclarer.
@@ -2083,15 +2084,29 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   octets) porte **le masque rétail** `0x8000_0000` (`ITEM_FLAG_SUMMON`) ; l'apprivoisement en cours utilise
   `0x2000_0000` (`ITEM_FLAG_TAMING`). `ItemFlag.Summon` vaut 31 (indice de bit) : écrire le membre au lieu du
   masque casse la lecture de `GroundItemDropRules` et le client.
-- La ligne `Summons` est créée par la **formation 303** (`Summon::DB_InsertSummon` appelé depuis
-  `onEquipSummon`), pas par l'apprivoisement : l'apprivoisement ne fait que basculer les deux drapeaux de la
-  carte. La créature d'une carte vient d'`ItemResource.summon_id` ; la carte requise par une cible vient de
-  `MonsterResource.taming_id` → `SummonResource.card_id`.
-- `MonsterResourceEntity.TamingId/TamingPercentage/CreatureTamingCode/TamingExpMod` existent mais ne sont lus
-  par personne ; `SkillEffectType` n'a pas de membre pour 603 et `BuffCatalog.CastableEffectTypes` ne charge
-  pas 601/602/603, donc un lancer de 4001/4002/4003 est aujourd'hui refusé en `AccessDenied`.
-- Restent à arbitrer (fiche, `A VERIFIER PAR KILLIAN`) : butin d'un monstre apprivoisé, codes 90-93 ou 5,
-  noms des trois sorts en jeu, contenu de `SummonSlotItemIds`, durée de la fenêtre d'apprivoisement.
+- La carte requise par une cible vient de `MonsterResource.taming_id` → `SummonResource.card_id`.
+
+### Apprivoisement, formation et invocation — livrés (fiche §15, serveur officiel)
+
+- **Source : le serveur officiel** (`GameProc.cpp` `SetTamer`/`ClearTamer`/`ProcTame`/`AllocNewSummon`,
+  `StructPlayer::EquipSummon`/`DoSummon`), pas NGemity. Données : `DevConsole/creature-catalog.73.json`
+  (`tools/export_creature_catalog.py` : 147 invocations Epic 7 et leurs stats, noms préfixe/suffixe, noms des
+  2 037 monstres apprivoisables), `ICreatureCatalog`. Service : `Game/Services/Creatures/CreatureService.cs`,
+  règles pures dans `CreatureRules`.
+- **4003** : codes officiels dans l'ordre (5, 90, 91, 92 PV non pleins, 93 pas de carte vide, 70 déjà en cours),
+  310 à chaque joueur qui voit le monstre avec **sa** poignée et ligne `TAMING_*|nom|` (type 100, `@PARTY` ou
+  `@SYSTEM`), fenêtre de **5 min renouvelée par chaque coup** de l'apprivoiseur, abandon (310 mode 1) au-delà ou
+  quand le monstre rentre. À la mort : 500 unités au plus, tirage `taming_percentage × (var0 × niv + var1 × enh
+  + 1)` ; **réussite = aucun butin** et une nouvelle carte liée (`ITEM_FLAG_SUMMON`, `Taming = 18`) avec sa ligne
+  `Summons`, en une opération ; échec = une carte consommée.
+- **`CombatService` ne dépend pas des créatures** : il appelle `ICreatureEvents` (`CreatureEvents`, médiateur
+  auquel `CreatureService` s'attache), sinon le cycle d'injection n'échouerait qu'au démarrage.
+  `Tests/Host/ServiceGraphTests.cs` construit le conteneur de DevConsole avec `ValidateOnBuild` pour l'attraper.
+- **4001/4002** visent la **carte** formée ; l'invocation principale est renvoyée avant la suivante, revient à
+  la connexion (bruit 50) et suit le warp. Marche (`TM_CS_MOVE_REQUEST` sur son handle, `speed_sync`) et
+  attaque (`TM_CS_ATTACK_REQUEST` sur son handle) : ses dégâts passent par `ApplyDamage` **au nom du maître**.
+- Écarts (fiche §15.5) : ligne `Summons` créée dès l'apprivoisement, `ITEM_FLAG_TAMING` gardé en session,
+  miroir d'apprivoisement absent, l'invocation ne prend ni dégâts ni expérience et n'évolue pas.
 
 ### Familier (pet) — 350-352, entrée dans le monde, filtre 355
 

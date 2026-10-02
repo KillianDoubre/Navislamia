@@ -107,6 +107,7 @@ public class Program
         ConfigureMarketCatalog(services, context);
         ConfigurePetCatalog(services, context);
         ConfigureJobLevelCosts(services, context);
+        ConfigureCreatureCatalog(services, context);
     }
 
     /// <summary>
@@ -133,6 +134,33 @@ public class Program
             .Deserialize<JobLevelCostOptions>() ?? new JobLevelCostOptions();
 
         services.Configure<JobLevelCostOptions>(options => options.Depths = catalog.Depths);
+    }
+
+    /// <summary>
+    /// The creature catalogue (<c>creature-catalog.73.json</c>, <c>tools/export_creature_catalog.py</c>): summons with
+    /// their stats, name parts, tamable monster names. Without it nothing can be tamed nor summoned.
+    /// </summary>
+    private static void ConfigureCreatureCatalog(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "creature-catalog.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<CreatureCatalogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("CreatureCatalog")
+            .Deserialize<CreatureCatalogOptions>() ?? new CreatureCatalogOptions();
+
+        services.Configure<CreatureCatalogOptions>(options =>
+        {
+            options.Summons = catalog.Summons;
+            options.NamePrefixes = catalog.NamePrefixes;
+            options.NamePostfixes = catalog.NamePostfixes;
+            options.TamableMonsterNames = catalog.TamableMonsterNames;
+        });
     }
 
     private static void ConfigurePetCatalog(IServiceCollection services, HostBuilderContext context)
@@ -392,6 +420,14 @@ public class Program
         services.AddSingleton<RateEventTicker>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureCatalog,
+            Navislamia.Game.Services.Creatures.CreatureCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.CreatureEvents>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureEvents>(provider =>
+            provider.GetRequiredService<Navislamia.Game.Services.Creatures.CreatureEvents>());
+        services.AddSingleton<SummonWorldService>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureService,
+            Navislamia.Game.Services.Creatures.CreatureService>();
         services.AddSingleton<Navislamia.Game.Services.Compete.ICompeteService,
             Navislamia.Game.Services.Compete.CompeteService>();
         services.AddSingleton<Navislamia.Game.Services.Death.IDeathDropService,

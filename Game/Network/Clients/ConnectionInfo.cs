@@ -131,6 +131,21 @@ public class ConnectionInfo
     public long[] SummonSlots { get; set; } = Array.Empty<long>();
 
     /// <summary>
+    /// The creature cards of the bag, by item id, with their summons (docs/packet-specs/socle-apprivoisement-invocation.md
+    /// §15), loaded at world entry and kept in step by taming and formation. Guarded by <see cref="SummonLock"/>.
+    /// </summary>
+    public Dictionary<long, Navislamia.Game.Services.Creatures.CreatureCard> CreatureCards { get; } = new();
+
+    /// <summary>The card item id of the summon <c>m_pMainSummon</c> names (in the world or to re-enter at login), 0 for none.</summary>
+    public long MainSummonCardId { get; set; }
+
+    /// <summary>The card a taming in progress marked (<c>ITEM_FLAG_TAMING</c>, kept in memory), 0 for none.</summary>
+    public long TamingCardItemId { get; set; }
+
+    /// <summary>The monster being tamed (<c>StructPlayer::GetTamingTarget</c>), -1 for none.</summary>
+    public long TamingTargetInstanceId { get; set; } = -1;
+
+    /// <summary>
     /// The pet the character has out, called by its cage (<c>PetSummonService</c>), or null. Guarded by
     /// <see cref="PetLock"/>: an item use and a warp can both move it. The player visibility reads the
     /// reference <b>without</b> that lock (a reference read is atomic): it holds an observer's visibility lock
@@ -582,6 +597,14 @@ public class ConnectionInfo
         CharacterGold = 0;
         CharacterChaos = 0;
         SummonSlots = Array.Empty<long>();
+        lock (SummonLock)
+        {
+            CreatureCards.Clear();
+        }
+
+        MainSummonCardId = 0;
+        TamingCardItemId = 0;
+        TamingTargetInstanceId = -1;
         ActivePet = null;
         Summons = Array.Empty<Navislamia.Game.Services.SummonPresence>();
         PetPickupFilter = 0;

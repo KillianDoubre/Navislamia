@@ -59,6 +59,9 @@ public class SkillCastService : ISkillCastService
     private readonly HashSet<GameClient> _casting = new();
     private readonly ICombatRandom _random;
     private readonly ILevelingService _leveling;
+
+    /// <summary>Taming (4003), summoning (4001) and sending back (4002).</summary>
+    private readonly Creatures.ICreatureService _creatures;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
@@ -67,8 +70,9 @@ public class SkillCastService : ISkillCastService
         ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService,
         IPlayerVisibilityService players = null, SkillEffectScheduler effects = null,
         CastInterrupts interrupts = null, ICombatRandom random = null, bool runTicks = true,
-        ILevelingService leveling = null)
+        ILevelingService leveling = null, Creatures.ICreatureService creatures = null)
     {
+        _creatures = creatures;
         _leveling = leveling;
         _players = players;
         _effects = effects ?? new SkillEffectScheduler(runTicks);
@@ -348,6 +352,26 @@ public class SkillCastService : ISkillCastService
             case SkillCastKind.ActivateProp:
                 ActivateProp(client, targetInstanceId);
                 break;
+            case SkillCastKind.Taming:
+                if (_creatures?.StartTaming(client, targetInstanceId, skillLevel) != true)
+                {
+                    SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+                    return;
+                }
+
+                break;
+            case SkillCastKind.Summon:
+            case SkillCastKind.Unsummon:
+                var done = fields.Kind == SkillCastKind.Summon
+                    ? _creatures?.Summon(client, (uint)targetInstanceId)
+                    : _creatures?.Unsummon(client, (uint)targetInstanceId);
+                if (done != true)
+                {
+                    SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+                    return;
+                }
+
+                break;
             case SkillCastKind.Resurrection:
                 hit = ResurrectPlayer(fields, skillLevel, (uint)targetInstanceId);
                 if (hit is null)
@@ -578,6 +602,17 @@ public class SkillCastService : ISkillCastService
                     { error = ResultCode.TooFar; return false; }
                 }
             }
+            else if (fields.Kind is SkillCastKind.Summon or SkillCastKind.Unsummon)
+            {
+                // The target of 4001/4002 is the creature card (PrepareSummon), not a creature.
+                targetInstanceId = request.Target;
+                error = _creatures?.CheckSummon(info, request.Target, fields.Kind == SkillCastKind.Summon)
+                        ?? ResultCode.NotActable;
+                if (error != ResultCode.Success)
+                {
+                    return false;
+                }
+            }
             else if (!TryValidateTarget(info, request, fields.Kind, out targetInstanceId, out error))
             {
                 return false;
@@ -595,16 +630,15 @@ public class SkillCastService : ISkillCastService
                 { error = ResultCode.TooFar; return false; }
             }
 
-            // Étape 0 of the socle (docs/packet-specs/socle-apprivoisement-invocation.md §11) classifies
-            // the three creature spells so the catalogue loads them and the taming target resolves to a
-            // monster, but carrying them out is étape 1: the tamer state on the monster, the card lookup
-            // and the card -> summon linkage do not exist here. Refusing them before the effect switch
-            // below (whose default arm only logs and would pocket the mp cost) is the reference's own
-            // answer — Skill::PrepareTaming returns TS_RESULT_NOT_ACTABLE for every refusal it knows.
-            if (fields.Kind is SkillCastKind.Summon or SkillCastKind.Unsummon or SkillCastKind.Taming)
+            // StructSkill's taming checks, in their order and with their own codes (NOT_TAMABLE 90,
+            // TARGET_ALREADY_BEING_TAMED 91, NOT_ENOUGH_TARGET_HP 92, NOT_ENOUGH_SUMMON_CARD 93, ALREADY_TAMING 70).
+            if (fields.Kind == SkillCastKind.Taming)
             {
-                error = ResultCode.NotActable;
-                return false;
+                error = _creatures?.CheckTaming(info, targetInstanceId) ?? ResultCode.NotActable;
+                if (error != ResultCode.Success)
+                {
+                    return false;
+                }
             }
         }
 
@@ -807,16 +841,16 @@ public class SkillCastService : ISkillCastService
     /// cast at a monster, so an unresolvable handle must answer <c>NotExist</c> rather than land on the
     /// caster.
     /// </summary>
-    /// <summary>The area and multi-hit damage families, which <see cref="CastDamageSequence"/> resolves.</summary>
-    private static bool IsDamageSequence(CastableBuffFields fields) =>
-        fields.Kind is SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
-        && fields.EffectType is not (0 or 231 or 30001);
-
     private static bool TargetsAMonster(SkillCastKind kind)
     {
         return kind is SkillCastKind.Debuff or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
             or SkillCastKind.Taming;
     }
+
+    /// <summary>The area and multi-hit damage families, which <see cref="CastDamageSequence"/> resolves.</summary>
+    private static bool IsDamageSequence(CastableBuffFields fields) =>
+        fields.Kind is SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
+        && fields.EffectType is not (0 or 231 or 30001);
 
     public void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks)
     {
@@ -1252,11 +1286,13 @@ public class SkillCastService : ISkillCastService
 
         switch (kind)
         {
-            case SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack or SkillCastKind.Debuff:
+            case SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack or SkillCastKind.Debuff
+                or SkillCastKind.Taming:
                 ObserverFrames.SendMonsterFrame(_players, client, targetInstanceId, (_, handle) =>
                     Frame(handle, hit is { } monsterHit ? monsterHit with { TargetHandle = handle } : null));
                 break;
-            case SkillCastKind.Buff or SkillCastKind.Aura or SkillCastKind.Heal or SkillCastKind.Resurrection:
+            case SkillCastKind.Buff or SkillCastKind.Aura or SkillCastKind.Heal or SkillCastKind.Resurrection
+                or SkillCastKind.Summon or SkillCastKind.Unsummon:
                 _players?.SendToObservers(client, Frame(request.Target, hit));
                 break;
         }

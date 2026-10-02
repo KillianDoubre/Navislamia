@@ -170,6 +170,28 @@ public interface ICharacterService
         int chaos, float x, float y, bool pkMode);
 
     /// <summary>
+    /// The character's creature cards (items whose resource is a summon card) with the summon row of each, the
+    /// main summon and the six formation slots (docs/packet-specs/socle-apprivoisement-invocation.md §15).
+    /// </summary>
+    Task<CreatureState> GetCreatureStateAsync(string characterName, IReadOnlyCollection<int> cardIds) =>
+        Task.FromResult<CreatureState>(null);
+
+    /// <summary>
+    /// <c>ProcTame</c>'s commit: one card of the taming stack is consumed; on success a new bound card (summon flag,
+    /// <c>BY_TAMING</c>) and its summon row are created. Null when the character or the card is gone.
+    /// </summary>
+    Task<TamingCommit> CommitTamingAsync(string characterName, long cardItemId, bool success, int summonCode,
+        string summonName, int hp, int mp) => Task.FromResult<TamingCommit>(null);
+
+    /// <summary><c>AllocNewSummon</c> for a bound card that has no summon row yet; null when it cannot be created.</summary>
+    Task<SummonEntity> CreateSummonAsync(string characterName, long cardItemId, int summonCode, string summonName,
+        int hp, int mp) => Task.FromResult<SummonEntity>(null);
+
+    /// <summary>The six formation slots (card item ids) and the main summon, written together.</summary>
+    Task<bool> SaveCreatureFormationAsync(string characterName, long[] slots, long? mainSummonId) =>
+        Task.FromResult(false);
+
+    /// <summary>
     /// Persists a job change (docs/packet-specs/socle-changement-metier.md): the new job at job level 1, the jobs
     /// left behind with the job level each reached (<c>job_N</c>/<c>jlv_N</c>), the depth flag, and the talent
     /// points the master class grants. Returns the character's talent points afterwards, null when it does not exist.
@@ -181,3 +203,15 @@ public interface ICharacterService
 
 /// <summary>What a cage's pet is called, and whether its master has named it yet.</summary>
 public readonly record struct PetRecord(string Name, bool WasNameChanged);
+
+/// <summary>A creature card of the bag and its summon row, detached.</summary>
+public sealed record CreatureCardRecord(ItemEntity Card, SummonEntity Summon);
+
+/// <summary>What world entry needs of the creatures: the cards, the formation slots and the main summon.</summary>
+public sealed record CreatureState(IReadOnlyList<CreatureCardRecord> Cards, long[] Slots, long? MainSummonId);
+
+/// <summary>
+/// A taming committed: the taming card left with <see cref="RemainingAmount"/> units (0 = deleted), and on success
+/// the new bound card and its summon.
+/// </summary>
+public sealed record TamingCommit(long ConsumedItemId, long RemainingAmount, ItemEntity NewCard, SummonEntity Summon);

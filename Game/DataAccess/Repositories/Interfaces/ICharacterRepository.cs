@@ -55,6 +55,11 @@ public interface ICharacterRepository : IDisposable
 
     void AddPet(PetEntity pet);
 
+    /// <summary>The summon rows of a character, tracked (docs/packet-specs/socle-apprivoisement-invocation.md §15).</summary>
+    Task<List<SummonEntity>> GetSummonsAsync(long characterId);
+
+    void AddSummon(SummonEntity summon);
+
     /// <summary>
     /// Avoid using SaveChanges directly from context as it applies modifications directly to the database.
     /// Finish all required operations for a step then call this method

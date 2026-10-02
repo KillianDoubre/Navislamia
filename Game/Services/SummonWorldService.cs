@@ -59,20 +59,35 @@ public sealed class SummonWorldService
     /// <c>x</c>/<c>y</c> and layer only.
     /// </para>
     /// </summary>
+    /// <param name="handle">
+    /// The summon object's handle when it already has one — the official summon is an object from login (301 names
+    /// it) and keeps its handle across summonings; 0 allocates a new one.
+    /// </param>
+    /// <param name="sendInfo">
+    /// False when the creature window already got its 301 (login or formation): <c>Player::DoSummon</c> only adds the
+    /// object to the world.
+    /// </param>
     public uint Enter(ConnectionInfo session, string clientTag, Connection connection, SummonWorldEntry entry,
-        GameClient master = null)
+        GameClient master = null, uint handle = 0, bool sendInfo = true)
     {
         if (session is null || connection is null || entry is null)
         {
             return 0;
         }
 
-        var handle = WorldObjectHandle.Next();
+        if (handle == 0)
+        {
+            handle = WorldObjectHandle.Next();
+        }
+
         var x = session.X + Jitter(entry.NoiseRange, NextRaw());
         var y = session.Y + Jitter(entry.NoiseRange, NextRaw());
 
-        connection.Send(GameSummonPackets.BuildAddSummonInfo(entry.CardHandle, handle, entry.Name, entry.Code,
-            entry.Level, entry.Sp));
+        if (sendInfo)
+        {
+            connection.Send(GameSummonPackets.BuildAddSummonInfo(entry.CardHandle, handle, entry.Name, entry.Code,
+                entry.Level, entry.Sp));
+        }
 
         var presence = new SummonPresence(handle, entry, x, y, session.Layer);
         connection.Send(CompanionFrames.SummonEnter(session.CharacterHandle, presence, entry.IsFirstEnter));

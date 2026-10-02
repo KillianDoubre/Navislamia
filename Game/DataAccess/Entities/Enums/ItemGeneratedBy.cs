@@ -18,5 +18,8 @@ public enum ItemGenerateSource
     Huntaholic = 14,
     DonationReward = 15,
     Skill = 16,
+
+    /// <summary><c>ItemInstance::BY_TAMING</c> (18): the bound card a successful taming creates.</summary>
+    Taming = 18,
     Unknown = 126,
 }

@@ -222,6 +222,15 @@ public class GameClient : Client
         // The handle is the client's to claim too (docs/packet-specs/socle-visibilite-joueurs.md §7.7):
         // relaying a foreign handle would walk another client's actor at every observer. A session that
         // holds no character yet (handle 0) has no actor to protect and keeps its echo.
+        // onMoveRequest: a summon of the character walks too, at its own speed or its master's (speed_sync).
+        if (ConnectionInfo.CharacterHandle != 0 && handle != ConnectionInfo.CharacterHandle
+            && _networkService.CreatureService is { } creatures && creatures.OwnsSummon(this, handle))
+        {
+            creatures.MoveSummon(this, handle, BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4)),
+                BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4)), curTime, input[16], waypoints);
+            return;
+        }
+
         if (ConnectionInfo.CharacterHandle != 0 && handle != ConnectionInfo.CharacterHandle)
         {
             _logger.Warning("{clientTag} claimed handle {handle} instead of {ownHandle} in a move request",
@@ -777,7 +786,27 @@ public class GameClient : Client
                 string.Join(",", request.CardHandles));
         }
 
+        // StructPlayer::EquipSummon (docs/packet-specs/socle-apprivoisement-invocation.md §15).
+        if (_networkService.CreatureService is { } creatures)
+        {
+            _ = EquipCreaturesAsync(creatures, request);
+            return;
+        }
+
         Connection.Send(GameCharacterPackets.BuildEquipSummon(ConnectionInfo.SummonSlots, request.OpenDialog));
+    }
+
+    private async Task EquipCreaturesAsync(Navislamia.Game.Services.Creatures.ICreatureService creatures,
+        GameActionPackets.EquipSummonRequest request)
+    {
+        try
+        {
+            await creatures.EquipAsync(this, request.CardHandles, request.OpenDialog);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Creature formation of {clientTag} failed", ClientTag);
+        }
     }
 
     /// <summary>
@@ -1012,6 +1041,16 @@ public class GameClient : Client
     private void HandleAttackRequest(byte[] buffer)
     {
         var target = GameAttackPackets.ReadAttackTarget(buffer);
+
+        // onAttackRequest: a handle other than the character's names one of its summons.
+        var attacker = buffer.Length >= 11 ? BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(7, 4)) : 0;
+        if (attacker != 0 && attacker != ConnectionInfo.CharacterHandle
+            && _networkService.CreatureService is { } creatures && creatures.OwnsSummon(this, attacker))
+        {
+            creatures.SummonAttack(this, attacker, target);
+            return;
+        }
+
         _networkService.CombatService.StartAttack(this, target);
     }
 
@@ -1274,6 +1313,7 @@ public class GameClient : Client
             _networkService.CombatService.DropAggro(this);
             _networkService.SkillCastService.Unregister(this);
             _networkService.CompeteService?.Leave(this, Navislamia.Game.Services.Compete.CompeteEndType.Logout);
+            _networkService.CreatureService?.OnWorldExit(this);
 
             // The exit goes first: every observer must be told before the asynchronous save and the
             // socket cleanup (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 5). An open
@@ -1309,6 +1349,7 @@ public class GameClient : Client
             _logger.Debug("{clientTag} returning to character selection", ClientTag);
             _networkService.CombatService.StopAttack(this);
             _networkService.CompeteService?.Leave(this, Navislamia.Game.Services.Compete.CompeteEndType.Logout);
+            _networkService.CreatureService?.OnWorldExit(this);
             _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);

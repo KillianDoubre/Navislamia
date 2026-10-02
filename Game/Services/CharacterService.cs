@@ -994,6 +994,157 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public async Task<CreatureState> GetCreatureStateAsync(string characterName, IReadOnlyCollection<int> cardIds)
+    {
+        if (string.IsNullOrEmpty(characterName) || cardIds is null)
+        {
+            return null;
+        }
+
+        using var repository = _repositories.Create();
+        var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+        if (character is null)
+        {
+            return null;
+        }
+
+        var summons = await repository.GetSummonsAsync(character.Id);
+        var byCard = summons.GroupBy(s => s.CardItemId).ToDictionary(g => g.Key, g => g.First());
+        var cards = (character.Items ?? new List<ItemEntity>())
+            .Where(item => cardIds.Contains((int)item.ItemResourceId))
+            .Select(item => new CreatureCardRecord(item, byCard.GetValueOrDefault(item.Id)))
+            .ToList();
+        // The six columns hold summon sids, like the official character row (DB_Login: GetSummon(bindSummon[i]));
+        // the session and the 303 speak card handles, so each sid is turned back into its card here.
+        var cardOfSummon = summons.ToDictionary(s => s.Id, s => s.CardItemId);
+        var slots = new long[Creatures.CreatureRules.MaxSlots];
+        if (character.SummonSlotItemIds is { } saved)
+        {
+            for (var i = 0; i < Math.Min(saved.Length, slots.Length); i++)
+            {
+                slots[i] = cardOfSummon.GetValueOrDefault(saved[i]);
+            }
+        }
+
+        return new CreatureState(cards, slots, character.MainSummonId);
+    }
+
+    public Task<TamingCommit> CommitTamingAsync(string characterName, long cardItemId, bool success, int summonCode,
+        string summonName, int hp, int mp)
+    {
+        return RunInventoryAsync<TamingCommit>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var card = character?.Items?.FirstOrDefault(item => item.Id == cardItemId);
+            if (card is null || card.Amount <= 0)
+            {
+                return null;
+            }
+
+            // EraseItem(pItem, 1): one card of the stack, the empty one the taming marked.
+            long remaining;
+            if (card.Amount > 1)
+            {
+                card.Amount--;
+                remaining = card.Amount;
+            }
+            else
+            {
+                character.Items.Remove(card);
+                repository.DeleteItem(card);
+                remaining = 0;
+            }
+
+            if (!success)
+            {
+                await repository.SaveChangesAsync();
+                return new TamingCommit(cardItemId, remaining, null, null);
+            }
+
+            // AllocItem(0, code, 1, BY_TAMING) with ITEM_FLAG_SUMMON: a bound card no longer stacks.
+            var bound = new ItemEntity
+            {
+                ItemResourceId = card.ItemResourceId,
+                Amount = 1,
+                WearInfo = ItemWearType.None,
+                Flag = Creatures.CreatureRules.WithSummonFlag(ItemFlag.None),
+                GenerateBySource = ItemGenerateSource.Taming,
+                Idx = character.Items.Count == 0
+                    ? InventoryArrange.FirstIndex
+                    : character.Items.Max(item => item.Idx) + 1
+            };
+            character.Items.Add(bound);
+            await repository.SaveChangesAsync();
+
+            var summon = NewSummon(character, bound.Id, summonCode, summonName, hp, mp);
+            repository.AddSummon(summon);
+            await repository.SaveChangesAsync();
+            return new TamingCommit(cardItemId, remaining, bound, summon);
+        });
+    }
+
+    public Task<SummonEntity> CreateSummonAsync(string characterName, long cardItemId, int summonCode,
+        string summonName, int hp, int mp)
+    {
+        return RunExclusiveAsync<SummonEntity>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var card = character?.Items?.FirstOrDefault(item => item.Id == cardItemId);
+            if (card is null || !Creatures.CreatureRules.IsBound(card.Flag))
+            {
+                return null;
+            }
+
+            var existing = (await repository.GetSummonsAsync(character.Id)).FirstOrDefault(s => s.CardItemId == cardItemId);
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var summon = NewSummon(character, cardItemId, summonCode, summonName, hp, mp);
+            repository.AddSummon(summon);
+            await repository.SaveChangesAsync();
+            return summon;
+        });
+    }
+
+    public Task<bool> SaveCreatureFormationAsync(string characterName, long[] slots, long? mainSummonId)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            var summonOfCard = (await repository.GetSummonsAsync(character.Id))
+                .GroupBy(s => s.CardItemId).ToDictionary(g => g.Key, g => g.First().Id);
+            character.SummonSlotItemIds = slots.Select(card => summonOfCard.GetValueOrDefault(card)).ToArray();
+            character.MainSummonId = mainSummonId;
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
+
+    /// <summary><c>AllocNewSummon</c>: level 1, the drawn name, the card linked (<c>DB_InsertSummon</c>).</summary>
+    private static SummonEntity NewSummon(CharacterEntity character, long cardItemId, int summonCode, string name,
+        int hp, int mp) => new()
+    {
+        AccountId = character.AccountId,
+        CharacterId = character.Id,
+        SummonResourceId = summonCode,
+        CardItemId = cardItemId,
+        Name = Creatures.CreatureRules.TrimName(name),
+        Lv = 1,
+        Jlv = 1,
+        MaxLevel = 1,
+        Hp = hp,
+        Mp = mp,
+        PreviousLevel = new int[2],
+        PreviousSummonResourceIds = new long[2]
+    };
+
     public Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp,
         long gold, int chaos, float x, float y, bool pkMode)
     {

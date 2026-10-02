@@ -238,8 +238,14 @@ public class GameActions : IActions
             client.Connection.Send(inventoryPacket);
         }
 
-        client.ConnectionInfo.SummonSlots = character.SummonSlotItemIds ?? Array.Empty<long>();
-        client.Connection.Send(GameCharacterPackets.BuildEquipSummon(client.ConnectionInfo.SummonSlots));
+        // The formation 303 follows the 301 of every formed summon (SendCharacterInfo), so CreatureService sends it
+        // once the cards are loaded: Characters.SummonSlotItemIds holds summon sids, the 303 card handles.
+        client.ConnectionInfo.SummonSlots = Array.Empty<long>();
+        if (_networkService.CreatureService is null)
+        {
+            client.Connection.Send(GameCharacterPackets.BuildEquipSummon(client.ConnectionInfo.SummonSlots));
+        }
+
         client.Connection.Send(info.WearFrame);
         client.Connection.Send(GameCharacterPackets.BuildHideEquipInfo(handle, character.HideEquipFlag));
         client.Connection.Send(GameCharacterPackets.BuildSkinInfo(handle, character.SkinColor));
@@ -316,6 +322,13 @@ public class GameActions : IActions
         // Parties live in memory (docs/packet-specs/socle-groupe.md): the member comes back online in the
         // party they left, and ConnectionInfo.PartyId is set from it, never from Characters.PartyId.
         _networkService.PartyService?.OnWorldEntry(client);
+
+        // The creatures (docs/packet-specs/socle-apprivoisement-invocation.md §15): the 301 of each formed summon,
+        // the formation 303, and the main summon back beside its master, once the master is in the world.
+        if (_networkService.CreatureService is { } creatures)
+        {
+            _ = creatures.OnWorldEntryAsync(client);
+        }
         _networkService.GroundItemService.Sync(client);
         client.Connection.Send(GameCharacterPackets.BuildItemCoolTime(info.ItemCooldowns, ServerClock.Now));
     }

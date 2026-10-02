@@ -35,6 +35,12 @@ public interface IPartyService
     /// <summary>A member changed job: its entry is broadcast again.</summary>
     void OnJobChanged(GameClient client) { }
 
+    /// <summary>
+    /// A system line to the member's party (<c>PrintfPartyChatMessage(CHAT_PARTY_SYSTEM, …)</c>, sender
+    /// <c>@PARTY</c>); false when the client is in no party, so the caller sends it to the player alone.
+    /// </summary>
+    bool TrySendPartyLine(GameClient member, string text) => false;
+
     IReadOnlyList<GameClient> RewardMembers(GameClient killer, float x, float y, byte layer);
     bool CanTakeDrop(GameClient owner, GameClient picker, long? dropPartyId);
     GameClient LootRecipient(GameClient picker, long? dropPartyId, float x, float y, byte layer);
@@ -164,6 +170,20 @@ public sealed class PartyService : IPartyService
     /// A member changed job: <c>PartyManager::OnChangeCharacterJob</c> refreshes the member's entry, whose job
     /// field the party window shows.
     /// </summary>
+    public bool TrySendPartyLine(GameClient member, string text)
+    {
+        lock (_gate)
+        {
+            if (!TryGetParty(member.ConnectionInfo.CharacterHandle, out var party))
+            {
+                return false;
+            }
+
+            SendToParty(party, text);
+            return true;
+        }
+    }
+
     public void OnJobChanged(GameClient client)
     {
         lock (_gate)

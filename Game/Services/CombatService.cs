@@ -43,6 +43,9 @@ public class CombatService : ICombatService
 
     /// <summary>The duel, which makes two players enemies (StructPlayer::IsEnemy).</summary>
     private readonly Compete.ICompeteService _compete;
+
+    /// <summary>The taming window and draw (docs/packet-specs/socle-apprivoisement-invocation.md §15).</summary>
+    private readonly Creatures.ICreatureEvents _creatures;
     private readonly Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> _rules;
     private readonly ICombatRandom _random;
     private readonly IPlayerVisibilityService _players;
@@ -57,8 +60,10 @@ public class CombatService : ICombatService
         ICombatRandom random = null, IPlayerVisibilityService players = null,
         Casting.ICastInterrupts casts = null, Death.IDeathDropService deathDrops = null,
         ICharacterService characters = null, Compete.ICompeteService compete = null,
-        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null)
+        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
+        Creatures.ICreatureEvents creatures = null)
     {
+        _creatures = creatures;
         _compete = compete;
         _rules = rules;
         _characters = characters;
@@ -727,6 +732,7 @@ public class CombatService : ICombatService
 
         var info = client.ConnectionInfo;
         var targetHp = _worldState.ApplyDamage(instanceId, damage);
+        _creatures?.MonsterDamaged(client, instanceId);
         if (targetHp > 0)
         {
             // The monster fights back. Every monster retaliates, aggressive or not, toward whoever it hates most;
@@ -771,6 +777,12 @@ public class CombatService : ICombatService
         var (dropX, dropY) = _worldState.GetPosition(instanceId);
         // StructMonster::onDead: one level-gap malus for the gold, the chaos and the loot of this kill.
         var lootFactor = MonsterRewardRules.LootFactor(instance.Level, HighestRewardedLevel(client, dropX, dropY, info.Layer));
+
+        // ProcTame: a tamed monster leaves no gold, chaos nor item (StructMonster::onDead, if( !m_bTamedSuccess )).
+        if (_creatures?.MonsterKilled(instanceId) == true)
+        {
+            lootFactor = 0;
+        }
         _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z, instanceId, lootFactor);
         AwardKill(client, instanceId, targetHandle, instance, lootFactor, dropX, dropY, instance.Z, info.Layer);
         if (_quests is not null)

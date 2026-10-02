@@ -43,6 +43,9 @@ public class NetworkService : INetworkService
 
     /// <summary>The duel (4500-4506); null in harnesses that do not build it.</summary>
     public readonly Navislamia.Game.Services.Compete.ICompeteService CompeteService;
+
+    /// <summary>Taming, formation and summoning; null in harnesses that do not build it.</summary>
+    public readonly Navislamia.Game.Services.Creatures.ICreatureService CreatureService;
     public readonly ISkillCardService SkillCardService;
     public readonly IEventAreaService EventAreaService;
     public readonly IResurrectionService ResurrectionService;
@@ -97,9 +100,11 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Party.IPartyService partyService,
         Navislamia.Game.Services.Trade.IPlayerTradeService playerTradeService,
         Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService,
-        Navislamia.Game.Services.Compete.ICompeteService competeService = null)
+        Navislamia.Game.Services.Compete.ICompeteService competeService = null,
+        Navislamia.Game.Services.Creatures.ICreatureService creatureService = null)
     {
         CompeteService = competeService;
+        CreatureService = creatureService;
         CarriedWeightService = carriedWeightService;
         PartyService = partyService;
         PlayerTradeService = playerTradeService;

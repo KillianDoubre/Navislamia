@@ -652,7 +652,116 @@ coller telle quelle à la place de §9 :
 
 ---
 
+## 15. Implémentation livrée — apprivoisement, formation, invocation (2026-10-02)
+
+Source de cette étape : **le serveur officiel lui-même** (`A:\Rappelz Kiff\Rappelz\Rappelz\program\server\GameServer`,
+C++ en cp949, avec son Lua), et non NGemity : `GameProc.cpp` (`SetTamer`, `ClearTamer`, `ProcTame`,
+`AllocNewSummon`), `StructPlayer.cpp` (`EquipSummon`, `DoSummon`, `DoUnSummon`), les contrôles de
+`StructSkill` (`PrepareTaming`), `MonsterAI.cpp` (fenêtre d'apprivoisement), `DB_Login.cpp` (colonnes de
+formation), `GameRule.h`/`Extern.h` (constantes). Le §13 (étape 0) reste valable pour le fil ; ce qui suit le
+remplace pour la logique.
+
+### 15.1 Données
+
+`tools/export_creature_catalog.py` → `DevConsole/creature-catalog.73.json`, chargé au démarrage comme les autres
+catalogues (`ICreatureCatalog`, `CreatureCatalog`) : 147 `SummonResource` Epic 7 (6 sans ligne de stats), leur
+`card_id`, `form`, `run_speed`, `attack_range`, `size`, `scale` et les 7 stats de base de leur `stat_id` ; les 59
+préfixes et 59 suffixes de `SummonDefaultNameResource` (kind 0/1) ; le nom serveur des 2 037 monstres
+apprivoisables (cité dans les lignes de groupe). La carte requise par un monstre est
+`SummonResource[taming_id].card_id` (`GetTameItemCode`).
+
+### 15.2 Apprivoisement (sort 4003, effet 603)
+
+- **Contrôles, dans l'ordre officiel, avec leurs codes** (`TamingRules.Resolve` → `ResultCodeOf`, émis par
+  `SkillCastService.TryValidate`) : pas un monstre vivant → `NotActable` (5) ; non apprivoisable → 90 ; déjà
+  apprivoisé par un autre → 91 ; PV ≠ PV max → 92 ; aucune carte vide du bon code → 93 ; l'apprivoiseur a déjà
+  une cible → 70. La décision provisoire du §13.3 (tout en 5) est levée : l'officiel envoie ces codes.
+- **Début** (`SetTamer`) : la carte est retenue (la première pile *vide* du code — sans `ITEM_FLAG_SUMMON`), le
+  monstre note l'apprivoiseur, le niveau du sort et une échéance de **30 000 ticks (5 min)**, il reçoit **1 point
+  de haine**, et le 310 mode 0 part à chaque joueur qui voit le monstre, **avec sa propre poignée du monstre**,
+  plus la ligne `TAMING_START|nom|` en `CHAT_PARTY_SYSTEM` (100) : émetteur `@PARTY` au groupe, `@SYSTEM` au seul
+  apprivoiseur hors groupe.
+- **Fenêtre** : chaque coup de l'apprivoiseur repousse l'échéance (`StructMonster::onDamage`, relayé par
+  `ICreatureEvents.MonsterDamaged` depuis `CombatService.ApplyDamage`). Échéance passée, ou monstre qui a lâché sa
+  cible et rentre → `ClearTamer` : 310 mode 1 et `TAMING_FAILED|nom|`. Sortie ou retour au lobby de
+  l'apprivoiseur : même nettoyage.
+- **Mort** (`ProcTame`, appelé par la branche de mort de `CombatService` via `ICreatureEvents.MonsterKilled`) :
+  apprivoiseur absent ou mort → rien n'est émis ; à plus de **500** unités du cadavre (`RANGE_LIMIT`) ou carte
+  perdue → 310 mode 3. Sinon le tirage : `taming_percentage × (var0 × niveau + var1 × amélioration + 1) × 100`
+  en virgule fixe de facteur 10 000, contre `XRandom(1, 1 000 000)` ; `var0`/`var1` sont ceux de la compétence
+  4003 (0,06/0,03 à défaut). **Réussite : le monstre ne laisse ni or, ni chaos, ni objet** (`m_bTamedSuccess`,
+  `lootFactor = 0`) ; une carte vide est consommée et une **nouvelle carte de même code** est créée, `Amount 1`,
+  drapeau `ITEM_FLAG_SUMMON`, `GenerateBySource = Taming (18)`, avec sa ligne `Summons` (niveau 1, nom tiré
+  préfixe + suffixe, PV/PM maximaux de la forme), le tout dans **une seule opération d'inventaire**
+  (`CharacterService.CommitTamingAsync`, sous `CharacterGate`) ; 255/254 pour la pile, 207 pour la nouvelle carte,
+  310 mode 2. **Échec : une carte est consommée**, 310 mode 3. Le tirage est fait à la mort (il décide du butin) ;
+  la base suit, asynchrone.
+
+### 15.3 Formation (303) et carte → invocation
+
+- `EquipSummon` : nombre d'emplacements = niveau de **Creature Control (1801)**, plafonné à 6. Une carte déjà
+  liée garde sa place ; une nouvelle doit appartenir au joueur, être dans le sac, du groupe des cartes et porter
+  `ITEM_FLAG_SUMMON` ; une carte citée deux fois n'est liée qu'une fois. **Retirer une carte dont l'invocation est
+  dans le monde refuse toute la formation** : le client reçoit sa formation inchangée
+  (`CreatureRules.ResolveFormation`).
+- Une carte liée sans ligne `Summons` (créée par `/item` par exemple) en reçoit une à la formation, de sa
+  **forme la plus basse** (`FirstSummonForCard`). La 301 d'une invocation part la première fois qu'elle entre
+  dans la formation, puis la 303.
+- **Persistance** : les six colonnes `SummonSlotItemIds` gardent des **sids d'invocation**, comme la ligne de
+  personnage officielle (`DB_Login.cpp:1029`, `GetSummon(bindSummon[i])`) ; la session et la 303 parlent en
+  poignées de carte, et `CharacterService` traduit dans les deux sens. `MainSummonId` est l'id de l'invocation
+  principale.
+- **Entrée en jeu** (`SendCharacterInfo`) : la 301 de chaque invocation formée, **puis** la 303 — qui a donc
+  quitté l'amorçage de `GameActions` (elle n'y reste que si `CreatureService` est absent) ; une lecture en échec
+  envoie quand même une 303 vide. L'invocation principale revient avec son maître (bruit 50).
+
+### 15.4 Invocation (4001, effet 601) et renvoi (4002, effet 602)
+
+- La cible du sort est la **carte** : elle doit être formée, liée à une invocation, et pas déjà dehors (renvoi :
+  dehors). `DoSummon` renvoie d'abord l'invocation principale en cours, puis fait entrer la nouvelle (bruit 70)
+  par `SummonWorldService.Enter` (le 3 seul : la 301 est déjà partie) ; le renvoi passe par `Leave` (305 puis 9).
+  L'invocation suit une téléportation (`WarpService` → `FollowWarp`, bruit 35).
+- **Marche** : un `TM_CS_MOVE_REQUEST` dont le handle est celui d'une invocation du joueur la fait marcher, à sa
+  vitesse ou à celle du maître si `speed_sync` (octet 16) est posé ; diffusée aux observateurs.
+- **Attaque** : un `TM_CS_ATTACK_REQUEST` dont le handle est celui d'une invocation la fait frapper la cible
+  (tick de 100 ms, `CombatFormulas.Resolve` avec les stats de l'invocation — `stat_id`, graine de niveau, bonus
+  dérivés, `run_speed` —, portée `12 × attack_range` + rayons des corps). Les dégâts passent par
+  `ICombatService.ApplyDamage` **au nom du maître** : mort, récompense et butin sont les siens, comme
+  `StructMonster::onDamage` crédite au maître les dégâts de son invocation. Le 101 a l'invocation pour attaquant.
+
+### 15.5 Écarts assumés
+
+- La ligne `Summons` d'une carte apprivoisée est créée **à l'apprivoisement**, pas à la liaison : l'officiel
+  l'alloue dans `AllocNewSummon` quand la carte entre en formation ; ici elle existe plus tôt, sans effet visible.
+- `ITEM_FLAG_TAMING` n'est pas écrit en base : la carte retenue vit dans la session (`TamingCardItemId`).
+- Le miroir d'apprivoisement (objet qui rend la carte en cas d'échec) n'est pas modélisé.
+- Les monstres ripostent sur le **maître**, pas sur l'invocation ; l'invocation ne prend aucun dégât, ne gagne
+  aucune expérience, ne meurt pas, et n'a ni compétences ni évolution (302, 306, 307, 320, 321 restent sans
+  appelant). Le nom unique (1 % chez l'officiel) n'est pas tiré.
+- `taming_exp_mod` : l'ajustement d'expérience officiel est du **code mort** (`ClearTamer` passe avant) et n'est
+  pas porté.
+
+### 15.6 Tests
+
+`Tests/Game/CreatureTests.cs` : règles, codes dans l'ordre, 310 et ligne de groupe, fenêtre, réussite et échec du
+tirage, portée de 500, formation, entrée en jeu 301 → 303, invocation et renvoi, coup de l'invocation crédité au
+maître, persistance EF en mémoire (sids compris). `Tests/Host/ServiceGraphTests.cs` construit le conteneur de
+DevConsole avec `ValidateOnBuild` : un cycle d'injection — celui que `CreatureEvents` évite — ou une inscription
+manquante y échoue au lieu d'échouer au démarrage.
+
+### 15.7 NON ÉTABLI
+
+- L'affichage des codes 90-93/70 par le client 7.3 n'a pas été vu en jeu.
+- Que le client lance 4001/4002 avec la **carte** pour cible (c'est ce que fait l'officiel) n'a pas été observé.
+- Le comportement de la fenêtre de créature du client (ordre 301/303, boutons) reste à vérifier en jeu.
+
+---
+
 ## A VERIFIER PAR KILLIAN
+
+Les points 1, 2, 4 et 5 sont tranchés par le serveur officiel (§15) : pas de butin sur réussite, codes
+précis, sids d'invocation dans les colonnes, fenêtre de 5 minutes renouvelée par chaque coup. Le point 3
+reste à voir en jeu, avec ceux de §15.7.
 
 1. **Arbitrer §7 point 5 (butin)** : l'apprivoisement réussit-il sans butin, comme NGemity
    (`Monster.cpp:140`), ou le lot peut-il ignorer la règle dans un premier temps ?

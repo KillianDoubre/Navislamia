@@ -124,6 +124,16 @@ public sealed class CharacterRepository : ICharacterRepository
         _context.Pets.Add(pet);
     }
 
+    public Task<List<SummonEntity>> GetSummonsAsync(long characterId)
+    {
+        return _context.Summons.Where(summon => summon.CharacterId == characterId).ToListAsync();
+    }
+
+    public void AddSummon(SummonEntity summon)
+    {
+        _context.Summons.Add(summon);
+    }
+
     private IQueryable<CharacterQuestEntity> QuestsOf(string characterName)
     {
         return from quest in _context.CharacterQuests
