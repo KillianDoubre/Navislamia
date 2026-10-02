@@ -40,7 +40,19 @@ public class MonsterSpawnService : IMonsterSpawnService
                 info.SpawnedMonsters,
                 // Asked only for a monster about to enter (WorldObjectStreamer): this used to copy the set of
                 // every dead monster in the world on every sync, i.e. on every step of every player.
-                canEnter: monster => _worldState.IsAlive(monster.InstanceId));
+                canEnter: monster => _worldState.IsAlive(monster.InstanceId),
+                afterEnter: (monster, handle) =>
+                {
+                    var now = ServerClock.Now;
+                    foreach (var state in _worldState.GetStates(monster.InstanceId))
+                    {
+                        if (state.EndTick != 0 && unchecked((int)(state.EndTick - now)) <= 0) continue;
+                        client.Connection.Send(GameSkillPackets.BuildState(handle, state.StateHandle,
+                            (uint)state.StateId, (ushort)state.StateLevel,
+                            state.EndTick == 0 ? 0 : unchecked(state.EndTick + info.ClientClockOffset),
+                            unchecked(now + info.ClientClockOffset)));
+                    }
+                });
         }
         catch (Exception ex)
         {

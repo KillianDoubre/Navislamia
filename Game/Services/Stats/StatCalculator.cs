@@ -9,7 +9,8 @@ public readonly record struct StatCalculatorInput(
     int Level,
     IReadOnlyList<StatEffect> ItemEffects,
     IReadOnlyList<StatEffect> PassiveEffects = null,
-    IReadOnlyList<StatEffect> BuffEffects = null);
+    IReadOnlyList<StatEffect> BuffEffects = null,
+    IReadOnlyList<StatEffect> TitleEffects = null);
 
 public readonly record struct CharacterStatResult(StatBlock Total, StatBlock ByItem);
 
@@ -35,7 +36,7 @@ public class StatCalculator
         var level = Math.Max(1, input.Level);
         SeedFromLevel(level, total);
 
-        ApplyEffects(total, input.ItemEffects, input.PassiveEffects, input.BuffEffects);
+        ApplyEffects(total, input.ItemEffects, input.PassiveEffects, input.BuffEffects, input.TitleEffects);
 
         var byItem = new StatBlock();
         ApplyEffects(byItem, input.ItemEffects, null);
@@ -125,6 +126,8 @@ public class StatCalculator
 
     internal static void ApplyEffects(StatBlock block, params IReadOnlyList<StatEffect>[] sources)
     {
+        Span<float> resistanceAmplifiers = stackalloc float[7];
+        resistanceAmplifiers.Clear();
         foreach (var effects in sources)
         {
             if (effects is null)
@@ -152,10 +155,16 @@ public class StatCalculator
             {
                 if (effect.IsPercent)
                 {
-                    block.Amplify(effect.Target, effect.Value);
+                    var element = (int)effect.Target - (int)StatTarget.NoneResistance;
+                    if (element is >= 0 and < 7)
+                        resistanceAmplifiers[element] += effect.Value;
+                    else
+                        block.Amplify(effect.Target, effect.Value);
                 }
             }
         }
+        for (var element = 0; element < 7; element++)
+            block.Amplify((StatTarget)((int)StatTarget.NoneResistance + element), resistanceAmplifiers[element]);
     }
 
     internal static void ApplyDerivedBonuses(StatBlock block)

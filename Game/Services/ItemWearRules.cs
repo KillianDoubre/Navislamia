@@ -102,6 +102,34 @@ public static class ItemWearRules
     }
 
     /// <summary>
+    /// StructPlayer::TranslateWearPosition: class, race and job depth are whitelists.
+    /// Race uses this repository's Deva/Asura/Gaia bits (1/2/4), not the original combined nLimit.
+    /// JobResource depths are already bits (1/2/4/8), so do not shift them a second time.
+    /// </summary>
+    public static bool IsWearAllowed(ItemWearFields fields, int characterLevel, int race, int jobClass, short jobDepth)
+    {
+        var raceBit = race switch
+        {
+            3 => ItemRaceRestriction.Gaia,
+            4 => ItemRaceRestriction.Deva,
+            5 => ItemRaceRestriction.Asura,
+            _ => ItemRaceRestriction.None
+        };
+        var classBit = jobClass switch
+        {
+            1 => ItemJobRestriction.Fighter,
+            2 => ItemJobRestriction.Hunter,
+            3 => ItemJobRestriction.Magician,
+            4 => ItemJobRestriction.Summoner,
+            _ => ItemJobRestriction.None
+        };
+        return IsWearAllowed(fields, characterLevel)
+            && raceBit != ItemRaceRestriction.None && (fields.RaceRestriction & raceBit) != 0
+            && classBit != ItemJobRestriction.None && (fields.JobRestriction & classBit) != 0
+            && jobDepth is 1 or 2 or 4 or 8 && (fields.JobDepth & jobDepth) != 0;
+    }
+
+    /// <summary>
     /// The requirements gate of <c>TM_CS_PUTON_ITEM</c> (200) and <c>TM_CS_PUTON_ITEM_SET</c> (281),
     /// in the order of the official server's <c>StructCreature::TranslateWearPosition</c>
     /// (<c>0x140080e40</c>, sheet §5.2):

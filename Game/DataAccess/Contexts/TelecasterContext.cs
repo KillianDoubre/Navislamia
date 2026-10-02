@@ -11,6 +11,8 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<AuctionEntity> Auctions { get; set; }
     public DbSet<CharacterEntity> Characters { get; set; }
     public DbSet<CharacterSkillEntity> CharacterSkills { get; set; }
+    public DbSet<CharacterStateEntity> CharacterStates { get; set; }
+    public DbSet<CharacterTitleStateEntity> CharacterTitleStates { get; set; }
     public DbSet<CharacterQuestEntity> CharacterQuests { get; set; }
     public DbSet<CharacterQuestCompletionEntity> CharacterQuestCompletions { get; set; }
     public DbSet<DungeonEntity> Dungeons { get; set; }
@@ -31,6 +33,9 @@ public class TelecasterContext : SoftDeletionContext
         base.OnModelCreating(modelBuilder);
 
         ConfigureAuctions(modelBuilder);
+        modelBuilder.Entity<CharacterTitleStateEntity>().HasKey(s => s.CharacterId);
+        modelBuilder.Entity<CharacterTitleStateEntity>().HasOne<CharacterEntity>().WithOne()
+            .HasForeignKey<CharacterTitleStateEntity>(s => s.CharacterId).OnDelete(DeleteBehavior.Cascade);
         ConfigureCharacters(modelBuilder);
         ConfigureItems(modelBuilder);
         ConfigureItemStorages(modelBuilder);
@@ -40,6 +45,9 @@ public class TelecasterContext : SoftDeletionContext
         ConfigureSummons(modelBuilder);
         ConfigurePaidItems(modelBuilder);
         ConfigureStorageGoldAndFavors(modelBuilder);
+        modelBuilder.Entity<CharacterStateEntity>().HasIndex(s => new { s.CharacterId, s.SummonCardId });
+        modelBuilder.Entity<CharacterStateEntity>().HasOne<CharacterEntity>().WithMany()
+            .HasForeignKey(s => s.CharacterId).OnDelete(DeleteBehavior.Cascade);
     }
 
     /// <summary>

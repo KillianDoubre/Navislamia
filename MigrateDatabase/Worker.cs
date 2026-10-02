@@ -684,38 +684,38 @@ public class Worker : BackgroundService
             };
     
             var itemRaceRestriction = ItemRaceRestriction.None;
-            if (item.limit_deva != "0")
+            if (item.limit_deva?.Trim() == "1")
             {
                 itemRaceRestriction |= ItemRaceRestriction.Deva;
             }
     
-            if (item.limit_asura != "0")
+            if (item.limit_asura?.Trim() == "1")
             {
                 itemRaceRestriction |= ItemRaceRestriction.Asura;
             }
     
-            if (item.limit_gaia != "0")
+            if (item.limit_gaia?.Trim() == "1")
             {
                 itemRaceRestriction |= ItemRaceRestriction.Gaia;
             }
     
             var itemJobRestriction = ItemJobRestriction.None;
-            if (item.limit_hunter != "0")
+            if (item.limit_hunter?.Trim() == "1")
             {
                 itemJobRestriction |= ItemJobRestriction.Hunter;
             }
     
-            if (item.limit_fighter != "0")
+            if (item.limit_fighter?.Trim() == "1")
             {
                 itemJobRestriction |= ItemJobRestriction.Fighter;
             }
     
-            if (item.limit_magician != "0")
+            if (item.limit_magician?.Trim() == "1")
             {
                 itemJobRestriction |= ItemJobRestriction.Magician;
             }
     
-            if (item.limit_summoner != "0")
+            if (item.limit_summoner?.Trim() == "1")
             {
                 itemJobRestriction |= ItemJobRestriction.Summoner;
             }

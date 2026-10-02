@@ -46,10 +46,10 @@ public static class CreatureStatus
     /// </summary>
     public const uint PlayerPkOn = 1 << 11;
 
-    /// <summary>Player criminal state (rzu <c>TCS_FlagBloody</c>). No threshold is established.</summary>
+    /// <summary>Player criminal state (rzu <c>TCS_FlagBloody</c>): at least 100 immoral points.</summary>
     public const uint PlayerBloody = 1 << 12;
 
-    /// <summary>Player demoniac state (rzu <c>TCS_FlagDemoniac</c>). No threshold is established.</summary>
+    /// <summary>Player demoniac state (rzu <c>TCS_FlagDemoniac</c>): at least 1000 immoral points.</summary>
     public const uint PlayerDemoniac = 1 << 13;
 
     /// <summary>Game master (rzu <c>TCS_FlagGm</c>).</summary>

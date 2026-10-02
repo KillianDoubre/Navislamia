@@ -133,6 +133,25 @@ public class CharacterDefaultsTests
     }
 
     [Test]
+    public async Task CharacterService_PersistsMoralityAndKillCountsAlongsideProgress()
+    {
+        var character = new CharacterEntity { CharacterName = "Character" };
+        var repository = A.Fake<ICharacterRepository>();
+        A.CallTo(() => repository.GetCharacterByNameAsync("Character")).Returns(character);
+        var service = new CharacterService(A.Fake<IStarterItemsRepository>(), Repositories(repository),
+            new CharacterGate(), A.Fake<ILogger<CharacterService>>());
+
+        await service.SaveProgressAsync("Character", 10, 5, 100, 200, 300, 0, 100f, 100f, true,
+            new PvpProgress(1234.56789m, 23, 7));
+
+        var loaded = await service.GetCharacterByNameAsync("Character");
+        loaded.ImmoralPoint.Should().Be(1234.5678m);
+        loaded.PkCount.Should().Be(23); loaded.DkCount.Should().Be(7);
+        loaded.PkMode.Should().BeTrue();
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
     public async Task CharacterService_ConsumeItem_DecrementsAStack()
     {
         var item = new ItemEntity { Id = 7, Amount = 5, Idx = 1 };

@@ -375,6 +375,7 @@ public class EventAreaServiceTests
         }
 
         public void Start(string directory) { }
+        public int GetLocationId(float x, float y) => 0;
 
         public bool TryGetEventArea(int eventAreaId, out EventAreaInfo eventArea) =>
             _areas.TryGetValue(eventAreaId, out eventArea!);

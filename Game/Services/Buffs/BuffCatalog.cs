@@ -21,6 +21,8 @@ public class BuffCatalog : IBuffCatalog
     public const int AddRegionState = 302;
     public const int AddHp = 501;
     public const int AddHpMp = 505;
+    public const int AddRegionHpMp = 508;
+    public const int AddRegionHp = 521;
     public const int Summon = 601;
     public const int Unsummon = 602;
     public const int Taming = 603;
@@ -53,22 +55,24 @@ public class BuffCatalog : IBuffCatalog
 
     public static readonly int[] CastableEffectTypes =
     {
-        MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, ToggleAura, ToggleDifferentialAura,
+        MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, AddRegionHpMp, AddRegionHp, ToggleAura, ToggleDifferentialAura,
         PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming, Resurrection, ResurrectionWithRecover,
         30011, 30012, 30013, 30016, 232, 241, 261, 262, 263, 271
     };
 
     /// <summary>
-    /// The <c>SkillTarget</c> values whose target set contains the caster: <c>Target</c> (1),
-    /// <c>RegionWith</c> (2), <c>SelfWithSummon</c> (45) and <c>PartyWithSummon</c> (51) — solo, a party
-    /// is just the caster. <c>RegionWithout</c> (3) explicitly excludes the caster, and <c>Summon</c> (31)
-    /// and <c>PartySummon</c> (32) target a summon, which nothing models; applying those to the caster
-    /// would buff the wrong unit.
+    /// Player, party, region and summon targets resolved by the support cast path.
     /// </summary>
     public static readonly int[] SupportedTargets =
     {
         (int)SkillTarget.Target,
         (int)SkillTarget.RegionWith,
+        (int)SkillTarget.RegionWithout,
+        (int)SkillTarget.Region,
+        (int)SkillTarget.ExceptCaster,
+        (int)SkillTarget.Party,
+        (int)SkillTarget.Summon,
+        (int)SkillTarget.PartySummon,
         (int)SkillTarget.SelfWithSummon,
         (int)SkillTarget.PartyWithSummon
     };
@@ -168,7 +172,8 @@ public class BuffCatalog : IBuffCatalog
             row.IsHarmful,
             row.HateMod,
             row.HateBasic,
-            row.HatePerSkl);
+            row.HatePerSkl, row.ValidRange, row.UseOnSelf, row.UseOnParty,
+            row.UseOnNeutral, row.UseOnCharacter, row.UseOnSummon, row.ElementalType);
         return true;
     }
 
@@ -243,9 +248,9 @@ public class BuffCatalog : IBuffCatalog
             return true;
         }
 
-        if (row.EffectType is AddHp or AddHpMp)
+        if (row.EffectType is AddHp or AddHpMp or AddRegionHpMp or AddRegionHp)
         {
-            if (row.Target != (int)SkillTarget.Target)
+            if (row.IsHarmful || !SupportedTargets.Contains(row.Target))
             {
                 return false;
             }

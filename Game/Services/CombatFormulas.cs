@@ -41,7 +41,8 @@ public readonly record struct Combatant(
     float CriticalPower,
     float BlockChance,
     float BlockDefence,
-    float PerfectBlock)
+    float PerfectBlock,
+    StatBlock Resistances = null)
 {
     public static Combatant From(StatBlock stats, int level) => new(
         level,
@@ -57,7 +58,8 @@ public readonly record struct Combatant(
         stats.CriticalPower,
         stats.BlockChance,
         stats.BlockDefence,
-        stats.PerfectBlock);
+        stats.PerfectBlock,
+        stats);
 }
 
 /// <summary>The dice a hit rolls; scripted in the tests.</summary>
@@ -83,6 +85,15 @@ public sealed class CombatRandom : ICombatRandom
 /// </summary>
 public static class CombatFormulas
 {
+    /// <summary>Resistance points reduce damage by resistance / 300, after critical and before mana shield.
+    /// Uses floating point division to fix the integer division bug in ProvideTargetInfo (Epic 7).
+    /// Negative resistance increases damage; 300 or more absorbs the hit completely.</summary>
+    public static int ResistedDamage(int damage, float resistance)
+    {
+        if (damage <= 0) return 0;
+        return (int)Math.Min(int.MaxValue, Math.Max(0d, Math.Floor(damage * (1d - resistance / 300d))));
+    }
+
     /// <summary>The floor the attack interval divides by, so a crushing slow cannot divide by zero.</summary>
     public const float MinimumAttackSpeed = 10f;
 
@@ -127,7 +138,7 @@ public static class CombatFormulas
     /// that can block), the critical roll, then the defence and the ±5 % spread.
     /// </summary>
     public static HitResult Resolve(in Combatant attacker, in Combatant target, float baseDamage,
-        DamageKind kind, int accuracyBonus, int criticalBonus, ICombatRandom random)
+        DamageKind kind, int accuracyBonus, int criticalBonus, ICombatRandom random, int element = 0)
     {
         var physical = kind == DamageKind.Physical;
 
@@ -178,6 +189,6 @@ public static class CombatFormulas
             damage += damage * (attacker.CriticalPower / 100f);
         }
 
-        return new HitResult(Math.Max(1, (int)damage), flags);
+        return new HitResult(ResistedDamage(Math.Max(1, (int)damage), target.Resistances?.GetResistance(element) ?? 0f), flags);
     }
 }

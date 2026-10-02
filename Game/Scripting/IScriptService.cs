@@ -10,4 +10,5 @@ public interface IScriptService
 
     int RunString(string script);
     bool RunMonsterTrigger(string function, MonsterScriptContext context) => false;
+    int RunQuestScript(string script, QuestScriptContext context) => 0;
 }

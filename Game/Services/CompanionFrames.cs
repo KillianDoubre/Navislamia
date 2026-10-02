@@ -5,7 +5,16 @@ using Navislamia.Game.Network.Packets.Game;
 namespace Navislamia.Game.Services;
 
 /// <summary>A summon in the world: its handle, what it was entered with and where.</summary>
-public sealed record SummonPresence(uint Handle, SummonWorldEntry Entry, float X, float Y, byte Layer);
+public sealed record SummonPresence(uint Handle, SummonWorldEntry Entry, float X, float Y, byte Layer)
+{
+    public object BuffLock { get; } = new();
+    public List<Buffs.ActiveBuff> ActiveBuffs { get; } = new();
+    public ushort NextStateHandle { get; set; }
+    public int Hp { get; set; } = Entry.Hp;
+    public int Mp { get; set; } = Entry.Mp;
+    public Stats.StatBlock Stats { get; set; } = Entry.BaseStats?.Copy()
+        ?? new Stats.StatBlock { MaxHp = Entry.MaxHp, MaxMp = Entry.MaxMp };
+}
 
 /// <summary>
 /// The frames that show a player's companions — the pet and the summons — to another player
@@ -91,6 +100,8 @@ public static class CompanionFrames
                 (ushort)state.StateLevel, state.EndTick, state.StartTick));
         }
 
+        foreach (var summon in player.Summons) frames.AddRange(SummonStates(summon));
+
         return frames;
     }
 
@@ -98,7 +109,17 @@ public static class CompanionFrames
     {
         var entry = summon.Entry;
         return GameSpawnPackets.BuildEnterSummon(summon.Handle, summon.X, summon.Y, entry.Z, summon.Layer,
-            entry.Hp, entry.MaxHp, entry.Mp, entry.MaxMp, entry.Level, entry.FaceDirection, isFirstEnter,
+            summon.Hp, (int)summon.Stats.MaxHp, summon.Mp, (int)summon.Stats.MaxMp, entry.Level, entry.FaceDirection, isFirstEnter,
             masterHandle, (uint)entry.Code, entry.Name, entry.Enhance);
+    }
+
+    public static List<byte[]> SummonStates(SummonPresence summon)
+    {
+        var frames = new List<byte[]>();
+        lock (summon.BuffLock)
+            foreach (var state in summon.ActiveBuffs)
+                frames.Add(GameSkillPackets.BuildState(summon.Handle, state.StateHandle, (uint)state.StateId,
+                    (ushort)state.StateLevel, state.EndTick, state.StartTick));
+        return frames;
     }
 }

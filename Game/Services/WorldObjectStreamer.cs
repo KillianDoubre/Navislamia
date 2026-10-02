@@ -35,7 +35,8 @@ public static class WorldObjectStreamer
         Func<T, uint, byte[]> buildEnter,
         Dictionary<long, uint> handlesById,
         Dictionary<uint, long> idsByHandle = null,
-        Func<T, bool> canEnter = null)
+        Func<T, bool> canEnter = null,
+        Action<T, uint> afterEnter = null)
     {
         var visible = new HashSet<long>(inRange.Count);
 
@@ -69,6 +70,7 @@ public static class WorldObjectStreamer
                 {
                     idsByHandle[handle] = id;
                 }
+                afterEnter?.Invoke(item, handle);
             }
 
             DespawnMissing(client.Connection, handlesById, visible, idsByHandle);

@@ -23,11 +23,11 @@ public static class ActorStatus
     /// and <c>/walk</c> toggle (docs/gm-commands.md). <paramref name="boothType"/> is the open booth's
     /// type — 1 sells (<see cref="CreatureStatus.PlayerSellBooth"/>), 2 buys
     /// (<see cref="CreatureStatus.PlayerBuyBooth"/>), 0 none (docs/packet-specs/705-buy-from-booth.md §4).
-    /// Bloody and demoniac states have no established server-side rule yet. Every flag is passed on every
+    /// Bloody and demoniac states start at 100 and 1000 immoral points. Every flag is passed on every
     /// send: the mask is a snapshot — prefer <see cref="ForPlayer(ConnectionInfo)"/>, which reads them all.
     /// </summary>
     public static uint ForPlayer(bool pkModeOn, bool sitting = false, bool battleMode = false,
-        bool walking = false, byte boothType = 0)
+        bool walking = false, byte boothType = 0, decimal immoralPoint = 0m)
     {
         var status = boothType switch
         {
@@ -56,12 +56,15 @@ public static class ActorStatus
             status |= CreatureStatus.PlayerWalking;
         }
 
+        if (immoralPoint >= Navislamia.Game.Services.MoralityRules.BloodyLimit) status |= CreatureStatus.PlayerBloody;
+        if (immoralPoint >= Navislamia.Game.Services.MoralityRules.DemoniacLimit) status |= CreatureStatus.PlayerDemoniac;
+
         return status;
     }
 
     /// <summary>A player's whole mask, read from its session: every state the mask carries, in one place.</summary>
     public static uint ForPlayer(ConnectionInfo info) =>
-        ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking, info.BoothType);
+        ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking, info.BoothType, info.ImmoralPoint);
 
     /// <summary>
     /// A monster's mask. <paramref name="dead"/> is the corpse flag; the corpse outlives the death

@@ -19,8 +19,7 @@ namespace Tests.Game;
 /// The requirements <c>TM_CS_PUTON_ITEM</c> (200) and <c>TM_CS_PUTON_ITEM_SET</c> (281) judge before
 /// equipping — the level floor of the official Epic 7 Part 4 server
 /// (<c>StructCreature::TranslateWearPosition</c>, sheet
-/// <c>docs/packet-specs/socle-exigences-equipement.md</c> §5.2). Race, class and job depth are the
-/// sheet's lot 2: they are not judged here, and their columns are empty in this server's data.
+/// <c>docs/packet-specs/socle-exigences-equipement.md</c> §5.2-5.3), including class, race and job depth.
 /// </summary>
 [TestFixture]
 public class EquipmentWearRequirementTests
@@ -105,7 +104,7 @@ public class EquipmentWearRequirementTests
     public void IsWearAllowed_JudgesTheFloorAndTheWindow(int rank, int useMinLevel, int useMaxLevel,
         int level, bool expected)
     {
-        var fields = new ItemWearFields(100201, ItemWearType.Armor, rank, useMinLevel, useMaxLevel);
+        var fields = Wear(100201, ItemWearType.Armor, rank, useMinLevel, useMaxLevel);
 
         ItemWearRules.IsWearAllowed(fields, level).Should().Be(expected,
             "rank {0} (floor {1}), use_min_level {2}, use_max_level {3} at level {4}", rank,
@@ -295,10 +294,110 @@ public class EquipmentWearRequirementTests
 
     // ---- the harness --------------------------------------------------------------------------
 
+    [TestCase(3, 4, true)] [TestCase(3, 1, false)] [TestCase(3, 0, false)]
+    [TestCase(4, 1, true)] [TestCase(4, 2, false)]
+    [TestCase(5, 2, true)] [TestCase(5, 4, false)]
+    [TestCase(0, 7, false)] [TestCase(6, 7, false)]
+    public void Race_whitelist_requires_the_players_race_bit(int race, int mask, bool allowed)
+    {
+        var item = Wear(ArmorResource, ItemWearType.Armor) with { RaceRestriction = (ItemRaceRestriction)mask };
+        ItemWearRules.IsWearAllowed(item, 300, race, 1, 1).Should().Be(allowed);
+    }
+
+    [TestCase(1, 1024, true)] [TestCase(1, 2048, false)]
+    [TestCase(2, 2048, true)] [TestCase(2, 1024, false)]
+    [TestCase(3, 4096, true)] [TestCase(3, 8192, false)]
+    [TestCase(4, 8192, true)] [TestCase(4, 4096, false)]
+    [TestCase(1, 0, false)] [TestCase(0, 15360, false)] [TestCase(5, 15360, false)]
+    [TestCase(3, 5120, true)]
+    public void Class_whitelist_requires_the_current_jobs_class_bit(int jobClass, int mask, bool allowed)
+    {
+        var item = Wear(ArmorResource, ItemWearType.Armor) with { JobRestriction = (ItemJobRestriction)mask };
+        ItemWearRules.IsWearAllowed(item, 300, 3, jobClass, 1).Should().Be(allowed);
+    }
+
+    [TestCase(1, 15, true)] [TestCase(2, 15, true)] [TestCase(4, 15, true)] [TestCase(8, 15, true)]
+    [TestCase(8, 8, true)] [TestCase(4, 8, false)] [TestCase(2, 8, false)] [TestCase(1, 8, false)]
+    [TestCase(8, 0, false)] [TestCase(0, 15, false)] [TestCase(3, 15, false)] [TestCase(16, 15, false)]
+    public void Depth_whitelist_uses_the_job_resource_bit_without_shifting_it_again(short depth, short mask, bool allowed)
+    {
+        var item = Wear(ArmorResource, ItemWearType.Armor) with { JobDepth = mask };
+        ItemWearRules.IsWearAllowed(item, 300, 3, 1, depth).Should().Be(allowed);
+    }
+
+    [TestCase(false, "race")] [TestCase(true, "race")]
+    [TestCase(false, "class")] [TestCase(true, "class")]
+    [TestCase(false, "depth")] [TestCase(true, "depth")]
+    [TestCase(false, "empty")] [TestCase(true, "empty")]
+    [TestCase(false, "unknown_job")] [TestCase(true, "unknown_job")]
+    public async Task Both_equipment_paths_refuse_unmet_whitelists_before_changing_inventory(bool set, string cause)
+    {
+        var item = Wear(ArmorResource, ItemWearType.Armor);
+        item = cause switch
+        {
+            "race" => item with { RaceRestriction = ItemRaceRestriction.Deva },
+            "class" => item with { JobRestriction = ItemJobRestriction.Magician },
+            "depth" => item with { JobDepth = 8 },
+            "empty" => item with { RaceRestriction = 0, JobRestriction = 0 },
+            _ => item
+        };
+        var h = Build(300, Items((ArmorHandle, ArmorResource)), item);
+        if (cause == "unknown_job") StorageTestHarness.Session(h.Client).CharacterJob = 999999;
+        if (set) await h.Service.EquipSetAsync(h.Client, new[] { ArmorHandle });
+        else await h.Service.EquipAsync(h.Client, new GameActionPackets.PutonItemRequest(2, ArmorHandle, 0));
+        var result = SingleResult(h); result.Result.Should().Be((ushort)ResultCode.NotActable);
+        result.RequestMsgID.Should().Be(set ? (ushort)281 : (ushort)200);
+        A.CallTo(() => h.Characters.EquipItemAsync(Character, A<uint>._, A<ItemWearType>._)).MustNotHaveHappened();
+    }
+
+    [TestCase(false, 3, 100, 1, 1)] [TestCase(true, 3, 100, 1, 1)]
+    [TestCase(false, 4, 200, 3, 1)] [TestCase(true, 5, 300, 2, 1)]
+    [TestCase(false, 3, 123, 4, 8)] [TestCase(true, 3, 123, 4, 8)]
+    [TestCase(false, 3, 0, 1, 1)] [TestCase(true, 4, 0, 3, 1)] [TestCase(false, 5, 0, 2, 1)]
+    public async Task Both_equipment_paths_resolve_class_and_depth_from_the_job_table(
+        bool set, int race, int job, int jobClass, short depth)
+    {
+        var item = Wear(ArmorResource, ItemWearType.Armor) with
+        {
+            RaceRestriction = race switch { 3 => ItemRaceRestriction.Gaia, 4 => ItemRaceRestriction.Deva, _ => ItemRaceRestriction.Asura },
+            JobRestriction = (ItemJobRestriction)(1 << (jobClass + 9)), JobDepth = depth
+        };
+        var h = Build(300, Items((ArmorHandle, ArmorResource)), item);
+        var info = StorageTestHarness.Session(h.Client); info.CharacterRace = race; info.CharacterJob = job;
+        if (set) await h.Service.EquipSetAsync(h.Client, new[] { ArmorHandle });
+        else await h.Service.EquipAsync(h.Client, new GameActionPackets.PutonItemRequest(2, ArmorHandle, 0));
+        A.CallTo(() => h.Characters.EquipItemAsync(Character, ArmorHandle, ItemWearType.Armor)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task The_current_job_is_checked_again_after_a_class_change()
+    {
+        var item = Wear(ArmorResource, ItemWearType.Armor) with { JobRestriction = ItemJobRestriction.Fighter };
+        var h = Build(300, Items((ArmorHandle, ArmorResource)), item);
+        await h.Service.EquipAsync(h.Client, new GameActionPackets.PutonItemRequest(2, ArmorHandle, 0));
+        StorageTestHarness.Session(h.Client).CharacterJob = 123;
+        await h.Service.EquipAsync(h.Client, new GameActionPackets.PutonItemRequest(2, ArmorHandle, 0));
+        A.CallTo(() => h.Characters.EquipItemAsync(Character, ArmorHandle, ItemWearType.Armor)).MustHaveHappenedOnceExactly();
+        new Packet<TS_SC_RESULT>(h.Connection.Sent[^1]).GetDataStruct<TS_SC_RESULT>().Result.Should().Be((ushort)ResultCode.NotActable);
+    }
+
+    [Test]
+    public async Task A_set_continues_with_an_allowed_piece_after_a_race_refusal()
+    {
+        var h = Build(300, Items((ArmorHandle, ArmorResource), (HeadyHandle, HeadyResource)),
+            Wear(ArmorResource, ItemWearType.Armor) with { RaceRestriction = ItemRaceRestriction.Deva },
+            Wear(HeadyResource, ItemWearType.Armor));
+        await h.Service.EquipSetAsync(h.Client, new[] { ArmorHandle, HeadyHandle });
+        A.CallTo(() => h.Characters.EquipItemAsync(Character, ArmorHandle, A<ItemWearType>._)).MustNotHaveHappened();
+        A.CallTo(() => h.Characters.EquipItemAsync(Character, HeadyHandle, A<ItemWearType>._)).MustHaveHappenedOnceExactly();
+    }
+
     private static ItemWearFields Wear(long resourceId, ItemWearType wearType, int rank = 0,
         int useMinLevel = 0, int useMaxLevel = 0)
     {
-        return new ItemWearFields((int)resourceId, wearType, rank, useMinLevel, useMaxLevel);
+        return new ItemWearFields((int)resourceId, wearType, rank, useMinLevel, useMaxLevel,
+            ItemRaceRestriction.Deva | ItemRaceRestriction.Asura | ItemRaceRestriction.Gaia,
+            ItemJobRestriction.Fighter | ItemJobRestriction.Hunter | ItemJobRestriction.Magician | ItemJobRestriction.Summoner, 15);
     }
 
     private static Dictionary<uint, ItemEntity> Items(params (uint Handle, long ResourceId)[] items)
@@ -337,9 +436,14 @@ public class EquipmentWearRequirementTests
         session.CharacterName = Character;
         session.CharacterHandle = CharacterHandle;
         session.CharacterLevel = characterLevel;
+        session.CharacterRace = (int)Race.Gaia;
+
+        var jobs = A.Fake<IJobResourceRepository>();
+        A.CallTo(() => jobs.GetWearFields()).Returns(new[] { new JobWearFields(100, 1, 1),
+            new JobWearFields(200, 3, 1), new JobWearFields(300, 2, 1), new JobWearFields(123, 4, 8) });
 
         var service = new EquipmentService(characters, A.Fake<IStatService>(), new ItemWearCatalog(repository),
-            A.Fake<IPlayerVisibilityService>());
+            A.Fake<IPlayerVisibilityService>(), jobs);
 
         return new Harness(service, connection, characters, client);
     }

@@ -35,6 +35,28 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "epic7"
 AUDIT = {"CreatedOn", "ModifiedOn", "DeletedOn"}
 
+# Whitelists use the repository's separate enum masks, not the original combined ItemBase.nLimit.
+ITEM_RACE_LIMITS = (("limit_deva", 1), ("limit_asura", 2), ("limit_gaia", 4))
+ITEM_JOB_LIMITS = (("limit_fighter", 1024), ("limit_hunter", 2048),
+                   ("limit_magician", 4096), ("limit_summoner", 8192))
+
+
+def whitelist_mask(row, limits):
+    """Convert the source's 0/1 strings to an allow-list; reject malformed flags."""
+    mask = 0
+    for column, bit in limits:
+        flag = row[column].strip()
+        if flag not in ("0", "1"):
+            raise ValueError(f"{column}: expected 0 or 1, got {flag!r}")
+        if flag == "1":
+            mask |= bit
+    return mask
+
+
+def whitelist_sql(limits):
+    return "(" + " + ".join(f'''CASE WHEN btrim(s."{column}") = '1' THEN {bit} ELSE 0 END'''
+                             for column, bit in limits) + ")"
+
 
 def r(prefix, first, last, suffix=""):
     return [f"{prefix}{i}{suffix}" for i in range(first, last + 1)]
@@ -73,6 +95,7 @@ TABLES = [
     ("ItemResources", "ItemResource", ["Id"], {
         "ItemBaseType": "type", "ItemType": "class", "Status": "status_flag", "SocketCount": "socket",
         "SetPart": "set_part_flag",
+        "RaceRestriction": ITEM_RACE_LIMITS, "JobRestriction": ITEM_JOB_LIMITS,
         "BaseTypes": r("base_type_", 0, 3), "BaseVar1": r("base_var1_", 0, 3), "BaseVar2": r("base_var2_", 0, 3),
         "OptTypes": r("opt_type_", 0, 3), "OptVar1": r("opt_var1_", 0, 3), "OptVar2": r("opt_var2_", 0, 3),
         "EnhanceIds": ["enhance_0_id", "enhance_1_id"]}),
@@ -175,7 +198,8 @@ def zero(udt):
 
 
 def plan(table, source, overrides, columns, foreign):
-    header = next(csv.reader(open(DATA / f"{source}.csv", encoding="utf-8")))
+    with (DATA / f"{source}.csv").open(encoding="utf-8", newline="") as stream:
+        header = next(csv.reader(stream))
     by_norm = {norm(h): h for h in header}
     mapped, fk, missing, used = {}, {}, [], set()
     for column, dtype, udt, nullable in columns[table]:
@@ -186,6 +210,13 @@ def plan(table, source, overrides, columns, foreign):
             spec = by_norm[norm(column)]
         if spec is None:
             missing.append((column, udt, nullable))
+            continue
+        if isinstance(spec, tuple):
+            names = [name for name, _ in spec]
+            if not all(name in header for name in names):
+                raise SystemExit(f"{table}.{column}: source columns missing: {[name for name in names if name not in header]}")
+            used.update(names)
+            mapped[column] = whitelist_sql(spec)
             continue
         if isinstance(spec, list):
             if not all(s in header for s in spec):
@@ -277,8 +308,9 @@ def main(argv):
     dry = "--plan" in argv
     only = [a for a in argv[1:] if not a.startswith("--")]
     columns, foreign, primary = introspect()
-    for staging in [f"epic7_{t.lower()}" for t, *_ in TABLES]:
-        psql(f"DROP TABLE IF EXISTS {staging}; DROP TABLE IF EXISTS {staging}_rows;")
+    if not dry:
+        for staging in [f"epic7_{t.lower()}" for t, *_ in TABLES]:
+            psql(f"DROP TABLE IF EXISTS {staging}; DROP TABLE IF EXISTS {staging}_rows;")
     pending = []
     for table, source, key, overrides in TABLES:
         if only and table not in only:

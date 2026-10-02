@@ -10,6 +10,7 @@ namespace Navislamia.Game.Services;
 /// </summary>
 public sealed class SummonWorldEntry
 {
+    public Stats.StatBlock BaseStats { get; init; }
     /// <summary>
     /// The card the summon belongs to — <c>card_handle</c>, the first field of <c>TS_SC_ADD_SUMMON_INFO</c>
     /// (301, absolute offset 7, <c>BuildAddSummonInfo</c>) and of <c>TS_SC_REMOVE_SUMMON_INFO</c> (302).

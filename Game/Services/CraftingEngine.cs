@@ -8,7 +8,10 @@ using Navislamia.Game.Network.Packets;
 namespace Navislamia.Game.Services;
 
 /// <summary>One stack a craft consumes: an item of the crafter's bag, by handle, and how many units.</summary>
-public readonly record struct CraftConsumption(uint ItemHandle, long Count);
+public readonly record struct CraftConsumption(uint ItemHandle, long Count)
+{
+    public MixMaterial? ExpectedMaterial { get; init; }
+}
 
 /// <summary>What a craft does to the target item: the state it must still have, and the state it gets.</summary>
 public readonly record struct CraftTargetChange(
@@ -17,7 +20,13 @@ public readonly record struct CraftTargetChange(
     int ExpectedFlag,
     long NewEnhance,
     int NewFlag,
-    bool Destroy);
+    bool Destroy)
+{
+    /// <summary>Consume one main-card unit; create a separate unit unless destroyed.</summary>
+    public bool SplitOne { get; init; }
+    public MixMaterial? ExpectedMaterial { get; init; }
+    public long MinimumAmount { get; init; } = 1;
+}
 
 /// <summary>
 /// A decided craft: the stacks to consume, what happens to the target, and the handles
@@ -52,8 +61,8 @@ public sealed record CraftPlan(
 /// <item><term>501 <c>MIX_RESTORE_ENHANCE_SET_FLAG</c></term><description>the materials are consumed and the
 /// bit <c>mix_value_01</c> is cleared — 3, <c>FAILED</c>, the bit every rule requires on: the repair.</description></item>
 /// </list>
-/// Every other type answers <see cref="ResultCode.InvalidArgument"/> as before: NGemity carries none of them
-/// out, and 102 cannot resolve (its rules use condition codes 24 and 25, which no reference defines).
+/// Type 102 follows retail EnhanceSkillCard: two equal skill cards and a cube produce a separate card.
+/// Every other type answers <see cref="ResultCode.InvalidArgument"/>.
 /// </summary>
 public static class CraftingEngine
 {
@@ -83,6 +92,9 @@ public static class CraftingEngine
         var rule = resolution.Rule;
         switch (rule.MixType)
         {
+            case MixEnhanceSkillCard:
+                return PlanSkillCard(resolution, target, enhance, roll);
+
             case MixEnhance:
             case MixEnhanceWithoutFail:
                 return PlanEnhance(resolution, target, enhance, roll);
@@ -112,6 +124,57 @@ public static class CraftingEngine
             default:
                 return CraftPlan.Refused(ResultCode.InvalidArgument);
         }
+    }
+
+    private static CraftPlan PlanSkillCard(MixResolution resolution, MixMaterial? target,
+        EnhanceResourceEntity enhance, Func<int, int, int> roll)
+    {
+        if (target is not { } item || item.Handle == 0 || item.SkillId <= 0 || item.ItemGroup != 10
+            || enhance?.RequiredItemId is null || item.Enhance < 0 || item.Enhance >= enhance.MaxEnhance
+            || resolution.Arranged.Count != 2 || resolution.ConsumedCounts.Count != 2)
+        {
+            return CraftPlan.Refused(ResultCode.InvalidArgument);
+        }
+
+        var cube = resolution.Arranged[0];
+        var second = resolution.Arranged[1];
+        if (cube.Handle == 0 || second.Handle == 0 || cube.Handle == item.Handle || cube.Handle == second.Handle
+            || cube.ItemCode != enhance.RequiredItemId || second.ItemGroup != 10
+            || second.SkillId != item.SkillId || second.Enhance != item.Enhance
+            || resolution.ConsumedCounts[0] != 1 || resolution.ConsumedCounts[1] != 1
+            || item.AvailableCount < (second.Handle == item.Handle ? 2 : 1)
+            || cube.AvailableCount < 1 || second.AvailableCount < 1)
+        {
+            return CraftPlan.Refused(ResultCode.InvalidArgument);
+        }
+
+        var consumed = new List<CraftConsumption>
+        {
+            new(cube.Handle, 1) { ExpectedMaterial = cube },
+            new(second.Handle, 1) { ExpectedMaterial = second }
+        };
+        var chance = enhance.Percentage is { } rates && item.Enhance < rates.Length
+            ? rates[(int)item.Enhance] : 0m;
+        var success = roll(0, RollScale) <= (int)(chance * RollScale);
+        var split = success || enhance.FailResult == FailResultType.SkillCard;
+        var destroy = !success && enhance.FailResult == FailResultType.SkillCard && item.Enhance <= 3;
+        var nextEnhance = success ? item.Enhance + 1
+            : enhance.FailResult is FailResultType.SkillCard or FailResultType.Accessory
+                ? Math.Max(0, item.Enhance - 3) : item.Enhance;
+        var nextFlag = !success && enhance.FailResult is not (FailResultType.SkillCard or FailResultType.Accessory)
+            ? item.Flag | FailedFlagMask : item.Flag;
+        if (split)
+        {
+            consumed.Add(new CraftConsumption(item.Handle, 1) { ExpectedMaterial = item });
+        }
+
+        return new CraftPlan(ResultCode.Success, consumed,
+            new CraftTargetChange(item.Handle, item.Enhance, item.Flag, nextEnhance, nextFlag, destroy)
+            {
+                SplitOne = split,
+                ExpectedMaterial = item,
+                MinimumAmount = second.Handle == item.Handle ? 2 : 1
+            }, success ? new[] { item.Handle } : Array.Empty<uint>());
     }
 
     private static CraftPlan PlanEnhance(MixResolution resolution, MixMaterial? target,

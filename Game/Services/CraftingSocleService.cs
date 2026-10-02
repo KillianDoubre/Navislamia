@@ -15,47 +15,10 @@ using Serilog;
 namespace Navislamia.Game.Services;
 
 /// <summary>
-/// The structural socle of the crafting and item-enchantment family: <c>TM_CS_MIX</c> (256),
-/// <c>TM_CS_REPAIR_SOULSTONE</c> (262),
-/// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY</c> (263) and
-/// <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT</c> (264).
-///
-/// It does four things, in this order, and writes no crafting of any kind: read the frame at its
-/// established Epic 7.3 size, bound it, resolve every handle it names against the character's own items,
-/// then refuse. No rate is rolled, no failure policy is applied and no socket is touched: those are game
-/// decisions the specification deliberately leaves to Killian (docs/packet-specs/socle-artisanat-objets.md
-/// §9.2, §9.3, §9.5).
-///
-/// <c>TM_CS_MIX</c> (256) goes one step further since the resource lobe landed: its target and its
-/// material stacks are read from the two item rows, the <c>MixResource</c> table is asked which rule
-/// accepts the combination (<see cref="MixResourceMatcher"/>), and the outcome is written to the log —
-/// "resolved to rule N, effects not implemented" against "no rule accepts this frame". The answer is the
-/// same refusal either way: what a matched type does (a rate, a failure policy, the items it removes, the
-/// <c>TM_SC_MIX_RESULT</c> 257 it sends) is the next lobe
-/// (docs/packet-specs/socle-artisanat-ressources.md §6.4 and §8, L2).
-///
-/// The one handle that is more than resolved is the 263 one: it designates the object the player offers
-/// as the sacrifice, so it is judged — a wearable resource that carries ethereal durability, a copy that
-/// still has some — before the generic refusal (docs/packet-specs/263-transmit-ethereal-durability.md
-/// §5.4). What such a gesture would then do is still not written: the amount, the ceiling and the object
-/// consumed are not established.
-///
-/// For <c>TM_CS_TRANSMIT_ETHEREAL_DURABILITY_TO_EQUIPMENT</c> (264) the bound is the <c>(0,1]</c> domain its
-/// <c>rate</c> is measured to live in (docs/packet-specs/264-transmit-ethereal-durability-to-equipment.md
-/// §2.3, §5.5): the frame names no handle, so nothing is resolved for it.
-///
-/// <c>TM_CS_SOULSTONE_CRAFT</c> (260) used to sit here too and now has its own engine
-/// (<see cref="SoulstoneCraftService"/>): the frame's handles are a stone per chassis, which is a meaning
-/// the socle refuses to guess. See docs/packet-specs/260-soulstone-craft.md §5.
-///
-/// The refusals answer <c>TM_SC_RESULT</c> (0) with the received id as <c>request_msg_id</c>. A handle
-/// that resolves to none of the character's items reports <c>NotExist</c> (1) with the handle as value,
-/// the convention the 203 drop path already uses (docs/packet-specs/203-drop-item.md §5.3); NGemity
-/// splits that case in two (<c>NOT_EXIST</c> for the item being crafted, <c>ACCESS_DENIED</c> for a
-/// material, <c>WorldSession.cpp:1503-1507</c> and <c>:1521-1526</c>), a distinction the socle does not
-/// reproduce for the frames it still owns because which handle plays which part is established for none
-/// of them. A readable frame is refused with <c>InvalidArgument</c> (28), the code NGemity sends when no
-/// mix rule resolves (<c>WorldSession.cpp:1463-1466</c>); the value stays 0 as in that reference answer.
+/// Reads crafting frames and resolves their owned inventory handles. Mix recipes 101, 102, 103, 311
+/// and 501 execute through CraftingEngine and the atomic inventory commit; unsupported recipes and
+/// the remaining repair/ethereal frames retain the structural socle's refusal.
+/// See docs/packet-specs/socle-artisanat-ressources.md and socle-artisanat-cartes-competences.md.
 /// </summary>
 public class CraftingSocleService : ICraftingSocleService
 {
@@ -191,13 +154,7 @@ public class CraftingSocleService : ICraftingSocleService
         client.SendResult(packetId, (ushort)ResultCode.InvalidArgument);
     }
 
-    /// <summary>
-    /// The resolution of a <c>TM_CS_MIX</c> (256) frame. The target is read only when the frame names one
-    /// (handle 0 is a sentinel, not an item — <see cref="CraftingSocleRules"/>), the materials in the order
-    /// of the frame, then the rule table decides. Whatever the verdict, the answer is the refusal the socle
-    /// already sent (<c>InvalidArgument</c>): the log is the only thing that tells a resolved rule from an
-    /// unmatched frame.
-    /// </summary>
+    /// <summary>Resolve a mix recipe, decide its effects, commit them, then publish inventory and result.</summary>
     private async Task ResolveMixAsync(GameClient client, ushort packetId, GameActionPackets.MixRequest mix)
     {
         MixMaterial? target = null;
@@ -241,7 +198,8 @@ public class CraftingSocleService : ICraftingSocleService
         }
 
         EnhanceResourceEntity enhance = null;
-        if (resolution.Rule.MixType is CraftingEngine.MixEnhance or CraftingEngine.MixEnhanceWithoutFail)
+        if (resolution.Rule.MixType is CraftingEngine.MixEnhance or CraftingEngine.MixEnhanceWithoutFail
+            or CraftingEngine.MixEnhanceSkillCard)
         {
             _enhanceCatalog?.TryGetForServer(resolution.Rule.MixValue01, _localFlag, out enhance);
         }
@@ -287,11 +245,11 @@ public class CraftingSocleService : ICraftingSocleService
 
         if (plan.Change is { } change)
         {
-            if (commit.Target is null)
+            if (commit.Target is null && !change.SplitOne)
             {
                 client.Connection.Send(GameCharacterPackets.BuildDestroyItem(change.Handle));
             }
-            else
+            else if (commit.Target is not null)
             {
                 foreach (var frame in GameCharacterPackets.BuildInventory(new[] { commit.Target }))
                 {
@@ -300,14 +258,16 @@ public class CraftingSocleService : ICraftingSocleService
             }
         }
 
-        client.Connection.Send(GameCraftingPackets.BuildMixResult(plan.ResultHandles));
+        var resultHandles = plan.Change is { SplitOne: true } && plan.ResultHandles.Count > 0
+            ? new[] { (uint)commit.Target.Id } : plan.ResultHandles;
+        client.Connection.Send(GameCraftingPackets.BuildMixResult(resultHandles));
         _logger.Information("Mix rule {ruleId} (type {mixType}) for {clientTag}: {outcome}", resolution.Rule.Id,
             resolution.Rule.MixType, client.ClientTag, plan.ResultHandles.Count > 0 ? "success" : "failure");
     }
 
     /// <summary>
     /// Reads one material of a <c>TM_CS_MIX</c> frame: the item instance from the character's own
-    /// inventory, then the four template columns the conditions compare
+    /// inventory, then the template columns and skill ID the conditions compare
     /// (<see cref="IItemMatchCatalog"/>). The refusals are the ones the socle already sent — <c>DBError</c>
     /// when the read fails, <c>NotExist</c> when the handle is not one of the character's items — plus
     /// <c>InvalidArgument</c> when the item exists but its resource is absent from the table: judging
@@ -356,7 +316,9 @@ public class CraftingSocleService : ICraftingSocleService
             item.Enhance,
             (int)item.Flag,
             count,
-            handle);
+            handle,
+            fields.SkillId,
+            item.Amount);
     }
 
     /// <summary>

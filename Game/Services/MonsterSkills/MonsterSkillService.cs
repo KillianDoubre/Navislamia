@@ -46,15 +46,17 @@ public class MonsterSkillService : IMonsterSkillService
     private readonly SkillEffectScheduler _effects;
     private readonly ICharacterService _characters;
     private readonly IMonsterSpawnService _spawns;
+    private readonly IQuestService _quests;
     private readonly object _gate = new();
     private readonly HashSet<(long Id, int Life)> _casting = new();
 
     public MonsterSkillService(IMonsterSkillCatalog catalog, MonsterWorldState world, ICombatService combat,
         ISkillCastService skillCast, ICombatRandom random = null, IPlayerVisibilityService players = null,
         IScriptService scripts = null, SkillEffectScheduler effects = null,
-        ICharacterService characters = null, IMonsterSpawnService spawns = null)
+        ICharacterService characters = null, IMonsterSpawnService spawns = null, IQuestService quests = null)
     {
         _players = players;
+        _quests = quests;
         _scripts = scripts;
         _effects = effects ?? new SkillEffectScheduler();
         _characters = characters;
@@ -93,6 +95,8 @@ public class MonsterSkillService : IMonsterSkillService
             {
                 MonsterHandle = monsterHandle, TargetHandle = target.ConnectionInfo.CharacterHandle,
                 MonsterId = instance.MonsterId, TriggerIndex = i, X = x, Y = y, Layer = instance.Layer,
+                IsDungeonRaidMonster = instance.IsDungeonRaidMonster,
+                PlayerContext = _quests?.CreateScriptContext(target),
                 RespawnNearMonster = (monsterId, count) =>
                 {
                     var spawned = _world.RespawnNearMonster(instanceId, monsterId, count);
@@ -306,14 +310,14 @@ public class MonsterSkillService : IMonsterSkillService
                 var repetitions = SkillAreaRules.IsAtOnceMultiple(fields.EffectType) ? count : 1;
                 for (var i = 0; i < repetitions && target.ConnectionInfo.CharacterHp > 0; i++)
                 {
-                    var hit = _combat.RollMonsterHit(id, target, damage,
+                    var hit = _combat.RollElementalMonsterHit(id, target, damage,
                         fields.Kind == SkillCastKind.MagicAttack ? DamageKind.Magical : DamageKind.Physical,
                         SkillDamageCurve.HitBonus(fields, instance.Level, target.ConnectionInfo.CharacterLevel),
-                        SkillDamageCurve.CriticalBonus(fields, skill.Level));
+                        SkillDamageCurve.CriticalBonus(fields, skill.Level), fields.ElementalType);
                     // The same landing as a swing: mana shield, reflections and the duel it interrupts.
                     var hp = _combat.DamagePlayer(target, hit.Damage, id, fields.Kind == SkillCastKind.MagicAttack);
                     hits.Add(new SkillHit(fields.Kind == SkillCastKind.MagicAttack ? SkillHitType.MagicDamage : SkillHitType.Damage,
-                        target.ConnectionInfo.CharacterHandle, hp, hit.Damage, (byte)hit.Flags));
+                        target.ConnectionInfo.CharacterHandle, hp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType));
                     if (hp <= 0) break;
                 }
             }
@@ -422,14 +426,14 @@ public class MonsterSkillService : IMonsterSkillService
                 var magical = fields.Kind == SkillCastKind.MagicAttack;
                 var baseDamage = MonsterSkillRules.BaseDamage(skill, stats?.AttackPointRight ?? 0f,
                     stats?.MagicPoint ?? 0f);
-                var hit = _combat.RollMonsterHit(instanceId, client, baseDamage,
+                var hit = _combat.RollElementalMonsterHit(instanceId, client, baseDamage,
                     magical ? DamageKind.Magical : DamageKind.Physical,
                     SkillDamageCurve.HitBonus(fields, instance.Level, info.CharacterLevel),
-                    SkillDamageCurve.CriticalBonus(fields, skill.Level));
+                    SkillDamageCurve.CriticalBonus(fields, skill.Level), fields.ElementalType);
 
                 _combat.DamagePlayer(client, hit.Damage, instanceId, magical);
                 return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, info.CharacterHandle,
-                    info.CharacterHp, hit.Damage, (byte)hit.Flags);
+                    info.CharacterHp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType);
             }
         }
     }

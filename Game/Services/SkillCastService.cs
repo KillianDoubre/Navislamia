@@ -18,8 +18,8 @@ using Serilog;
 namespace Navislamia.Game.Services;
 
 /// <summary>
-/// Casting every skill a player can use on themselves or on one monster: buffs, toggle auras, heals,
-/// debuffs and single-target attacks. <c>SkillService</c> is the one that <em>learns</em> them.
+/// Casting skills on players, their parties and summons, or monsters: states, auras, healing and damage.
+/// <c>SkillService</c> is the one that <em>learns</em> them.
 /// </summary>
 /// <remarks>
 /// The cast sequence mirrors the reference server's <c>Skill::ProcSkill</c> and is the same for every
@@ -36,7 +36,7 @@ namespace Navislamia.Game.Services;
 /// builds fine and only throws at runtime.
 /// </para>
 /// </remarks>
-public class SkillCastService : ISkillCastService
+public partial class SkillCastService : ISkillCastService
 {
     private const int TickIntervalMs = 500;
 
@@ -59,6 +59,7 @@ public class SkillCastService : ISkillCastService
     private readonly HashSet<GameClient> _casting = new();
     private readonly ICombatRandom _random;
     private readonly ILevelingService _leveling;
+    private readonly IBuffPersistence _buffPersistence;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
@@ -67,9 +68,10 @@ public class SkillCastService : ISkillCastService
         ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService,
         IPlayerVisibilityService players = null, SkillEffectScheduler effects = null,
         CastInterrupts interrupts = null, ICombatRandom random = null, bool runTicks = true,
-        ILevelingService leveling = null)
+        ILevelingService leveling = null, IBuffPersistence buffPersistence = null)
     {
         _leveling = leveling;
+        _buffPersistence = buffPersistence;
         _players = players;
         _effects = effects ?? new SkillEffectScheduler(runTicks);
         _random = random ?? CombatRandom.Shared;
@@ -107,6 +109,7 @@ public class SkillCastService : ISkillCastService
 
     public void Unregister(GameClient client)
     {
+        RemoveAllAuraProjections(client);
         lock (_lock)
         {
             _clients.Remove(client);
@@ -128,7 +131,7 @@ public class SkillCastService : ISkillCastService
             if (_casting.Contains(client))
             { SendCastFailed(client, request, ResultCode.NotActable); return; }
 
-        if (!TryValidate(info, request, now, out var fields, out var targetInstanceId, out var skillLevel,
+        if (!TryValidate(client, request, now, out var fields, out var targetInstanceId, out var skillLevel,
                 out var error))
         {
             SendCastFailed(client, request, error);
@@ -143,7 +146,8 @@ public class SkillCastService : ISkillCastService
 
         var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
         request = request with { SkillLevel = skillLevel };
-        var pending = new PendingCast(request, fields, skillLevel, targetInstanceId, now, unchecked(now + castDelay));
+        var pending = new PendingCast(request, fields, skillLevel, targetInstanceId, now, unchecked(now + castDelay))
+            { PlayerTarget = ResolvePlayerTarget(targetInstanceId) };
 
         // One cast at a time: a second request while one is being cast is refused, never queued.
         lock (info.CastLock)
@@ -310,6 +314,13 @@ public class SkillCastService : ISkillCastService
             return;
         }
 
+        if (IsPlayerTarget(targetInstanceId) && (!TryHostilePlayer(client, PlayerTargetHandle(targetInstanceId), fields, out var currentTarget, out _)
+            || !ReferenceEquals(currentTarget, cast.PlayerTarget) || !PlayerCastInRange(info, fields, currentTarget, now)))
+        {
+            SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+            return;
+        }
+
         // A ground area has no monster target (-1): only a cast at a monster is dropped with it.
         if (TargetsAMonster(fields.Kind) && targetInstanceId >= 0 && !_monsterState.IsAlive(targetInstanceId))
         {
@@ -322,9 +333,11 @@ public class SkillCastService : ISkillCastService
         // above are the same as every other skill's.
         if (IsDamageSequence(fields))
         {
-            CastDamageSequence(client, request, fields, targetInstanceId, skillLevel, now, 0);
+            CastDamageSequence(client, request, fields, targetInstanceId, skillLevel, now, 0, cast.PlayerTarget);
             return;
         }
+
+        if (IsSupport(fields)) { FireSupport(client, cast, now); return; }
 
         SkillHit? hit = null;
         switch (fields.Kind)
@@ -389,6 +402,8 @@ public class SkillCastService : ISkillCastService
     /// </summary>
     private bool InCastRange(ConnectionInfo info, CastableBuffFields fields, long targetInstanceId, uint now)
     {
+        if (IsPlayerTarget(targetInstanceId))
+            return ResolvePlayerTarget(targetInstanceId) is { } player && PlayerCastInRange(info, fields, player, now);
         if (fields.Kind == SkillCastKind.Resurrection)
         {
             if (_players is null || !_players.Registry.TryResolve((uint)targetInstanceId, out var target))
@@ -515,9 +530,10 @@ public class SkillCastService : ISkillCastService
         }
     }
 
-    private bool TryValidate(ConnectionInfo info, GameActionPackets.SkillRequest request, uint now,
+    private bool TryValidate(GameClient client, GameActionPackets.SkillRequest request, uint now,
         out CastableBuffFields fields, out long targetInstanceId, out byte skillLevel, out ResultCode error)
     {
+        var info = client.ConnectionInfo;
         fields = default;
         targetInstanceId = -1;
         skillLevel = 0;
@@ -578,7 +594,11 @@ public class SkillCastService : ISkillCastService
                     { error = ResultCode.TooFar; return false; }
                 }
             }
-            else if (!TryValidateTarget(info, request, fields.Kind, out targetInstanceId, out error))
+            else if (IsSupport(fields))
+            {
+                if (!ValidateSupport(client, request, fields, now, out error)) return false;
+            }
+            else if (!TryValidateTarget(client, request, fields, out targetInstanceId, out error))
             {
                 return false;
             }
@@ -629,9 +649,11 @@ public class SkillCastService : ISkillCastService
     /// Resolves the cast target for every kind but a prop: a visible, living monster for the kinds
     /// that need one, and the caster for the rest.
     /// </summary>
-    private bool TryValidateTarget(ConnectionInfo info, GameActionPackets.SkillRequest request,
-        SkillCastKind kind, out long targetInstanceId, out ResultCode error)
+    private bool TryValidateTarget(GameClient client, GameActionPackets.SkillRequest request,
+        CastableBuffFields fields, out long targetInstanceId, out ResultCode error)
     {
+        var info = client.ConnectionInfo;
+        var kind = fields.Kind;
         targetInstanceId = -1;
 
         if (kind == SkillCastKind.Resurrection)
@@ -643,6 +665,12 @@ public class SkillCastService : ISkillCastService
         {
             if (!info.TryResolveMonster(request.Target, out targetInstanceId))
             {
+                if (kind is SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack or SkillCastKind.Debuff)
+                {
+                    if (!TryHostilePlayer(client, request.Target, fields, out var player, out error)) return false;
+                    targetInstanceId = PlayerTargetId(player.ConnectionInfo.CharacterHandle);
+                    return true;
+                }
                 error = ResultCode.NotExist;
                 return false;
             }
@@ -732,6 +760,13 @@ public class SkillCastService : ISkillCastService
 
     public ResultCode CheckItemSkillTarget(GameClient client, int skillId, uint targetHandle)
     {
+        if (_catalog.TryGet(skillId, out var support) && IsSupport(support))
+        {
+            var request = new GameActionPackets.SkillRequest((ushort)skillId, client.ConnectionInfo.CharacterHandle,
+                targetHandle, 0, 0, 0, unchecked((sbyte)client.ConnectionInfo.Layer), 1);
+            return ValidateSupport(client, request, support, ServerClock.Now, out var refusal)
+                ? ResultCode.Success : refusal;
+        }
         if (!_catalog.TryGet(skillId, out var fields) || fields.Kind != SkillCastKind.Resurrection)
         {
             return ResultCode.Success;
@@ -744,6 +779,8 @@ public class SkillCastService : ISkillCastService
 
     public bool ApplyItemSkill(GameClient client, int skillId, int skillLevel, uint targetHandle)
     {
+        if (_catalog.TryGet(skillId, out var support) && IsSupport(support))
+            return ApplySupportItem(client, support, skillLevel, targetHandle);
         if (!_catalog.TryGet(skillId, out var fields) || fields.Kind != SkillCastKind.Resurrection)
         {
             return ApplyItemSkill(client, skillId, skillLevel);
@@ -831,6 +868,7 @@ public class SkillCastService : ISkillCastService
             return false;
 
         var level = Math.Max(1, skillLevel);
+        if (IsSupport(fields)) return ApplySupportItem(client, fields, level);
         switch (fields.Kind)
         {
             case SkillCastKind.Buff:
@@ -902,11 +940,15 @@ public class SkillCastService : ISkillCastService
 
         SendToSelfAndWatchers(client, GameSkillPackets.BuildAura(info.CharacterHandle, (ushort)fields.SkillId,
             true));
-        ApplyState(client, fields.StateId, fields.SkillId, stateLevel, now, NeverExpires);
+        if (SelectSupportTargets(client, info.CharacterHandle, fields, now)
+            .Any(t => t.Summon is null && ReferenceEquals(t.Owner, client)))
+            ApplyState(client, fields.StateId, fields.SkillId, stateLevel, now, NeverExpires);
+        PulseSupportAura(client, fields, now);
     }
 
     private void RemoveAura(GameClient client, int skillId, int toggleGroup)
     {
+        RemoveAuraProjections(client, skillId);
         var info = client.ConnectionInfo;
         ActiveBuff? state = null;
 
@@ -963,20 +1005,30 @@ public class SkillCastService : ISkillCastService
 
         var baseDamage = SkillDamageCurve.BaseDamage(fields.Kind, fields.Vars, skillLevel,
             stats.AttackPointRight, stats.MagicPoint);
-        var hit = _combatService.RollHit(client, instanceId, baseDamage,
+        if (ResolvePlayerTarget(instanceId) is { } player)
+        {
+            var playerHit = _combatService.RollPlayerHit(client, player, baseDamage,
+                magical ? DamageKind.Magical : DamageKind.Physical,
+                SkillDamageCurve.HitBonus(fields, info.CharacterLevel, player.ConnectionInfo.CharacterLevel),
+                SkillDamageCurve.CriticalBonus(fields, skillLevel), fields.ElementalType);
+            var hp = _combatService.DamagePlayerByPlayer(client, player, playerHit.Damage, magical);
+            return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, targetHandle, hp,
+                playerHit.Damage, (byte)playerHit.Flags, ElementalType: (byte)fields.ElementalType);
+        }
+        var hit = _combatService.RollElementalHit(client, instanceId, baseDamage,
             magical ? DamageKind.Magical : DamageKind.Physical,
             SkillDamageCurve.HitBonus(fields, info.CharacterLevel, targetLevel),
-            SkillDamageCurve.CriticalBonus(fields, skillLevel));
+            SkillDamageCurve.CriticalBonus(fields, skillLevel), fields.ElementalType);
 
         var hate = HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, hit.Damage);
         var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage, hate);
         var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
 
-        return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags);
+        return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType);
     }
 
     private void CastDamageSequence(GameClient client, GameActionPackets.SkillRequest request,
-        CastableBuffFields fields, long targetId, int level, uint now, uint castDelay)
+        CastableBuffFields fields, long targetId, int level, uint now, uint castDelay, GameClient primaryPlayer = null)
     {
         var info = client.ConnectionInfo;
         var layer = info.Layer;
@@ -989,6 +1041,7 @@ public class SkillCastService : ISkillCastService
         uint startedAt = 0;
         float groundMagic = 0;
         var (fixedX, fixedY) = fields.RequiredTarget == 0 ? SkillCastRangeRules.PlayerPosition(info, now)
+            : primaryPlayer is not null ? SkillCastRangeRules.PlayerPosition(primaryPlayer.ConnectionInfo, now)
             : targetId >= 0 ? _monsterState.GetPosition(targetId) : (request.X, request.Y);
         request = request with { X = fixedX, Y = fixedY, Target = fields.RequiredTarget == 0 ? caster : request.Target };
         lock (_lock) _casting.Add(client);
@@ -1002,6 +1055,8 @@ public class SkillCastService : ISkillCastService
         {
             if (info.CharacterHandle != caster || info.CharacterHp <= 0 || info.Layer != layer) return false;
             if (_players is not null && (!_players.Registry.TryResolve(caster, out var current) || !ReferenceEquals(current, client))) return false;
+            if (!ground && primaryPlayer is not null && (!TryHostilePlayer(client, PlayerTargetHandle(targetId), fields, out var active, out _)
+                || !ReferenceEquals(active, primaryPlayer) || !PlayerCastInRange(info, fields, primaryPlayer, tick))) return false;
             if (!ground && targetId >= 0 && (!_monsterState.IsAlive(targetId) || _monsterState.GetHp(targetId) <= 0
                 || _monsterState.LifeVersion(targetId) != targetLife)) return false;
             if (ground)
@@ -1028,34 +1083,45 @@ public class SkillCastService : ISkillCastService
                 }
                 if (unchecked((int)(tick - startedAt)) > SkillAreaRules.Duration(fields, level)) return false;
             }
-            var (tx, ty) = ground || targetId < 0 ? (fixedX, fixedY) : _monsterState.GetPosition(targetId);
+            var (tx, ty) = ground ? (fixedX, fixedY)
+                : primaryPlayer is not null ? SkillCastRangeRules.PlayerPosition(primaryPlayer.ConnectionInfo, tick)
+                : targetId < 0 ? (fixedX, fixedY) : _monsterState.GetPosition(targetId);
             var stats = _statService.Compute(info).Total;
             var damage = SkillAreaRules.Damage(fields, level, stats.AttackPointRight, ground ? groundMagic : stats.MagicPoint);
-            var targets = new List<MonsterInstance>();
+            var targets = new List<DamageTarget>();
             if (SkillAreaRules.IsArea(fields.EffectType))
             {
                 var (cx, cy) = SkillCastRangeRules.PlayerPosition(info, tick);
                 var (ox, oy) = area.TargetOrigin ? (tx, ty) : (cx, cy);
-                targets = SkillAreaRules.Select(_monsterState.WithinCurrentRange(ox, oy, area.Radius)
-                    .Where(m => m.Layer == layer), area,
-                    cx, cy, tx, ty, m => _monsterState.GetPosition(m.InstanceId), ref damage);
+                var candidates = _monsterState.WithinCurrentRange(ox, oy, area.Radius)
+                    .Where(m => m.Layer == layer).Select(m => new DamageTarget(m.InstanceId, m))
+                    .Concat(HostileDamagePlayers(client, fields));
+                targets = SkillAreaRules.Select(candidates, area,
+                    cx, cy, tx, ty, t => DamagePosition(t, tick), ref damage, _random);
             }
-            else if (_monsterState.TryGetInstance(targetId, out var single)) targets.Add(single);
+            else if (primaryPlayer is not null) targets.Add(new DamageTarget(targetId, Player: primaryPlayer));
+            else if (_monsterState.TryGetInstance(targetId, out var single)) targets.Add(new DamageTarget(targetId, single));
             var hits = new List<(long, SkillHit)>();
-            foreach (var monster in targets.Take(255))
+            foreach (var target in targets.Take(255))
             {
-                var handle = info.GetMonsterHandle(monster.InstanceId);
-                if (!_monsterState.IsAlive(monster.InstanceId) || _monsterState.GetHp(monster.InstanceId) <= 0) continue;
+                var handle = DamageHandle(client, target.Id);
+                if (!DamageTargetAlive(client, fields, target)) continue;
                 var repetitions = SkillAreaRules.IsAtOnceMultiple(fields.EffectType) ? count : 1;
-                for (var i = 0; i < repetitions && _monsterState.IsAlive(monster.InstanceId) && _monsterState.GetHp(monster.InstanceId) > 0; i++)
+                for (var i = 0; i < repetitions && DamageTargetAlive(client, fields, target); i++)
                 {
-                    var hit = _combatService.RollHit(client, monster.InstanceId, damage,
-                        fields.Kind == SkillCastKind.MagicAttack ? DamageKind.Magical : DamageKind.Physical,
-                        SkillDamageCurve.HitBonus(fields, info.CharacterLevel, monster.Level), SkillDamageCurve.CriticalBonus(fields, level));
-                    var hp = _combatService.ApplyDamage(client, monster.InstanceId, handle, hit.Damage,
-                        HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, level, hit.Damage));
-                    hits.Add((monster.InstanceId, new SkillHit(fields.Kind == SkillCastKind.MagicAttack ? SkillHitType.MagicDamage : SkillHitType.Damage,
-                        handle, hp, hit.Damage, (byte)hit.Flags)));
+                    var magical = fields.Kind == SkillCastKind.MagicAttack;
+                    var kind = magical ? DamageKind.Magical : DamageKind.Physical;
+                    var accuracy = SkillDamageCurve.HitBonus(fields, info.CharacterLevel, target.Level);
+                    var critical = SkillDamageCurve.CriticalBonus(fields, level);
+                    var hit = target.Player is { } player
+                        ? _combatService.RollPlayerHit(client, player, damage, kind, accuracy, critical, fields.ElementalType)
+                        : _combatService.RollElementalHit(client, target.Id, damage, kind, accuracy, critical, fields.ElementalType);
+                    var hp = target.Player is { } victim
+                        ? _combatService.DamagePlayerByPlayer(client, victim, hit.Damage, magical)
+                        : _combatService.ApplyDamage(client, target.Id, handle, hit.Damage,
+                            HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, level, hit.Damage));
+                    hits.Add((target.Id, new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage,
+                        handle, hp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType)));
                     if (hp <= 0) break;
                 }
             }
@@ -1076,9 +1142,9 @@ public class SkillCastService : ISkillCastService
     {
         byte[] Frame(GameClient recipient)
         {
-            var mapped = hits.Select(h => (h.Hit, Handle: recipient.ConnectionInfo.GetMonsterHandle(h.InstanceId)))
+            var mapped = hits.Select(h => (h.Hit, Handle: DamageHandle(recipient, h.InstanceId)))
                 .Where(h => h.Handle != 0).Select(h => h.Hit with { TargetHandle = h.Handle }).ToArray();
-            var target = targetId >= 0 ? recipient.ConnectionInfo.GetMonsterHandle(targetId) : request.Target;
+            var target = targetId != -1 ? DamageHandle(recipient, targetId) : request.Target;
             return GameSkillPackets.BuildSkill(request.SkillId, request.SkillLevel, client.ConnectionInfo.CharacterHandle,
                 target, request.X, request.Y, request.Z, (byte)request.Layer, type, 0, 0,
                 client.ConnectionInfo.CharacterHp, client.ConnectionInfo.CharacterMp, hits: mapped,
@@ -1089,7 +1155,7 @@ public class SkillCastService : ISkillCastService
         {
             var recipients = new HashSet<GameClient>(_players.Observers(client));
             foreach (var other in _players.Registry.Clients)
-                if (hits.Any(h => other.ConnectionInfo.GetMonsterHandle(h.InstanceId) != 0)) recipients.Add(other);
+                if (hits.Any(h => DamageHandle(other, h.InstanceId) != 0)) recipients.Add(other);
             recipients.Remove(client);
             foreach (var other in recipients)
                 if (other.ConnectionInfo.Layer == client.ConnectionInfo.Layer) other.Connection.Send(Frame(other));
@@ -1099,6 +1165,11 @@ public class SkillCastService : ISkillCastService
     private void ApplyDebuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now,
         long instanceId)
     {
+        if (IsPlayerTarget(instanceId))
+        {
+            if (ResolvePlayerTarget(instanceId) is { } player) ApplyPlayerDebuff(client, player, fields, skillLevel, now);
+            return;
+        }
         var info = client.ConnectionInfo;
 
         // STATE_SKILL_FUNCTOR::onCreature: a harmful state has to land first (CastRules.StateLandingChance).
@@ -1158,7 +1229,7 @@ public class SkillCastService : ISkillCastService
     /// and a stun-like state breaks the cast in progress (<see cref="CastRules.InterruptsCasting"/>).
     /// </summary>
     private bool ApplyState(GameClient client, int stateId, int skillId, int stateLevel, uint now,
-        uint endTick)
+        uint endTick, uint sourceHandle = 0, bool projection = false)
     {
         var info = client.ConnectionInfo;
         var rule = _stateCatalog.GetRule(stateId);
@@ -1197,7 +1268,7 @@ public class SkillCastService : ISkillCastService
                 info.ActiveBuffs.RemoveAt(indices[i]);
             }
 
-            info.ActiveBuffs.Add(new ActiveBuff(stateHandle, stateId, skillId, level, now, endTick));
+            info.ActiveBuffs.Add(new ActiveBuff(stateHandle, stateId, skillId, level, now, endTick, sourceHandle, projection));
         }
 
         foreach (var state in displaced)
@@ -1250,6 +1321,17 @@ public class SkillCastService : ISkillCastService
 
         client.Connection.Send(Frame(request.Target, hit));
 
+        if (IsPlayerTarget(targetInstanceId))
+        {
+            var recipients = _players is null ? new HashSet<GameClient>() : new HashSet<GameClient>(_players.Observers(client));
+            if (ResolvePlayerTarget(targetInstanceId) is { } player) recipients.Add(player);
+            recipients.Remove(client);
+            foreach (var recipient in recipients)
+                if (recipient.ConnectionInfo.Layer == info.Layer)
+                    recipient.Connection.Send(Frame(DamageHandle(recipient, targetInstanceId), hit));
+            return;
+        }
+
         switch (kind)
         {
             case SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack or SkillCastKind.Debuff:
@@ -1277,10 +1359,19 @@ public class SkillCastService : ISkillCastService
         var stats = _statService.Compute(info);
         var handle = info.CharacterHandle;
 
+        lock (info.ProgressLock)
+        {
+            info.CharacterMaxHp = SupportAmount(stats.Total.MaxHp);
+            info.CharacterHp = Math.Min(info.CharacterHp, info.CharacterMaxHp);
+            info.CharacterMp = Math.Min(info.CharacterMp, SupportAmount(stats.Total.MaxMp));
+        }
+
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.Total, StatInfoType.Total));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.ByItem, StatInfoType.ByItem));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.Total.MaxHp));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)stats.Total.MaxMp));
+        SendToSelfAndWatchers(client, GameStatPackets.BuildProperty(handle, "max_hp", info.CharacterMaxHp));
+        SendToSelfAndWatchers(client, GameStatPackets.BuildProperty(handle, "max_mp", SupportAmount(stats.Total.MaxMp)));
+        SendToSelfAndWatchers(client, GameStatPackets.BuildProperty(handle, "hp", info.CharacterHp));
+        SendToSelfAndWatchers(client, GameStatPackets.BuildProperty(handle, "mp", info.CharacterMp));
     }
 
     private async Task RunAsync()
@@ -1291,8 +1382,7 @@ public class SkillCastService : ISkillCastService
             try
             {
                 var now = ServerClock.Now;
-                ExpirePlayerBuffs(now);
-                ExpireMonsterStates(now);
+                ProcessBuffs(now);
             }
             catch (Exception exception)
             {

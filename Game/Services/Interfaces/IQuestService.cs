@@ -36,6 +36,9 @@ public interface IQuestService
     Task OnMonsterKilledAsync(GameClient client, int monsterId, float x, float y, float z);
     Task LeaveWorldAsync(GameClient client);
     Task RefreshAsync(GameClient client);
+    Task<bool> SetQuestStatusAsync(GameClient client, int code, int index, int value) => Task.FromResult(false);
+    Task<int> RunScriptAsync(GameClient client, string script) => Task.FromResult(0);
+    Navislamia.Game.Scripting.QuestScriptContext CreateScriptContext(GameClient client) => null;
 
     /// <summary>
     /// The official <c>get_quest_progress(code)</c>: <c>255</c> completed, <c>2</c> finishable, <c>1</c> in progress,

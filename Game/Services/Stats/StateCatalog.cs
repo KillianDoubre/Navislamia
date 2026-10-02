@@ -15,7 +15,7 @@ namespace Navislamia.Game.Services.Stats;
 /// The values are six <c>(mask, base, perLevel)</c> triplets and <c>amount = base + perLevel * level</c>,
 /// which the reference emulator's <c>SEF_PARAMETER_INC</c> branch applies in exactly that order. Triplets
 /// 0, 1, 4 and 5 address ParameterA (the decoded bitset); triplets 2 and 3 address ParameterB, which is
-/// not decoded and is skipped, as it is for item effects.
+/// decoded for elemental resistances (bits 0..6), as it is for item effects.
 /// <para>
 /// <c>StateResource.effect_type</c> is a different value space from <c>SkillResource.effect_type</c>:
 /// here 1 is a flat add and 2 a percentage.
@@ -28,7 +28,7 @@ public class StateCatalog : IStateCatalog
 
     public static readonly int[] SupportedEffectTypes = { ParameterInc, ParameterAmp };
 
-    private static readonly int[] ParameterATriplets = { 0, 1, 4, 5 };
+    private static readonly int[] ParameterTriplets = { 0, 1, 2, 3, 4, 5 };
 
     private readonly ILogger _logger = Log.ForContext<StateCatalog>();
     private readonly FrozenDictionary<int, StateEffectTemplate[]> _states;
@@ -109,7 +109,7 @@ public class StateCatalog : IStateCatalog
         var isPercent = state.EffectType == ParameterAmp;
         List<StateEffectTemplate> templates = null;
 
-        foreach (var triplet in ParameterATriplets)
+        foreach (var triplet in ParameterTriplets)
         {
             var index = triplet * 3;
             if (index + 2 >= state.Values.Length)
@@ -125,7 +125,7 @@ public class StateCatalog : IStateCatalog
                 continue;
             }
 
-            foreach (var target in ParameterBitset.Decode((uint)mask))
+            foreach (var target in (triplet is 2 or 3 ? ParameterBitset.DecodeResistance((uint)mask) : ParameterBitset.Decode((uint)mask)))
             {
                 templates ??= new List<StateEffectTemplate>();
                 templates.Add(new StateEffectTemplate(target, amountBase, perLevel, isPercent));

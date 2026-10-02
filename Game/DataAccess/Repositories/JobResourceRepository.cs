@@ -22,4 +22,7 @@ public class JobResourceRepository : IJobResourceRepository
             .Select(job => new JobStatFields((int)job.Id, job.StatId))
             .ToList();
     }
+
+    public IReadOnlyList<JobWearFields> GetWearFields() => _context.JobResources.AsNoTracking()
+        .Select(job => new JobWearFields((int)job.Id, job.JobClass, job.JobDepth)).ToList();
 }

@@ -14,7 +14,7 @@ public static class QuestRules
     public const byte Finishable = 2;
     public const int MaxActive = 20;
 
-    public static bool Supported(int type) => type is 101 or 102 or 103 or 106 or 107 or 109 or 201 or 301 or 302 or 401 or 501 or 601 or 901;
+    public static bool Supported(int type) => type is 101 or 102 or 103 or 106 or 107 or 109 or 201 or 301 or 302 or 401 or 501 or 601 or 701 or 901;
     public static bool Supported(QuestResourceEntity quest) => Supported(quest.Type)
         && (quest.Type != 601 || Enumerable.Range(0, 3).All(i => Values(quest)[i * 3] is 0 or 99));
 
@@ -147,7 +147,7 @@ public static class QuestRules
                 0 => status[i] == values[i * 3 + 2], 1 => status[i] >= values[i * 3 + 2],
                 2 => status[i] > values[i * 3 + 2], _ => false
             });
-        if (resource.Type == 103)
+        if (resource.Type is 103 or 701)
             return Enumerable.Range(0, 6).All(i => status[i] >= values[i * 2 + 1]);
         return false;
     }

@@ -1,5 +1,9 @@
 # Socle — exigences d'équipement (niveau, métier, race)
 
+> **Mise à jour du 2 octobre 2026** : le lot 2 est livré et testé (§11). Les sept colonnes `limit_*`
+> alimentent désormais les masques existants ; les équipements 200 et 281 vérifient race, classe et
+> profondeur de métier. Les réserves historiques de données ci-dessous sont remplacées par §11.
+
 | | |
 |---|---|
 | Paquets | aucun nouveau : la règle s'applique derrière `TM_CS_PUTON_ITEM` (200), `TM_CS_PUTON_ITEM_SET` (281) et `TM_CS_SWAP_EQUIP` (223) ; le refus passe par `TM_SC_RESULT` (0), code **5** (`NotActable`) |
@@ -529,3 +533,104 @@ sortants par construction).
    pour des valeurs ≥ 0) — à dire dans la MR pour qu'un relecteur ne le compte pas comme un oubli.
 4. Les tests de service montent un `ICharacterService` factice qui répond `NotFound` : ils figent le chemin
    de refus, pas le chemin d'écriture en base (déjà couvert par les fiches 200/281).
+
+## 11. Lot 2 livré : race, classe et profondeur de métier
+
+Implémenté le 2 octobre 2026. Vérifié automatiquement, y compris sur PostgreSQL 18 temporaire ;
+la base de jeu reste arrêtée et attend l'application de la migration au démarrage.
+
+### 11.1 Import et remise à niveau des données
+
+Les sept colonnes de texte `limit_*` du CSV Epic 7 sont converties en **listes d'autorisation** dans
+les colonnes déjà présentes de `ItemResources`. Le schéma n'a pas besoin de sept nouvelles colonnes :
+
+| Source | Colonne du dépôt | Bit |
+| --- | --- | --- |
+| `limit_deva` | `RaceRestriction` | 1 |
+| `limit_asura` | `RaceRestriction` | 2 |
+| `limit_gaia` | `RaceRestriction` | 4 |
+| `limit_fighter` | `JobRestriction` | 1 024 |
+| `limit_hunter` | `JobRestriction` | 2 048 |
+| `limit_magician` | `JobRestriction` | 4 096 |
+| `limit_summoner` | `JobRestriction` | 8 192 |
+
+Ces bits de race sont ceux de `ItemRaceRestriction`, séparé du masque officiel `ItemBase.nLimit`.
+Ils ne doivent pas être remplacés par 4/8/16 : cela changerait le sens des valeurs existantes en base.
+Une chaîne `1` autorise son camp, `0` l'interdit. Le masque tout-à-zéro autorise **personne**.
+`JobDepth`, déjà importé depuis `job_depth`, conserve son masque de profondeurs.
+
+`tools/import_epic7.py` utilise maintenant ces correspondances lors des futurs imports de
+`ItemResources`. L'importeur SQL Server `MigrateDatabase/Worker.cs` accepte également uniquement le
+drapeau `1` ; une valeur absente n'ouvre plus une permission. Le mode `--plan` du script Epic 7 ne
+supprime plus les tables de travail.
+
+La migration Arcadia **`20261002150000_BackfillItemWearRestrictions`** corrige les valeurs déjà en base :
+
+- **29 647 identifiants** Epic 7, répartis en **31 combinaisons** de race/classe/profondeur ;
+- modification de `RaceRestriction`, `JobRestriction` et `JobDepth` seulement ;
+- aucune insertion d'objet, aucun changement des autres colonnes, aucun changement des IDs absents du CSV ;
+- SQL embarqué dans `Modules.Game`, donc pas de CSV, Python ou import manuel requis sur le serveur déployé ;
+- exécution transactionnelle par EF, enregistrée dans l'historique des migrations ; les démarrages suivants
+  ne réécrivent pas les modifications d'un administrateur.
+
+Le fichier `Game/DataAccess/Migrations/Arcadia/ItemWearRestrictions.sql` est généré par
+`tools/generate_item_wear_restrictions.py`. Il contient la provenance et le SHA256 du CSV ; le générateur
+refuse les identifiants dupliqués et les drapeaux invalides. La migration `Down` conserve ces corrections :
+elle ne peut pas reconstruire les valeurs précédentes de chaque objet.
+
+### 11.2 Contrôle du port
+
+`ItemWearFields` et `ItemResourceRepository.GetWearFields` transportent les deux masques et la
+profondeur avec les exigences de niveau. `IJobResourceRepository.GetWearFields` projette
+`JobResource.JobClass` et `JobDepth` ; `EquipmentService` les conserve en dictionnaire gelé, chargé une
+fois. Il n'ajoute aucune requête de ressource à chaque équipement.
+
+Pour les deux demandes 200 et 281, avant d'appeler `EquipItemAsync` :
+
+1. Vérifier les exigences de niveau du lot 1.
+2. Résoudre le métier courant. Si son identifiant vaut zéro, choisir 100 pour Gaia, 200 pour Deva,
+   300 pour Asura, comme les prédicats officiels `IsFighter`/`IsHunter`/`IsMagician`/`IsSummoner`.
+3. Lire sa classe dans **`JobResource.JobClass`**, sans la deviner à partir des chiffres du métier.
+4. Exiger le bit de race et le bit de classe correspondants.
+5. Exiger le bit de profondeur correspondant. `JobResource.JobDepth` contient déjà 1/2/4/8 :
+   faire directement `item.JobDepth & job.JobDepth`, sans redécaler ce drapeau.
+
+Un métier inconnu, une race/classe invalide ou une profondeur invalide refuse le port. Les autorisations
+vides refusent également le port. Le résultat est **`NotActable` (5)**, jamais `LimitRace` ou `LimitJob`,
+conformément à `StructPlayer::TranslateWearPosition`. Un objet refusé dans un ensemble 281 ne bloque pas
+les objets suivants. Chaque tentative lit le métier courant, donc un changement de métier prend effet
+au prochain équipement.
+
+Les contrôles de niveau expert, d'invocation, de bascule 223 et de revalidation des objets déjà portés à
+la connexion restent les limites du lot 3 ; ce lot ne déséquipe pas rétroactivement un ancien personnage.
+
+### 11.3 Vérifications exécutées
+
+- **3 045 tests .NET réussis**, zéro échec, dont **55 nouveaux cas** ordinaires pour ce lot.
+- Un test PostgreSQL explicite supplémentaire réussi : chaîne complète des migrations Arcadia, remise
+  à niveau des objets, projections des catalogues, conservation des autres données et de l'historique.
+- **7 tests Python réussis**, dont la comparaison de chaque ligne du CSV au SQL embarqué et un import
+  réel des **29 647 objets** dans PostgreSQL temporaire. Les masques et profondeurs ont été comparés au
+  CSV après l'import, puis après une remise à zéro suivie de la migration ; un objet extérieur au CSV
+  est conservé.
+- `MigrateDatabase` compile sans erreur. Le build signale l'avertissement de dépendance AutoMapper
+  déjà présent (NU1903), indépendant des contrôles de port.
+
+Commandes ordinaires :
+
+```powershell
+dotnet test Tests/Tests.csproj --no-restore -p:WarningLevel=0 -v:minimal
+python -m unittest discover -s tools/tests -p test_item_wear_import.py -v
+```
+
+Le test PostgreSQL .NET est explicite : il attend une **base temporaire vide** nommée
+`navis_equipment_test`, indiquée par `NAVISLAMIA_ARCADIA_TEST_CONNECTION`, et se sélectionne par son
+nom complet `Tests.DataAccess.ItemWearCatalogueTests.PostgreSql_migrates_existing_items_and_preserves_other_data_and_history`.
+Le test Python PostgreSQL peut ensuite vérifier l'import sur cette même base avec le rôle temporaire
+`navis_equipment_test`, localhost et le port `NAVISLAMIA_ITEM_IMPORT_TEST_PORT`. Sans cette variable,
+il est ignoré. Le CSV local est nécessaire aux tests Python de comparaison des données.
+
+À vérifier avec le client après le démarrage de PostgreSQL et du serveur : essayer un objet réservé
+à une autre race, un objet réservé à une autre classe et un objet de classe maître sur un métier
+antérieur ; chaque demande doit être refusée. Réessayer un ensemble mêlant un objet interdit et un
+objet autorisé pour vérifier que ce dernier peut être équipé.

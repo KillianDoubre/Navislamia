@@ -32,7 +32,8 @@ public sealed class MonsterCombatStats
     private readonly int _magicAccuracy;
     private readonly int _magicAvoid;
     private readonly int _runSpeed;
-    private readonly StatBlock _plain;
+    private StatBlock _plain;
+    private bool _raid;
 
     private MonsterCombatStats(MonsterResourceEntity resource, StatBaseStats? baseStats)
     {
@@ -69,6 +70,15 @@ public sealed class MonsterCombatStats
 
     public static MonsterCombatStats From(MonsterResourceEntity resource, StatBaseStats? baseStats) =>
         new(resource, baseStats);
+
+    public MonsterCombatStats AsRaid()
+    {
+        if (_raid) return this;
+        var copy = (MonsterCombatStats)MemberwiseClone();
+        copy._raid = true;
+        copy._plain = copy.Compute(Array.Empty<StatEffect>());
+        return copy;
+    }
 
     /// <summary>
     /// The stats with <paramref name="stateEffects"/> applied after the resource columns, so a state that
@@ -110,6 +120,8 @@ public sealed class MonsterCombatStats
 
         // The reference's floor (NGemity CalculateStat.cpp:212-213).
         block.MoveSpeed = Math.Max(block.MoveSpeed, 10f);
+        // Retail CalculateStat.cpp:6624-6629, after state effects and the movement floor.
+        if (_raid) block.MoveSpeed *= 1.5f;
         return block;
     }
 }

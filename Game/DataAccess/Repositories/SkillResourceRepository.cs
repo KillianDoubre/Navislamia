@@ -110,7 +110,8 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.UseOnCharacter,
                 skill.HateMod,
                 skill.HateBasic,
-                skill.HatePerSkill))
+                skill.HatePerSkill, skill.ValidRange, skill.UseOnSelf, skill.UseOnParty,
+                skill.UseOnNeutral, skill.UseOnSummon, (int)skill.ElementalType))
             .ToList();
     }
 
@@ -160,7 +161,8 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.UseOnCharacter,
                 skill.HateMod,
                 skill.HateBasic,
-                skill.HatePerSkill))
+                skill.HatePerSkill, skill.ValidRange, skill.UseOnSelf, skill.UseOnParty,
+                skill.UseOnNeutral, skill.UseOnSummon, (int)skill.ElementalType))
             .ToList();
     }
 

@@ -83,8 +83,8 @@ public class LevelingService : ILevelingService
     private long DeathPenalty(GameClient client)
     {
         var info = client.ConnectionInfo;
-        var penalty = Math.Min(LevelCurve.DeathPenalty(_cumulativeExp, _maxLevel, info.CharacterLevel,
-            _rules?.CurrentValue?.PkServer == true), info.CharacterExp);
+        var penalty = Math.Min(MoralityRules.DeathExperience(LevelCurve.DeathPenalty(_cumulativeExp, _maxLevel, info.CharacterLevel,
+            _rules?.CurrentValue?.PkServer == true), info.ImmoralPoint), info.CharacterExp);
         if (penalty <= 0)
         {
             return 0;

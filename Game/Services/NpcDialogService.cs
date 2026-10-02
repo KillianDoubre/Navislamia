@@ -139,6 +139,12 @@ public class NpcDialogService : INpcDialogService
         // than looked up as a follow-up dialog page. The guard above already proved the current
         // dialog advertised it.
         var action = PropScript.Parse(trigger);
+        if (_quests is not null && ReadFunctionName(trigger) is "set_quest_status" or "set_title_condition")
+        {
+            // Only an exact action from the current server-authored menu reaches Lua.
+            _ = _quests.RunScriptAsync(client, trigger);
+            return;
+        }
         if (_quests is not null && ReadFunctionName(trigger) is "quest_info" or "start_quest" or "end_quest")
         {
             _ = SelectQuestAsync(client, npcHandle, trigger);

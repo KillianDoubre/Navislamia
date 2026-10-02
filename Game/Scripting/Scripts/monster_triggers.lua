@@ -1,6 +1,18 @@
 -- Official ETC_run_monster_skill.lua; comments removed, duplicate comparison corrected.
 function trigger( monster_handle, target_handle, trigger_index, x, y, layer, is_dungeon_raid_monster )
 	local monster_id = get_monster_id( monster_handle )
+	local reconstructed = navis_reconstructed_triggers and navis_reconstructed_triggers[monster_id]
+	if reconstructed then
+		if reconstructed.alias then
+			monster_id = reconstructed.alias
+		else
+			local action = reconstructed.actions[trigger_index + 1]
+			if action then
+				monster_skill_cast(action.index, monster_handle, action.self and monster_handle or target_handle)
+			end
+			return
+		end
+	end
 	if monster_id == 10146002 or monster_id == 10146005 or monster_id == 10147002 or monster_id == 10146008 or monster_id == 10148010 or monster_id == 10148005 or monster_id == 10148008 or monster_id == 10149003 or monster_id == 10149006 or monster_id == 10149009 then
 		if trigger_index == 0 then
 			monster_skill_cast( 0, monster_handle, target_handle )

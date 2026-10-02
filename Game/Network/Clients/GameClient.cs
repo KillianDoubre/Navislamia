@@ -645,7 +645,9 @@ public class GameClient : Client
             return;
         }
 
+        var wasPkOn = ConnectionInfo.PkMode;
         ConnectionInfo.PkMode = true;
+        if (!wasPkOn) _networkService.CombatService.OnPkEnabled(this);
         SendActorStatus();
 
         _logger.Debug("TM_CS_TURN_ON_PK_MODE ({id}) Length: {length} received from {clientTag}: PK mode on",
@@ -1309,6 +1311,7 @@ public class GameClient : Client
             _logger.Debug("{clientTag} returning to character selection", ClientTag);
             _networkService.CombatService.StopAttack(this);
             _networkService.CompeteService?.Leave(this, Navislamia.Game.Services.Compete.CompeteEndType.Logout);
+            _networkService.SkillCastService.Unregister(this);
             _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
@@ -1334,9 +1337,17 @@ public class GameClient : Client
         var info = ConnectionInfo;
         try
         {
+            await _networkService.SkillCastService.SaveBuffsAsync(this);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not save buffs {operation} for {clientTag}", operation, ClientTag);
+        }
+        try
+        {
             await _networkService.CharacterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
                 info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
-                info.CharacterChaos, info.X, info.Y, info.PkMode);
+                info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress(), info.CharacterStamina);
         }
         catch (Exception exception)
         {

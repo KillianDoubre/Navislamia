@@ -5,6 +5,9 @@ namespace Navislamia.Game.Services;
 
 public interface ISkillCastService
 {
+    System.Threading.Tasks.Task RestoreBuffsAsync(GameClient client) => System.Threading.Tasks.Task.CompletedTask;
+    System.Threading.Tasks.Task SaveBuffsAsync(GameClient client) => System.Threading.Tasks.Task.CompletedTask;
+    void SynchronizeBuffs(GameClient client) { }
     void Cast(GameClient client, GameActionPackets.SkillRequest request);
 
     /// <summary>

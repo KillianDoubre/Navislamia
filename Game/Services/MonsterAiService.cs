@@ -275,6 +275,7 @@ public class MonsterAiService
         // past the chase range, the monster gives everything up and goes home.
         var (mx, my) = _worldState.GetPosition(instanceId);
         var pulledAway = hasHome && _worldState.TryGetInstance(instanceId, out var self)
+                         && !self.IsDungeonRaidMonster
                          && MonsterAiRules.Distance(homeX, homeY, mx, my)
                          > MonsterAiRules.ScaledChaseRange(self.ChaseRange);
         if (!pulledAway && _worldState.DropTarget(instanceId))

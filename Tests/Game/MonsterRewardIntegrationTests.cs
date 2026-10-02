@@ -63,7 +63,7 @@ public class MonsterRewardIntegrationTests
         public readonly Dictionary<GameClient, RewardConnection> Connections = new();
         public readonly MonsterResourceEntity Resource;
         public Harness(MonsterResourceEntity resource = null, bool secondary = false, RatesOptions rates = null,
-            bool alias = false)
+            bool alias = false, bool raid = false)
         {
             Resource = resource ?? new MonsterResourceEntity { Id = 2101, Level = 5, Hp = 100,
                 Exp = 731, Jp = 119, GoldDropPercentage = 100, GoldMin = 101, GoldMax = 101,
@@ -73,7 +73,7 @@ public class MonsterRewardIntegrationTests
             {
                 UseSecondaryRewards = secondary,
                 Spawns = { new MonsterSpawnPoint { MonsterId = alias ? 12 : (int)Resource.Id,
-                    ResourceId = (int)Resource.Id, X = 1000, Y = 1000, Count = 2 } }
+                    ResourceId = (int)Resource.Id, X = 1000, Y = 1000, Count = 2, IsDungeonRaidMonster = raid } }
             }));
             A.CallTo(() => Stats.Compute(A<ConnectionInfo>._)).Returns(new CharacterStatResult(
                 new StatBlock { MaxChaos = 500, MaxHp = 1000, MaxMp = 100 }, new StatBlock()));
@@ -223,6 +223,42 @@ public class MonsterRewardIntegrationTests
         peer.AsSpan(19, 6).ToArray().Should().Equal(new byte[6]);
         h.Kill(player, 1);
         h.Connections[player].Sent.Count(p => Harness.Id(p) == GamePackets.TM_SC_GET_CHAOS).Should().Be(1);
+    }
+
+    [Test]
+    public void Highest_damage_attacker_receives_the_largest_reward_even_if_another_player_finishes()
+    {
+        var h = new Harness(); var first = h.Player(1, "First"); var last = h.Player(2, "Last");
+        h.Combat.ApplyDamage(first, 0, StorageTestHarness.Session(first).GetMonsterHandle(0), 160).Should().Be(40);
+        h.Kill(last);
+        StorageTestHarness.Session(first).CharacterExp.Should().Be(584);
+        StorageTestHarness.Session(last).CharacterExp.Should().Be(146);
+        StorageTestHarness.Session(first).CharacterChaos.Should().Be(8);
+        StorageTestHarness.Session(last).CharacterChaos.Should().Be(2);
+        h.Kill(last);
+        StorageTestHarness.Session(last).CharacterExp.Should().Be(146, "death credit is claimed once");
+    }
+
+    [TestCase(0, 0)] [TestCase(12, 0)] [TestCase(13, 1)]
+    public void Raid_regular_monsters_skip_gold_and_bosses_keep_it(int rank, int goldDrops)
+    {
+        var h = new Harness(new MonsterResourceEntity { Id = 2101, Level = 5, Hp = 100,
+            Exp = 100, MonsterType = rank, GoldDropPercentage = 100, GoldMin = 10, GoldMax = 10 }, raid: true);
+        var player = h.Player(1, "Raid"); h.Kill(player);
+        StorageTestHarness.Session(player).CharacterExp.Should().Be(100);
+        h.Connections[player].Sent.Count(p => Harness.Id(p) == GamePackets.TM_SC_ENTER && p[25] == 2).Should().Be(goldDrops);
+    }
+
+    [TestCase(false)] [TestCase(true)]
+    public void Stamina_bonus_is_paid_on_kill_and_saver_preserves_zero_stamina(bool saver)
+    {
+        var h = new Harness(new MonsterResourceEntity { Id = 2101, Level = 5, Hp = 100, Exp = 100, Jp = 10 });
+        var player = h.Player(1, "Stamina"); var info = StorageTestHarness.Session(player);
+        info.CharacterStamina = saver ? 0 : 100000;
+        if (saver) info.ActiveBuffs.Add(new Navislamia.Game.Services.Buffs.ActiveBuff(1, 4003, 0, 1, ServerClock.Now, 0));
+        h.Kill(player);
+        info.CharacterExp.Should().Be(200); info.CharacterJp.Should().Be(20);
+        info.CharacterStamina.Should().Be(saver ? 0 : 93007);
     }
 
     [Test]

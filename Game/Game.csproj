@@ -28,5 +28,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Scripting/Scripts/monster_triggers.lua" LogicalName="Navislamia.MonsterTriggers.lua" />
+    <EmbeddedResource Include="Scripting/Scripts/monster_trigger_profiles.lua" LogicalName="Navislamia.MonsterTriggerProfiles.lua" />
+    <EmbeddedResource Include="Services/Progression/progression-resources.json" LogicalName="Navislamia.ProgressionResources.json" />
+    <EmbeddedResource Include="DataAccess/Migrations/Arcadia/ItemWearRestrictions.sql" LogicalName="Navislamia.ItemWearRestrictions.sql" />
   </ItemGroup>
 </Project>

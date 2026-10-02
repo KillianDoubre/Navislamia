@@ -41,13 +41,16 @@ public class GmCommandService : IGmCommandService
     private readonly ISkillCastService _skillCastService;
     private readonly IStateCatalog _stateCatalog;
     private readonly IRateService _rateService;
+    private readonly Progression.ITitleService _titles;
 
     public GmCommandService(IWarpService warpService, ICombatService combatService,
         ILevelingService levelingService, IStatService statService, ICharacterService characterService,
         IItemSortCatalog itemCatalog, MonsterWorldState monsterState, SkillCatalog skillCatalog,
-        ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService)
+        ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService,
+        Progression.ITitleService titles = null)
     {
         _rateService = rateService;
+        _titles = titles;
         _warpService = warpService;
         _combatService = combatService;
         _levelingService = levelingService;
@@ -109,6 +112,15 @@ public class GmCommandService : IGmCommandService
         var info = client.ConnectionInfo;
         switch (definition.Command)
         {
+            case GmCommand.Titles:
+                if (_titles is not null) Reply(client, "Titles: " + string.Join(", ", await _titles.GetOwnedAsync(client)));
+                break;
+            case GmCommand.Title:
+                if (line.Args.Length != 1 || !int.TryParse(line.Args[0], out var titleId) || titleId < 0)
+                { Usage(client, definition); break; }
+                Reply(client, _titles is not null && await _titles.SelectAsync(client, titleId)
+                    ? $"Title: {titleId}." : "This title is not available.");
+                break;
             case GmCommand.Help:
                 foreach (var available in GmCommandCatalog.AvailableTo(info.CharacterPermission))
                 {
@@ -325,9 +337,10 @@ public class GmCommandService : IGmCommandService
                 break;
 
             case GmCommand.Save:
+                await _skillCastService.SaveBuffsAsync(client);
                 await _characterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
                     info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
-                    info.CharacterChaos, info.X, info.Y, info.PkMode);
+                    info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress(), info.CharacterStamina);
                 Reply(client, "Progress saved.");
                 break;
 

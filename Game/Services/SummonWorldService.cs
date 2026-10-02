@@ -39,14 +39,16 @@ public sealed class SummonWorldService
 
     private readonly ILogger _logger = Log.ForContext<SummonWorldService>();
     private readonly IPlayerVisibilityService _players;
+    private readonly Stats.IStateCatalog _states;
 
     /// <param name="players">
     /// The players who see the master get the summon's <c>TS_SC_ENTER</c> and <c>TS_SC_LEAVE</c> through it
     /// (docs/packet-specs/socle-diffusion-compagnons.md); without it, only the master does.
     /// </param>
-    public SummonWorldService(IPlayerVisibilityService players = null)
+    public SummonWorldService(IPlayerVisibilityService players = null, Stats.IStateCatalog states = null)
     {
         _players = players;
+        _states = states;
     }
 
     /// <summary>
@@ -75,7 +77,15 @@ public sealed class SummonWorldService
             entry.Level, entry.Sp));
 
         var presence = new SummonPresence(handle, entry, x, y, session.Layer);
+        lock (session.BuffLock)
+            if (session.StoredSummonBuffs.Remove(entry.CardHandle, out var saved))
+                presence.ActiveBuffs.AddRange(saved.FindAll(s => s.EndTick == uint.MaxValue
+                    || unchecked((int)(s.EndTick - ServerClock.Now)) > 0));
+        if (_states is not null) SummonBuffStats.Refresh(presence, _states);
+        foreach (var state in presence.ActiveBuffs)
+            presence.NextStateHandle = System.Math.Max(presence.NextStateHandle, state.StateHandle);
         connection.Send(CompanionFrames.SummonEnter(session.CharacterHandle, presence, entry.IsFirstEnter));
+        foreach (var packet in CompanionFrames.SummonStates(presence)) connection.Send(packet);
 
         // Recorded before the observers are told, so a player who comes into view meanwhile is shown it by
         // the visibility instead of missing it.
@@ -87,6 +97,7 @@ public sealed class SummonWorldService
         if (master is not null)
         {
             _players?.SendToObservers(master, CompanionFrames.SummonEnter(session.CharacterHandle, presence, false));
+            foreach (var packet in CompanionFrames.SummonStates(presence)) _players?.SendToObservers(master, packet);
         }
 
         _logger.Debug(
@@ -119,6 +130,13 @@ public sealed class SummonWorldService
 
         if (session is not null)
         {
+            var presence = System.Array.Find(session.Summons, s => s.Handle == summonHandle);
+            if (presence is not null && presence.Entry.CardHandle != 0)
+            {
+                Buffs.ActiveBuff[] saved;
+                lock (presence.BuffLock) saved = System.Linq.Enumerable.ToArray(presence.ActiveBuffs);
+                lock (session.BuffLock) session.StoredSummonBuffs[presence.Entry.CardHandle] = new(saved);
+            }
             lock (session.SummonLock)
             {
                 session.Summons = System.Array.FindAll(session.Summons, summon => summon.Handle != summonHandle);

@@ -83,6 +83,7 @@ public class CharacterEntity : Entity
 	public bool AutoUsed { get; set; }
 	public DateTime? GuildBlockTime { get; set; }
 	public bool PkMode { get; set; }
+    public int MainTitleId { get; set; }
 	public int OtpValue { get; set; } // otp = one time password
 	public DateTime? OtpVerifiedAt { get; set; }
 	public string[] FlagList { get; set; } // Lua stuff e.g.ry:49481...

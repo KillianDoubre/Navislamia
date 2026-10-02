@@ -2,6 +2,18 @@ namespace Navislamia.Game.Services.Stats;
 
 public class StatBlock
 {
+    public StatBlock Copy() => (StatBlock)MemberwiseClone();
+    public float NoneResistance { get; set; }
+    public float FireResistance { get; set; }
+    public float WaterResistance { get; set; }
+    public float WindResistance { get; set; }
+    public float EarthResistance { get; set; }
+    public float LightResistance { get; set; }
+    public float DarkResistance { get; set; }
+
+    public float GetResistance(int element) => element is >= 0 and <= 6
+        ? Get((StatTarget)((int)StatTarget.NoneResistance + element)) : 0f;
+
     public int StatId { get; set; }
 
     public float Strength { get; set; }
@@ -56,6 +68,13 @@ public class StatBlock
     {
         switch (target)
         {
+            case StatTarget.NoneResistance: NoneResistance += value; break;
+            case StatTarget.FireResistance: FireResistance += value; break;
+            case StatTarget.WaterResistance: WaterResistance += value; break;
+            case StatTarget.WindResistance: WindResistance += value; break;
+            case StatTarget.EarthResistance: EarthResistance += value; break;
+            case StatTarget.LightResistance: LightResistance += value; break;
+            case StatTarget.DarkResistance: DarkResistance += value; break;
             case StatTarget.Strength: Strength += value; break;
             case StatTarget.Vitality: Vitality += value; break;
             case StatTarget.Dexterity: Dexterity += value; break;
@@ -102,6 +121,13 @@ public class StatBlock
 
     public float Get(StatTarget target) => target switch
     {
+        StatTarget.NoneResistance => NoneResistance,
+        StatTarget.FireResistance => FireResistance,
+        StatTarget.WaterResistance => WaterResistance,
+        StatTarget.WindResistance => WindResistance,
+        StatTarget.EarthResistance => EarthResistance,
+        StatTarget.LightResistance => LightResistance,
+        StatTarget.DarkResistance => DarkResistance,
         StatTarget.Strength => Strength,
         StatTarget.Vitality => Vitality,
         StatTarget.Dexterity => Dexterity,

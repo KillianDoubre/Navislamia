@@ -68,7 +68,7 @@ public class ItemStatCatalogTests
     }
 
     [Test]
-    public void BuildEffects_IgnoresParameterBAndNonStatEffects()
+    public void BuildEffects_IgnoresUndecodedParameterBBitsAndNonStatEffects()
     {
         var resource = Resource(optTypes: new short[] { 97, 26, 6, 99 },
                                 optVar1: new decimal[] { 268435456, 2, 1, 15360 },

@@ -73,16 +73,16 @@ public class BuffCatalogTests
     }
 
     [Test]
-    public void Classify_RefusesSkillsWhoseTargetIsNotTheCaster()
+    public void Classify_IncludesSummonsPartySummonsAndRegionsWithoutTheCaster()
     {
         var catalog = Create(
             Row(1, BuffCatalog.AddState, target: 31),
             Row(2, BuffCatalog.AddState, target: 32),
             Row(3, BuffCatalog.AddRegionState, target: 3));
 
-        catalog.TryGet(1, out _).Should().BeFalse("target 31 is Summon, which nothing models");
-        catalog.TryGet(2, out _).Should().BeFalse("target 32 is PartySummon");
-        catalog.TryGet(3, out _).Should().BeFalse("target 3 is RegionWithout: it excludes the caster");
+        catalog.TryGet(1, out var summon).Should().BeTrue(); summon.Target.Should().Be(31);
+        catalog.TryGet(2, out var party).Should().BeTrue(); party.Target.Should().Be(32);
+        catalog.TryGet(3, out var region).Should().BeTrue(); region.Target.Should().Be(3);
     }
 
     [Test]
@@ -97,14 +97,14 @@ public class BuffCatalogTests
     }
 
     [Test]
-    public void Classify_RefusesADebuffOrHealThatIsNotAimedAtOneTarget()
+    public void Classify_RefusesHarmfulRegionsButIncludesRegionHealing()
     {
         var catalog = Create(
             Row(1, BuffCatalog.AddState, target: 2, harmful: true),
             Row(2, BuffCatalog.AddHp, target: 2, stateId: null));
 
         catalog.TryGet(1, out _).Should().BeFalse("a harmful region skill needs area resolution");
-        catalog.TryGet(2, out _).Should().BeFalse("a region heal is out of scope");
+        catalog.TryGet(2, out var heal).Should().BeTrue(); heal.Kind.Should().Be(SkillCastKind.Heal);
     }
 
     [Test]

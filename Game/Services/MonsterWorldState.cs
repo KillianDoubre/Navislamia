@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
@@ -166,7 +167,8 @@ public class MonsterWorldState
                     var y = p.Y + Random.Shared.NextSingle() * 120 - 60;
                     if (!HasLineOfSight(p.X, p.Y, x, y)) { x = p.X; y = p.Y; }
                     var instance = templates[0] with { InstanceId = _nextInstanceId++, X = p.X, Y = p.Y,
-                        Z = source.Z, Layer = source.Layer };
+                        Z = source.Z, Layer = source.Layer, IsDungeonRaidMonster = source.IsDungeonRaidMonster,
+                        Combat = source.IsDungeonRaidMonster ? templates[0].Combat?.AsRaid() : templates[0].Combat };
                     _scriptSpawns.Add(instance.InstanceId, instance);
                     if (_aggro.TryGetValue(sourceId, out var aggro)) SetAggro(instance.InstanceId, aggro.Enemy);
                     var move = BeginMoveLocked(instance.InstanceId, x, y,
@@ -685,7 +687,21 @@ public class MonsterWorldState
         return MaxHp(instanceId);
     }
 
-    public int ApplyDamage(long instanceId, int damage)
+    private readonly Dictionary<long, Dictionary<GameClient, long>> _damageContributions = new();
+    private readonly Dictionary<long, (GameClient Player, uint Tick)> _firstDamage = new();
+
+    public MonsterDamageLedger TakeDamageContributions(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            if (!_damageContributions.Remove(instanceId, out var damage)) return null;
+            var first = _firstDamage[instanceId];
+            _firstDamage.Remove(instanceId);
+            return new MonsterDamageLedger(damage.Select(d => (d.Key, d.Value)).ToArray(), first.Player, first.Tick);
+        }
+    }
+
+    public int ApplyDamage(long instanceId, int damage, GameClient contributor = null, uint tick = 0)
     {
         lock (_stateLock)
         {
@@ -694,7 +710,19 @@ public class MonsterWorldState
                 hp = MaxHp(instanceId);
             }
 
-            hp = Math.Max(0, hp - damage);
+            if (_respawnAt.ContainsKey(instanceId)) return 0;
+            var dealt = Math.Min(hp, Math.Max(0, damage));
+            if (dealt > 0 && contributor is not null)
+            {
+                if (!_damageContributions.TryGetValue(instanceId, out var contributions))
+                {
+                    contributions = new Dictionary<GameClient, long>();
+                    _damageContributions.Add(instanceId, contributions);
+                    _firstDamage[instanceId] = (contributor, tick);
+                }
+                contributions[contributor] = CombatRewards.AddProgress(contributions.GetValueOrDefault(contributor), dealt);
+            }
+            hp -= dealt;
             _currentHp[instanceId] = hp;
             return hp;
         }
@@ -1092,6 +1120,8 @@ public class MonsterWorldState
             {
                 _respawnAt.Remove(id);
                 _currentHp.Remove(id);
+                _damageContributions.Remove(id);
+                _firstDamage.Remove(id);
                 _movement.Remove(id);
                 _nextMoveAt.Remove(id);
                 _returningHome.Remove(id);

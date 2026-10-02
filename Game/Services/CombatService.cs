@@ -46,6 +46,8 @@ public class CombatService : ICombatService
     private readonly Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> _rules;
     private readonly ICombatRandom _random;
     private readonly IPlayerVisibilityService _players;
+    private readonly IPkFieldService _pkFields;
+    private readonly Progression.ITitleService _titles;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
@@ -57,8 +59,11 @@ public class CombatService : ICombatService
         ICombatRandom random = null, IPlayerVisibilityService players = null,
         Casting.ICastInterrupts casts = null, Death.IDeathDropService deathDrops = null,
         ICharacterService characters = null, Compete.ICompeteService compete = null,
-        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null)
+        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
+        bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null)
     {
+        _pkFields = pkFields;
+        _titles = titles;
         _compete = compete;
         _rules = rules;
         _characters = characters;
@@ -75,7 +80,7 @@ public class CombatService : ICombatService
         _spawnService = spawnService;
         _levelingService = levelingService;
         _groundItemService = groundItemService;
-        _ = RunAsync();
+        if (runTicks) _ = RunAsync();
     }
 
     public void StartAttack(GameClient client, uint targetHandle)
@@ -291,7 +296,8 @@ public class CombatService : ICombatService
                 {
                     if (extra.Ratio > _random.Next(100) + 1)
                     {
-                        var amount = Combat.AttackMechanics.AdditionalAmount(extra, hit.Damage);
+                        var amount = CombatFormulas.ResistedDamage(Combat.AttackMechanics.AdditionalAmount(extra, hit.Damage),
+                            monster.Resistances?.GetResistance(extra.Element) ?? 0f);
                         damage += amount;
                         (elemental ??= new int[Combat.AttackMechanics.Elements])[extra.Element] += amount;
                     }
@@ -384,7 +390,10 @@ public class CombatService : ICombatService
     }
 
     public HitResult RollHit(GameClient client, long instanceId, float baseDamage, DamageKind kind,
-        int accuracyBonus, int criticalBonus)
+        int accuracyBonus, int criticalBonus) => RollHit(client, instanceId, baseDamage, kind, accuracyBonus, criticalBonus, 0);
+
+    public HitResult RollHit(GameClient client, long instanceId, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus, int element)
     {
         if (!_worldState.TryGetInstance(instanceId, out var instance))
         {
@@ -394,7 +403,7 @@ public class CombatService : ICombatService
         var info = client.ConnectionInfo;
         var stats = _stats.Compute(info).Total;
         return CombatFormulas.Resolve(Combatant.From(stats, info.CharacterLevel),
-            MonsterCombatant(instanceId, instance), baseDamage, kind, accuracyBonus, criticalBonus, _random);
+            MonsterCombatant(instanceId, instance), baseDamage, kind, accuracyBonus, criticalBonus, _random, element);
     }
 
     public HitResult RollMonsterHit(long instanceId, GameClient target, out uint intervalTicks)
@@ -411,7 +420,10 @@ public class CombatService : ICombatService
     }
 
     public HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
-        int accuracyBonus, int criticalBonus)
+        int accuracyBonus, int criticalBonus) => RollMonsterHit(instanceId, target, baseDamage, kind, accuracyBonus, criticalBonus, 0);
+
+    public HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus, int element)
     {
         if (!_worldState.TryGetInstance(instanceId, out var instance))
         {
@@ -419,7 +431,7 @@ public class CombatService : ICombatService
         }
 
         return RollMonsterHit(instance, MonsterStats(instanceId, instance), target, baseDamage, kind,
-            accuracyBonus, criticalBonus);
+            accuracyBonus, criticalBonus, element);
     }
 
     public int DamagePlayer(GameClient target, int damage)
@@ -436,6 +448,7 @@ public class CombatService : ICombatService
             StopAttack(target);
             _casts?.Interrupt(target);
             _levelingService.ApplyDeathPenalty(target);
+            if (info.ImmoralPoint > 0m) MoralityRules.Set(target, MoralityRules.AfterDeath(info.ImmoralPoint, info.PkCount));
             if (_deathDrops is not null)
             {
                 _ = _deathDrops.DropOnDeathAsync(target);
@@ -489,7 +502,8 @@ public class CombatService : ICombatService
                 continue;
             }
 
-            var amount = Combat.AttackMechanics.ReflectAmount(reflect, damage, magical);
+            var amount = CombatFormulas.ResistedDamage(Combat.AttackMechanics.ReflectAmount(reflect, damage, magical),
+                GetMonsterStats(attackerInstanceId)?.GetResistance(reflect.Element) ?? 0f);
             var handle = info.GetMonsterHandle(attackerInstanceId);
             if (amount > 0 && handle != 0 && _worldState.IsAlive(attackerInstanceId))
             {
@@ -502,8 +516,8 @@ public class CombatService : ICombatService
 
     /// <summary>
     /// <c>StructPlayer::IsEnemy</c> between two players (2012-11 <c>0x1400e3210</c>): the two sides of a started duel
-    /// always; otherwise only in a PK field (an option here, off by default), never within a party or a guild, and
-    /// only when one of the two is in PK mode.
+    /// always; otherwise both must be in a PK field, never within a party or a guild. The target must be
+    /// PK-on or criminal, or the attacker must be PK-on.
     /// </summary>
     public static bool IsPlayerEnemy(ConnectionInfo attacker, ConnectionInfo target, bool competing, bool pkField)
     {
@@ -523,13 +537,37 @@ public class CombatService : ICombatService
             return false;
         }
 
-        return target.PkMode || attacker.PkMode;
+        return target.PkMode || attacker.PkMode || target.ImmoralPoint >= MoralityRules.BloodyLimit;
     }
 
-    private bool IsEnemy(GameClient attacker, GameClient target) =>
+    public bool ArePlayerEnemies(GameClient attacker, GameClient target) =>
         !ReferenceEquals(attacker, target)
+        && attacker.ConnectionInfo.Layer == target.ConnectionInfo.Layer
+        && !target.ConnectionInfo.IsImmortal
         && IsPlayerEnemy(attacker.ConnectionInfo, target.ConnectionInfo, _compete?.AreCompeting(attacker, target) == true,
-            _rules?.CurrentValue?.PkFieldsEverywhere == true);
+            _pkFields is not null ? _pkFields.IsPkField(attacker.ConnectionInfo) && _pkFields.IsPkField(target.ConnectionInfo)
+                : _rules?.CurrentValue?.PkFieldsEverywhere == true);
+
+    public void OnPkEnabled(GameClient client)
+    {
+        if (_rules?.CurrentValue?.PkServer != true) MoralityRules.Add(client, 5m);
+    }
+
+    private int PvpDamage(int damage) => (int)Math.Min(int.MaxValue,
+        Math.Max(0m, damage * Math.Clamp(_rules?.CurrentValue?.PvpDamageRate ?? .05m, 0m, 1m)));
+
+    public HitResult RollPlayerHit(GameClient attacker, GameClient target, float damage, DamageKind kind,
+        int accuracy, int critical, int element = 0)
+    {
+        if (!ArePlayerEnemies(attacker, target) || target.ConnectionInfo.CharacterHp <= 0)
+            return new HitResult(0, HitFlags.Miss);
+        var hit = CombatFormulas.Resolve(Combatant.From(_stats.Compute(attacker.ConnectionInfo).Total, attacker.ConnectionInfo.CharacterLevel),
+            Combatant.From(_stats.Compute(target.ConnectionInfo).Total, target.ConnectionInfo.CharacterLevel),
+            damage, kind, accuracy, critical, _random, element);
+        return hit with { Damage = PvpDamage(hit.Damage) };
+    }
+
+    private bool IsEnemy(GameClient attacker, GameClient target) => ArePlayerEnemies(attacker, target);
 
     private void StartPlayerAttack(GameClient client, uint targetHandle)
     {
@@ -577,7 +615,9 @@ public class CombatService : ICombatService
             seen = info.SpawnedPlayers.ContainsKey(session.TargetHandle);
         }
 
-        if (!seen || !MonsterAiRules.IsAlive(info.CharacterHp) || !MonsterAiRules.IsAlive(targetInfo.CharacterHp)
+        if (!seen || _players?.Registry is not null &&
+            (!_players.Registry.TryResolve(session.TargetHandle, out var current) || !ReferenceEquals(current, target))
+            || !MonsterAiRules.IsAlive(info.CharacterHp) || !MonsterAiRules.IsAlive(targetInfo.CharacterHp)
             || !IsEnemy(client, target))
         {
             StopAttack(client);
@@ -586,8 +626,8 @@ public class CombatService : ICombatService
 
         var stats = _stats.Compute(info).Total;
         var nowTick = ServerClock.Now;
-        var (ax, ay) = info.PositionAt(nowTick);
-        var (tx, ty) = targetInfo.PositionAt(nowTick);
+        var (ax, ay) = Buffs.SkillCastRangeRules.PlayerPosition(info, nowTick);
+        var (tx, ty) = Buffs.SkillCastRangeRules.PlayerPosition(targetInfo, nowTick);
         if (!Casting.CastRules.InRange(Casting.CastRules.WeaponRange, stats.AttackRange, ax, ay,
                 CombatRange.PlayerUnitSize, tx, ty, CombatRange.PlayerUnitSize, false))
         {
@@ -597,14 +637,24 @@ public class CombatService : ICombatService
 
         var defender = _stats.Compute(targetInfo).Total;
         var hit = CombatFormulas.Resolve(Combatant.From(stats, info.CharacterLevel),
-            Combatant.From(defender, targetInfo.CharacterLevel), stats.AttackPointRight, DamageKind.Physical, 0, 0,
-            _random);
-        var targetHp = DamagePlayerByPlayer(client, target, hit.Damage);
+            Combatant.From(defender, targetInfo.CharacterLevel), stats.AttackPointRight, DamageKind.Physical, 0, 0, _random);
+        var damage = PvpDamage(hit.Damage);
+        int[] elemental = null;
+        if ((hit.Flags & (HitFlags.Miss | HitFlags.PerfectBlock)) == 0)
+            foreach (var extra in Combat.AttackMechanics.AdditionalDamages(PlayerStates(info), Combat.AttackMechanics.IsRanged(info.EquippedWeapon)))
+                if (extra.Ratio > _random.Next(100) + 1)
+                {
+                    var amount = PvpDamage(CombatFormulas.ResistedDamage(Combat.AttackMechanics.AdditionalAmount(extra, hit.Damage),
+                        defender.GetResistance(extra.Element)));
+                    damage = (int)Math.Min(int.MaxValue, (long)damage + amount);
+                    (elemental ??= new int[Combat.AttackMechanics.Elements])[extra.Element] += amount;
+                }
+        var targetHp = DamagePlayerByPlayer(client, target, damage);
 
         var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
         var frame = GameAttackPackets.BuildAttackEvent(info.CharacterHandle, targetInfo.CharacterHandle, intervalMs,
             intervalMs, GameAttackPackets.ActionAttack, Combat.AttackMechanics.AttackFlag(false, false, info.EquippedWeapon),
-            new[] { new AttackHit(hit.Damage, (byte)hit.Flags, targetHp) }, info.CharacterHp);
+            new[] { new AttackHit(damage, (byte)hit.Flags, targetHp, elemental) }, info.CharacterHp);
         if (_players is not null)
         {
             _players.SendToObservers(client, frame, includeSelf: true);
@@ -629,11 +679,26 @@ public class CombatService : ICombatService
     /// of the duel (the loser keeps its experience) or, outside a duel, the death penalty of a PK server only — a
     /// player kill costs nothing elsewhere (<c>procDecreaseEXPAndDropItem</c>).
     /// </summary>
-    public int DamagePlayerByPlayer(GameClient attacker, GameClient target, int damage)
+    public int DamagePlayerByPlayer(GameClient attacker, GameClient target, int damage, bool magical = false) =>
+        LandPlayerDamage(attacker, target, damage, magical, true);
+
+    private int LandPlayerDamage(GameClient attacker, GameClient target, int damage, bool magical, bool reflect)
     {
         var info = target.ConnectionInfo;
-        var wasAlive = MonsterAiRules.IsAlive(info.CharacterHp);
-        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+        if (!ArePlayerEnemies(attacker, target)) return info.CharacterHp;
+        var states = PlayerStates(info);
+        bool wasAlive;
+        lock (info.ProgressLock)
+        {
+            wasAlive = info.CharacterHp > 0;
+            if (!wasAlive) return info.CharacterHp;
+            var shield = Combat.AttackMechanics.ManaShieldAbsorb(damage,
+                Combat.AttackMechanics.ManaShieldRatio(states, magical), info.CharacterMp);
+            info.CharacterMp -= shield;
+            damage -= shield;
+            if (shield > 0) target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", info.CharacterMp));
+            info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+        }
         target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
 
         var competing = _compete?.AreCompeting(attacker, target) == true;
@@ -650,17 +715,57 @@ public class CombatService : ICombatService
             {
                 _compete.OnKilledBy(target, attacker);
             }
-            else if (_rules?.CurrentValue?.PkServer == true)
+            else
             {
-                _levelingService.ApplyDeathPenalty(target);
+                if (_rules?.CurrentValue?.PkServer == true)
+                {
+                    _levelingService.ApplyDeathPenalty(target);
+                    if (_deathDrops is not null) _ = _deathDrops.DropOnDeathAsync(target);
+                }
+                RecordPlayerKill(attacker, target);
+                if (_rules?.CurrentValue?.PkServer == true)
+                    MoralityRules.Set(target, MoralityRules.AfterDeath(info.ImmoralPoint, info.PkCount));
             }
         }
+
         else if (wasAlive && damage > 0)
         {
             _casts?.Damaged(target, damage);
         }
 
+        if (reflect && info.CharacterHp > 0 && damage > 0 && attacker.ConnectionInfo.CharacterHp > 0)
+            foreach (var reflected in Combat.AttackMechanics.Reflects(states))
+                if (reflected.Ratio > _random.Next(100) + 1)
+                {
+                    var amount = PvpDamage(CombatFormulas.ResistedDamage(Combat.AttackMechanics.ReflectAmount(reflected, damage, magical),
+                        _stats.Compute(attacker.ConnectionInfo).Total.GetResistance(reflected.Element)));
+                    if (amount > 0) LandPlayerDamage(target, attacker, amount, magical, false);
+                }
         return info.CharacterHp;
+    }
+
+    private void RecordPlayerKill(GameClient killer, GameClient victim)
+    {
+        var k = killer.ConnectionInfo;
+        var v = victim.ConnectionInfo;
+        if (v.PkMode || v.ImmoralPoint >= MoralityRules.BloodyLimit) return;
+        lock (k.ProgressLock)
+        {
+            var gap = _rules?.CurrentValue?.PkPenaltyLevel ?? 10;
+            if (k.CharacterLevel - v.CharacterLevel >= gap && k.DkCount < int.MaxValue) k.DkCount++;
+            var amount = MoralityRules.KillIncrease(k.CharacterLevel, v.CharacterLevel, v.PkMode, v.ImmoralPoint,
+                k.ImmoralPoint, k.DkCount, gap, _rules?.CurrentValue?.PkServer == true,
+                k.PartyId.HasValue ? Math.Max(1, _parties.MemberCount(killer)) : 0);
+            if (k.PkCount < int.MaxValue) k.PkCount++;
+            MoralityRules.Add(killer, amount);
+            killer.Connection.Send(GameStatPackets.BuildProperty(k.CharacterHandle, "pk_count", k.PkCount));
+            killer.Connection.Send(GameStatPackets.BuildProperty(k.CharacterHandle, "dk_count", k.DkCount));
+        }
+        if (_rules?.CurrentValue?.PkServer != true && k.ImmoralPoint >= MoralityRules.BloodyLimit)
+        {
+            var level = k.ImmoralPoint >= 1000m ? 3 : k.ImmoralPoint >= 500m ? 2 : 1;
+            _casts?.ApplyState(killer, MoralityRules.NemesisState, level, (uint)(720000 * (1 << (level - 1))));
+        }
     }
 
     public StatBlock GetPlayerStats(GameClient client) => _stats?.Compute(client.ConnectionInfo).Total;
@@ -669,12 +774,12 @@ public class CombatService : ICombatService
         _worldState.TryGetInstance(instanceId, out var instance) ? MonsterStats(instanceId, instance) : null;
 
     private HitResult RollMonsterHit(MonsterInstance instance, StatBlock monster, GameClient target,
-        float baseDamage, DamageKind kind, int accuracyBonus, int criticalBonus)
+        float baseDamage, DamageKind kind, int accuracyBonus, int criticalBonus, int element = 0)
     {
         var info = target.ConnectionInfo;
         var player = _stats.Compute(info).Total;
         var hit = CombatFormulas.Resolve(Combatant.From(monster, instance.Level),
-            Combatant.From(player, info.CharacterLevel), baseDamage, kind, accuracyBonus, criticalBonus, _random);
+            Combatant.From(player, info.CharacterLevel), baseDamage, kind, accuracyBonus, criticalBonus, _random, element);
 
         // /immortal: the monster still swings and the dice still roll, but nothing is lost.
         return info.IsImmortal ? hit with { Damage = 0 } : hit;
@@ -726,7 +831,7 @@ public class CombatService : ICombatService
         }
 
         var info = client.ConnectionInfo;
-        var targetHp = _worldState.ApplyDamage(instanceId, damage);
+        var targetHp = _worldState.ApplyDamage(instanceId, damage, client, ServerClock.Now);
         if (targetHp > 0)
         {
             // The monster fights back. Every monster retaliates, aggressive or not, toward whoever it hates most;
@@ -737,6 +842,7 @@ public class CombatService : ICombatService
 
         var now = DateTime.UtcNow;
         if (!_worldState.TryKill(instanceId, now + _rates.MonsterRespawnDelay)) return 0;
+        var contribution = MonsterContribution.Resolve(_worldState.TakeDamageContributions(instanceId), client, ServerClock.Now);
 
         // An area can kill a monster outside the caster's view. Each viewer receives its own handle.
         var removedStates = _worldState.ClearStates(instanceId);
@@ -758,8 +864,13 @@ public class CombatService : ICombatService
             recipient.Connection.Send(GameMovePackets.BuildStopMove(handle,
                 unchecked(ServerClock.Now + recipient.ConnectionInfo.ClientClockOffset), recipient.ConnectionInfo.Layer));
             recipient.Connection.Send(GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForMonster(true)));
-            leaves.Add(new PendingLeave { Client = recipient, InstanceId = instanceId, Handle = handle,
-                LeaveAt = now.AddSeconds(DeathAnimationSeconds) });
+            leaves.Add(new PendingLeave
+            {
+                Client = recipient,
+                InstanceId = instanceId,
+                Handle = handle,
+                LeaveAt = now.AddSeconds(DeathAnimationSeconds)
+            });
         }
         lock (_lock)
         {
@@ -770,9 +881,13 @@ public class CombatService : ICombatService
 
         var (dropX, dropY) = _worldState.GetPosition(instanceId);
         // StructMonster::onDead: one level-gap malus for the gold, the chaos and the loot of this kill.
-        var lootFactor = MonsterRewardRules.LootFactor(instance.Level, HighestRewardedLevel(client, dropX, dropY, info.Layer));
-        _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z, instanceId, lootFactor);
-        AwardKill(client, instanceId, targetHandle, instance, lootFactor, dropX, dropY, instance.Z, info.Layer);
+        var highestLevel = contribution.Select(g => HighestRewardedLevel(g.Representative, dropX, dropY, info.Layer))
+            .DefaultIfEmpty(info.CharacterLevel).Max();
+        var lootFactor = MonsterRewardRules.LootFactor(instance.Level, highestLevel);
+        var lootOwner = contribution.FirstOrDefault()?.Representative ?? client;
+        if (!instance.IsDungeonRaidMonster || instance.MonsterType >= 13)
+            _groundItemService.DropForMonster(lootOwner, instance.MonsterId, dropX, dropY, instance.Z, instanceId, lootFactor);
+        AwardKill(client, instanceId, targetHandle, instance, lootFactor, dropX, dropY, instance.Z, info.Layer, contribution);
         if (_quests is not null)
             foreach (var member in _parties.RewardMembers(client, dropX, dropY, info.Layer))
                 _ = _quests.OnMonsterKilledAsync(member, instance.MonsterId, dropX, dropY, instance.Z);
@@ -798,45 +913,65 @@ public class CombatService : ICombatService
     /// the beneficiary has over the monster (<c>StructPlayer::AddExp</c>).
     /// </summary>
     private void AwardKill(GameClient killer, long instanceId, uint corpseHandle, MonsterInstance monster,
-        double lootFactor, float x, float y, float z, byte layer)
+        double lootFactor, float x, float y, float z, byte layer, IReadOnlyList<MonsterRewardGroup> contribution)
     {
         var reward = CombatRewards.Roll(monster.Rewards, _rates, _random, lootFactor);
-        if (reward.Gold > 0) _groundItemService.DropGoldForMonster(killer, reward.Gold, x, y, z, instanceId);
-        var members = _parties.RewardMembers(killer, x, y, layer).Distinct().ToArray();
-        if (members.Length == 0) members = new[] { killer };
-        for (var i = 0; i < members.Length; i++)
+        if (reward.Gold > 0 && (!monster.IsDungeonRaidMonster || monster.MonsterType >= 13))
+            _groundItemService.DropGoldForMonster(contribution.FirstOrDefault()?.Representative ?? killer,
+                reward.Gold, x, y, z, instanceId);
+        foreach (var group in contribution)
         {
-            var client = members[i];
-            var info = client.ConnectionInfo;
-            lock (info.ProgressLock)
+            var members = _parties.RewardMembers(group.Representative, x, y, layer).Distinct().ToArray();
+            if (members.Length == 0) members = new[] { group.Representative };
+            for (var i = 0; i < members.Length; i++)
             {
-                var (px, py) = Buffs.SkillCastRangeRules.PlayerPosition(info, ServerClock.Now);
-                if (!MonsterRewardRules.WithinRewardRange(px, py, x, y))
+                var client = members[i];
+                var info = client.ConnectionInfo;
+                lock (info.ProgressLock)
                 {
-                    continue;
-                }
+                    var (px, py) = Buffs.SkillCastRangeRules.PlayerPosition(info, ServerClock.Now);
+                    if (!MonsterRewardRules.WithinRewardRange(px, py, x, y))
+                    {
+                        continue;
+                    }
 
-                var exp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(reward.Exp, members.Length, i),
-                    monster.Level, info.CharacterLevel);
-                var jp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(reward.Jp, members.Length, i),
-                    monster.Level, info.CharacterLevel);
-                var maxChaos = reward.Chaos > 0 ? CombatRewards.ChaosCapacity(_stats.Compute(info).Total.MaxChaos) : 0;
-                info.CharacterExp = CombatRewards.AddProgress(info.CharacterExp, exp);
-                info.CharacterJp = CombatRewards.AddProgress(info.CharacterJp, jp);
-                var gainedChaos = (int)Math.Min(CombatRewards.Share(reward.Chaos, members.Length, i),
-                    Math.Max(0L, (long)maxChaos - info.CharacterChaos));
-                info.CharacterChaos += gainedChaos;
-                // Keep notifications and level resolution in the same order as concurrent kill credits.
-                client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
-                if (gainedChaos > 0)
-                {
-                    // procDropChaos: 213 to the region, then StructPlayer::AddChaos's "chaos" property. The kill
-                    // sends no 1001: the gold is on the ground until it is picked up.
-                    SendChaos(client, killer, instanceId, corpseHandle, gainedChaos);
-                    client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "chaos", info.CharacterChaos));
-                }
+                    if (info.CharacterHp > 0 && info.ImmoralPoint > 0m && monster.Level >= info.CharacterLevel)
+                        MoralityRules.Set(client, MoralityRules.AfterMonsterKill(info.ImmoralPoint, monster.Level, info.CharacterLevel,
+                            info.PartyId.HasValue ? Math.Max(1, _parties.MemberCount(client)) : 0));
 
-                _levelingService.ApplyExperience(client);
+                    var exp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(MonsterContribution.Scale(reward.Exp, group.Factor), members.Length, i),
+                        monster.Level, info.CharacterLevel);
+                    var jp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(MonsterContribution.Scale(reward.Jp, group.Factor), members.Length, i),
+                        monster.Level, info.CharacterLevel);
+                    var maxChaos = reward.Chaos > 0 ? CombatRewards.ChaosCapacity(_stats.Compute(info).Total.MaxChaos) : 0;
+                    exp = MoralityRules.RewardExperience(exp, info.ImmoralPoint);
+                    var bonus = Progression.MonsterRewardBonuses.Apply(exp, jp, info.CharacterStamina, info.CharacterLevel,
+                        _rules?.CurrentValue?.StaminaBonusRate ?? 1m, Progression.MonsterRewardBonuses.InDungeon(x, y),
+                        _rules?.CurrentValue?.DungeonRewardBonusRate ?? 0m, HasStaminaSaver(info));
+                    exp = bonus.Exp; jp = bonus.Jp;
+                    if (info.CharacterStamina != bonus.Stamina)
+                    {
+                        info.CharacterStamina = bonus.Stamina;
+                        client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "stamina", bonus.Stamina));
+                    }
+                    info.CharacterExp = CombatRewards.AddProgress(info.CharacterExp, exp);
+                    info.CharacterJp = CombatRewards.AddProgress(info.CharacterJp, jp);
+                    var gainedChaos = (int)Math.Min(CombatRewards.Share(MonsterContribution.Scale(reward.Chaos, group.Factor), members.Length, i),
+                        Math.Max(0L, (long)maxChaos - info.CharacterChaos));
+                    info.CharacterChaos += gainedChaos;
+                    // Keep notifications and level resolution in the same order as concurrent kill credits.
+                    client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
+                    if (gainedChaos > 0)
+                    {
+                        // procDropChaos: 213 to the region, then StructPlayer::AddChaos's "chaos" property. The kill
+                        // sends no 1001: the gold is on the ground until it is picked up.
+                        SendChaos(client, killer, instanceId, corpseHandle, gainedChaos);
+                        client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "chaos", info.CharacterChaos));
+                    }
+
+                    _levelingService.ApplyExperience(client);
+                    if (_titles is not null) _ = _titles.RecordMonsterKillAsync(client, monster);
+                }
             }
         }
     }
@@ -858,6 +993,13 @@ public class CombatService : ICombatService
             if (corpse != 0) viewer.Connection.Send(GameRewardPackets.BuildGetChaos(
                 recipient.ConnectionInfo.CharacterHandle, corpse, amount));
         }
+    }
+
+    private static bool HasStaminaSaver(ConnectionInfo info)
+    {
+        lock (info.BuffLock)
+            return info.ActiveBuffs.Any(b => b.StateId == 4003
+                && (b.EndTick == 0 || unchecked((int)(b.EndTick - ServerClock.Now)) > 0));
     }
 
 

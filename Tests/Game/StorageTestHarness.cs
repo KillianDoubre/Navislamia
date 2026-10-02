@@ -49,7 +49,8 @@ internal static class StorageTestHarness
         ICardSocketService cardSocketService = null,
         Navislamia.Game.Services.Party.IPartyService partyService = null,
         Navislamia.Game.Services.Trade.IPlayerTradeService playerTradeService = null,
-        Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService = null)
+        Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService = null,
+        ICombatService combatService = null)
     {
         characterService ??= A.Fake<ICharacterService>();
         playerVisibilityService ??= new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>());
@@ -65,7 +66,7 @@ internal static class StorageTestHarness
             A.Fake<INpcSpawnService>(),
             A.Fake<INpcDialogService>(),
             A.Fake<IMonsterSpawnService>(),
-            A.Fake<ICombatService>(),
+            combatService ?? A.Fake<ICombatService>(),
             A.Fake<ILevelingService>(),
             A.Fake<ISkillService>(),
             A.Fake<IEquipmentService>(),

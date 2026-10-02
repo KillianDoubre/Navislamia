@@ -36,12 +36,17 @@ public interface IPartyService
     void OnJobChanged(GameClient client) { }
 
     IReadOnlyList<GameClient> RewardMembers(GameClient killer, float x, float y, byte layer);
+    int MemberCount(GameClient client) => 1;
     bool CanTakeDrop(GameClient owner, GameClient picker, long? dropPartyId);
     GameClient LootRecipient(GameClient picker, long? dropPartyId, float x, float y, byte layer);
 }
 
 public sealed class PartyService : IPartyService
 {
+    public int MemberCount(GameClient client)
+    {
+        lock (_gate) return TryGetParty(client.ConnectionInfo.CharacterHandle, out var party) ? party.Members.Count : 1;
+    }
     /// <summary><c>onPartyInvite</c> and <c>onPartyJoin</c> refuse at <c>GetMemberCount &gt;= 8</c>.</summary>
     public const int MaxMembers = 8;
 

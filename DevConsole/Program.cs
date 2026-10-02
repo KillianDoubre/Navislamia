@@ -341,11 +341,12 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Casting.ICastInterrupts>(provider =>
             provider.GetRequiredService<Navislamia.Game.Services.Casting.CastInterrupts>());
         services.AddSingleton<ISkillCastService, SkillCastService>();
+        services.AddSingleton<IBuffPersistence, BuffPersistence>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
-        services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<Navislamia.Game.Services.Jobs.IJobChangeService,
             Navislamia.Game.Services.Jobs.JobChangeService>();
+        services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMarketCatalog, MarketCatalog>();
         services.AddSingleton<IMarketService, MarketService>();
         services.AddSingleton<IMarketTradeService, MarketTradeService>();
@@ -412,6 +413,7 @@ public class Program
         services.AddSingleton<MonsterWorldState>();
         services.AddSingleton<IMonsterSpawnService, MonsterSpawnService>();
         services.AddSingleton<ICombatService, CombatService>();
+        services.AddSingleton<IPkFieldService, PkFieldService>();
         services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
@@ -431,6 +433,8 @@ public class Program
         services.AddSingleton<ICharacterService, CharacterService>();
         services.AddSingleton<IBannedWordsRepository, BannedWordsRepository>();
         services.AddSingleton<IStatService, StatService>();
+        services.AddSingleton<Navislamia.Game.Services.Progression.TitleCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Progression.ITitleService, Navislamia.Game.Services.Progression.TitleService>();
     }
 
     private static void ConfigureDataAccess(IServiceCollection services)

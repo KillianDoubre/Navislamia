@@ -17,5 +17,8 @@ public interface IMapService
     /// </summary>
     EventAreaInfo[] GetEventAreas();
 
+    /// <summary>The containing .nfl polygon with the lowest priority, or 0 when no polygon is loaded.</summary>
+    int GetLocationId(float x, float y);
+
     void Start(string directory);
 }

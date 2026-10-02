@@ -12,9 +12,10 @@ public class SkillPassiveCatalog : ISkillPassiveCatalog
 {
     public const int WeaponMastery = 10001;
     public const int IncreaseBaseAttribute = 10008;
+    public const int IncreaseElementalResistance = 10006;
     public const int IncreaseHpMp = 10021;
 
-    public static readonly int[] SupportedEffectTypes = { WeaponMastery, IncreaseBaseAttribute, IncreaseHpMp };
+    public static readonly int[] SupportedEffectTypes = { WeaponMastery, IncreaseBaseAttribute, IncreaseHpMp, IncreaseElementalResistance };
 
     private static readonly FrozenDictionary<int, StatTarget[]> SlotTargets =
         new Dictionary<int, StatTarget[]>
@@ -67,6 +68,18 @@ public class SkillPassiveCatalog : ISkillPassiveCatalog
 
     public static IReadOnlyList<StateEffectTemplate> BuildTemplates(SkillPassiveFields passive)
     {
+        if (passive.EffectType == IncreaseElementalResistance && passive.Vars is not null)
+        {
+            var resistances = new List<StateEffectTemplate>();
+            for (var i = 0; i < 12 && i + 2 < passive.Vars.Length; i += 3)
+            {
+                var element = (int)passive.Vars[i];
+                if (element is < 0 or > 6) continue;
+                resistances.Add(new StateEffectTemplate((StatTarget)((int)StatTarget.NoneResistance + element),
+                    (float)passive.Vars[i + 1], (float)passive.Vars[i + 2], false));
+            }
+            return resistances;
+        }
         if (passive.Vars is null || !SlotTargets.TryGetValue(passive.EffectType, out var targets))
         {
             return Array.Empty<StateEffectTemplate>();
