@@ -310,7 +310,8 @@ public class MonsterSkillService : IMonsterSkillService
                         fields.Kind == SkillCastKind.MagicAttack ? DamageKind.Magical : DamageKind.Physical,
                         SkillDamageCurve.HitBonus(fields, instance.Level, target.ConnectionInfo.CharacterLevel),
                         SkillDamageCurve.CriticalBonus(fields, skill.Level));
-                    var hp = _combat.DamagePlayer(target, hit.Damage);
+                    // The same landing as a swing: mana shield, reflections and the duel it interrupts.
+                    var hp = _combat.DamagePlayer(target, hit.Damage, id, fields.Kind == SkillCastKind.MagicAttack);
                     hits.Add(new SkillHit(fields.Kind == SkillCastKind.MagicAttack ? SkillHitType.MagicDamage : SkillHitType.Damage,
                         target.ConnectionInfo.CharacterHandle, hp, hit.Damage, (byte)hit.Flags));
                     if (hp <= 0) break;
@@ -393,7 +394,12 @@ public class MonsterSkillService : IMonsterSkillService
             case MonsterSkillEffect.State:
             {
                 var duration = BuffCurve.DurationTicks(fields, skill.Level);
-                if (duration > 0 && !info.IsImmortal)
+                var chance = Casting.CastRules.StateLandingChance(fields.EffectType,
+                    _combat.GetMonsterStats(instanceId)?.MagicAccuracy ?? 0f,
+                    _combat.GetPlayerStats(client)?.MagicAvoid ?? 0f,
+                    SkillDamageCurve.HitBonus(fields, instance.Level, info.CharacterLevel), fields.ProbabilityOnHit,
+                    fields.ProbabilityIncBySlv, skill.Level);
+                if (duration > 0 && !info.IsImmortal && Casting.CastRules.StateLands(chance, _random.Next(100)))
                 {
                     _skillCast.ApplyState(client, fields.StateId, BuffCurve.StateLevel(fields, skill.Level),
                         duration);
@@ -421,7 +427,7 @@ public class MonsterSkillService : IMonsterSkillService
                     SkillDamageCurve.HitBonus(fields, instance.Level, info.CharacterLevel),
                     SkillDamageCurve.CriticalBonus(fields, skill.Level));
 
-                _combat.DamagePlayer(client, hit.Damage);
+                _combat.DamagePlayer(client, hit.Damage, instanceId, magical);
                 return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, info.CharacterHandle,
                     info.CharacterHp, hit.Damage, (byte)hit.Flags);
             }

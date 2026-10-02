@@ -147,12 +147,13 @@ public class AreaSkillTests
             A.CallTo(() => Combat.GetMonsterStats(A<long>._)).Returns(new StatBlock { AttackPointRight = 100, MagicPoint = 200 });
             A.CallTo(() => Combat.RollHit(A<GameClient>._, A<long>._, A<float>._, A<DamageKind>._, A<int>._, A<int>._))
                 .Returns(new HitResult(25, HitFlags.Critical));
-            A.CallTo(() => Combat.ApplyDamage(A<GameClient>._, A<long>._, A<uint>._, A<int>._))
-                .ReturnsLazily((GameClient c, long id, uint handle, int damage) =>
+            A.CallTo(() => Combat.ApplyDamage(A<GameClient>._, A<long>._, A<uint>._, A<int>._, A<int>._))
+                .ReturnsLazily((GameClient c, long id, uint handle, int damage, int hate) =>
                 { var hp = World.ApplyDamage(id, damage); if (hp <= 0) World.Kill(id, DateTime.UtcNow.AddSeconds(1)); return hp; });
             A.CallTo(() => Combat.RollMonsterHit(A<long>._, A<GameClient>._, A<float>._, A<DamageKind>._, A<int>._, A<int>._))
                 .Returns(new HitResult(25, HitFlags.Critical));
-            A.CallTo(() => Combat.DamagePlayer(A<GameClient>._, A<int>._)).ReturnsLazily((GameClient c, int damage) =>
+            A.CallTo(() => Combat.DamagePlayer(A<GameClient>._, A<int>._, A<long>._, A<bool>._))
+                .ReturnsLazily((GameClient c, int damage, long attacker, bool magical) =>
             { var i = StorageTestHarness.Session(c); return i.CharacterHp = Math.Max(0, i.CharacterHp - damage); });
         }
         public GameClient Client(uint handle = PlayerHandle, float x = 80, float y = 100, sbyte layer = 0)
@@ -177,7 +178,7 @@ public class AreaSkillTests
             var repository = A.Fake<ISkillResourceRepository>();
             A.CallTo(() => repository.GetCastableSkills()).Returns(new[] { row });
             return new SkillCastService(new BuffCatalog(repository), Stats, A.Fake<IStateCatalog>(), World,
-                Combat, A.Fake<Navislamia.Game.Services.Props.IFieldPropCatalog>(), A.Fake<IWarpService>(), Players, Effects);
+                Combat, A.Fake<Navislamia.Game.Services.Props.IFieldPropCatalog>(), A.Fake<IWarpService>(), Players, Effects, runTicks: false);
         }
         public MonsterSkillService MonsterService(CastableSkillRow row, MonsterSkillOptions options = null, IScriptService scripts = null,
             ICharacterService characters = null, ISkillCastService skillCast = null)
@@ -192,6 +193,7 @@ public class AreaSkillTests
             float x = 100, float y = 100)
         {
             var info = StorageTestHarness.Session(client); info.LearnedSkills[id] = 1;
+            service.Register(client);
             service.Cast(client, new GameActionPackets.SkillRequest((ushort)id, info.CharacterHandle, target,
                 x, y, 0, (sbyte)info.Layer, 1));
         }
@@ -334,7 +336,7 @@ public class AreaSkillTests
         var fire = h.Frames(target, SkillPacketType.Fire).Single();
         BinaryPrimitives.ReadUInt16LittleEndian(fire.AsSpan(55)).Should().Be(2);
         BinaryPrimitives.ReadInt32LittleEndian(fire.AsSpan(57 + 45 + 5)).Should().Be(0);
-        A.CallTo(() => h.Combat.ApplyDamage(target, 0, MonsterHandle, 25)).MustHaveHappenedTwiceExactly();
+        A.CallTo(() => h.Combat.ApplyDamage(target, 0, MonsterHandle, 25, A<int>._)).MustHaveHappenedTwiceExactly();
     }
 
     [Test]
@@ -356,8 +358,9 @@ public class AreaSkillTests
         h.Cast(service, caster);
         var now = unchecked(StorageTestHarness.Session(caster).SkillCooldowns[9000] - 100);
         h.World.GetHp(0).Should().Be(1000);
-        h.Effects.Tick(now + 199); h.World.GetHp(0).Should().Be(1000);
-        h.Effects.Tick(now + 200); h.World.GetHp(0).Should().Be(975);
+        // The delay is the ordinary pending cast's; the fires start when it is over.
+        service.ProcessCasts(now + 199); h.World.GetHp(0).Should().Be(1000);
+        service.ProcessCasts(now + 200); h.World.GetHp(0).Should().Be(975);
         StorageTestHarness.Session(caster).CharacterMp.Should().Be(90);
         h.Frames(caster, SkillPacketType.Complete).Should().ContainSingle();
     }
@@ -570,7 +573,7 @@ public class AreaSkillTests
         var peer = h.Frames(watcher, SkillPacketType.Fire).Single();
         BinaryPrimitives.ReadUInt16LittleEndian(peer.AsSpan(55)).Should().Be(2);
         BinaryPrimitives.ReadUInt32LittleEndian(peer.AsSpan(103)).Should().Be(MonsterHandle + 11);
-        A.CallTo(() => h.Combat.ApplyDamage(caster, 1, 0, 25)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => h.Combat.ApplyDamage(caster, 1, 0, 25, A<int>._)).MustHaveHappenedOnceExactly();
     }
 
     [Test]

@@ -18,6 +18,7 @@ public class ItemStatCatalog : IItemStatCatalog
     private readonly ILogger _logger = Log.ForContext<ItemStatCatalog>();
     private readonly FrozenDictionary<int, IReadOnlyList<StatEffect>> _effects;
     private readonly FrozenDictionary<int, ItemType> _weaponTypes;
+    private readonly FrozenDictionary<int, float> _attackRanges = FrozenDictionary<int, float>.Empty;
 
     public ItemStatCatalog(IItemResourceRepository repository)
     {
@@ -40,6 +41,16 @@ public class ItemStatCatalog : IItemStatCatalog
 
         _effects = effects.ToFrozenDictionary();
         _weaponTypes = weaponTypes.ToFrozenDictionary();
+        var ranges = new Dictionary<int, float>();
+        foreach (var (id, range) in repository.GetWeaponRanges() ?? new Dictionary<int, decimal>())
+        {
+            if (_weaponTypes.ContainsKey(id))
+            {
+                ranges[id] = (float)(range * 100m);
+            }
+        }
+
+        _attackRanges = ranges.ToFrozenDictionary();
         _logger.Debug("Loaded stat effects for {count} item resources and {weapons} weapons", _effects.Count,
             _weaponTypes.Count);
     }
@@ -48,6 +59,9 @@ public class ItemStatCatalog : IItemStatCatalog
     {
         return _effects.TryGetValue(itemResourceId, out var effects) ? effects : Array.Empty<StatEffect>();
     }
+
+    public float GetAttackRange(int itemResourceId) =>
+        _attackRanges.TryGetValue(itemResourceId, out var range) ? range : 0f;
 
     public ItemType? GetWeaponType(int itemResourceId)
     {

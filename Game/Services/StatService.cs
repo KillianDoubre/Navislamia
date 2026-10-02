@@ -36,13 +36,21 @@ public class StatService : IStatService
 
     public CharacterStatResult Compute(ConnectionInfo info)
     {
-        return _calculator.Compute(new StatCalculatorInput(
+        var result = _calculator.Compute(new StatCalculatorInput(
             info.CharacterJob,
             BuildJobHistory(info.PreviousJobs, info.CharacterJob, info.CharacterJobLevel),
             info.CharacterLevel,
             info.ItemEffects,
             info.PassiveEffects,
             info.BuffEffects));
+
+        // applyItemEffect: the worn weapon's range sets the attack range (50 bare-handed, the calculator's default).
+        if (info.WeaponAttackRange > 0f && result.Total is not null)
+        {
+            result.Total.AttackRange = info.WeaponAttackRange;
+        }
+
+        return result;
     }
 
     public CharacterStatResult ComputeForNewCharacter(int race)
@@ -61,6 +69,7 @@ public class StatService : IStatService
         info.PreviousJobs.AddRange(PreviousJobsOf(character));
         info.EquippedWeapon = ResolveEquippedWeapon(character);
         info.ItemEffects = ResolveItemEffects(character);
+        SeedHands(info, character);
         info.PassiveEffects = ResolvePassiveEffects(character, info.EquippedWeapon);
         RefreshBuffs(info);
     }
@@ -92,6 +101,36 @@ public class StatService : IStatService
         }
 
         info.BuffEffects = (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
+    }
+
+    /// <summary>The main-hand weapon's own effects and what the shield slot holds if it is not a shield.</summary>
+    private void SeedHands(ConnectionInfo info, CharacterEntity character)
+    {
+        info.RightWeaponEffects = Array.Empty<StatEffect>();
+        info.LeftHand = null;
+        info.WeaponAttackRange = 0f;
+        if (character.Items is null)
+        {
+            return;
+        }
+
+        foreach (var item in character.Items)
+        {
+            if (item.WearInfo == ItemWearType.Weapon)
+            {
+                info.RightWeaponEffects = _itemStats.GetEffects((int)item.ItemResourceId);
+                info.WeaponAttackRange = _itemStats.GetAttackRange((int)item.ItemResourceId);
+            }
+            else if (item.WearInfo == ItemWearType.Shield)
+            {
+                var weapon = _itemStats.GetWeaponType((int)item.ItemResourceId);
+                if (weapon is not null || Combat.AttackMechanics.IsRanged(info.EquippedWeapon))
+                {
+                    info.LeftHand = new Combat.LeftHandItem((uint)item.Id, (int)item.ItemResourceId, weapon,
+                        item.Amount, _itemStats.GetEffects((int)item.ItemResourceId));
+                }
+            }
+        }
     }
 
     private ItemType? ResolveEquippedWeapon(CharacterEntity character)

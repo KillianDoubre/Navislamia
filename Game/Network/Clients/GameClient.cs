@@ -229,9 +229,10 @@ public class GameClient : Client
             return;
         }
 
-        // The load slows the walk (StructPlayer::GetMoveSpeed): the echo, the peers' copy and the position
-        // estimate all use the same speed (docs/packet-specs/socle-poids.md).
-        var speed = _networkService.CarriedWeightService?.MoveSpeed(ConnectionInfo, ConnectionInfo.EchoedMoveSpeed)
+        // onMoveRequest echoes GetRealMoveSpeed(): the stat move speed, slowed by the load
+        // (StructPlayer::GetMoveSpeed), divided by 7. The echo, the peers' copy and the position estimate all
+        // use it (docs/packet-specs/socle-vitesse-echo.md, socle-poids.md).
+        var speed = _networkService.CarriedWeightService?.RealMoveSpeed(ConnectionInfo)
                     ?? ConnectionInfo.EchoedMoveSpeed;
         ConnectionInfo.MoveSpeed = speed;
         var total = 7 + 12 + count * 8;
@@ -831,6 +832,9 @@ public class GameClient : Client
         var handle = GameActionPackets.ReadCancelActionHandle(buffer);
         _logger.Verbose("{clientTag} cancelled action for handle {handle}", ClientTag, handle);
         _networkService.CombatService.StopAttack(this);
+
+        // onCancelAction also cancels the cast in progress (StructCreature::CancelSkill).
+        _networkService.SkillCastService?.CancelCast(this);
     }
 
     private void HandleResurrection(byte[] buffer)
@@ -1038,6 +1042,12 @@ public class GameClient : Client
             (ushort)GamePackets.TM_CS_COMPETE_REQUEST, buffer.Length, ClientTag, request.CompeteType,
             request.Requestee);
 
+        if (_networkService.CompeteService is { } compete)
+        {
+            compete.Request(this, request);
+            return;
+        }
+
         SendResult((ushort)GamePackets.TM_CS_COMPETE_REQUEST, (ushort)GameCompetePackets.RequestRefusalCode);
     }
 
@@ -1069,6 +1079,12 @@ public class GameClient : Client
             "TM_CS_COMPETE_ANSWER ({id}) Length: {length} received from {clientTag}: competeType={competeType}, answerType={answerType}",
             (ushort)GamePackets.TM_CS_COMPETE_ANSWER, buffer.Length, ClientTag, answer.CompeteType,
             answer.AnswerType);
+
+        if (_networkService.CompeteService is { } compete)
+        {
+            compete.Answer(this, answer);
+            return;
+        }
 
         SendResult((ushort)GamePackets.TM_CS_COMPETE_ANSWER, (ushort)GameCompetePackets.AnswerRefusalCode);
     }
@@ -1257,6 +1273,7 @@ public class GameClient : Client
             _networkService.CombatService.StopAttack(this);
             _networkService.CombatService.DropAggro(this);
             _networkService.SkillCastService.Unregister(this);
+            _networkService.CompeteService?.Leave(this, Navislamia.Game.Services.Compete.CompeteEndType.Logout);
 
             // The exit goes first: every observer must be told before the asynchronous save and the
             // socket cleanup (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 5). An open
@@ -1291,6 +1308,7 @@ public class GameClient : Client
         {
             _logger.Debug("{clientTag} returning to character selection", ClientTag);
             _networkService.CombatService.StopAttack(this);
+            _networkService.CompeteService?.Leave(this, Navislamia.Game.Services.Compete.CompeteEndType.Logout);
             _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
@@ -2476,6 +2494,15 @@ public class GameClient : Client
             // TM_SC_REGION_ACK is a server to client packet: the 7.3 client never sends it. An incoming one
             // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
             // "Unknown Packet Type" throw below.
+            // The duel's five server to client frames (4501, 4503-4506): never sent by the client.
+            if (header.ID is (ushort)GamePackets.TM_SC_COMPETE_REQUEST or (ushort)GamePackets.TM_SC_COMPETE_ANSWER
+                or (ushort)GamePackets.TM_SC_COMPETE_COUNTDOWN or (ushort)GamePackets.TM_SC_COMPETE_START
+                or (ushort)GamePackets.TM_SC_COMPETE_END)
+            {
+                _logger.Warning("Server to client compete packet ({id}) received from {clientTag}", header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_SC_REGION_ACK)
             {
                 _logger.Warning("Server to client packet TM_SC_REGION_ACK ({id}) received from {clientTag}",

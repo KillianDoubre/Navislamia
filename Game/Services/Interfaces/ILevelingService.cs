@@ -6,6 +6,13 @@ public interface ILevelingService
 {
     void ApplyExperience(GameClient client);
 
+    /// <summary>
+    /// Gives back <paramref name="ratio"/> of the experience the last death took and forgets the rest
+    /// (<c>Resurrect(…, exp)</c>): the experience update, and a level back up when the total crosses it again.
+    /// Returns what was given back.
+    /// </summary>
+    long RestoreDeathExperience(GameClient client, decimal ratio) => 0;
+
     void ApplyJobLevelUp(GameClient client, uint targetHandle);
 
     /// <summary>

@@ -46,7 +46,8 @@ public static class ResurrectionRules
             return ResultCode.NotActable;
         }
 
-        if (type is not (ResurrectionType.UseNone or ResurrectionType.UseState or ResurrectionType.UsePotion))
+        if (type is not (ResurrectionType.UseNone or ResurrectionType.UseState or ResurrectionType.UsePotion
+                or ResurrectionType.Compete))
         {
             return ResultCode.NotActable;
         }
@@ -128,6 +129,32 @@ public static class ResurrectionRules
             Math.Max(0m, (decimal)maxMp));
         return (hp, mp);
     }
+
+    /// <summary>
+    /// The share of the death's experience a resurrection skill gives back: <c>var2 × level</c> for
+    /// <c>SKILL_RESURRECTION</c> (2012-11 <c>0x1402312f0</c>), <c>var4 + var5 × level</c> for
+    /// <c>SKILL_RESURRECTION_WITH_RECOVER</c> (<c>0x140231bb0</c>); the enhancement terms are zero.
+    /// </summary>
+    public static decimal SkillExpRatio(SkillEffectType effect, decimal[] vars, int skillLevel)
+    {
+        decimal Var(int index) => vars is not null && index < vars.Length ? vars[index] : 0m;
+        return effect == SkillEffectType.ResurrectionWithRecover
+            ? Var(4) + Var(5) * skillLevel
+            : Var(2) * skillLevel;
+    }
+
+    /// <summary>
+    /// The HP a resurrection potion gives back (<c>StructPlayer::ResurrectByPotion</c>, 2012-11
+    /// <c>0x1400e5650</c>): <c>var1 × max HP</c>, at least 1. The MP are left as they are.
+    /// </summary>
+    public static int PotionHp(decimal hpRatio, float maxHp) =>
+        (int)Math.Clamp(hpRatio * (decimal)maxHp, 1m, Math.Max(1m, (decimal)maxHp));
+
+    /// <summary>
+    /// <c>StructPlayer::ResurrectByCompete</c> (2012-11 <c>0x1400e5c10</c>): a tenth of the maximum HP comes back
+    /// (the global ratio 1 000 of a <c>c_fixed&lt;10000&gt;</c>), at least 1.
+    /// </summary>
+    public static int CompeteHp(float maxHp) => Math.Max(1, (int)(maxHp / 10f));
 
     public static (int Hp, int Mp) VitalsByState(ResurrectionStateValues values, int stateLevel, float maxHp,
         float maxMp, int currentMp)

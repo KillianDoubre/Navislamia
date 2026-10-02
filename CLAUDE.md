@@ -556,8 +556,9 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
 **The aggro target lives in `MonsterWorldState`** next to HP/respawn/states, sparse like they are, so
 it is the single source of mutable monster state and the movement/AI/combat threads share one lock.
 A monster's handle differs per client, so the attack and move packets use *that client's*
-`SpawnedMonsters` handle; aggro targets exactly one player, unambiguous while the world is
-single-player.
+`SpawnedMonsters` handle. The aggro target is the top of a **hate list** (`AddHate`, official
+`addHate`/`GetHatePoint`): a swing is worth its damage, a skill `hate_mod`/`hate_basic`/`hate_per_skl`, and
+`DropTarget` falls back to the next hater before the monster goes home (`socle-haine.md`).
 
 **The ranges are scaled, and the scale is not uniform** — the same trap as `cast_range`.
 `MonsterAiRules` ports the reference: **chase range is `12 × chase_range`** (`Monster::GetChaseRange`,
@@ -592,6 +593,27 @@ lands on the monster itself. Modelled: single-target damage 101/30001 (physical)
 read them) and the self heal 501. The region families (111, 113, 261, 262, 30013…), multi-hit effects,
 timed ground damage and Lua trigger conditions/casts/states are implemented; the export now retains
 1,067 slots and 784 triggers. See `socle-competences-zone-multi-coups.md` for coverage and remaining limits.
+
+## Combat mechanics, casting, hate and death (2026-10-02)
+
+Ported from the official server (`CaptainHerlockServer.exe` 2012-11 and its symbols), one sheet each:
+
+- `socle-mecaniques-combat.md`: `Game/Services/Combat/AttackMechanics.cs` — double attack (state effect 21),
+  dual wield (`LeftHandItem`), bow aim then shoot with an arrow spent, additional damage (22/23), mana shield
+  (49) and reflections (43/44), all inside `CombatService.ProcessSwing`/`DamagePlayer`. **`attack_range` is
+  ×100 at load** (`ItemStatCatalog.GetAttackRange`) and the player's reach is now its weapon's
+  (`CombatRange.PlayerReach`): the factor was missing, which made every monster a melee one.
+- `socle-lancer-competences.md`: `Game/Services/Casting/` — `CastRules.InRange` (body to body, `12 ×
+  cast_range`, ×1.2 or ×1.5 on a moving target, -1 = weapon), state landing rolls, `StateStacking` (refusal
+  `9`), the pending cast (`PendingCast`, 50 ms tick) with Escape cancel, damage pushback by `casting_level`
+  and interrupting states. **Every damage family goes through the same pending cast**, the area and
+  multi-hit ones included: their fires start in `CastDamageSequence` once the delay is over.
+- `socle-haine.md`: hate list (see Monster AI). `socle-vitesse-echo.md`: the echoed speed byte is ÷ 7.
+- `socle-mort-joueur.md`: retained loss (`DeathExpLoss`), potions 114, resurrection by another player
+  (`SkillCastKind.Resurrection`, `HIT_REBIRTH` 23), drops on a PK server only. `GameRules` options.
+- `socle-competition-joueurs.md` §10: the duel and player versus player swings.
+
+Kill experience and the death penalty both take `ConnectionInfo.ProgressLock`.
 
 ## Equipment
 
@@ -1572,10 +1594,13 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   validate target and weapon range before costs/cooldowns, including Lua; selection uses interpolated
   player positions. Missing script branches
   and raid adjustments remain unported. **Damage, hit, block, critical
-  and attack speed follow the official rules on both sides** (`socle-combat-reel.md`); not modelled:
-  double attack, dual wield, bow aiming, elements, additional damage, reflection and mana shield. A
-  player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them back in town, or in place with a
-  resurrection state or a Resurrection Scroll (resurrection by another player is not implemented). Kill
+  and attack speed follow the official rules on both sides** (`socle-combat-reel.md`), and so do double
+  attack, dual wield, bow aiming (arrows spent), additional damage, reflection and mana shield
+  (`socle-mecaniques-combat.md`); elements are carried on the wire but no resistance is modelled. A
+  player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them back in town, in place with a
+  resurrection state, an official resurrection potion (effect 114, part of the lost exp back), another
+  player's resurrection skill (504/30501) or, for a duel's loser, type 3 (`socle-mort-joueur.md`); items
+  drop at death on a PK server only (`GameRules:PkServer`). Kill
   rewards use the loaded resource EXP/JP, gold and chaos; contribution weights and level penalties remain
   unmodelled (`socle-recompenses-monstres.md`)
 - Ground items are seen by nearby players; monster drops can be taken by the owner and eligible party members
@@ -1590,10 +1615,11 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 - **Casting works for buffs, toggle auras, heals, monster debuffs and single-target offensive skills**
   (physical 30001 and magic 231): MP cost, cooldown, cast delay, duration, expiry, damage, death and
   reward, including region/multi-hit offensive skills and timed ground damage 271.
-  **Debuffs move the monster's stats.** Not implemented: `cast_range` outside new ground-target casts,
-  expanding a region buff beyond the caster, buffing other players
-  (no party), summon buffs, resurrection, region heals, debuff resistance, `state_type` stacking rules,
-  cast interruption and buff persistence across sessions
+  **Debuffs move the monster's stats.** `cast_range`, debuff resistance, `state_type` stacking
+  (`duplicate_group`, `reiteration_count`) and cast interruption (Escape, damage pushback, stun-like
+  states, warp) follow the official server (`socle-lancer-competences.md`). Not implemented: expanding a
+  region buff beyond the caster, buffing other players, summon buffs, region heals and buff persistence
+  across sessions
 - Equipping and unequipping work and persist and now feed the stats, but item requirements (level, job,
   race) are still not validated
 - Stats cover job/JLv/level, equipment, the supported passive skills, active buffs and toggled auras;
@@ -1757,7 +1783,8 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   nouvelle opération d'objets dans `CharacterService` doit passer par ces deux méthodes, sinon le poids la
   manque.
 - Effets, tous ceux du serveur officiel : **marche ×0,5 dès 75 %, ×0,1 à 100 %** (`ConnectionInfo.MoveSpeed`,
-  pour l'écho, les pairs et l'estimation de position — plus la constante `EchoedMoveSpeed` seule) ;
+  pour l'écho, les pairs et l'estimation de position — plus la constante `EchoedMoveSpeed` seule ; l'octet de
+  vitesse du fil est la vitesse ÷ 7, comme pour les monstres, `socle-vitesse-echo.md`) ;
   **`TooHeavy`** au ramassage, à l'achat (valeur = code), à la sortie d'entrepôt, à l'échange et au retrait du
   sac. Fiche : `docs/packet-specs/socle-poids.md`.
 
@@ -2243,7 +2270,9 @@ un delta** : publier un seul bit éteint tous les autres. Il ne se compose donc 
 `CharacterService.SaveProgressAsync` (d'où le paramètre `bool pkMode`). Aucune migration : la
 colonne existe depuis `Version0001_TheBeginning`. Le protocole n'a **aucun paquet serveur PK** —
 `800` et `801` (trames d'en-tête seul) basculent `PkMode` et republient le masque par
-`GameClient.SendActorStatus`, qui passe par `ForPlayer(info)` et part aussi aux observateurs.
+`GameClient.SendActorStatus`, qui passe par `ForPlayer(info)` et part aussi aux observateurs. Le mode PK
+n'ouvre le combat entre joueurs que dans un terrain PK, inconnu ici : l'option `GameRules:PkFieldsEverywhere`
+fait de tout lieu un terrain PK (désactivée par défaut, voir le duel, socle 4500-4506).
 
 Les tests d'offsets des deux trames sont dans `Tests/Game/PkModeStatusTests.cs`.
 
@@ -2500,6 +2529,13 @@ aucune pour 4502 — le refus serait silencieux ; la correspondance existe en `0
 **Ne pas porter NGemity** : les sept ids et structures y sont déclarés et **jamais traités**
 (`Chihiro` n'a que `CRT_COMPETE`, `AF_ERASE_ON_COMPETE_START`, `AF_NOT_ACTABLE_IN_COMPETE`,
 `REVIVE_COMPETE`). `librzu` non plus. C'est du protocole pur, comme le socle instances de jeu.
+
+**Le duel est livré (C2…C4, 2026-10-02)** : `CompeteService` porte `CompeteManager` du serveur officiel —
+règles et codes de la demande, 60 s pour répondre, compte à rebours de 10 s, 900 s dans un rayon de 500 autour
+du point de départ, fins 0-5, trames 4501/4503-4506 émises, résurrection 513 type 3 du perdant (10 % des PV),
+coups entre duellistes par `CombatService` (`StructPlayer::IsEnemy`). Le combat en mode PK hors duel reste
+derrière `GameRules:PkFieldsEverywhere` (terrains PK inconnus). Détail : §10 de la fiche. Ce qui suit décrit
+le premier lot, remplacé quand le service est présent :
 
 **Socle minimum (C1), livré** : `4500` et `4502` sont lus, validés et refusés — 39 octets exigés
 pour le premier avec un nom NUL-terminé dans ses 31 octets, 9 pour le second ; une trame mal

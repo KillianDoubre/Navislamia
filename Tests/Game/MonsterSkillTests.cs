@@ -137,11 +137,26 @@ public class MonsterSkillTests
     [Test]
     public void A_harmful_state_lands_on_the_player_through_the_buff_path()
     {
-        var (service, _, skillCast, connection, _) = Build(Row(7005, 301, true, 4001, stateSecond: 8m));
+        var (service, combat, skillCast, connection, _) = Build(Row(7005, 301, true, 4001, stateSecond: 8m));
+        // STATE_SKILL_FUNCTOR: 301 lands on magic accuracy - magic avoid + 50 >= the roll (99 here).
+        A.CallTo(() => combat.GetMonsterStats(A<long>._)).Returns(new StatBlock { MagicAccuracy = 60f });
 
         service.TryCast(Client(connection), InstanceId, MonsterHandle, 1000, out _).Should().BeTrue();
 
         A.CallTo(() => skillCast.ApplyState(A<GameClient>._, 4001, 1, 800u)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public void A_harmful_state_the_player_resists_does_not_land()
+    {
+        var (service, combat, skillCast, connection, _) = Build(Row(7005, 301, true, 4001, stateSecond: 8m));
+        A.CallTo(() => combat.GetMonsterStats(A<long>._)).Returns(new StatBlock { MagicAccuracy = 20f });
+        A.CallTo(() => combat.GetPlayerStats(A<GameClient>._)).Returns(new StatBlock { MagicAvoid = 30f });
+
+        // 20 - 30 + 0 + 50 = 40 < 99: resisted, the skill still went off.
+        service.TryCast(Client(connection), InstanceId, MonsterHandle, 1000, out _).Should().BeTrue();
+
+        A.CallTo(() => skillCast.ApplyState(A<GameClient>._, A<int>._, A<int>._, A<uint>._)).MustNotHaveHappened();
     }
 
     [Test]
@@ -193,6 +208,13 @@ public class MonsterSkillTests
             session.CharacterHp = Math.Max(0, session.CharacterHp - damage);
             return session.CharacterHp;
         });
+        A.CallTo(() => combat.DamagePlayer(A<GameClient>._, A<int>._, A<long>._, A<bool>._))
+            .ReturnsLazily((GameClient target, int damage, long _, bool _) =>
+            {
+                var session = StorageTestHarness.Session(target);
+                session.CharacterHp = Math.Max(0, session.CharacterHp - damage);
+                return session.CharacterHp;
+            });
         var skillCast = A.Fake<ISkillCastService>();
         var service = new MonsterSkillService(catalog, world, combat, skillCast, new FixedRandom());
 

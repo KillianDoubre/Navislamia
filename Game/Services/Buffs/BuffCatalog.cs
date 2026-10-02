@@ -27,6 +27,8 @@ public class BuffCatalog : IBuffCatalog
     public const int ToggleAura = 701;
     public const int ToggleDifferentialAura = 702;
     public const int PhysicalSingleDamage = 30001;
+    public const int Resurrection = 504;
+    public const int ResurrectionWithRecover = 30501;
 
     /// <summary>
     /// EF_ACTIVATE_FIELD_PROP (0x251D). This is how a portal is used: the client casts the prop's
@@ -52,7 +54,7 @@ public class BuffCatalog : IBuffCatalog
     public static readonly int[] CastableEffectTypes =
     {
         MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, ToggleAura, ToggleDifferentialAura,
-        PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming,
+        PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming, Resurrection, ResurrectionWithRecover,
         30011, 30012, 30013, 30016, 232, 241, 261, 262, 263, 271
     };
 
@@ -102,6 +104,11 @@ public class BuffCatalog : IBuffCatalog
         return _countByKind.TryGetValue(kind, out var count) ? count : 0;
     }
 
+    /// <summary><c>casting_type</c> and <c>casting_level</c> are text columns holding 0, 1 or 2.</summary>
+    private static byte SmallNumber(string value) =>
+        byte.TryParse(value, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var number) ? number : (byte)0;
+
     public bool TryGet(int skillId, out CastableBuffFields fields)
     {
         return _skills.TryGetValue(skillId, out fields);
@@ -119,7 +126,7 @@ public class BuffCatalog : IBuffCatalog
         // spell carry their effect themselves.
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
                 or SkillCastKind.ActivateProp or SkillCastKind.Summon or SkillCastKind.Unsummon
-                or SkillCastKind.Taming)
+                or SkillCastKind.Taming or SkillCastKind.Resurrection)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -146,7 +153,22 @@ public class BuffCatalog : IBuffCatalog
             row.HitBonus,
             row.Percentage,
             row.CriticalBonus,
-            row.CriticalBonusPerSkl, row.EffectType, row.Target, row.RequiredTarget, row.CastRange);
+            row.CriticalBonusPerSkl,
+            row.EffectType,
+            row.Target,
+            row.RequiredTarget,
+            row.CastRange,
+            row.ProbabilityOnHit,
+            row.ProbabilityIncBySlv,
+            SmallNumber(row.CastingType),
+            SmallNumber(row.CastingLevel),
+            // is_passive marks the cancellable skills in this data: 976 of the 977 with a cast delay carry it,
+            // and StructSkill::Cancel refuses a skill without it (socle-lancer-competences.md §5).
+            row.IsPassive,
+            row.IsHarmful,
+            row.HateMod,
+            row.HateBasic,
+            row.HatePerSkl);
         return true;
     }
 
@@ -183,6 +205,18 @@ public class BuffCatalog : IBuffCatalog
                 Unsummon => SkillCastKind.Unsummon,
                 _ => SkillCastKind.Taming
             };
+            return true;
+        }
+
+        // A resurrection on a character (tf_avatar): 6013, the creature scroll's skill, targets summons only.
+        if (row.EffectType is Resurrection or ResurrectionWithRecover)
+        {
+            if (!row.UseOnCharacter)
+            {
+                return false;
+            }
+
+            kind = SkillCastKind.Resurrection;
             return true;
         }
 

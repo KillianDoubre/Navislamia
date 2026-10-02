@@ -34,6 +34,15 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyDictionary<int, decimal> GetWeaponRanges()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Where(item => item.Range > 0)
+            .Select(item => new { Id = (int)item.Id, item.Range })
+            .ToDictionary(item => item.Id, item => item.Range);
+    }
+
     public IReadOnlyList<ItemEffectFields> GetInstantSkillItems()
     {
         const short skill = (short)ItemEffectInstant.Skill;
@@ -41,6 +50,16 @@ public class ItemResourceRepository : IItemResourceRepository
         return _context.ItemResources
             .AsNoTracking()
             .Where(item => item.BaseTypes.Contains(skill) || item.OptTypes.Contains(skill))
+            .Select(item => new ItemEffectFields((int)item.Id, item.ItemType, item.BaseTypes, item.BaseVar1,
+                item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
+            .ToList();
+    }
+
+    public IReadOnlyList<ItemEffectFields> GetItemsWithInstantEffect(short effect)
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Where(item => item.BaseTypes.Contains(effect) || item.OptTypes.Contains(effect))
             .Select(item => new ItemEffectFields((int)item.Id, item.ItemType, item.BaseTypes, item.BaseVar1,
                 item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
             .ToList();

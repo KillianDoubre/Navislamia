@@ -100,7 +100,17 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.Percentage,
                 skill.CriticalBonus,
                 skill.CriticalBonusPerSkl,
-                (int)skill.RequiredTarget, skill.CastRange))
+                (int)skill.RequiredTarget,
+                skill.CastRange,
+                skill.ProbabilityOnHit,
+                skill.ProbabilityIncBySlv,
+                skill.CastingType,
+                skill.CastingLevel,
+                skill.IsPassive,
+                skill.UseOnCharacter,
+                skill.HateMod,
+                skill.HateBasic,
+                skill.HatePerSkill))
             .ToList();
     }
 
@@ -140,7 +150,17 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.Percentage,
                 skill.CriticalBonus,
                 skill.CriticalBonusPerSkl,
-                (int)skill.RequiredTarget, skill.CastRange))
+                (int)skill.RequiredTarget,
+                skill.CastRange,
+                skill.ProbabilityOnHit,
+                skill.ProbabilityIncBySlv,
+                skill.CastingType,
+                skill.CastingLevel,
+                skill.IsPassive,
+                skill.UseOnCharacter,
+                skill.HateMod,
+                skill.HateBasic,
+                skill.HatePerSkill))
             .ToList();
     }
 

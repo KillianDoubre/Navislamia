@@ -122,7 +122,8 @@ public class MonsterAiService
 
                 if (action == MonsterAiAction.Acquire)
                 {
-                    _worldState.SetAggro(instanceId, client);
+                    // processFirstAttack: AddHate(target, 1).
+                    _worldState.AddHate(instanceId, client, 1);
                     // Only the aggro on sight rallies the group, not a retaliation (processFirstAttack).
                     _worldState.RallyGroup(instance, _visible, client);
                 }
@@ -233,7 +234,10 @@ public class MonsterAiService
         ToOtherWatchers(client, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
             otherHandle, info.CharacterHandle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
             playerHp, monsterHp, (byte)hit.Flags));
-        _combat.DamagePlayer(client, hit.Damage);
+
+        // HP, property and, on the killing swing, the death penalty: after the swing that shows it.
+        _combat.DamagePlayer(client, hit.Damage, instanceId, false);
+
         _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
     }
 
@@ -266,6 +270,18 @@ public class MonsterAiService
     {
         // Read the pre-aggro position before clearing the target, then walk back to it at double speed.
         var hasHome = _worldState.TryGetAggroHome(instanceId, out var homeX, out var homeY);
+
+        // A target lost within the chase range hands over to the next most hated enemy (findNextEnemy); pulled
+        // past the chase range, the monster gives everything up and goes home.
+        var (mx, my) = _worldState.GetPosition(instanceId);
+        var pulledAway = hasHome && _worldState.TryGetInstance(instanceId, out var self)
+                         && MonsterAiRules.Distance(homeX, homeY, mx, my)
+                         > MonsterAiRules.ScaledChaseRange(self.ChaseRange);
+        if (!pulledAway && _worldState.DropTarget(instanceId))
+        {
+            return;
+        }
+
         _worldState.ClearAggro(instanceId);
 
         if (!hasHome)

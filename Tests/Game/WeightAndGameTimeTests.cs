@@ -96,11 +96,21 @@ public class WeightAndGameTimeTests
         service.MoveSpeed(info, 100).Should().Be(50);
     }
 
+    [TestCase(120f, 0f, 17)]
+    [TestCase(120f, 75f, 8)]
+    [TestCase(120f, 100f, 1)]
+    [TestCase(180f, 0f, 25)]
+    public void TheWireSpeedIsTheLoadedMoveSpeedDividedBySeven(float moveSpeed, float carried, int expected)
+    {
+        // StructPlayer::GetMoveSpeed applies the load, StructCreature::GetRealMoveSpeed divides by 7.
+        WeightRules.RealMoveSpeed(moveSpeed, carried, 100f).Should().Be((byte)expected);
+    }
+
     [Test]
     public void TheMoveEchoGoesAtTheSpeedTheLoadAllows()
     {
         var weights = A.Fake<ICarriedWeightService>();
-        A.CallTo(() => weights.MoveSpeed(A<ConnectionInfo>._, ConnectionInfo.EchoedMoveSpeed)).Returns((byte)50);
+        A.CallTo(() => weights.RealMoveSpeed(A<ConnectionInfo>._)).Returns((byte)8);
         var frame = MoveRequest(7, (100f, 100f));
         var connection = new StorageTestHarness.FrameConnection(frame);
         var client = StorageTestHarness.NewGameClient(connection, carriedWeightService: weights);
@@ -110,8 +120,8 @@ public class WeightAndGameTimeTests
 
         var echo = connection.Sent.Single(sent => BinaryPrimitives.ReadUInt16LittleEndian(sent.AsSpan(4, 2))
                                                   == (ushort)GamePackets.TM_SC_MOVE);
-        echo[16].Should().Be(50);
-        StorageTestHarness.Session(client).MoveSpeed.Should().Be(50);
+        echo[16].Should().Be(8);
+        StorageTestHarness.Session(client).MoveSpeed.Should().Be(8);
     }
 
     [Test]

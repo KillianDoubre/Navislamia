@@ -15,11 +15,20 @@ namespace Navislamia.Game.Services;
 public readonly record struct ResurrectionItem(int ItemResourceId, int SkillId, int SkillLevel,
     SkillEffectType Effect, decimal[] Vars);
 
+/// <summary>
+/// A resurrection potion of <c>StructPlayer::ResurrectByPotion</c>: effect 114, <c>var1</c> the share of the max HP,
+/// <c>var2</c> the share of the death's experience given back.
+/// </summary>
+public readonly record struct ResurrectionPotion(int ItemResourceId, decimal HpRatio, decimal ExpRatio);
+
 public interface IResurrectionItemCatalog
 {
     int Count { get; }
 
     bool TryGet(int itemResourceId, out ResurrectionItem item);
+
+    /// <summary>The potions a dead character may use on itself, in the order the reference looks for them.</summary>
+    IReadOnlyList<ResurrectionPotion> Potions => Array.Empty<ResurrectionPotion>();
 }
 
 /// <summary>
@@ -38,13 +47,24 @@ public class ResurrectionItemCatalog : IResurrectionItemCatalog
 {
     private readonly ILogger _logger = Log.ForContext<ResurrectionItemCatalog>();
     private readonly FrozenDictionary<int, ResurrectionItem> _items;
+    private readonly IReadOnlyList<ResurrectionPotion> _potions = Array.Empty<ResurrectionPotion>();
+
+    /// <summary>
+    /// The four codes <c>ResurrectByPotion</c> looks for, in its order (2012-11 <c>0x1400e5650</c>).
+    /// </summary>
+    public static readonly int[] PotionCodes = { 2010454, 2902042, 910005, 910004 };
+
+    /// <summary>The instant effect a resurrection potion carries.</summary>
+    public const short PotionEffect = 114;
 
     public ResurrectionItemCatalog(IItemResourceRepository items, ISkillResourceRepository skills)
     {
         try
         {
             _items = Build(items.GetInstantSkillItems(), skills.GetResurrectionSkills());
-            _logger.Information("Loaded {count} resurrection items", _items.Count);
+            _potions = BuildPotions(items.GetItemsWithInstantEffect(PotionEffect));
+            _logger.Information("Loaded {count} resurrection items and {potions} resurrection potions", _items.Count,
+                _potions.Count);
         }
         catch (Exception exception)
         {
@@ -54,6 +74,54 @@ public class ResurrectionItemCatalog : IResurrectionItemCatalog
     }
 
     public int Count => _items.Count;
+
+    public IReadOnlyList<ResurrectionPotion> Potions => _potions;
+
+    /// <summary>The potions among <see cref="PotionCodes"/> whose effect 114 resolves, in that order.</summary>
+    public static IReadOnlyList<ResurrectionPotion> BuildPotions(IEnumerable<ItemEffectFields> items)
+    {
+        var byId = (items ?? Array.Empty<ItemEffectFields>()).ToDictionary(item => item.Id);
+        var potions = new List<ResurrectionPotion>();
+        foreach (var code in PotionCodes)
+        {
+            if (!byId.TryGetValue(code, out var item))
+            {
+                continue;
+            }
+
+            if (TryPotionSlot(item.BaseTypes, item.BaseVar1, item.BaseVar2, out var hp, out var exp)
+                || TryPotionSlot(item.OptTypes, item.OptVar1, item.OptVar2, out hp, out exp))
+            {
+                potions.Add(new ResurrectionPotion(code, hp, exp));
+            }
+        }
+
+        return potions;
+    }
+
+    private static bool TryPotionSlot(short[] types, decimal[] var1, decimal[] var2, out decimal hp, out decimal exp)
+    {
+        hp = 0m;
+        exp = 0m;
+        if (types is null)
+        {
+            return false;
+        }
+
+        for (var slot = 0; slot < types.Length; slot++)
+        {
+            if (types[slot] != PotionEffect)
+            {
+                continue;
+            }
+
+            hp = var1 is not null && slot < var1.Length ? var1[slot] : 0m;
+            exp = var2 is not null && slot < var2.Length ? var2[slot] : 0m;
+            return true;
+        }
+
+        return false;
+    }
 
     public bool TryGet(int itemResourceId, out ResurrectionItem item) => _items.TryGetValue(itemResourceId, out item);
 

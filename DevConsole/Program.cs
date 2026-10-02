@@ -92,6 +92,7 @@ public class Program
         services.Configure<NetworkOptions>(context.Configuration.GetSection("Network"));
         services.Configure<AuthOptions>(context.Configuration.GetSection("Network:Auth"));
         services.Configure<GameOptions>(context.Configuration.GetSection("Network:Game"));
+        services.Configure<GameRuleOptions>(context.Configuration.GetSection("GameRules"));
         services.Configure<UploadOptions>(context.Configuration.GetSection("Network:Upload"));
         services.Configure<ScriptOptions>(context.Configuration.GetSection("Script"));
         services.Configure<MapOptions>(context.Configuration.GetSection("Map"));
@@ -313,6 +314,9 @@ public class Program
         services.AddSingleton<IStateResourceRepository, StateResourceRepository>();
         services.AddSingleton<IStateCatalog, StateCatalog>();
         services.AddSingleton<IBuffCatalog, BuffCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Casting.CastInterrupts>();
+        services.AddSingleton<Navislamia.Game.Services.Casting.ICastInterrupts>(provider =>
+            provider.GetRequiredService<Navislamia.Game.Services.Casting.CastInterrupts>());
         services.AddSingleton<ISkillCastService, SkillCastService>();
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
@@ -363,6 +367,10 @@ public class Program
         services.AddSingleton<RateEventTicker>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
+        services.AddSingleton<Navislamia.Game.Services.Compete.ICompeteService,
+            Navislamia.Game.Services.Compete.CompeteService>();
+        services.AddSingleton<Navislamia.Game.Services.Death.IDeathDropService,
+            Navislamia.Game.Services.Death.DeathDropService>();
         services.AddSingleton<ICraftingSocleService, CraftingSocleService>();
         services.AddSingleton<IBoothWatchService, BoothWatchService>();
         services.AddSingleton<IPlayerVisibilityService, PlayerVisibilityService>();

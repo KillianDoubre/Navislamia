@@ -25,8 +25,11 @@ public class WarpService : IWarpService
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
         IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
-        IPlayerVisibilityService playerVisibility, IGroundItemService groundItems)
+        IPlayerVisibilityService playerVisibility, IGroundItemService groundItems,
+        Casting.ICastInterrupts casts = null, Compete.ICompeteService compete = null)
     {
+        _compete = compete;
+        _casts = casts;
         _petSummon = petSummon;
         _npcSpawnService = npcSpawnService;
         _monsterSpawnService = monsterSpawnService;
@@ -35,6 +38,10 @@ public class WarpService : IWarpService
         _playerVisibility = playerVisibility;
         _groundItems = groundItems;
     }
+
+    /// <summary>WarpBegin cancels the cast in progress (StructCreature::CancelSkill).</summary>
+    private readonly Casting.ICastInterrupts _casts;
+    private readonly Compete.ICompeteService _compete;
 
     public void Warp(GameClient client, float x, float y)
     {
@@ -45,6 +52,8 @@ public class WarpService : IWarpService
             // The current target is about to be a world away, so the swing loop has to stop before
             // the position changes rather than keep hitting across the map.
             _combatService.StopAttack(client);
+            _casts?.Interrupt(client);
+            _compete?.Leave(client, Compete.CompeteEndType.LeftField);
             _combatService.DropAggro(client);
             info.TargetHandle = 0;
 

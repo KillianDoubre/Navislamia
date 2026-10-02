@@ -21,8 +21,10 @@ public class LevelingService : ILevelingService
     private int[] _jobJpCost;
     private int _maxLevel;
 
-    public LevelingService(ILevelResourceRepository repository, IStatService statService, IRateService rates)
+    public LevelingService(ILevelResourceRepository repository, IStatService statService, IRateService rates,
+        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null)
     {
+        _rules = rules;
         _rates = rates;
         _repository = repository;
         _statService = statService;
@@ -65,15 +67,25 @@ public class LevelingService : ILevelingService
 
     public long ApplyDeathPenalty(GameClient client)
     {
+        // The kill rewards credit experience under the same lock: a penalty must not interleave with them.
+        lock (client.ConnectionInfo.ProgressLock)
+        {
+            return DeathPenalty(client);
+        }
+    }
+
+    private long DeathPenalty(GameClient client)
+    {
         var info = client.ConnectionInfo;
-        var penalty = Math.Min(LevelCurve.DeathPenalty(_cumulativeExp, _maxLevel, info.CharacterLevel),
-            info.CharacterExp);
+        var penalty = Math.Min(LevelCurve.DeathPenalty(_cumulativeExp, _maxLevel, info.CharacterLevel,
+            _rules?.CurrentValue?.PkServer == true), info.CharacterExp);
         if (penalty <= 0)
         {
             return 0;
         }
 
         info.CharacterExp -= penalty;
+        info.DeathExpLoss = penalty;
         var handle = info.CharacterHandle;
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(handle, info.CharacterExp, info.CharacterJp));
 
@@ -99,6 +111,33 @@ public class LevelingService : ILevelingService
         _logger.Debug("{clientTag} lost {penalty} exp on death (level {level})", client.ClientTag, penalty,
             info.CharacterLevel);
         return penalty;
+    }
+
+    private readonly Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> _rules;
+
+    public long RestoreDeathExperience(GameClient client, decimal ratio)
+    {
+        lock (client.ConnectionInfo.ProgressLock)
+        {
+            return RestoreExperience(client, ratio);
+        }
+    }
+
+    private long RestoreExperience(GameClient client, decimal ratio)
+    {
+        var info = client.ConnectionInfo;
+        var amount = ratio <= 0m ? 0L : (long)Math.Floor(info.DeathExpLoss * ratio);
+        info.DeathExpLoss = 0;
+        if (amount <= 0)
+        {
+            return 0;
+        }
+
+        info.CharacterExp += amount;
+        ApplyExperience(client);
+        client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp,
+            info.CharacterJp));
+        return amount;
     }
 
     public int MaxLevel => _cumulativeExp == null ? 0 : _maxLevel;

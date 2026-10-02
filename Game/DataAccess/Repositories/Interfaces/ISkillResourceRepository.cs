@@ -34,7 +34,14 @@ public enum SkillCastKind
     /// The creature spell 4003 (<c>EF_TAMING</c> 603): an attempt on a living monster, judged by
     /// <see cref="Navislamia.Game.Services.TamingRules"/>.
     /// </summary>
-    Taming
+    Taming,
+
+    /// <summary>
+    /// <c>EF_RESURRECTION</c> (504) and <c>EF_RESURRECTION_WITH_RECOVER</c> (30501) on a character
+    /// (<c>tf_avatar</c>): a dead player in sight comes back where they fell
+    /// (docs/packet-specs/socle-mort-joueur.md §3).
+    /// </summary>
+    Resurrection
 }
 
 public readonly record struct CastableBuffFields(
@@ -62,7 +69,16 @@ public readonly record struct CastableBuffFields(
     int EffectType = 0,
     int Target = 1,
     int RequiredTarget = 1,
-    int CastRange = 0);
+    int CastRange = 0,
+    int ProbabilityOnHit = 0,
+    int ProbabilityIncBySlv = 0,
+    byte CastingType = 0,
+    byte CastingLevel = 0,
+    bool Cancelable = false,
+    bool IsHarmful = false,
+    decimal HateMod = 0m,
+    int HateBasic = 0,
+    decimal HatePerSkl = 0m);
 
 /// <summary>The raw fields the catalog classifies into a <see cref="SkillCastKind"/>.</summary>
 public readonly record struct CastableSkillRow(
@@ -90,7 +106,16 @@ public readonly record struct CastableSkillRow(
     int CriticalBonus = 0,
     int CriticalBonusPerSkl = 0,
     int RequiredTarget = 1,
-    int CastRange = 0);
+    int CastRange = 0,
+    int ProbabilityOnHit = 0,
+    int ProbabilityIncBySlv = 0,
+    string CastingType = null,
+    string CastingLevel = null,
+    bool IsPassive = false,
+    bool UseOnCharacter = false,
+    decimal HateMod = 0m,
+    int HateBasic = 0,
+    decimal HatePerSkl = 0m);
 
 /// <summary>A resurrection skill (<c>EF_RESURRECTION</c> 504 or <c>EF_RESURRECTION_WITH_RECOVER</c> 30501).</summary>
 public readonly record struct ResurrectionSkillRow(int SkillId, int EffectType, decimal[] Vars);

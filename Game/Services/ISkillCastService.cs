@@ -32,4 +32,24 @@ public interface ISkillCastService
     /// and the stat refresh, exactly as the expiry tick does. False when no such state is active.
     /// </summary>
     bool RemoveState(GameClient client, int stateId);
+
+    /// <summary>
+    /// Cancels the cast in progress, if it can be cancelled (<c>StructSkill::Cancel</c>): <c>ST_Cancel</c> goes
+    /// to the caster and the players who see them. False when there is none or it cannot be.
+    /// </summary>
+    bool CancelCast(GameClient client) => false;
+
+    /// <summary>A hit taken while casting pushes the fire back or may break the cast (<c>casting_type</c>).</summary>
+    void OnCasterDamaged(GameClient client, int damage) { }
+
+    /// <summary>
+    /// An item's skill used at <paramref name="targetHandle"/>: the Resurrection Scroll (603002, skill 6001)
+    /// brings a dead player back; any other skill behaves as <see cref="ApplyItemSkill(GameClient,int,int)"/>.
+    /// </summary>
+    bool ApplyItemSkill(GameClient client, int skillId, int skillLevel, uint targetHandle) =>
+        ApplyItemSkill(client, skillId, skillLevel);
+
+    /// <summary>Whether an item's skill can land on <paramref name="targetHandle"/>, judged before the item is spent.</summary>
+    Navislamia.Game.Network.Packets.ResultCode CheckItemSkillTarget(GameClient client, int skillId, uint targetHandle) =>
+        Navislamia.Game.Network.Packets.ResultCode.Success;
 }

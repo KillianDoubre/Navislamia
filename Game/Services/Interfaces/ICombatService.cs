@@ -45,6 +45,23 @@ public interface ICombatService
     Navislamia.Game.Services.Stats.StatBlock GetMonsterStats(long instanceId);
 
     /// <summary>
+    /// <see cref="ApplyDamage(GameClient,long,uint,int)"/> with the monster's hate set by the caller (a skill's
+    /// <c>GetHatePoint</c>) instead of the damage a swing is worth.
+    /// </summary>
+    int ApplyDamage(GameClient client, long instanceId, uint targetHandle, int damage, int hate) =>
+        ApplyDamage(client, instanceId, targetHandle, damage);
+
+    /// <summary>
+    /// <see cref="DamagePlayer(GameClient,int)"/> from a known monster: the player's mana shield absorbs its share
+    /// first, and a reflection sends part of the hit back to <paramref name="attackerInstanceId"/>.
+    /// </summary>
+    int DamagePlayer(GameClient target, int damage, long attackerInstanceId, bool magical) =>
+        DamagePlayer(target, damage);
+
+    /// <summary>The player's total stats, as the hit rolls read them; null when unknown.</summary>
+    Navislamia.Game.Services.Stats.StatBlock GetPlayerStats(GameClient client) => null;
+
+    /// <summary>
     /// Applies damage to a monster and owns everything that follows: death, the corpse, its states, the
     /// drops, the reward and the respawn. Returns the monster's remaining HP.
     /// </summary>

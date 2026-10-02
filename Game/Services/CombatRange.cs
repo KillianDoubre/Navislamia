@@ -12,16 +12,19 @@ namespace Navislamia.Game.Services;
 /// This is now the reference's real value, ported from <c>Unit::GetRealAttackRange</c> and
 /// <c>Object::GetUnitSize</c>: the effective reach between two units is the attacker's weapon reach
 /// plus both body radii. A unit's size is <c>size × 12 × scale</c>; the reach is
-/// <c>(12 × attack_range) / 100 + (attackerUnitSize + targetUnitSize) × 0.5</c>. The body-size term
-/// dominates, so a small monster reaches ~12 units and a huge one hundreds — big monsters really do
-/// hit from farther. The player has no modelled weapon range or size, so it uses the default unit size
+/// <c>(12 × attack_range) / 100 + (attackerUnitSize + targetUnitSize) × 0.5</c>, where <c>attack_range</c> is
+/// the column <b>times 100</b> (NGemity <c>ObjectMgr</c>: <c>attack_range = GetFloat() × 100</c>), so the weapon
+/// term is <c>12 × column</c>: a 0.6 m claw reaches 7.2 units beyond the bodies, an 8 m ranged monster 96.
+/// The factor 100 was missing until 2026-10-02, which made every monster a melee one
+/// (docs/packet-specs/socle-mecaniques-combat.md §5). The player has no modelled weapon range or size, so it uses the default unit size
 /// (<c>1 × 12 × 1 = 12</c>) and the monster's weapon term; the same reach gates both directions, which
 /// keeps them symmetric.
 /// </remarks>
 public static class CombatRange
 {
     private const float UnitSizeScale = 12f;
-    private const float WeaponRangeScale = 12f / 100f;
+    /// <summary><c>attack_range</c> columns are in metres: 12 units each (×100 at load, ×12/100 in the reach).</summary>
+    private const float WeaponRangeScale = 12f;
 
     /// <summary>A unit with no modelled size resolves to <c>1 × 12 × 1</c>, like the reference default.</summary>
     public const float PlayerUnitSize = UnitSizeScale;
@@ -45,6 +48,13 @@ public static class CombatRange
         var dy = ay - by;
         return MathF.Sqrt(dx * dx + dy * dy);
     }
+
+    /// <summary>
+    /// The player's own reach to a monster, as the reference's <c>processAttack</c> measures it: its weapon range
+    /// (<c>AttackRange</c> stat, the weapon's <c>range</c> × 100, 50 bare-handed) plus both bodies.
+    /// </summary>
+    public static float PlayerReach(float attackRangeStat, float monsterSize, float monsterScale) =>
+        attackRangeStat * WeaponRangeScale / 100f + (UnitSize(monsterSize, monsterScale) + PlayerUnitSize) * 0.5f;
 
     public static bool InReach(float ax, float ay, float bx, float by, float reach)
     {

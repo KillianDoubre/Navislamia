@@ -47,6 +47,29 @@ public static class WeightRules
     /// The walk speed a load allows: unchanged under 75 %, halved from 75 %, a tenth at or past 100 % — and a
     /// tenth for a negative ratio too, as the reference writes it.
     /// </summary>
+    /// <summary>
+    /// The <c>TS_SC_MOVE</c> speed of a character: its move speed slowed by the load, divided by 7
+    /// (<c>StructPlayer::GetMoveSpeed</c> then <c>StructCreature::GetRealMoveSpeed</c>).
+    /// </summary>
+    public static byte RealMoveSpeed(float moveSpeed, float carried, float maximum)
+    {
+        var speed = (int)moveSpeed;
+        if (!float.IsPositiveInfinity(maximum))
+        {
+            var ratio = maximum > 0 ? carried / maximum : float.PositiveInfinity;
+            if (ratio >= 1f || ratio < 0f)
+            {
+                speed = (int)(speed * OverloadFactor);
+            }
+            else if (ratio >= SlowRatio)
+            {
+                speed = (int)(speed * SlowFactor);
+            }
+        }
+
+        return Navislamia.Game.Services.MonsterMovement.SpeedByte(speed);
+    }
+
     public static byte MoveSpeed(byte speed, float carried, float maximum)
     {
         if (float.IsPositiveInfinity(maximum))

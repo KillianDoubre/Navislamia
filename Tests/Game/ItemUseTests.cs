@@ -209,7 +209,7 @@ public class ItemUseTests
         await new ItemUseService(character, catalog, pets, states, A.Fake<IStatService>())
             .UseAsync(client, new GameActionPackets.UseItemRequest(124, 1));
 
-        A.CallTo(() => states.ApplyItemSkill(client, 6047, 3)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => states.ApplyItemSkill(client, 6047, 3, 1u)).MustHaveHappenedOnceExactly();
     }
 
     [Test]

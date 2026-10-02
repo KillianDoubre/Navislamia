@@ -102,6 +102,13 @@ public class MonsterWorldState
     // A monster's single aggro target, sparse like the rest: only a monster in combat carries one.
     private readonly Dictionary<long, AggroTarget> _aggro = new();
 
+    /// <summary>
+    /// Every player a monster hates, with how much (<c>StructMonster</c>'s <c>_HATE_TAG</c> list), and the hate
+    /// its current target held when it became or last stayed the target (<c>+0x2414</c>).
+    /// </summary>
+    private readonly Dictionary<long, Dictionary<GameClient, int>> _hate = new();
+    private readonly Dictionary<long, int> _targetHate = new();
+
     private SpatialIndex<MonsterInstance> _index;
     private Dictionary<long, MonsterInstance> _byId;
     private readonly Dictionary<long, MonsterInstance> _scriptSpawns = new();
@@ -230,6 +237,58 @@ public class MonsterWorldState
             var buff = new ActiveBuff(handle, stateId, skillId, stateLevel, startTick, endTick);
             states.Add(buff);
             return buff;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="AddState"/> under the official stacking rule (<see cref="Casting.StateStacking"/>): false when
+    /// a stronger or longer state of the same group refuses it; otherwise the states it displaced are in
+    /// <paramref name="removed"/> and the applied one, refreshed in place when it was already there, in
+    /// <paramref name="applied"/>.
+    /// </summary>
+    public bool TryAddState(long instanceId, int stateId, int skillId, int stateLevel, uint startTick, uint endTick,
+        Casting.StateRule rule, Func<int, Casting.StateRule> rules, out ActiveBuff applied,
+        out IReadOnlyList<ActiveBuff> removed)
+    {
+        lock (_stateLock)
+        {
+            if (!_states.TryGetValue(instanceId, out var states))
+            {
+                states = new List<ActiveBuff>();
+                _states[instanceId] = states;
+            }
+
+            var decision = Casting.StateStacking.Decide(states, stateId, rule, stateLevel, endTick, rules);
+            if (decision.Refused)
+            {
+                applied = default;
+                removed = Array.Empty<ActiveBuff>();
+                return false;
+            }
+
+            var handle = decision.RefreshIndex >= 0 ? states[decision.RefreshIndex].StateHandle : ++_nextStateHandle;
+            var dropped = new List<ActiveBuff>();
+            var indices = new List<int>(decision.Removed);
+            if (decision.RefreshIndex >= 0)
+            {
+                indices.Add(decision.RefreshIndex);
+            }
+
+            indices.Sort();
+            for (var i = indices.Count - 1; i >= 0; i--)
+            {
+                if (indices[i] != decision.RefreshIndex)
+                {
+                    dropped.Add(states[indices[i]]);
+                }
+
+                states.RemoveAt(indices[i]);
+            }
+
+            applied = new ActiveBuff(handle, stateId, skillId, decision.Level, startTick, endTick);
+            states.Add(applied);
+            removed = dropped;
+            return true;
         }
     }
 
@@ -367,7 +426,7 @@ public class MonsterWorldState
                 var (mx, my) = CurrentPosition(instanceId);
                 if (MonsterAiRules.JoinsGroupAttack(leader, lx, ly, member, mx, my))
                 {
-                    SetAggro(instanceId, enemy);
+                    AddHate(instanceId, enemy, 1);
                     rallied++;
                 }
             }
@@ -656,6 +715,8 @@ public class MonsterWorldState
             _respawnAt[instanceId] = respawnAt;
             // A corpse chases nothing and a respawn inherits no target, the same rule as its states.
             _aggro.Remove(instanceId);
+            _hate.Remove(instanceId);
+            _targetHate.Remove(instanceId);
             _returningHome.Remove(instanceId);
             _skillReady.Remove(instanceId);
             _triggerFlags.Remove(instanceId);
@@ -820,6 +881,143 @@ public class MonsterWorldState
             _skillOpportunity.Remove(instanceId);
             _combatStarted.Remove(instanceId);
             _triggerFlags.Remove(instanceId);
+            _hate.Remove(instanceId);
+            _targetHate.Remove(instanceId);
+        }
+    }
+
+    /// <summary>
+    /// <c>StructMonster::addHate</c> (2012-11 <c>0x1400b6710</c>): <paramref name="amount"/> more hate toward
+    /// <paramref name="enemy"/>, never below 0. A monster with no target takes this one; a monster with a target
+    /// switches only when this enemy's hate is strictly above what the target held. A dead monster hates nobody.
+    /// </summary>
+    public void AddHate(long instanceId, GameClient enemy, int amount)
+    {
+        if (enemy is null)
+        {
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            if (_respawnAt.ContainsKey(instanceId))
+            {
+                return;
+            }
+
+            if (!_hate.TryGetValue(instanceId, out var list))
+            {
+                list = new Dictionary<GameClient, int>();
+                _hate[instanceId] = list;
+            }
+
+            list.TryGetValue(enemy, out var held);
+            var hate = (int)Math.Clamp((long)held + amount, 0L, int.MaxValue);
+            list[enemy] = hate;
+
+            if (!_aggro.TryGetValue(instanceId, out var current))
+            {
+                SetAggro(instanceId, enemy);
+                _targetHate[instanceId] = hate;
+                return;
+            }
+
+            if (current.Enemy == enemy)
+            {
+                _targetHate[instanceId] = hate;
+                return;
+            }
+
+            if (hate > _targetHate.GetValueOrDefault(instanceId))
+            {
+                _aggro[instanceId] = current with { Enemy = enemy };
+                _targetHate[instanceId] = hate;
+            }
+        }
+    }
+
+    /// <summary>
+    /// <c>StructCreature::AddHateToEnemyList</c>: every monster hating <paramref name="helped"/> hates
+    /// <paramref name="helper"/> <paramref name="amount"/> more — a heal draws the attention of the healed
+    /// player's enemies.
+    /// </summary>
+    public void AddHateFromHelp(GameClient helped, GameClient helper, int amount)
+    {
+        if (amount == 0 || helped is null)
+        {
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            List<long> monsters = null;
+            foreach (var (instanceId, list) in _hate)
+            {
+                if (list.ContainsKey(helped))
+                {
+                    (monsters ??= new List<long>()).Add(instanceId);
+                }
+            }
+
+            if (monsters is null)
+            {
+                return;
+            }
+
+            foreach (var instanceId in monsters)
+            {
+                AddHate(instanceId, helper, amount);
+            }
+        }
+    }
+
+    /// <summary>How much <paramref name="instanceId"/> hates <paramref name="enemy"/>; 0 when not at all.</summary>
+    public int GetHate(long instanceId, GameClient enemy)
+    {
+        lock (_stateLock)
+        {
+            return _hate.TryGetValue(instanceId, out var list) && list.TryGetValue(enemy, out var hate) ? hate : 0;
+        }
+    }
+
+    /// <summary>
+    /// <c>StructMonster::findNextEnemy</c>: the current target is struck off the hate list and the most hated
+    /// remaining enemy becomes the target. False, with the whole aggro cleared, when nobody is left.
+    /// </summary>
+    public bool DropTarget(long instanceId)
+    {
+        lock (_stateLock)
+        {
+            if (!_aggro.TryGetValue(instanceId, out var current))
+            {
+                return false;
+            }
+
+            if (_hate.TryGetValue(instanceId, out var list))
+            {
+                list.Remove(current.Enemy);
+                GameClient next = null;
+                var best = -1;
+                foreach (var (enemy, hate) in list)
+                {
+                    if (hate > best)
+                    {
+                        next = enemy;
+                        best = hate;
+                    }
+                }
+
+                if (next is not null)
+                {
+                    _aggro[instanceId] = current with { Enemy = next };
+                    _targetHate[instanceId] = best;
+                    return true;
+                }
+            }
+
+            // Nobody is left to fight: the combat ends as if the aggro had been cleared.
+            ClearAggro(instanceId);
+            return false;
         }
     }
 
@@ -838,6 +1036,12 @@ public class MonsterWorldState
                 {
                     (cleared ??= new List<long>()).Add(pair.Key);
                 }
+            }
+
+            // The leaving player is no one's enemy any more.
+            foreach (var list in _hate.Values)
+            {
+                list.Remove(enemy);
             }
 
             if (cleared == null)

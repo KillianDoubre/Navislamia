@@ -7,6 +7,10 @@ public readonly record struct StateEffectFields(int StateId, int EffectType, dec
 
 public readonly record struct StateFlagFields(int StateId, StateTimeType StateTimeType);
 
+/// <summary>The stacking fields of a state: duplicate groups, reiteration cap (a text column), time flags.</summary>
+public readonly record struct StateRuleFields(int StateId, int[] DuplicateGroups, string ReiterationCount,
+    StateTimeType StateTimeType, int EffectType, decimal[] Values);
+
 public interface IStateResourceRepository
 {
     IReadOnlyList<StateEffectFields> GetStatStates();
@@ -20,6 +24,12 @@ public interface IStateResourceRepository
     /// effect types, while the cancellable states are not a subset of them.
     /// </remarks>
     IReadOnlyList<int> GetEraseOnRequestStateIds();
+
+    /// <summary>
+    /// Every state with what <c>StructCreature::AddState</c> reads to stack it
+    /// (docs/packet-specs/socle-lancer-competences.md §4).
+    /// </summary>
+    IReadOnlyList<StateRuleFields> GetStateRules();
 
     /// <summary>Every <c>StateResource</c> id, whatever its effect type.</summary>
     IReadOnlyList<int> GetStateIds();

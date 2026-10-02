@@ -12,6 +12,16 @@ Liste de ce qui n'est pas fini sur `master`, par priorité. Le détail de chaque
 - **Zones, multi-coups et déclencheurs Lua** (`socle-competences-zone-multi-coups.md`) : familles demandées,
   cadence, zone persistante 271, sélection des victimes, renforts Lua, marquage anti-bot,
   dégâts hors visibilité, portées (cible et arme), positions interpolées et diffusion à deux clients.
+- **Mécaniques de combat** (`socle-mecaniques-combat.md`) : double attaque, deux armes, arc (visée, flèches),
+  dégâts additionnels, renvoi, bouclier de mana ; portée réelle des armes et des monstres à distance.
+- **Lancer** (`socle-lancer-competences.md`) : `TooFar`, annulation par Échap, recul sous les coups,
+  empilement des états (refus 9), résistance des monstres aux malus.
+- **Haine** (`socle-haine.md`) : changement de cible au soin et aux compétences, retour à la cible suivante.
+- **Mort et résurrection** (`socle-mort-joueur.md`) : potions de résurrection, résurrection par un autre joueur
+  (animation `HIT_REBIRTH`), expérience rendue.
+- **Duel** (`socle-competition-joueurs.md` §10) : invitation, compte à rebours, fin, résurrection type 3,
+  à deux clients.
+- **Vitesse d'écho** (`socle-vitesse-echo.md`) : marche du joueur et du familier vue par les autres.
 - **Diffusion** (`socle-diffusion-combat.md`, `socle-diffusion-compagnons.md`) : à deux clients, coups, mort,
   assis, PK, familier, invocations, icônes d'états.
 - **Déplacement des monstres** (`socle-deplacement-monstres.md`) : vitesse réelle, contournement des obstacles
@@ -38,16 +48,13 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Compléments Lua des monstres (`socle-competences-zone-multi-coups.md`) : branches absentes du script
   disponible (148 ressources) et mode raid. Renforts `respawn_near_monster` et marquage
   `set_auto_user` sont implémentés et testés.
-- `cast_range` pour les familles autres que zone et multi-coups ; résistance aux malus ; règles d'empilement `state_type` ; interruption de lancer.
-- Mécaniques non modélisées : double attaque, deux armes, visée à l'arc, éléments, dégâts additionnels,
-  renvoi, bouclier de mana.
-- Haine (`AddHate`) : une seule cible par monstre, la première prise.
+- Éléments : les dégâts élémentaires partent sur le fil mais aucune résistance n'est modélisée.
 - Récompenses : pondération selon les dégâts et pénalités d'écart de niveau, bonus de donjon/PC bang
   et stamina restent à modéliser ; le partage égal du groupe est conservé.
-- Duel et PvP (4500-4506, mode PK sans effet sur le combat).
-- Mort du joueur : objets lâchés à la mort, expérience rendue à la résurrection, résurrection par un autre
-  joueur.
-- Vitesse d'écho du joueur et du familier (100/120 sur le fil contre 17 pour les monstres) à recaler.
+- PvP : les terrains PK ne sont pas connus (`GameRules:PkFieldsEverywhere`, désactivé), seules les attaques
+  normales visent un joueur (pas les compétences), l'immoralité n'existe pas.
+- Mort du joueur : objets lâchés seulement sur un serveur PK, comme l'officiel ; à trancher si on le veut
+  ailleurs.
 
 ## 4. Systèmes absents
 
