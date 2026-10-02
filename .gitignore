@@ -471,6 +471,7 @@ fabric.properties
 !/docs/character-bootstrap.md
 !/docs/npc-dialogs.md
 !/docs/gm-commands.md
+!/docs/reste-a-faire.md
 !/docs/packet-specs/
 DevConsole/appsettings.json
 AuthServer/appsettings.json
