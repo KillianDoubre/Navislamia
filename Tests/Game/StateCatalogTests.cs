@@ -103,13 +103,13 @@ public class StateCatalogTests
     }
 
     [Test]
-    public void Resolve_SkipsTheParameterBTriplets()
+    public void Resolve_IgnoresUndecodedParameterBBits()
     {
         var catalog = Create(State(1, StateCatalog.ParameterInc,
             Values(0, 0, 0, 0, 0, 0, DefenceMask, 50, 0, MoveSpeedMask, 60, 0)));
 
         catalog.Resolve(1, 1).Should()
-            .BeEmpty("triplets 2 and 3 address ParameterB, which is not decoded");
+            .BeEmpty("ParameterB bits outside 0..6 do not describe elemental resistance");
     }
 
     [Test]

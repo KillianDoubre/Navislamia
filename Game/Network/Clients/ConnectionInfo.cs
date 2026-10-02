@@ -15,6 +15,8 @@ public class ConnectionInfo
     public IReadOnlyList<StatEffect> ItemEffects { get; set; } = Array.Empty<StatEffect>();
     public IReadOnlyList<StatEffect> PassiveEffects { get; set; } = Array.Empty<StatEffect>();
     public IReadOnlyList<StatEffect> BuffEffects { get; set; } = Array.Empty<StatEffect>();
+    public int MainTitleId { get; set; }
+    public IReadOnlyList<StatEffect> TitleEffects { get; set; } = Array.Empty<StatEffect>();
     public ItemType? EquippedWeapon { get; set; }
 
     /// <summary>
@@ -34,6 +36,7 @@ public class ConnectionInfo
     public object BuffLock { get; } = new();
 
     public List<ActiveBuff> ActiveBuffs { get; } = new();
+    public Dictionary<uint, List<ActiveBuff>> StoredSummonBuffs { get; } = new();
 
     /// <summary>Active auras by <c>toggle_group</c>: one aura per group at a time.</summary>
     public Dictionary<int, int> ActiveAuras { get; } = new();
@@ -48,6 +51,7 @@ public class ConnectionInfo
     public byte[] WearFrame { get; set; }
     public long? PartyId { get; set; }
     public long? GuildId { get; set; }
+    public int CharacterStamina { get; set; }
     public uint TargetHandle { get; set; }
     public int CharacterHp { get; set; }
     public int CharacterMaxHp { get; set; }
@@ -240,6 +244,13 @@ public class ConnectionInfo
     /// no PK packet of its own.
     /// </summary>
     public bool PkMode { get; set; }
+    public decimal ImmoralPoint { get; set; }
+    public int PkCount { get; set; }
+    public int DkCount { get; set; }
+    public Navislamia.Game.Services.PvpProgress GetPvpProgress()
+    {
+        lock (ProgressLock) return new(ImmoralPoint, PkCount, DkCount);
+    }
 
     /// <summary>
     /// <c>Characters.Permission</c>, read on world entry. A value of
@@ -278,13 +289,13 @@ public class ConnectionInfo
     /// </summary>
     public int CommercialTakeoutInProgress;
 
-    public uint ClientClockOffset { get; set; }
     /// <summary>
     /// 1 while a job change is being committed (validation, database, packets): a second confirmation sent in the
     /// meantime would otherwise change the job twice. Taken with <c>Interlocked.CompareExchange</c>.
     /// </summary>
     public int JobChangeInProgress;
 
+    public uint ClientClockOffset { get; set; }
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
     public string CharacterName { get; set; }
@@ -585,6 +596,7 @@ public class ConnectionInfo
         WearFrame = null;
         PartyId = null;
         GuildId = null;
+        CharacterStamina = 0;
         ItemCooldowns.Clear();
         CharacterMaxHp = 0;
         CharacterMp = 0;
@@ -612,6 +624,9 @@ public class ConnectionInfo
         DestinationY = 0;
         MoveStartTick = 0;
         PkMode = false;
+        ImmoralPoint = 0m;
+        PkCount = 0;
+        DkCount = 0;
         CharacterPermission = 0;
         AutoUsed = false;
         IsSitting = false;
@@ -644,12 +659,15 @@ public class ConnectionInfo
         ItemEffects = Array.Empty<StatEffect>();
         PassiveEffects = Array.Empty<StatEffect>();
         BuffEffects = Array.Empty<StatEffect>();
+        MainTitleId = 0;
+        TitleEffects = Array.Empty<StatEffect>();
         EquippedWeapon = null;
         LeftHand = null;
         RightWeaponEffects = Array.Empty<Navislamia.Game.Services.Stats.StatEffect>();
         lock (BuffLock)
         {
             ActiveBuffs.Clear();
+            StoredSummonBuffs.Clear();
             ActiveAuras.Clear();
         }
 

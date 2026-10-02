@@ -225,6 +225,12 @@ public class ItemUseService : IItemUseService
             var amount = (int)values[i];
             switch ((ItemEffectInstant)types[i])
             {
+                case ItemEffectInstant.AddImmoralPoint:
+                    MoralityRules.Set(client, Math.Max(0m, info.ImmoralPoint + values[i]));
+                    break;
+                case ItemEffectInstant.SetImmoralPoint:
+                    MoralityRules.Set(client, Math.Max(0m, values[i]));
+                    break;
                 case ItemEffectInstant.IncHp:
                 case ItemEffectInstant.IncHpPercent:
                     if (info.CharacterHp <= 0) break;

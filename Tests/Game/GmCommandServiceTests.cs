@@ -624,7 +624,7 @@ public class GmCommandServiceTests
         await _service.HandleAsync(client, "/save", Array.Empty<GameClient>());
 
         A.CallTo(() => _characters.SaveProgressAsync("Tester", 12, A<int>._, A<long>._, A<long>._, 900, A<int>._,
-            A<float>._, A<float>._, A<bool>._)).MustHaveHappenedOnceExactly();
+            A<float>._, A<float>._, A<bool>._, A<PvpProgress?>._, A<int?>._)).MustHaveHappenedOnceExactly();
         Replies(connection).Single().Text.Should().Be("Progress saved.");
     }
 

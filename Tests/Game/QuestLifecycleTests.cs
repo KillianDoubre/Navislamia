@@ -101,12 +101,65 @@ public class QuestLifecycleTests
         var drops = A.Fake<IMonsterDropCatalog>();
         A.CallTo(() => drops.Groups).Returns(new Dictionary<int, DropGroupEntry[]> { [-1] = new[] { new DropGroupEntry(1000000, 1, 1, 1) } });
         _service = new QuestService(characters, catalogue, _options, new CharacterGate(), _leveling,
-            ground: _ground, drops: drops, timeProvider: _time);
+            ground: _ground, drops: drops, timeProvider: _time,
+            scripts: new Navislamia.Game.Scripting.ScriptService(
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<Navislamia.Game.Scripting.ScriptService>.Instance));
     }
 
     [TearDown] public void Teardown() => _service.Dispose();
     private TelecasterContext Db() => new(_options);
     private Task Start() => _service.StartQuestAsync(_client, 3011, 1005, 101);
+
+    [Test]
+    public async Task Lua_controlled_quest_is_offered_progresses_reconnects_and_rewards_once()
+    {
+        _resource.Type = 701; _resource.Value1 = 90010095; _resource.Value2 = 2;
+        (await _service.GetNpcOffersAsync(_client, 3011)).Should().ContainSingle();
+        (await _service.SetQuestStatusAsync(_client, 1005, 1, 2)).Should().BeFalse("not accepted");
+        await Start();
+        var scripts = new Navislamia.Game.Scripting.ScriptService(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Navislamia.Game.Scripting.ScriptService>.Instance);
+        var context = new Navislamia.Game.Scripting.QuestScriptContext
+        {
+            PlayerHandle = 1,
+            GetProgress = code => _service.GetQuestProgressAsync(_client, code).GetAwaiter().GetResult(),
+            SetStatus = (code, index, value) => _service.SetQuestStatusAsync(_client, code, index, value).GetAwaiter().GetResult()
+        };
+        scripts.RunQuestScript("assert(get_quest_progress(1005)==1); assert(set_quest_status(1005,1,1)==1)", context).Should().Be(1);
+        await Kill(); await _service.RefreshAsync(_client);
+        (await Quest()).Status[0].Should().Be(1, "ordinary kills do not alter external counters");
+        (await _service.SetQuestStatusAsync(_client, 1005, 0, 3)).Should().BeFalse();
+        (await _service.SetQuestStatusAsync(_client, 1005, 7, 3)).Should().BeFalse();
+        scripts.RunQuestScript("assert(set_quest_status(1005,1,2,999)==-1); assert(set_quest_status(1005,1,2)==1)", context).Should().Be(1);
+        scripts.RunString("assert(set_quest_status(1005,1,999)==-1)").Should().Be(1, "Lua context was cleared");
+        await _service.LeaveWorldAsync(_client); await _service.SendQuestListAsync(_client);
+        (await Quest()).Progress.Should().Be(QuestRules.Finishable);
+        await End(); await End();
+        EndResults().Should().Equal(ResultCode.Success, ResultCode.NotActable);
+        StorageTestHarness.Session(_client).CharacterExp.Should().Be(30);
+    }
+
+    [Test]
+    public async Task Expired_Lua_quest_rejects_objective_updates()
+    {
+        _resource.Type = 701; _resource.TimeLimit = 1; _resource.TimeLimitType = "2";
+        await Start(); _time.Advance(2);
+        (await _service.SetQuestStatusAsync(_client, 1005, 1, 2)).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task Server_authored_Npc_Lua_action_updates_only_an_advertised_quest_objective()
+    {
+        _resource.Type = 701; _resource.Value2 = 2; await Start();
+        StorageTestHarness.Session(_client).NpcDialogTriggers.Add("set_quest_status(1005,1,2)");
+        var dialogs = new NpcDialogService(Options.Create(new NpcDialogOptions()), A.Fake<IWarpService>(),
+            A.Fake<IStorageService>(), A.Fake<IMarketService>(), _service);
+        dialogs.Select(_client, Selection("set_quest_status(1005,1,999)"));
+        (await Quest()).Status[0].Should().Be(0);
+        dialogs.Select(_client, Selection("set_quest_status(1005,1,2)"));
+        (await Quest()).Progress.Should().Be(QuestRules.Finishable);
+        (await _service.RunScriptAsync(_client, "assert(get_quest_progress(1005)==2)")).Should().Be(1);
+    }
     private Task Kill(int id = 1003) => _service.OnMonsterKilledAsync(_client, id, 10, 20, 0);
     private Task End(sbyte slot = -1) => _service.EndQuestAsync(_client, new GameActionPackets.EndQuestRequest(1005, slot));
     private IEnumerable<ResultCode> EndResults() => _connection.Sent
@@ -280,7 +333,7 @@ public class QuestLifecycleTests
         _resource.Type = 401; await Start();
         var dialog = await _service.GetQuestDialogAsync(_client, 3011, 1005, "@90301101");
         dialog.Menu.Select(m => m.Trigger).Should().Equal("end_quest(1005,5)", "");
-        _resource.Type = 701;
+        _resource.Type = 999;
         (await _service.GetNpcOffersAsync(_client, 3011)).Should().BeEmpty();
     }
 

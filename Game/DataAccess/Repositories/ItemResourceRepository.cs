@@ -86,7 +86,7 @@ public class ItemResourceRepository : IItemResourceRepository
         return _context.ItemResources
             .AsNoTracking()
             .Select(item => new ItemMatchFields((int)item.Id, item.Group, item.ItemType, item.Rank,
-                item.WearType))
+                item.WearType, item.SkillId ?? 0))
             .ToList();
     }
 
@@ -146,7 +146,7 @@ public class ItemResourceRepository : IItemResourceRepository
         return _context.ItemResources
             .AsNoTracking()
             .Select(item => new ItemWearFields((int)item.Id, item.WearType, item.Rank, item.UseMinLevel,
-                item.UseMaxLevel))
+                item.UseMaxLevel, item.RaceRestriction, item.JobRestriction, item.JobDepth))
             .ToList();
     }
 }

@@ -28,7 +28,7 @@ public readonly record struct ItemWeightFields(int Id, decimal Weight);
 /// value behind <c>Item::GetItemClass()</c>.
 /// </summary>
 public readonly record struct ItemMatchFields(int Id, ItemGroup Group, ItemType Class, int Rank,
-    ItemWearType WearType);
+    ItemWearType WearType, long SkillId = 0);
 
 /// <summary>
 /// The two columns a sale prices an item from: its <c>rank</c> and its <c>price</c>
@@ -75,11 +75,11 @@ public readonly record struct ItemSoulstoneCraftFields(
 /// Everything the port of an item resource depends on: the wear slot it belongs to (<c>wear_type</c>
 /// column of the <c>ItemResource</c> table, the only way to know where
 /// <c>TM_CS_PUTON_ITEM_SET</c> (281) must place a handle, since that request carries no position) and
-/// the level requirements <c>TM_CS_PUTON_ITEM</c> (200) and 281 judge before equipping: the rank
-/// floor, <c>use_min_level</c> and <c>use_max_level</c> (sheet §5.2).
+/// the requirements <c>TM_CS_PUTON_ITEM</c> (200) and 281 judge before equipping: rank, level,
+/// race and class whitelist masks, and the job depth mask (sheet §5.2-5.3).
 /// </summary>
 public readonly record struct ItemWearFields(int Id, ItemWearType WearType, int Rank, int UseMinLevel,
-    int UseMaxLevel);
+    int UseMaxLevel, ItemRaceRestriction RaceRestriction, ItemJobRestriction JobRestriction, short JobDepth);
 
 public readonly record struct ItemSocketFields(int Id, int SocketCount, ItemBaseType BaseType, ItemType ItemType,
     ItemGroup Group);

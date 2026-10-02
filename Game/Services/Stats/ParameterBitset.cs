@@ -41,6 +41,16 @@ public static class ParameterBitset
         StatTarget.None
     };
 
+    // ParameterB bits 0..6 are the seven elemental resistances (StructMisc.h).
+    public static IReadOnlyList<StatTarget> DecodeResistance(uint mask)
+    {
+        var targets = new List<StatTarget>();
+        for (var element = 0; element < 7; element++)
+            if ((mask & (1u << element)) != 0)
+                targets.Add((StatTarget)((int)StatTarget.NoneResistance + element));
+        return targets;
+    }
+
     public static StatTarget Resolve(int bit)
     {
         return bit >= 0 && bit < Targets.Length ? Targets[bit] : StatTarget.None;

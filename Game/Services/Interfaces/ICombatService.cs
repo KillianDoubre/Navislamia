@@ -4,6 +4,12 @@ namespace Navislamia.Game.Services;
 
 public interface ICombatService
 {
+    /// <summary>The duel/PK relation used to exclude hostile players from beneficial skills.</summary>
+    bool ArePlayerEnemies(GameClient attacker, GameClient target) => false;
+    void OnPkEnabled(GameClient client) { }
+    HitResult RollPlayerHit(GameClient attacker, GameClient target, float damage, DamageKind kind,
+        int accuracy, int critical, int element = 0);
+    int DamagePlayerByPlayer(GameClient attacker, GameClient target, int damage, bool magical = false);
     void StartAttack(GameClient client, uint targetHandle);
     void StopAttack(GameClient client);
 
@@ -20,6 +26,14 @@ public interface ICombatService
     /// </summary>
     HitResult RollHit(GameClient client, long instanceId, float baseDamage, DamageKind kind, int accuracyBonus,
         int criticalBonus);
+
+    /// <summary>A skill hit against a monster, including resistance to its elemental type.</summary>
+    HitResult RollHit(GameClient client, long instanceId, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus, int element);
+
+    /// <summary>A monster skill hit against a player, including resistance to its elemental type.</summary>
+    HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
+        int accuracyBonus, int criticalBonus, int element);
 
     /// <summary>
     /// Rolls one swing of a monster on a player, and gives the monster's swing interval in ar_time ticks

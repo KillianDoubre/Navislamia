@@ -68,23 +68,23 @@ public class ItemStatCatalog : IItemStatCatalog
         return _weaponTypes.TryGetValue(itemResourceId, out var itemType) ? itemType : null;
     }
 
-    public static IReadOnlyList<StatEffect> BuildEffects(ItemEffectFields resource)
+    public static IReadOnlyList<StatEffect> BuildEffects(ItemEffectFields resource, int slotCount = SlotCount)
     {
         List<StatEffect> effects = null;
-        AppendSlots(resource.BaseTypes, resource.BaseVar1, resource.BaseVar2, ref effects);
-        AppendSlots(resource.OptTypes, resource.OptVar1, resource.OptVar2, ref effects);
+        AppendSlots(resource.BaseTypes, resource.BaseVar1, resource.BaseVar2, ref effects, slotCount);
+        AppendSlots(resource.OptTypes, resource.OptVar1, resource.OptVar2, ref effects, slotCount);
         return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
     }
 
     private static void AppendSlots(short[] types, decimal[] var1, decimal[] var2,
-        ref List<StatEffect> effects)
+        ref List<StatEffect> effects, int slotCount)
     {
         if (types is null || var1 is null || var2 is null)
         {
             return;
         }
 
-        for (var slot = 0; slot < SlotCount && slot < types.Length; slot++)
+        for (var slot = 0; slot < slotCount && slot < types.Length && slot < var1.Length && slot < var2.Length; slot++)
         {
             var type = types[slot];
             if (type == 0 || slot >= var1.Length || slot >= var2.Length)
@@ -94,12 +94,13 @@ public class ItemStatCatalog : IItemStatCatalog
 
             if (type is IncParameterA or AmpParameterA)
             {
-                AppendParameter(type == AmpParameterA, var1[slot], var2[slot], ref effects);
+                AppendParameter(false, type == AmpParameterA, var1[slot], var2[slot], ref effects);
                 continue;
             }
 
             if (type is IncParameterB or AmpParameterB)
             {
+                AppendParameter(true, type == AmpParameterB, var1[slot], var2[slot], ref effects);
                 continue;
             }
 
@@ -113,7 +114,7 @@ public class ItemStatCatalog : IItemStatCatalog
         }
     }
 
-    private static void AppendParameter(bool isPercent, decimal mask, decimal amount,
+    private static void AppendParameter(bool resistance, bool isPercent, decimal mask, decimal amount,
         ref List<StatEffect> effects)
     {
         var value = (float)amount;
@@ -122,7 +123,7 @@ public class ItemStatCatalog : IItemStatCatalog
             return;
         }
 
-        foreach (var target in ParameterBitset.Decode((uint)mask))
+        foreach (var target in (resistance ? ParameterBitset.DecodeResistance((uint)mask) : ParameterBitset.Decode((uint)mask)))
         {
             effects ??= new List<StatEffect>();
             effects.Add(new StatEffect(target, value, isPercent));

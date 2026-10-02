@@ -336,6 +336,27 @@ public class CreatureTests
     }
 
     [Test]
+    public void A_summon_enters_with_its_stats_and_swings_with_its_buffed_ones()
+    {
+        var h = new Harness();
+        Bind(h);
+        h.Service.Summon(h.Client, 60);
+        var presence = h.Info.Summons[0];
+        presence.Entry.BaseStats.Should().NotBeNull("the summon buffs fold into the summon's own stats");
+        presence.Stats.MaxHp.Should().Be(presence.Entry.BaseStats.MaxHp);
+
+        // A buff raised the attack (SummonBuffStats.Refresh replaces Stats): the swing reads it.
+        presence.Stats = presence.Stats.Copy();
+        presence.Stats.AttackPointRight = 100_000;
+        A.CallTo(() => h.Combat.GetMonsterStats(0)).Returns(new StatBlock());
+        h.Service.SummonAttack(h.Client, presence.Handle, Harness.MonsterHandle);
+        h.Service.ProcessSwings(DateTime.UtcNow.AddSeconds(1));
+
+        A.CallTo(() => h.Combat.ApplyDamage(h.Client, 0, Harness.MonsterHandle,
+            A<int>.That.IsGreaterThan(10_000), A<int>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
     public async Task A_taming_commit_consumes_one_card_and_creates_the_bound_card_and_its_summon()
     {
         var options = new DbContextOptionsBuilder<TelecasterContext>()

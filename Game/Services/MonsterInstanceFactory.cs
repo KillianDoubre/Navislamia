@@ -21,7 +21,7 @@ public static class MonsterInstanceFactory
             AddInstances(instances, resourcesById, ref instanceId,
                 spawn.MonsterId, spawn.ResourceId ?? spawn.MonsterId, spawn.Count,
                 spawn.X - spawn.Radius, spawn.Y - spawn.Radius,
-                spawn.X + spawn.Radius, spawn.Y + spawn.Radius, isBlocked);
+                spawn.X + spawn.Radius, spawn.Y + spawn.Radius, isBlocked, spawn.Layer, spawn.IsDungeonRaidMonster);
         }
 
         foreach (var area in options.Areas)
@@ -30,7 +30,7 @@ public static class MonsterInstanceFactory
             {
                 AddInstances(instances, resourcesById, ref instanceId,
                     population.ResourceId, population.ResourceId, population.Count,
-                    area.Left, area.Top, area.Right, area.Bottom, isBlocked);
+                    area.Left, area.Top, area.Right, area.Bottom, isBlocked, area.Layer, area.IsDungeonRaidMonster);
             }
         }
 
@@ -50,7 +50,7 @@ public static class MonsterInstanceFactory
             AddInstances(instances, resourcesById, ref instanceId,
                 spawn.MonsterId, spawn.ResourceId ?? spawn.MonsterId, spawn.Count,
                 spawn.X - spawn.Radius, spawn.Y - spawn.Radius,
-                spawn.X + spawn.Radius, spawn.Y + spawn.Radius, isBlocked);
+                spawn.X + spawn.Radius, spawn.Y + spawn.Radius, isBlocked, spawn.Layer, spawn.IsDungeonRaidMonster);
         }
 
         return instances;
@@ -97,7 +97,7 @@ public static class MonsterInstanceFactory
     private static void AddInstances(List<MonsterInstance> instances,
         IReadOnlyDictionary<int, (MonsterResourceEntity Resource, MonsterCombatStats Combat, MonsterRewardProfile Rewards)> resourcesById,
         ref long instanceId, int monsterId, int resourceId, int count, int x1, int y1, int x2, int y2,
-        Func<float, float, bool> isBlocked)
+        Func<float, float, bool> isBlocked, byte layer = 0, bool raid = false)
     {
         if (count <= 0 || !resourcesById.TryGetValue(resourceId, out var entry))
         {
@@ -105,6 +105,7 @@ public static class MonsterInstanceFactory
         }
 
         var (resource, combat, rewards) = entry;
+        if (raid) combat = combat.AsRaid();
         var race = resource.Race is >= 0 and <= byte.MaxValue ? (byte)resource.Race : (byte)0;
         var left = Math.Min(x1, x2);
         var right = Math.Max(x1, x2);
@@ -123,7 +124,8 @@ public static class MonsterInstanceFactory
                 resource.FirstAttack != 0, resource.VisibleRange, resource.ChaseRange,
                 (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale,
                 resource.TamingId, resource.TamingPercentage, combat, resource.MonsterSkillLinkId,
-                resource.MonsterGroup, resource.GroupFirstAttack != 0, Rewards: rewards));
+                resource.MonsterGroup, resource.GroupFirstAttack != 0, Layer: layer, Rewards: rewards,
+                IsDungeonRaidMonster: raid, MonsterType: resource.MonsterType));
         }
     }
 

@@ -1,5 +1,11 @@
 # Socle — mode PK et combat joueur contre joueur (Epic 7.3)
 
+> **Mise à jour du 2 octobre 2026** : le lot
+> [PvP, terrains, compétences et immoralité](socle-pvp-terrains-competences-immoralite.md) complète
+> ce socle historique : lieux réels, ciblage offensif des joueurs, seuils Bloody/Demoniac à 100/1 000,
+> propriété `immoral` à quatre décimales et sauvegarde PKC/DKC. Les observations de protocole ci-dessous
+> restent les sources du mode PK ; les limites historiques sont remplacées par cette nouvelle fiche.
+
 Fiche d'archéologie du socle demandé par la carte
 `Socle mode PK et combat joueur contre joueur — fiche et archéologie (prérequis de 800 et 801)` :
 ce que portent les paquets client `800` et `801`, ce que l'état « mode PK » devient sur le fil en

@@ -12,6 +12,8 @@ public class MonsterSpawnOptions
 
 public class MonsterSpawnPoint
 {
+    public byte Layer { get; set; }
+    public bool IsDungeonRaidMonster { get; set; }
     public int MonsterId { get; set; }
     public int? ResourceId { get; set; }
     public int X { get; set; }
@@ -22,6 +24,8 @@ public class MonsterSpawnPoint
 
 public class MonsterSpawnArea
 {
+    public byte Layer { get; set; }
+    public bool IsDungeonRaidMonster { get; set; }
     public string Map { get; set; }
     public int SpawnGroupId { get; set; }
     public int Left { get; set; }

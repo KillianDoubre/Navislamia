@@ -122,7 +122,7 @@ public class AreaSkillTests
     {
         public readonly SkillEffectScheduler Effects = new(false);
         public readonly MonsterWorldState World;
-        public readonly ICombatService Combat = A.Fake<ICombatService>();
+        public ICombatService Combat = A.Fake<ICombatService>();
         public readonly IPlayerVisibilityService Players = A.Fake<IPlayerVisibilityService>();
         public readonly PlayerRegistry Registry = new();
         public readonly IStatService Stats = A.Fake<IStatService>();
@@ -173,6 +173,15 @@ public class AreaSkillTests
             Registry.Register(handle, client);
             return client;
         }
+        public void UseRealCombat(IStateCatalog states = null)
+        {
+            var random = A.Fake<ICombatRandom>();
+            A.CallTo(() => random.Next(A<int>._)).Returns(0);
+            Combat = new CombatService(World, A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
+                A.Fake<IGroundItemService>(), A.Fake<Navislamia.Game.Services.Rates.IRateService>(), Stats,
+                states ?? A.Fake<IStateCatalog>(), A.Fake<Navislamia.Game.Services.Party.IPartyService>(),
+                random: random, players: Players, runTicks: false);
+        }
         public SkillCastService PlayerService(CastableSkillRow row)
         {
             var repository = A.Fake<ISkillResourceRepository>();
@@ -200,6 +209,96 @@ public class AreaSkillTests
         public List<byte[]> Frames(GameClient client, SkillPacketType type) => Connections[client].Sent
             .Where(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 401 && f[31] == (byte)type).ToList();
         public void Dispose() => Effects.Dispose();
+    }
+
+    [TestCase(261)] [TestCase(271)] [TestCase(30011)]
+    public void Real_player_area_damage_resists_each_target_and_reports_reduced_hp_on_the_wire(int effect)
+    {
+        using var h = new Harness(); var caster = h.Client();
+        var states = A.Fake<IStateCatalog>();
+        A.CallTo(() => states.Resolve(77, 1)).Returns(new[] { new StatEffect(StatTarget.FireResistance, 150, false) });
+        h.World.AddState(0, 77, 0, 1, 0, uint.MaxValue);
+        h.UseRealCombat(states);
+        var vars = Vars(effect == 30011 ? 4 : 9);
+        if (effect == 271) { vars[6] = 2; vars[8] = 1; vars[10] = 1; }
+        var service = h.PlayerService(Row(effect, vars) with { ElementalType = 1 });
+        h.Cast(service, caster);
+        var frame = h.Frames(caster, effect == 271 ? SkillPacketType.RegionFire : SkillPacketType.Fire).Single();
+        BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(55)).Should().BeGreaterThanOrEqualTo(2);
+        var reduced = BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(67));
+        var full = BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(112));
+        reduced.Should().Be(full / 2); full.Should().BeGreaterThan(0);
+        frame[66].Should().Be(1); frame[111].Should().Be(1);
+        h.World.GetHp(0).Should().Be(1000 - reduced);
+        h.World.GetHp(1).Should().Be(1000 - full);
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(62)).Should().Be(h.World.GetHp(0));
+    }
+
+    [Test]
+    public void Real_multi_hit_skill_reloads_resistance_for_each_shot()
+    {
+        using var h = new Harness(); var caster = h.Client();
+        var states = A.Fake<IStateCatalog>();
+        A.CallTo(() => states.Resolve(77, 1)).Returns(new[] { new StatEffect(StatTarget.FireResistance, 300, false) });
+        h.UseRealCombat(states);
+        var vars = Vars(6, 3); vars[8] = 1;
+        var service = h.PlayerService(Row(232, vars) with { ElementalType = 1 });
+        h.Cast(service, caster);
+        var hp = h.World.GetHp(0); hp.Should().BeLessThan(1000);
+        h.World.AddState(0, 77, 0, 1, 0, uint.MaxValue);
+        h.Effects.Tick(ServerClock.Now + 105);
+        h.World.GetHp(0).Should().Be(hp);
+        var second = h.Frames(caster, SkillPacketType.Fire)[1];
+        BinaryPrimitives.ReadInt32LittleEndian(second.AsSpan(67)).Should().Be(0);
+        second[66].Should().Be(1);
+    }
+
+    [TestCase(111)] [TestCase(113)] [TestCase(261)] [TestCase(262)] [TestCase(30013)]
+    public void Real_monster_area_skills_respect_each_players_resistance(int effect)
+    {
+        using var h = new Harness(); var primary = h.Client(x: 100); var near = h.Client(101, 125);
+        A.CallTo(() => h.Stats.Compute(A<ConnectionInfo>._)).ReturnsLazily((ConnectionInfo info) =>
+            new CharacterStatResult(new StatBlock { FireResistance = info.CharacterHandle == PlayerHandle ? 150 : 0 }, new StatBlock()));
+        h.UseRealCombat();
+        var vars = Vars(effect == 111 ? 2 : effect == 113 ? 8 : effect == 30013 ? 4 : 9);
+        if (effect is 113 or 262) { vars[5] = -1; vars[6] = 1; vars[7] = 1; }
+        if (effect == 30013) { vars[7] = -1; vars[8] = 1; vars[9] = 1; }
+        h.MonsterService(Row(effect, vars) with { ElementalType = 1 }).TryCast(primary, 0, MonsterHandle, 1000, out _).Should().BeTrue();
+        var fire = h.Frames(primary, SkillPacketType.Fire).Single();
+        BinaryPrimitives.ReadUInt16LittleEndian(fire.AsSpan(55)).Should().Be(2);
+        var reduced = BinaryPrimitives.ReadInt32LittleEndian(fire.AsSpan(67));
+        var full = BinaryPrimitives.ReadInt32LittleEndian(fire.AsSpan(112));
+        reduced.Should().Be(full / 2); full.Should().BeGreaterThan(0);
+        StorageTestHarness.Session(primary).CharacterHp.Should().Be(1000 - reduced);
+        StorageTestHarness.Session(near).CharacterHp.Should().Be(1000 - full);
+        fire[66].Should().Be(1); fire[111].Should().Be(1);
+    }
+
+    [TestCase(101)] [TestCase(201)]
+    public void Real_monster_single_target_skills_reduce_damage_before_the_mana_shield(int effect)
+    {
+        using var h = new Harness(); var primary = h.Client(x: 100); var control = h.Client(101, 125);
+        A.CallTo(() => h.Stats.Compute(A<ConnectionInfo>._)).ReturnsLazily((ConnectionInfo info) =>
+            new CharacterStatResult(new StatBlock { FireResistance = info.CharacterHandle == PlayerHandle ? 150 : 0 }, new StatBlock()));
+        var states = A.Fake<IStateCatalog>(); var values = new decimal[20]; values[0] = .5m; values[4] = 99;
+        A.CallTo(() => states.GetRule(77)).Returns(new Navislamia.Game.Services.Casting.StateRule(77,
+            Array.Empty<int>(), 0, 0, Navislamia.Game.Services.Combat.AttackMechanics.ManaShield, values));
+        StorageTestHarness.Session(primary).ActiveBuffs.Add(new ActiveBuff(1, 77, 0, 1, 0, uint.MaxValue));
+        h.UseRealCombat(states);
+        var vars = new decimal[20]; vars[0] = 100;
+        var row = Row(effect, vars) with { ElementalType = 1 };
+        MonsterSkillCatalog.TryClassify(row, 1, 1, out var skill).Should().BeTrue();
+        var stats = h.Combat.GetMonsterStats(0);
+        var damage = MonsterSkillRules.BaseDamage(skill, stats.AttackPointRight, stats.MagicPoint);
+        var full = h.Combat.RollMonsterHit(0, control, damage, effect == 201 ? DamageKind.Magical : DamageKind.Physical, 0, 0).Damage;
+        h.MonsterService(row).TryCast(primary, 0, MonsterHandle, 1000, out _).Should().BeTrue();
+        var fire = h.Frames(primary, SkillPacketType.Fire).Single();
+        var reduced = BinaryPrimitives.ReadInt32LittleEndian(fire.AsSpan(67));
+        reduced.Should().Be(full / 2);
+        var info = StorageTestHarness.Session(primary);
+        (1000 - info.CharacterHp + 100 - info.CharacterMp).Should().Be(reduced);
+        info.CharacterMp.Should().Be(100 - Math.Min(100, reduced / 2));
+        fire[66].Should().Be(1);
     }
 
     [Test]

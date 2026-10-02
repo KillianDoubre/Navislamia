@@ -29,7 +29,9 @@ public readonly record struct MixMaterial(
     long Enhance,
     int Flag,
     long Count,
-    uint Handle = 0);
+    uint Handle = 0,
+    long SkillId = 0,
+    long? AvailableCount = null);
 
 /// <summary>
 /// What a <c>TM_CS_MIX</c> frame resolves to: the rule that accepts the combination, and the quantity of
@@ -54,7 +56,7 @@ public readonly record struct MixResolution(MixResourceEntity Rule, IReadOnlyLis
 /// </summary>
 public static class MixResourceMatcher
 {
-    /// <summary>The twenty condition codes of the reference (<c>MixManager.h:64-85</c>).</summary>
+    /// <summary>NGemity's condition codes, extended by retail MixBase.h for skill cards.</summary>
     public const int CheckItemGroup = 1;
     public const int CheckItemClass = 2;
     public const int CheckItemId = 3;
@@ -75,6 +77,9 @@ public static class MixResourceMatcher
     public const int CheckItemGrade = 18;
     public const int CheckSameItemId = 19;
     public const int CheckSameSummonCode = 20;
+    // Retail MixBase.h; these compare with slot 0 (main) or n (sub n - 1).
+    public const int CheckSameItemEnhance = 24;
+    public const int CheckSameSkillId = 25;
 
     /// <summary>
     /// Walks <paramref name="rules"/> in the order it is given (the order of the table, <c>MixManager.cpp:244</c>)
@@ -310,6 +315,8 @@ public static class MixResourceMatcher
 
                 case CheckSameItemId:
                 case CheckSameSummonCode:
+                case CheckSameItemEnhance:
+                case CheckSameSkillId:
                     // Both are decided on the arranged stacks, not here: 19 by the post-arrangement
                     // (MixManager.cpp:558-570), 20 by the same function answering false (:574-576). The
                     // reference's `default: break` (:443-444) leaves them inert at this stage, so the
@@ -344,14 +351,25 @@ public static class MixResourceMatcher
     {
         for (var i = 0; i < MixResourceRules.MaterialInfoCount; i++)
         {
-            if (info.Types[i] == CheckSameItemId)
+            if (info.Types[i] is CheckSameItemId or CheckSameItemEnhance or CheckSameSkillId)
             {
                 var slot = info.Values[i];
                 var reference = slot == 0
                     ? mainMaterial
-                    : slot - 1 < arranged.Count ? arranged[slot - 1] : null;
+                    : slot > 0 && slot <= arranged.Count ? arranged[slot - 1] : null;
 
-                if (reference is null || material is null || material.Value.ItemCode != reference.Value.ItemCode)
+                if (reference is null || material is null)
+                {
+                    return false;
+                }
+
+                var matches = info.Types[i] switch
+                {
+                    CheckSameItemId => material.Value.ItemCode == reference.Value.ItemCode,
+                    CheckSameItemEnhance => material.Value.Enhance == reference.Value.Enhance,
+                    _ => material.Value.SkillId > 0 && material.Value.SkillId == reference.Value.SkillId
+                };
+                if (!matches)
                 {
                     return false;
                 }

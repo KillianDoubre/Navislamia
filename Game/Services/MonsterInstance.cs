@@ -44,4 +44,6 @@ public readonly record struct MonsterInstance(
     int MonsterGroup = 0,
     bool GroupFirstAttack = false,
     byte Layer = 0,
-    MonsterRewardProfile Rewards = default);
+    MonsterRewardProfile Rewards = default,
+    bool IsDungeonRaidMonster = false,
+    int MonsterType = 0);

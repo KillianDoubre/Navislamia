@@ -27,7 +27,8 @@ namespace Navislamia.Game.Maps
         private readonly MapOptions _mapOptions;
         private readonly IScriptService _scriptService;
 
-        private static QuadTree _qtLocationInfo;
+        private readonly QuadTree _qtLocationInfo;
+        private readonly object _locationSync = new();
         private static QuadTree _qtBlockInfo;
         private static QuadTree _qtAutoBlockInfo;
         private static Dictionary<int, PropContactScriptInfo> _propScriptInfo;
@@ -41,7 +42,8 @@ namespace Navislamia.Game.Maps
         /// </summary>
         private static volatile bool _eventAreaSnapshotStale;
 
-        private static int _currentLocationId;
+        [ThreadStatic] private static int _currentLocationId;
+        public static void SetCurrentLocationId(int id) => _currentLocationId = id;
         private static float _tileSize = 1;
         public KSize MapCount { get; set; } = new(0, 0);
         private static int _currentRegionIdx;
@@ -73,6 +75,15 @@ namespace Navislamia.Game.Maps
             {
                 return _eventAreaInfo.TryGetValue(eventAreaId, out eventArea);
             }
+        }
+
+        public int GetLocationId(float x, float y)
+        {
+            if (!float.IsFinite(x) || !float.IsFinite(y)) return 0;
+            var locations = new List<MapLocationInfo>();
+            lock (_locationSync) _qtLocationInfo.Enum(new PointF(x, y), locations);
+            var best = locations.OrderBy(p => p.Priority).FirstOrDefault();
+            return best?.LocationId ?? 0;
         }
 
         public EventAreaInfo[] GetEventAreas()
@@ -139,6 +150,8 @@ namespace Navislamia.Game.Maps
                 {
                     for (var x = 0; x < MapCount.CX; ++x)
                     {
+                        var cellX = x;
+                        var cellY = y;
                         _logger.LogDebug("Loading map: m{x}_{y}...", x, y);
 
                         var locationFileName = SeamlessWorldInfo.GetLocationFileName(x, y);
@@ -155,7 +168,7 @@ namespace Navislamia.Game.Maps
 
                         tasks.Add(Task.Run(() =>
                         {
-                            LoadLocationFile($"{directory}\\{locationFileName}", x, y, attrLen, mapLength);
+                            LoadLocationFile($"{directory}\\{locationFileName}", cellX, cellY, attrLen, mapLength);
                         }));
 
                         var scriptFileName = SeamlessWorldInfo.GetScriptFileName(x, y);
@@ -167,7 +180,7 @@ namespace Navislamia.Game.Maps
 
                         tasks.Add(Task.Run(() =>
                         {
-                            LoadScriptFile($"{directory}\\{scriptFileName}", x, y, attrLen, mapLength, PropInfo);
+                            LoadScriptFile($"{directory}\\{scriptFileName}", cellX, cellY, attrLen, mapLength, PropInfo);
                         }));
 
                         if (!skipLoadingNfa)
@@ -181,7 +194,7 @@ namespace Navislamia.Game.Maps
 
                             tasks.Add(Task.Run(() =>
                             {
-                                LoadAttributeFile($"{directory}\\{attributeFileName}", x, y, attrLen, mapLength);
+                                LoadAttributeFile($"{directory}\\{attributeFileName}", cellX, cellY, attrLen, mapLength);
                             }));
                         }
 
@@ -194,7 +207,7 @@ namespace Navislamia.Game.Maps
 
                         tasks.Add(Task.Run(() =>
                         {
-                            LoadEventAreaFile($"{directory}\\{eventAreaFileName}", x, y, attrLen, mapLength);
+                            LoadEventAreaFile($"{directory}\\{eventAreaFileName}", cellX, cellY, attrLen, mapLength);
                         }));
 
                         worker = Task.WhenAll(tasks);
@@ -332,8 +345,6 @@ namespace Navislamia.Game.Maps
 
         private void LoadLocationFile(string fileName, int x, int y, float attrLen, float mapLength)
         {
-            MapLocationInfo locationInfo = new();
-
             if (!File.Exists(fileName))
             {
                 return;
@@ -357,11 +368,9 @@ namespace Navislamia.Game.Maps
                     Radius = stream.ReadFloat()
                 };
 
-                locationInfo.Priority = locationInfoHeader.Priority;
-
                 var charSize = stream.ReadInt();
 
-                if (charSize > 1)
+                if (charSize > 0)
                 {
                     // TODO localName never used?
                     var localName = stream.ReadString(charSize);
@@ -371,24 +380,19 @@ namespace Navislamia.Game.Maps
 
                 _currentLocationId = 0;
 
-                if (charSize > 1)
+                if (charSize > 0)
                 {
                     var script = stream.ReadString(charSize);
                     _scriptService.RunString(script);
                 }
 
-                if (_currentLocationId == 0)
-                {
-                    return;
-                }
-
-                locationInfo.LocationId = _currentLocationId;
+                var locationId = _currentLocationId;
 
                 var polygonSize = stream.ReadInt();
 
                 for (var polygonCount = 0; polygonCount < polygonSize; ++polygonCount)
                 {
-                    locationInfo.ClearPolygon();
+                    var locationInfo = new MapLocationInfo { LocationId = locationId, Priority = locationInfoHeader.Priority };
 
                     var pointCount = stream.ReadInt();
                     var points = new Point[pointCount];
@@ -410,12 +414,15 @@ namespace Navislamia.Game.Maps
 
                     locationInfo.Set(point);
 
-                    RegisterMapLocationInfo(locationInfo);
+                    if (locationId != 0) RegisterMapLocationInfo(locationInfo);
                 }
             }
         }
 
-        private void RegisterMapLocationInfo(MapLocationInfo locationInfo) => _qtLocationInfo.Add(locationInfo);
+        private void RegisterMapLocationInfo(MapLocationInfo locationInfo)
+        {
+            lock (_locationSync) _qtLocationInfo.Add(locationInfo);
+        }
 
         private void LoadScriptFile(string fileName, int x, int y, float attrLen, float mapLength, TerrainPropInfo terrainPropInfo)
         {

@@ -585,4 +585,6 @@ n'est pas exécuté par cette commande ; il ne valide pas la sauvegarde sur la b
 Le client réel n'a pas encore servi à valider l'affichage de la pile d'or ou l'animation 213.
 Ce lot branche les récompenses importées et leurs probabilités ; les malus d'écart de niveau et la portée
 de 500 unités sont venus de la fusion (§15). Les pondérations par dégâts, bonus de donjon/PC bang et
-stamina du serveur officiel ne sont pas modélisés. Les règles d'attribution des objets autres que l'or restent celles du socle groupe.
+stamina du serveur officiel n'étaient pas modélisés dans ce lot. La pondération, la stamina et le
+bonus de donjon configurable sont maintenant livrés dans `socle-progression-monstres-quetes-titres.md`.
+Le bonus PC bang reste absent. Les règles d'attribution des objets à l'intérieur du groupe sont conservées.

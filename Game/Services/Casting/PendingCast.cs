@@ -27,4 +27,5 @@ public sealed class PendingCast
     public long TargetInstanceId { get; }
     public uint StartTick { get; }
     public uint FireTick { get; set; }
+    public Navislamia.Game.Network.Clients.GameClient PlayerTarget { get; init; }
 }

@@ -277,6 +277,9 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.Property<long?>("MainSummonId")
                         .HasColumnType("bigint");
 
+                    b.Property<int>("MainTitleId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("MaxReachedLv")
                         .HasColumnType("integer");
 
@@ -544,6 +547,67 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                         .IsUnique();
 
                     b.ToTable("CharacterSkills");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterStateEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("Infinite")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("RemainingTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("SavedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SkillId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StateId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StateLevel")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("SummonCardId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId", "SummonCardId");
+
+                    b.ToTable("CharacterStates");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterTitleStateEntity", b =>
+                {
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long[]>("ConditionCounts")
+                        .HasColumnType("bigint[]");
+
+                    b.Property<int[]>("ConditionIds")
+                        .HasColumnType("integer[]");
+
+                    b.Property<int[]>("OpenedTitleIds")
+                        .HasColumnType("integer[]");
+
+                    b.Property<int[]>("OwnedTitleIds")
+                        .HasColumnType("integer[]");
+
+                    b.HasKey("CharacterId");
+
+                    b.ToTable("CharacterTitleStates");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", b =>
@@ -1256,6 +1320,24 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                         .IsRequired();
 
                     b.Navigation("Character");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterStateEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", null)
+                        .WithMany()
+                        .HasForeignKey("CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterTitleStateEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", null)
+                        .WithOne()
+                        .HasForeignKey("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterTitleStateEntity", "CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", b =>

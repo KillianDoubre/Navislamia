@@ -10,9 +10,6 @@ public static class MiscFunc
 {
     public static void SetCurrentLocationId(params object[] args)
     {
-        // TODO:
-        // MapLoader.CurrentLocationID = 0;
-
         if (args.Length == 0)
         {
             return;
@@ -20,8 +17,7 @@ public static class MiscFunc
 
         var n = Convert.ToInt32(args[0]);
 
-        // TODO:
-        //MapLoader.CurrentLocationID = n;
+        Navislamia.Game.Maps.MapService.SetCurrentLocationId(n);
     }
 
     public static int GetEnv(params object[] args)

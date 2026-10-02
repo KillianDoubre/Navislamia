@@ -673,8 +673,17 @@ affected item, stat info, `TS_SC_RESULT` tagged with the request id, and finally
 character level, or whose `use_max_level` (0 = none) is below it. The rank floors are the official server's
 `{0, 0, 20, 50, 80, 100, 120, 150, 170}` (NGemity says 180 at rank 8). The official compares with
 `max(level, expert level)`; no expert level exists here, so the character level alone decides. Race, class
-and job depth are **allow-lists** in the official (`ItemBase::nLimit`, `job_depth`), and the repository's
-`RaceRestriction`/`JobRestriction` are empty: a check built on them would refuse everything.
+and job depth are **allow-lists** in the official (`ItemBase::nLimit`, `job_depth`). They are now checked
+on both paths using `ItemWearFields`: repository race bits Deva/Asura/Gaia = 1/2/4, class bits
+fighter/hunter/magician/summoner = 1024/2048/4096/8192, and the item's depth mask tested with
+`1 << depth index` like the official. Zero allows nobody. **Whether `JobResources.JobDepth` holds the index
+0..3 (the 9.4 export) or a bit 1/2/4/8 is not established**: `JobDepths` reads the encoding from the whole
+table (a 0 or 3 is an index, a 4 or 8 a bit) for the equipment and quest gates alike.
+`EquipmentService` caches class/depth from `IJobResourceRepository.GetWearFields`, resolving the current
+job (100/200/300 for job 0 by race); an unknown job refuses the equip. Class is never guessed from job ID
+digits. `tools/import_epic7.py` converts all seven `limit_*` columns into the existing masks.
+The embedded Arcadia migration `BackfillItemWearRestrictions` corrects 29,647 Epic 7 item IDs at startup;
+it preserves other columns and IDs outside the dump. See §11 of the equipment requirements sheet.
 
 Equipping recomputes the stats and refreshes the cached item effects, the equipped weapon class and the
 passive effects on `ConnectionInfo` — a weapon change turns the gated masteries on and off, so all three
@@ -736,10 +745,10 @@ P.Atk+M.Atk, `1536` P.Def+M.Def, `50331648` HP+MP Recov., `402653184` HP+MP Rege
 Rate alone with var2 in 1..15. Confirmed end to end in game data: item 101221 decodes to
 `AttackPointRight=77, AttackSpeed=-5, Critical=2`.
 
-`ParameterB` (97/99) is **not decoded and is a documented gap**: the bit table holds 52 entries so B can
-address 20 bits, yet the data contains a bit-28 mask. It covers **63 items** out of 33 142, all late-9.4
-accessories (ids 422205+) unlikely to exist in the 7.3 client. The lever for a future attempt is the
-client's `db_item.rdb`, which is also what blocks Epic 7.3 drop filtering.
+`ParameterB` (97/99) decodes **elemental resistance bits 0..6** (neutral, fire, water, wind, earth,
+light, dark), from the official `StructMisc.h` flags. Other B bits remain undecoded; the imported data
+also contains late-9.4 accessories with bit-28 masks, unlikely to exist in the 7.3 client.
+See `docs/packet-specs/socle-resistances-elementaires.md` for the resistance rule and verification.
 
 `StatCatalog` (job/stat reference data) and `ItemStatCatalog` (item id -> precomputed effect list) are
 frozen at startup like `ItemSortCatalog`, so a stat computation never queries the database.
@@ -905,9 +914,9 @@ rather than falling back to buff behaviour, so a future kind cannot be silently 
 
 | kind | effect_type | target | what it does |
 |---|---|---|---|
-| `Buff` | 301, 302, `!is_harmful` | caster-inclusive | timed state on the caster |
+| `Buff` | 301, 302, `!is_harmful` | player, party, region, summons | timed states on eligible targets |
 | `Aura` | 701, 702 | any | untimed state, toggled off by recasting |
-| `Heal` | 501, 505 | 1 (`Target`) | restores HP from the caster's magic attack |
+| `Heal` | 501, 505, 508, 521 | player, party, region, summons | HP or HP/MP, caster magic and each target's maxima |
 | `Debuff` | 301, 302, `is_harmful` | 1 (`Target`) | timed state on a visible monster |
 | `PhysicalAttack` | 30001 | 1 (`Target`) | damages a visible monster |
 | `MagicAttack` | 231 | 1 (`Target`) | same, tagged `SHT_MAGIC_DAMAGE` |
@@ -921,16 +930,25 @@ packets; a heal moves HP (a property), and a debuff or an attack lands on a mons
 A player casts a learned buff on themselves and the client plays it, shows the icon with its countdown,
 applies the stats and lets it expire.
 
-**A region buff is a self buff while playing solo**, which is why 302 is in: the region around the caster
-contains only the caster. It is applied to the caster alone and never expanded — invisible until a party
-exists. Asuran Haste is a 302 and was unreachable when the scope was 301 only.
+`SkillCastService.Support` resolves players, parties, regions and summons using `SkillTarget`,
+`ValidRange` and the loaded `UseOn*` flags. Targets 21/32/51 select party players/summons/both;
+45 selects the target's owner and summons, 31 selects a summon, 3/6 exclude the caster. Direct targets
+must be visible, alive, on the same layer and within cast range; eligibility is checked again at fire.
+508/521 use var10 × 12 as their healing radius, var11 as their relationship filter and, for 508,
+var12 as the creature filter. Each result carries its own target and HP/MP in the multi-hit 401.
 
-**The target decides who the buff lands on, and getting this wrong buffs the wrong unit.** Supported
-`SkillTarget`s are the ones containing the caster: `Target` (1), `RegionWith` (2), `SelfWithSummon` (45)
-and `PartyWithSummon` (51, a solo party being just the caster). Refused: `RegionWithout` (3), which
-excludes the caster by definition, and `Summon` (31) / `PartySummon` (32), which target a summon that
-nothing models. **The first cut ignored `target` entirely, so its 12 summon buffs would have buffed the
-player.**
+`CharacterStates` persists player and summon state snapshots on disconnect, lobby return and `/save`.
+`EraseOnLogout` states are discarded; `TimeDecreaseOnLogout` states count offline time, others pause.
+Login restores durations and effects before the bootstrap stats and replays icons. Summon states are
+keyed by stable card handle and attach when `SummonWorldService.Enter` creates their new world handle.
+Summons keep mutable HP/MP, active states and stats computed from the caller-supplied `BaseStats`
+(or their entry HP/MP maxima). `CreatureService` supplies `BaseStats` (`CreatureRules.SummonStats`), and a
+summon's swings read its buffed `SummonPresence.Stats`.
+
+Party/summon auras use 11-second leases, refreshed while the source is active, and remove projected
+states on exit, range/party changes or toggle-off. Borrowed states are not persisted. A summon-only aura
+stores an activation marker (`StateId = 0`) without buffing its caster. Details and validation:
+`docs/packet-specs/socle-buffs-groupe-invocations.md`.
 
 **rzu is authoritative for the wire format, the reference emulator for the logic, and nothing else.** The
 emulator writes `hp_cost`/`mp_cost`/`caster_mp` as int16, which is the `< EPIC_7_3` variant — **at 7.3 they
@@ -972,7 +990,7 @@ logic I was already reading. **Plausibility is not evidence; find the line that 
 `StateResource.value_0..value_17` are **six `(mask, base, perLevel)` triplets** and
 `amount = base + perLevel × state_level`, which the emulator's `SEF_PARAMETER_INC` branch applies in
 exactly that order. **Triplets 0, 1, 4 and 5 are ParameterA and triplets 2 and 3 are ParameterB** — the
-same A/B split as items, and B stays undecoded and skipped. So `StateCatalog` reuses `ParameterBitset`,
+same A/B split as items, and B decodes resistance bits 0..6. So `StateCatalog` reuses `ParameterBitset`,
 `StatEffect`, `StateEffectTemplate` and `StatCalculator` unchanged; buffs are just a third effect source
 next to items and passives. **`SIT_ByItem` stays items only.**
 
@@ -1354,8 +1372,9 @@ button greyed permanently.
 
 `ItemResources` holds 33,142 rows imported from the 9.4 SQL Server `Arcadia.ItemResource`, with `class`
 in `ItemType`, `type` in `ItemBaseType` (the tab category) and `group` in `Group`. Like `MonsterResource`,
-only the directly mapped scalar columns were imported; `RaceRestriction`, `SetPart` and `JobRestriction`
-are bitfields derived from `limit_*` columns and are left at zero, and the
+the initial import only copied directly mapped scalar columns. `RaceRestriction` and `JobRestriction`
+are now filled from the seven Epic 7 `limit_*` columns by the importer and an embedded data migration
+(`socle-exigences-equipement.md` §11); `SetPart` maps `set_part_flag` in the Epic 7 importer. Historically the
 `NameId`/`SetId`/`SummonId`/`EffectId`/`SkillId`/`StateId` foreign keys are left null because the
 referenced resource tables are still empty.
 
@@ -1533,8 +1552,10 @@ premiers octets de chaque enregistrement de 703), 706 = 19, 707 = 11 + 4 × H, 7
 - Migrations : `QuestLifecycle` (historique, temps restant, échéance, index unique des seules quêtes
   actives), `QuestGoldReward` (colonne or et reprise des 765 montants importés), `RandomQuestPools`
   (table et 1 637 cibles). Elles sont appliquées par le démarrage existant du serveur.
-- Limites mesurées du catalogue : 52 quêtes 701 sont pilotées par des scripts Lua et ne sont pas
-  proposées. Six contrats 901 ont trop peu de cibles dans la plage niveau ±4 et sont également refusés.
+- Les 52 quêtes 701 sont proposées et leur progression externe est persistante via
+  `set_quest_status` et `IQuestService.RunScriptAsync`. Les scénarios particuliers restent liés aux
+  systèmes de donjon/événement correspondants. Six contrats 901 ont trop peu de cibles dans la plage
+  niveau ±4 et sont refusés.
 - **Faveur et plafond d'or** (fiche §12) : la remise crédite `favor` au PNJ (groupe 999) dans
   `CharacterFavors` et retire `favor` au groupe de haine ; `limit_favor` est jugé au démarrage (aucune quête
   Epic 7 n'en porte) ; une remise qui dépasserait l'or porté maximal répond `END|TOO_MUCH_MONEY|code` et ne
@@ -1624,20 +1645,25 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   (`set_auto_user`, account-wide clearing). Area damage includes victims outside caster streaming;
   per-observer handles filter packets and death reaches all monster viewers. Area/multi-hit casts
   validate target and weapon range before costs/cooldowns, including Lua; selection uses interpolated
-  player positions. Missing script branches
-  and raid adjustments remain unported. **Damage, hit, block, critical
+  player positions. The 148 missing trigger profiles are reconstructed with user authorization
+  (105 official aliases, 24 inferred skill profiles, 19 without configured skills). Raid speed, Lua
+  flag, inherited layer and regular-monster drop suppression are implemented. Active monster states
+  replay after ENTER (`socle-progression-monstres-quetes-titres.md`). **Damage, hit, block, critical
   and attack speed follow the official rules on both sides** (`socle-combat-reel.md`), and so do double
   attack, dual wield, bow aiming (arrows spent), additional damage, reflection and mana shield
-  (`socle-mecaniques-combat.md`); elements are carried on the wire but no resistance is modelled. A
+  (`socle-mecaniques-combat.md`); elemental resistance from equipment, passive 10006 and states reduces
+  skills, additional damage and reflections (`socle-resistances-elementaires.md`). A
   player at 0 HP is dead until `TM_CS_RESURRECTION` (513) brings them back in town, in place with a
   resurrection state, an official resurrection potion (effect 114, part of the lost exp back), another
   player's resurrection skill (504/30501) or, for a duel's loser, type 3 (`socle-mort-joueur.md`); items
   drop at death on a PK server only (`GameRules:PkServer`). Kill
-  rewards use the loaded resource EXP/JP, gold and chaos; contribution weights and level penalties remain
-  unmodelled (`socle-recompenses-monstres.md`)
+  rewards use loaded EXP/JP, gold and chaos with damage contribution, level penalties and stamina.
+  An additional dungeon bonus is configurable (default zero); PC bang/premium bonuses remain
+  unmodelled (`socle-progression-monstres-quetes-titres.md`).
 - Ground items are seen by nearby players; monster drops can be taken by the owner and eligible party members
 - NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
-  warp**; other gameplay actions such as shops and quest mutation are not executed yet
+  warp**; shops, the quest lifecycle and advertised Lua objective/title callbacks also execute.
+  Other static dialogue actions still require their corresponding gameplay systems.
 - **Field props stream and warp gates work**: 203 of 3 189 props teleport. Not modelled: `use_count`,
   `regen_time`, `life_time`, prop drop tables, `casting_time` interruption, and the quest/item/worn
   activation conditions (those props refuse). **`enter_dungeon` warps to `raid_start_pos` while
@@ -1649,15 +1675,22 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   reward, including region/multi-hit offensive skills and timed ground damage 271.
   **Debuffs move the monster's stats.** `cast_range`, debuff resistance, `state_type` stacking
   (`duplicate_group`, `reiteration_count`) and cast interruption (Escape, damage pushback, stun-like
-  states, warp) follow the official server (`socle-lancer-competences.md`). Not implemented: expanding a
-  region buff beyond the caster, buffing other players, summon buffs, region heals and buff persistence
-  across sessions
-- Equipping and unequipping work and persist and feed the stats; the **level** requirement is judged
-  (`ItemWearRules.IsWearAllowed`, see *Equipment*), race, class and job depth are not: their columns are empty
-  (`limit_*` not imported, `docs/packet-specs/socle-exigences-equipement.md` lot 2)
+  states, warp) follow the official server (`socle-lancer-competences.md`). Buff persistence, group/summon
+  buffs and HP/MP region healing are implemented (`socle-buffs-groupe-invocations.md`); live client
+  validation remains outstanding
+- Equipping and unequipping work and persist and feed the stats; level, race, class and job depth are
+  judged before 200/281 change inventory (`ItemWearRules.IsWearAllowed`, see *Equipment*).
+  The Arcadia backfill is tested on disposable PostgreSQL and awaits startup on the real database.
+  Summon equipment, 223 and revalidation of already worn items at login remain outside this gate
+  (`docs/packet-specs/socle-exigences-equipement.md` lot 3)
 - Stats cover job/JLv/level, equipment, the supported passive skills, active buffs and toggled auras;
-  **titles still contribute nothing because nothing can grant one**. `ParameterB` is undecoded for both
-  items (63) and states. **Stats drive combat**: attack, defence, accuracy, avoid, block, critical and
+  main-title effects now apply after acquisition, selection and reconnect (`/titles`, `/title <id|0>`).
+  Title definitions and conditions are embedded; quest/monster/skill/gold/PK conditions and Lua
+  `set_title_condition` can unlock titles. Secondary titles and specialized summon/crafting/siege/PC
+  bang events remain. Migration `Version0013_CharacterTitles` persists ownership and counters.
+  `ParameterB` resistance bits 0..6
+  work for items and states; other B bits remain undecoded. **Stats drive combat**: attack, defence,
+  elemental resistance, accuracy, avoid, block, critical and
   attack speed all reach the damage and the swing interval
 - Inventory sorting and drag-swap work; the character storage (211/212) moves items and gold between the
   bag and the account storage, capped at 1 000 stacks (`socle-entrepot-or.md`; a deposit never joins an
@@ -2004,12 +2037,18 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - **Moteur (lot L2, §14-15 de la fiche)** : `CraftingEngine` (pur) exécute 101 (cube, gain tiré dans
   `[mix_value_02, mix_value_03]`, chance `percentage[enhance]`, échec par `fail_result` : 1/0/4 → bit `FAILED`
   et châsses gardées, 2 → détruit à +3 ou moins sinon −3, 3 → −3 plancher 0), 103 (cube + poudre, +1, échec −1),
-  311 (bit 0 := `mix_value_03`) et 501 (efface le bit `mix_value_01`, 3 = `FAILED`) ; 102 ne se résout pas
-  (codes de condition 24/25 inconnus), les autres types sont refusés. `ApplyCraftAsync` applique tout en une
+  311 (bit 0 := `mix_value_03`) et 501 (efface le bit `mix_value_01`, 3 = `FAILED`) ; 102 combine deux cartes
+  de même compétence et amélioration (conditions retail 24/25), consomme le cube et produit une unité
+  distincte à +1 ; échec `SkillCard` : détruite jusqu'à +3, sinon nouvelle unité à −3. Les autres types
+  sont refusés. `ApplyCraftAsync` applique tout en une
   sauvegarde, **seulement si la cible est encore dans l'état où le craft a été décidé**. Réponse : 255/254 par pile,
   207 pour la cible, puis 257 (cible si réussite, vide si échec). Appariement **par position**.
   `Crafting:LocalFlag` = 1 ; données par `tools/Import-CraftingResources.ps1` (CSV 9.4), `Percentage` jusqu'à 25.
   Fiche : `docs/packet-specs/socle-artisanat-ressources.md`.
+  Complément 102 : `docs/packet-specs/socle-artisanat-cartes-competences.md` ; une pile peut fournir les
+  deux cartes, les unités restantes gardent leur amélioration, 257 rapporte la nouvelle poignée seulement
+  sur réussite. `ItemMatchFields.SkillId` provient de la ressource, les quantités et états des matériaux
+  sont revérifiés sous le verrou d'inventaire avant toute modification.
 
 ### Paquet 304 — `TM_CS_SUMMON` (demande d'invocation par carte)
 
@@ -2317,8 +2356,12 @@ un delta** : publier un seul bit éteint tous les autres. Il ne se compose donc 
 colonne existe depuis `Version0001_TheBeginning`. Le protocole n'a **aucun paquet serveur PK** —
 `800` et `801` (trames d'en-tête seul) basculent `PkMode` et republient le masque par
 `GameClient.SendActorStatus`, qui passe par `ForPlayer(info)` et part aussi aux observateurs. Le mode PK
-n'ouvre le combat entre joueurs que dans un terrain PK, inconnu ici : l'option `GameRules:PkFieldsEverywhere`
-fait de tout lieu un terrain PK (désactivée par défaut, voir le duel, socle 4500-4506).
+n'ouvre le combat entre joueurs que si les deux sont en terrain PK (`PkFieldService`, polygones `.nfl`
+et `WorldLocation.LocationType`). Un lieu inconnu est protégé ; `GameRules:PkFieldsEverywhere` reste une
+option de débogage désactivée. Compétences offensives, zones, immoralité et compteurs PK/DK sont livrés :
+voir `docs/packet-specs/socle-pvp-terrains-competences-immoralite.md`. Bloody commence à 100 points,
+Demoniac à 1 000 ; la propriété `immoral` transporte les points multipliés par 10 000. Les trois valeurs
+sont sauvegardées avec la progression dans les colonnes existantes, sans migration PvP.
 
 Les tests d'offsets des deux trames sont dans `Tests/Game/PkModeStatusTests.cs`.
 
@@ -2579,8 +2622,9 @@ aucune pour 4502 — le refus serait silencieux ; la correspondance existe en `0
 **Le duel est livré (C2…C4, 2026-10-02)** : `CompeteService` porte `CompeteManager` du serveur officiel —
 règles et codes de la demande, 60 s pour répondre, compte à rebours de 10 s, 900 s dans un rayon de 500 autour
 du point de départ, fins 0-5, trames 4501/4503-4506 émises, résurrection 513 type 3 du perdant (10 % des PV),
-coups entre duellistes par `CombatService` (`StructPlayer::IsEnemy`). Le combat en mode PK hors duel reste
-derrière `GameRules:PkFieldsEverywhere` (terrains PK inconnus). Détail : §10 de la fiche. Ce qui suit décrit
+coups et compétences entre duellistes par `CombatService` (`StructPlayer::IsEnemy`). Le combat en mode PK
+hors duel utilise désormais les terrains réels et l'immoralité : voir la fiche
+`socle-pvp-terrains-competences-immoralite.md`. Détail du duel : §10 de sa fiche. Ce qui suit décrit
 le premier lot, remplacé quand le service est présent :
 
 **Socle minimum (C1), livré** : `4500` et `4502` sont lus, validés et refusés — 39 octets exigés

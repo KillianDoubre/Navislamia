@@ -127,7 +127,11 @@ public class GameActions : IActions
         info.CharacterJp = character.Jp;
         info.CharacterGold = character.Gold;
         info.CharacterChaos = character.Chaos;
+        info.CharacterStamina = Math.Max(0, character.Stamina);
         info.PkMode = character.PkMode;
+        info.ImmoralPoint = character.ImmoralPoint;
+        info.PkCount = character.PkCount;
+        info.DkCount = character.DkCount;
         info.CharacterPermission = character.Permission;
         info.AutoUsed = character.AutoUsed;
         info.Layer = (byte)character.Layer;
@@ -149,6 +153,13 @@ public class GameActions : IActions
         {
             info.LearnedSkills[skill.SkillId] = skill.Level;
         }
+
+        await _networkService.SkillCastService.RestoreBuffsAsync(client);
+        _statService.Seed(info, character);
+        statResult = _statService.Compute(info);
+        stats = statResult.Total;
+        hp = (int)stats.MaxHp; mp = (int)stats.MaxMp;
+        info.CharacterHp = hp; info.CharacterMaxHp = hp; info.CharacterMp = mp;
 
         var result = new TS_SC_LOGIN_RESULT
         {
@@ -251,7 +262,7 @@ public class GameActions : IActions
         client.Connection.Send(GameCharacterPackets.BuildSkinInfo(handle, character.SkinColor));
         client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(character.Gold, character.Chaos));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_chaos", character.Chaos));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_stamina", character.Stamina));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_stamina", (int)stats.MaxStamina));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "tp", character.TalentPoint));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "chaos", character.Chaos));
         client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(handle, character.Lv, character.Jlv));
@@ -274,6 +285,7 @@ public class GameActions : IActions
         client.Connection.Send(GameCharacterPackets.BuildEmptyAddedSkillList(handle));
         client.Connection.Send(GameCharacterPackets.BuildBeltSlotInfo(character.BeltItemIds));
         _networkService.SkillCastService.Register(client);
+        _networkService.SkillCastService.SynchronizeBuffs(client);
         client.SendGameTime();
         client.SendTimeSync();
 
@@ -293,14 +305,14 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.MaxHp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)stats.MaxMp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "stamina", character.Stamina));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_stamina", character.Stamina));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_stamina", (int)stats.MaxStamina));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "permission", character.Permission));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "pk_count", character.PkCount));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "dk_count", character.DkCount));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholicpoint", character.HuntaholicPoint));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholic_ent", character.HuntaholicEnterCount));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", decimal.ToInt64(character.ImmoralPoint)));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", MoralityRules.WireValue(info.ImmoralPoint)));
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle,
             ActorStatus.ForPlayer(info)));
 

@@ -6,4 +6,6 @@ public readonly record struct ActiveBuff(
     int SkillId,
     int StateLevel,
     uint StartTick,
-    uint EndTick);
+    uint EndTick,
+    uint SourceHandle = 0,
+    bool AuraProjection = false);

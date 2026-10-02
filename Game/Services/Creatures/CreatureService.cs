@@ -740,6 +740,13 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             _swings.Remove(card.SummonHandle);
         }
 
+        // The card keeps the vitals its summon leaves with.
+        if (Array.Find(info.Summons, s => s.Handle == card.SummonHandle) is { } presence)
+        {
+            card.Hp = presence.Hp;
+            card.Mp = presence.Mp;
+        }
+
         _summons.Leave(info, client.ClientTag, client.Connection, card.SummonHandle, client);
         if (info.MainSummonCardId == card.ItemId)
         {
@@ -789,6 +796,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             MaxHp = (int)stats.MaxHp,
             Mp = mp,
             MaxMp = (int)stats.MaxMp,
+            // The stats the summon buffs are folded into (SummonBuffStats.Refresh) and its swings read.
+            BaseStats = stats,
             Z = info.Z,
             NoiseRange = noiseRange,
             IsFirstEnter = true
@@ -996,13 +1005,15 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
                 continue;
             }
 
-            var stats = CreatureRules.SummonStats(resource, card.Level);
+            // The summon's own stats, its buffs included (SummonBuffStats), once it is in the world.
+            var presence = Array.Find(info.Summons, s => s.Handle == handle);
+            var stats = presence?.Stats ?? CreatureRules.SummonStats(resource, card.Level);
             var defender = _combat.GetMonsterStats(swing.TargetInstanceId) ?? new StatBlock();
             var hit = CombatFormulas.Resolve(Combatant.From(stats, card.Level), Combatant.From(defender, monster.Level),
                 stats.AttackPointRight, DamageKind.Physical, 0, 0, _random);
             var intervalMs = CombatService.IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
             var targetHp = _combat.ApplyDamage(client, swing.TargetInstanceId, monsterHandle, hit.Damage, hit.Damage);
-            var summonHp = Vitals(card, stats).Hp;
+            var summonHp = presence?.Hp ?? Vitals(card, stats).Hp;
 
             client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, monsterHandle, intervalMs, intervalMs,
                 GameAttackPackets.ActionAttack, hit.Damage, targetHp, summonHp, (byte)hit.Flags));

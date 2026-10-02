@@ -18,7 +18,9 @@ public class ItemWearTests
     private static ItemWearFields Wear(int id, ItemWearType wearType, int rank = 0, int useMinLevel = 0,
         int useMaxLevel = 0)
     {
-        return new ItemWearFields(id, wearType, rank, useMinLevel, useMaxLevel);
+        return new ItemWearFields(id, wearType, rank, useMinLevel, useMaxLevel,
+            ItemRaceRestriction.Deva | ItemRaceRestriction.Asura | ItemRaceRestriction.Gaia,
+            ItemJobRestriction.Fighter | ItemJobRestriction.Hunter | ItemJobRestriction.Magician | ItemJobRestriction.Summoner, 15);
     }
 
     private static ItemWearCatalog Catalog(params ItemWearFields[] fields)

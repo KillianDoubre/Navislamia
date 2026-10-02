@@ -35,22 +35,28 @@ public sealed class QuestService : IQuestService, IDisposable
     private readonly Dictionary<int, QuestResourceEntity> _resources;
     private readonly Dictionary<int, QuestLinkResourceEntity[]> _links;
     private readonly Dictionary<int, JobResourceEntity> _jobs;
+    private readonly bool _depthFlags;
     private readonly Dictionary<int, RandomPoolResourceEntity[]> _pools;
     private readonly ConcurrentDictionary<uint, DateTime> _lastTick = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly TimeProvider _time;
+    private readonly Progression.ITitleService _titles;
+    private readonly Navislamia.Game.Scripting.IScriptService _scripts;
 
     public QuestService(ICharacterService characters, IQuestCatalogueRepository catalogue = null,
         DbContextOptions<TelecasterContext> options = null, CharacterGate gate = null,
         ILevelingService leveling = null, IPlayerVisibilityService players = null,
         IInventoryChangeFeed feed = null, IGroundItemService ground = null, IMonsterDropCatalog drops = null,
-        TimeProvider timeProvider = null)
+        TimeProvider timeProvider = null, Progression.ITitleService titles = null,
+        Navislamia.Game.Scripting.IScriptService scripts = null)
     {
         _characters = characters; _options = options; _gate = gate ?? new CharacterGate();
         _leveling = leveling; _players = players; _feed = feed; _ground = ground; _drops = drops;
         _time = timeProvider ?? TimeProvider.System;
+        _titles = titles; _scripts = scripts;
         _resources = (catalogue?.GetResources() ?? Array.Empty<QuestResourceEntity>()).ToDictionary(q => q.Id);
         _jobs = (catalogue?.GetJobs() ?? Array.Empty<JobResourceEntity>()).ToDictionary(j => (int)j.Id);
+        _depthFlags = JobDepths.AreFlags(_jobs.Values.Select(j => j.JobDepth));
         _pools = (catalogue?.GetRandomPools() ?? Array.Empty<RandomPoolResourceEntity>()).GroupBy(p => p.GroupId).ToDictionary(g => g.Key, g => g.ToArray());
         _links = (catalogue?.GetLinks() ?? Array.Empty<QuestLinkResourceEntity>())
             .GroupBy(l => (l.NpcId, l.QuestId)).Select(g => new QuestLinkResourceEntity
@@ -68,12 +74,44 @@ public sealed class QuestService : IQuestService, IDisposable
     }
 
     public bool HasNpcQuests(int npcId) => _options is not null && _links.ContainsKey(npcId);
+
+    /// <summary>Official set_quest_status: a 1-based objective of an accepted external-control quest.</summary>
+    public async Task<bool> SetQuestStatusAsync(GameClient client, int code, int index, int value)
+    {
+        if (_options is null || index is < 1 or > 6 || value < 0
+            || !_resources.TryGetValue(code, out var resource) || resource.Type != 701) return false;
+        await RefreshAsync(client);
+        return await _gate.RunAsync(client.ConnectionInfo.CharacterName, async () =>
+        {
+            await using var db = new TelecasterContext(_options);
+            var quest = await db.CharacterQuests.SingleOrDefaultAsync(q => q.Code == code
+                && q.Character.CharacterName == client.ConnectionInfo.CharacterName);
+            if (quest is null || quest.Progress != QuestRules.InProgress) return false;
+            var status = QuestRules.Slots(quest.Status);
+            status[index - 1] = value;
+            quest.Status = status;
+            quest.Progress = QuestRules.FinishableNow(resource, quest) ? QuestRules.Finishable : QuestRules.InProgress;
+            await db.SaveChangesAsync();
+            SendStatus(client, quest);
+            return true;
+        });
+    }
+    public Task<int> RunScriptAsync(GameClient client, string script) => Task.FromResult(
+        _scripts?.RunQuestScript(script, CreateScriptContext(client)) ?? 0);
+    public Navislamia.Game.Scripting.QuestScriptContext CreateScriptContext(GameClient client) =>
+        new Navislamia.Game.Scripting.QuestScriptContext
+        {
+            PlayerHandle = client.ConnectionInfo.CharacterHandle,
+            GetProgress = code => GetQuestProgressAsync(client, code).GetAwaiter().GetResult(),
+            SetStatus = (code, index, value) => SetQuestStatusAsync(client, code, index, value).GetAwaiter().GetResult(),
+            SetTitleCondition = (code, count) => _titles?.SetConditionAsync(client, code, count).GetAwaiter().GetResult() ?? false
+        };
     private QuestLinkResourceEntity Link(int npcId, int code) => _links.GetValueOrDefault(npcId)?.FirstOrDefault(l => l.QuestId == code);
     private static bool Timed(QuestResourceEntity resource) => resource.TimeLimit > 0 && resource.TimeLimitType?.Trim() is "1" or "2";
     private int JobDepth(ConnectionInfo player)
     {
         var jobId = player.CharacterJob == 0 ? (player.CharacterRace - 2) * 100 : player.CharacterJob;
-        return _jobs.GetValueOrDefault(jobId)?.JobDepth switch { 1 => 0, 2 => 1, 4 => 2, 8 => 3, _ => 0 };
+        return _jobs.TryGetValue(jobId, out var job) ? Math.Max(0, JobDepths.ToIndex(job.JobDepth, _depthFlags)) : 0;
     }
     private bool CanStart(QuestResourceEntity resource, ConnectionInfo player, CharacterQuestEntity[] active,
         Dictionary<int, DateTime> completed, Dictionary<int, DateTime> accepted = null, int favor = 0)
@@ -85,7 +123,7 @@ public sealed class QuestService : IQuestService, IDisposable
         // A job's class comes from JobResource; digits in its id do not encode its class.
         var jobClass = job?.JobClass ?? (resource.LimitFighter == "1" && resource.LimitHunter == "1"
             && resource.LimitMagician == "1" && resource.LimitSummoner == "1" ? 1 : 0);
-        var depth = job is null ? 0 : job.JobDepth switch { 1 => 0, 2 => 1, 4 => 2, 8 => 3, _ => -1 };
+        var depth = job is null ? 0 : JobDepths.ToIndex(job.JobDepth, _depthFlags);
         return depth >= 0 && QuestRules.CanStart(resource, player, active, completed, _time.GetUtcNow().UtcDateTime, jobClass, depth, favor);
     }
 
@@ -197,7 +235,11 @@ public sealed class QuestService : IQuestService, IDisposable
                 return true;
             });
             Chat(client, started ? $"START|SUCCESS|{code}" : $"START|FAIL|NOT_STARTABLE|{textId}");
-            if (started) await SendQuestListAsync(client);
+            if (started)
+            {
+                await SendQuestListAsync(client);
+                if (_titles is not null) await _titles.RefreshAsync(client);
+            }
         }
         catch (Exception exception) { _logger.Error(exception, "Could not accept quest {code}", code); Chat(client, $"START|FAIL|NOT_STARTABLE|{textId}"); }
     }
@@ -351,7 +393,11 @@ public sealed class QuestService : IQuestService, IDisposable
         }
         catch (Exception exception) { _logger.Error(exception, "Could not finish quest {code}", request.Code); verdict = ResultCode.DBError; }
         client.SendResult(605, (ushort)verdict);
-        if (verdict == ResultCode.Success) { _feed?.Publish(client.ConnectionInfo.CharacterName); await SendQuestListAsync(client); }
+        if (verdict == ResultCode.Success)
+        {
+            _feed?.Publish(client.ConnectionInfo.CharacterName); await SendQuestListAsync(client);
+            if (_titles is not null) await _titles.RefreshAsync(client);
+        }
     }
 
     public async Task OnMonsterKilledAsync(GameClient client, int monsterId, float x, float y, float z)

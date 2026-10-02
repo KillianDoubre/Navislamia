@@ -153,7 +153,7 @@ public class CombatMechanicsTests
     // ---- the damage a player takes ----
 
     private static (CombatService Combat, GameClient Client, ConnectionInfo Info, long MonsterId) Defender(
-        StateRule rule, int stateLevel)
+        StateRule rule, int stateLevel, float fireResistance = 0, StatBlock playerStats = null)
     {
         var repository = A.Fake<IMonsterResourceRepository>();
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
@@ -166,11 +166,15 @@ public class CombatMechanicsTests
 
         var states = A.Fake<IStateCatalog>();
         A.CallTo(() => states.GetRule(77)).Returns(rule);
+        A.CallTo(() => states.Resolve(88, 1)).Returns(new[] { new StatEffect(StatTarget.FireResistance, fireResistance, false) });
+        world.AddState(monsterId, 88, 0, 1, 0, uint.MaxValue);
+        var stats = A.Fake<IStatService>();
+        A.CallTo(() => stats.Compute(A<ConnectionInfo>._)).Returns(new CharacterStatResult(playerStats ?? new StatBlock(), new StatBlock()));
         var random = A.Fake<ICombatRandom>();
         A.CallTo(() => random.Next(A<int>._)).Returns(0);
         var combat = new CombatService(world, A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
-            A.Fake<IGroundItemService>(), A.Fake<IRateService>(), A.Fake<IStatService>(), states,
-            A.Fake<Navislamia.Game.Services.Party.IPartyService>(), random: random);
+            A.Fake<IGroundItemService>(), A.Fake<IRateService>(), stats, states,
+            A.Fake<Navislamia.Game.Services.Party.IPartyService>(), random: random, runTicks: false);
 
         var client = StorageTestHarness.NewGameClient(new StorageTestHarness.FrameConnection(Array.Empty<byte>()));
         var info = StorageTestHarness.Session(client);
@@ -218,5 +222,41 @@ public class CombatMechanicsTests
         combat.DamagePlayer(client, 200, monsterId, false);
 
         world.GetHp(monsterId).Should().Be(before - 100);
+    }
+
+    [TestCase(1, 50)] [TestCase(2, 100)]
+    public void Reflected_damage_uses_the_attacking_monsters_resistance_to_the_reflected_element(int element, int expected)
+    {
+        var values = new decimal[20]; values[0] = 100; values[6] = 100; values[8] = element;
+        var (combat, client, _, monsterId) = Defender(new StateRule(77, Array.Empty<int>(), 0, 0,
+            AttackMechanics.DamageReflect, values), 1, fireResistance: 150);
+        var world = (MonsterWorldState)typeof(CombatService).GetField("_worldState",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(combat);
+        var before = world.GetHp(monsterId);
+        combat.DamagePlayer(client, 200, monsterId, false);
+        world.GetHp(monsterId).Should().Be(before - expected);
+    }
+
+    [TestCase(150, 60)] [TestCase(300, 0)]
+    public void Auto_attack_reports_only_the_additional_damage_that_survived_resistance(float resistance, int extra)
+    {
+        var values = new decimal[20]; values[0] = 120; values[6] = 100; values[8] = 1; values[11] = 99;
+        var (combat, client, info, monsterId) = Defender(new StateRule(77, Array.Empty<int>(), 0, 0,
+            AttackMechanics.AdditionalDamageOnAttack, values), 1, resistance,
+            new StatBlock { AttackPointRight = 100, AttackSpeed = 100, AttackRange = 50 });
+        var world = (MonsterWorldState)typeof(CombatService).GetField("_worldState",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(combat);
+        var before = world.GetHp(monsterId);
+        var ordinary = combat.RollHit(client, monsterId, 100, DamageKind.Physical, 0, 0).Damage;
+        combat.StartAttack(client, 0x40000001);
+        typeof(CombatService).GetMethod("Tick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(combat, new object[] { DateTime.UtcNow.AddMilliseconds(1) });
+        var connection = (StorageTestHarness.FrameConnection)client.Connection;
+        var frame = connection.Sent.Single(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 101 && f.Length > 22);
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(22)).Should().Be(ordinary + extra);
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(35)).Should().Be(extra, "fire's share on the wire");
+        world.GetHp(monsterId).Should().Be(before - ordinary - extra);
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(59)).Should().Be(world.GetHp(monsterId));
+        combat.StopAttack(client);
     }
 }

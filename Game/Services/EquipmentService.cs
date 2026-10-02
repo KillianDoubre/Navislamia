@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Linq;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
@@ -25,16 +26,20 @@ public class EquipmentService : IEquipmentService
     private readonly IItemWearCatalog _wearCatalog;
     private readonly IPlayerVisibilityService _visibility;
     private readonly Weight.ICarriedWeightService _weights;
+    private readonly FrozenDictionary<int, JobWearFields> _jobs;
+    private readonly bool _depthFlags;
 
     public EquipmentService(ICharacterService characterService, IStatService statService,
         IItemWearCatalog wearCatalog, IPlayerVisibilityService visibility,
-        Weight.ICarriedWeightService weights = null)
+        IJobResourceRepository jobs, Weight.ICarriedWeightService weights = null)
     {
         _weights = weights;
         _characterService = characterService;
         _statService = statService;
         _wearCatalog = wearCatalog;
         _visibility = visibility;
+        _jobs = jobs.GetWearFields().ToFrozenDictionary(j => j.Job);
+        _depthFlags = JobDepths.AreFlags(_jobs.Values.Select(j => j.JobDepth));
     }
 
     public async Task EquipAsync(GameClient client, GameActionPackets.PutonItemRequest request)
@@ -99,7 +104,7 @@ public class EquipmentService : IEquipmentService
                 var placement = await ResolveSlotAsync(info.CharacterName, itemHandle);
                 step = placement.Code != (ushort)ResultCode.Success
                     ? new EquipStep(placement.Code, null)
-                    : !ItemWearRules.IsWearAllowed(placement.Fields.Value, info.CharacterLevel)
+                    : !IsWearAllowed(placement.Fields.Value, info)
                         ? new EquipStep((ushort)ResultCode.NotActable, null)
                         : await EquipAtSlotAsync(client, info, itemHandle, placement.Slot);
             }
@@ -236,7 +241,7 @@ public class EquipmentService : IEquipmentService
                 return (ushort)ResultCode.Success;
             }
 
-            return ItemWearRules.IsWearAllowed(fields, info.CharacterLevel)
+            return IsWearAllowed(fields, info)
                 ? (ushort)ResultCode.Success
                 : (ushort)ResultCode.NotActable;
         }
@@ -246,6 +251,15 @@ public class EquipmentService : IEquipmentService
                 itemHandle, info.CharacterName);
             return (ushort)ResultCode.DBError;
         }
+    }
+
+    private bool IsWearAllowed(ItemWearFields fields, ConnectionInfo info)
+    {
+        var jobId = info.CharacterJob == 0 ? info.CharacterRace switch { 3 => 100, 4 => 200, 5 => 300, _ => 0 }
+            : info.CharacterJob;
+        return _jobs.TryGetValue(jobId, out var job)
+            && ItemWearRules.IsWearAllowed(fields, info.CharacterLevel, info.CharacterRace, job.JobClass,
+                JobDepths.ToIndex(job.JobDepth, _depthFlags));
     }
 
     /// <summary>

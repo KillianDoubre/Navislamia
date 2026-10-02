@@ -38,5 +38,12 @@ public enum StatTarget
     MaxHp,
     MaxMp,
     MaxStamina,
-    MaxChaos
+    MaxChaos,
+    NoneResistance,
+    FireResistance,
+    WaterResistance,
+    WindResistance,
+    EarthResistance,
+    LightResistance,
+    DarkResistance
 }

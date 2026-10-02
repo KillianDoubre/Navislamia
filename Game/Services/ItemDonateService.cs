@@ -11,8 +11,8 @@ namespace Navislamia.Game.Services;
 /// <summary>
 /// Handles <c>TM_CS_DONATE_ITEM</c> (258). The scope is the one the fiche fixes (§5.3): read the
 /// frame, judge the offer, take the gold / jp / item units out of the character, acknowledge.
-/// <b>Nothing is credited in exchange</b> — the moral points of the 7.3 donation altar are not
-/// modelled in this repository and no conversion rate is established (fiche §5.4, §7.1), and the
+/// <b>Nothing is credited in exchange</b> — the altar's conversion to moral points is not wired
+/// into this service (fiche §5.4, §7.1), and the
 /// sibling packet <c>TM_CS_DONATE_REWARD</c> (259) is out of scope.
 /// </summary>
 public class ItemDonateService : IItemDonateService
@@ -130,7 +130,7 @@ public class ItemDonateService : IItemDonateService
         {
             await _characterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
                 info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
-                info.CharacterChaos, info.X, info.Y, info.PkMode);
+                info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress());
         }
         catch (Exception exception)
         {

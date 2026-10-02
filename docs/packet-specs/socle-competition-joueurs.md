@@ -769,8 +769,8 @@ appelants de `RetireCompeteWithPlayer`. Code : `Game/Services/Compete/CompeteSer
   une session de coups jugés par la même règle que contre un monstre (stats de la cible, portée de l'arme), envoyée à
   l'attaquant et à ses observateurs. Une mort en duel ne coûte **aucune expérience**.
 - **513 type 3** (`ResurrectByCompete`) : seul le perdant d'un duel mort au combat ; **10 %** des PV max, sur place.
-- **Mode PK hors duel** : la règle officielle (deux joueurs en terrain PK, ni même groupe ni même guilde, l'un des deux
-  en mode PK) est portée derrière l'option `GameRules:PkFieldsEverywhere` (désactivée) : les terrains PK ne sont pas
-  connus ici. Un meurtre hors duel ne coûte de l'expérience que sur un serveur PK (`GameRules:PkServer`).
-- **Non porté** : les compétences offensives sur un joueur (seuls les coups normaux), l'immoralité, la fenêtre de
-  type de duel (`compete_type` est relayé tel quel).
+- **Mode PK hors duel** : les terrains PK sont résolus depuis les polygones `.nfl` et `WorldLocation` ; les règles
+  de groupe, guilde, PK et immoralité sont appliquées aux coups et aux compétences. Un meurtre hors duel ne coûte
+  de l'expérience que sur un serveur PK (`GameRules:PkServer`). Voir
+  [PvP, terrains et immoralité](socle-pvp-terrains-competences-immoralite.md).
+- **Non porté** : la fenêtre de type de duel (`compete_type` est relayé tel quel).

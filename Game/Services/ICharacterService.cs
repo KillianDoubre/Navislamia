@@ -163,11 +163,12 @@ public interface ICharacterService
 
     /// <summary>
     /// Persists the progress a session accumulated. <paramref name="pkMode"/> is the PK mode of the
-    /// session, written back to the pre-existing <c>Characters.PkMode</c> column: it is the only
-    /// piece of that state that no other writer touches.
+    /// session, written back to the pre-existing <c>Characters.PkMode</c> column. When supplied,
+    /// <paramref name="pvp"/> also saves immoral points and PK/DK counts in their existing columns.
+    /// Omitting it preserves those values for callers that do not own a session snapshot.
     /// </summary>
     Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold,
-        int chaos, float x, float y, bool pkMode);
+        int chaos, float x, float y, bool pkMode, PvpProgress? pvp = null, int? stamina = null);
 
     /// <summary>
     /// The character's creature cards (items whose resource is a summon card) with the summon row of each, the

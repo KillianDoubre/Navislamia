@@ -33,8 +33,9 @@
   frappe) : `value_11` 0 mêlée, 1 distance, 99 les deux ; chance `value_6 + niveau × value_7` ; montant
   `value_0 + niveau × value_1` ; élément `value_8`. Sur une frappe qui a touché (ni raté, ni blocage parfait), chaque
   ligne tire `irand(1,100) < chance` et ajoute son montant à la frappe **et** à `elemental_damage[élément]`.
-- **Résistances élémentaires non portées** : aucune résistance de monstre n'est en base, aucune modification
-  d'élément d'objet n'existe ici ; les dégâts élémentaires passent entiers.
+- **Résistances élémentaires** : la résistance de la victime réduit chaque supplément avant son addition
+  à la frappe et à `elemental_damage` (`socle-resistances-elementaires.md`). Les états peuvent donner
+  une résistance aux monstres ; aucun bonus inné n'est inventé à partir de leur type.
 
 ## 4. Coups reçus par un joueur (monstre → joueur)
 

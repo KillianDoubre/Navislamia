@@ -747,7 +747,7 @@ Les décisions du §14 appliquées, avec ce que la donnée 9.4 a tranché en che
 | 103 `MIX_ENHANCE_WITHOUT_FAIL` | cube **et** poudre consommés ; gain 1 ; échec = −1, plancher 0 — la poudre protège de `fail_result` ; le cube est reconnu à son code, qu'il soit au premier ou au second rang | `:61-68`, `:108-111` |
 | 311 `MIX_ADD_LEVEL_SET_FLAG` | matériaux consommés ; **le bit 0 prend la valeur de `mix_value_03`** | la donnée : les 9 règles à 1 exigent le bit 0 éteint (`CHECK_FLAG_OFF 0`), les 9 à 0 l'exigent allumé (`CHECK_FLAG_ON 0`) — ce n'est pas le `SetFlag(valeur)` qui écrase tout de NGemity (`:180`) |
 | 501 `MIX_RESTORE_ENHANCE_SET_FLAG` | matériaux consommés ; **le bit `mix_value_01` est effacé** (7 règles : 3 = `FAILED`, bit que chaque règle exige allumé) : la réparation | `:533-552` + la donnée ; `mix_value_03` (5 000 / 10 000, un coût probable) **n'est pas prélevé** |
-| 102 | **ne peut pas être résolu** : ses deux règles portent les codes de condition 24 et 25, qu'aucune référence ne définit — le matcher les refuse | la donnée |
+| 102 | **implémenté le 2026-10-02** : conditions retail 24/25, deux cartes de même compétence et amélioration, cube, unité distincte à +1 ; échec jusqu'à +3 détruit une unité, au-delà produit une unité à −3 | serveur officiel `MixBase.h`, `MixManager.cpp:852-946` ; complément `socle-artisanat-cartes-competences.md` |
 | autres (601 : 2 367 règles, 202, 402…) | refus `InvalidArgument` comme avant : NGemity n'en exécute aucun (`CreateItem` est du code mort) | — |
 
 **Réponse** : 255 ou 254 par pile consommée, 207 pour la cible modifiée (254 si détruite), puis `TM_SC_MIX_RESULT`

@@ -14,14 +14,16 @@ public class StatService : IStatService
     private readonly IItemStatCatalog _itemStats;
     private readonly ISkillPassiveCatalog _passives;
     private readonly IStateCatalog _states;
+    private readonly Progression.TitleCatalog _titles;
 
     public StatService(IStatCatalog catalog, IItemStatCatalog itemStats, ISkillPassiveCatalog passives,
-        IStateCatalog states)
+        IStateCatalog states, Progression.TitleCatalog titles = null)
     {
         _calculator = new StatCalculator(catalog);
         _itemStats = itemStats;
         _passives = passives;
         _states = states;
+        _titles = titles ?? new Progression.TitleCatalog();
     }
 
     public CharacterStatResult Compute(CharacterEntity character)
@@ -31,7 +33,8 @@ public class StatService : IStatService
             BuildJobHistory(PreviousJobsOf(character), (int)character.CurrentJob, character.Jlv),
             character.Lv,
             ResolveItemEffects(character),
-            ResolvePassiveEffects(character, ResolveEquippedWeapon(character))));
+            ResolvePassiveEffects(character, ResolveEquippedWeapon(character)),
+            TitleEffects: _titles.GetEffects(character.MainTitleId)));
     }
 
     public CharacterStatResult Compute(ConnectionInfo info)
@@ -42,7 +45,8 @@ public class StatService : IStatService
             info.CharacterLevel,
             info.ItemEffects,
             info.PassiveEffects,
-            info.BuffEffects));
+            info.BuffEffects,
+            _titles.GetEffects(info.MainTitleId)));
 
         // applyItemEffect: the worn weapon's range sets the attack range (50 bare-handed, the calculator's default).
         if (info.WeaponAttackRange > 0f && result.Total is not null)
@@ -69,6 +73,8 @@ public class StatService : IStatService
         info.PreviousJobs.AddRange(PreviousJobsOf(character));
         info.EquippedWeapon = ResolveEquippedWeapon(character);
         info.ItemEffects = ResolveItemEffects(character);
+        info.MainTitleId = character.MainTitleId;
+        info.TitleEffects = _titles.GetEffects(character.MainTitleId);
         SeedHands(info, character);
         info.PassiveEffects = ResolvePassiveEffects(character, info.EquippedWeapon);
         RefreshBuffs(info);

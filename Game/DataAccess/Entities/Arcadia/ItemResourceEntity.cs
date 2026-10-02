@@ -14,7 +14,9 @@ public class ItemResourceEntity : Entity
     public ItemWearType WearType { get; set; } 
     public SetParts SetPart { get; set; } 
     public ItemStatus Status { get; set; }
+    /// <summary>Whitelist built from limit_deva/asura/gaia, using the repository's 1/2/4 bits.</summary>
     public ItemRaceRestriction RaceRestriction { get; set; }
+    /// <summary>Whitelist built from limit_fighter/hunter/magician/summoner (1024/2048/4096/8192).</summary>
     public ItemJobRestriction JobRestriction { get; set; }
     public ItemUseFlag ItemUseFlag { get; set; }
     public ItemDecreaseTimeType DecreaseType { get; set; }

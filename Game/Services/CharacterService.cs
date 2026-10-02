@@ -587,7 +587,19 @@ public class CharacterService : ICharacterService
             var asked = new Dictionary<uint, long>();
             foreach (var line in consumed)
             {
-                asked[line.ItemHandle] = asked.GetValueOrDefault(line.ItemHandle) + line.Count;
+                var total = asked.GetValueOrDefault(line.ItemHandle);
+                if (line.Count <= 0 || line.Count > long.MaxValue - total)
+                {
+                    return CraftCommitResult.Failed(CraftCommitOutcome.ItemMissing);
+                }
+
+                if (line.ExpectedMaterial is { } expected
+                    && !MatchesCraftMaterial(FindByHandle(character.Items, line.ItemHandle), expected))
+                {
+                    return CraftCommitResult.Failed(CraftCommitOutcome.TargetChanged);
+                }
+
+                asked[line.ItemHandle] = total + line.Count;
             }
 
             foreach (var (handle, count) in asked)
@@ -603,17 +615,23 @@ public class CharacterService : ICharacterService
             if (change is { } planned)
             {
                 target = FindByHandle(character.Items, planned.Handle);
-                if (target is null || asked.ContainsKey(planned.Handle))
+                if (target is null || target.Amount < planned.MinimumAmount
+                    || (!planned.SplitOne && planned.ExpectedMaterial is null && asked.ContainsKey(planned.Handle))
+                    || (planned.SplitOne && !asked.ContainsKey(planned.Handle)))
                 {
                     return CraftCommitResult.Failed(CraftCommitOutcome.ItemMissing);
                 }
 
-                if (target.Enhance != planned.ExpectedEnhance || (int)target.Flag != planned.ExpectedFlag)
+                if (target.Enhance != planned.ExpectedEnhance || (int)target.Flag != planned.ExpectedFlag
+                    || (planned.ExpectedMaterial is { } expected && !MatchesCraftMaterial(target, expected)))
                 {
                     return CraftCommitResult.Failed(CraftCommitOutcome.TargetChanged);
                 }
             }
 
+            // Copy before consuming: the same stack can supply both cards and disappear entirely.
+            var replacement = change is { SplitOne: true, Destroy: false }
+                ? CopyCraftCard(target, character) : null;
             var remaining = new List<(uint Handle, long Remaining)>(asked.Count);
             foreach (var (handle, count) in asked)
             {
@@ -624,7 +642,17 @@ public class CharacterService : ICharacterService
 
             if (change is { } applied)
             {
-                if (applied.Destroy)
+                if (applied.SplitOne)
+                {
+                    target = replacement;
+                    if (target is not null)
+                    {
+                        target.Enhance = (uint)applied.NewEnhance;
+                        target.Flag = (ItemFlag)applied.NewFlag;
+                        character.Items.Add(target);
+                    }
+                }
+                else if (applied.Destroy)
                 {
                     character.Items.Remove(target);
                     repository.DeleteItem(target);
@@ -642,6 +670,34 @@ public class CharacterService : ICharacterService
             return new CraftCommitResult(CraftCommitOutcome.Success, remaining, target);
         });
     }
+
+    private static bool MatchesCraftMaterial(ItemEntity item, MixMaterial expected) =>
+        item is not null && item.ItemResourceId == expected.ItemCode && item.Level == expected.Level
+        && item.Enhance == expected.Enhance && (int)item.Flag == expected.Flag
+        && item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null
+        && item.StorageId is null && item.AuctionId is null;
+
+    private static ItemEntity CopyCraftCard(ItemEntity source, CharacterEntity character) => new()
+    {
+        Character = character,
+        CharacterId = character.Id,
+        ItemResourceId = source.ItemResourceId,
+        Amount = 1,
+        Level = source.Level,
+        Enhance = source.Enhance,
+        Flag = source.Flag,
+        GenerateBySource = source.GenerateBySource,
+        WearInfo = ItemWearType.None,
+        Idx = character.Items.Max(item => item.Idx) + 1,
+        SocketItemIds = source.SocketItemIds?.ToArray(),
+        Endurance = source.Endurance,
+        EtherealDurability = source.EtherealDurability,
+        RemainingTime = source.RemainingTime,
+        ElementalEffectType = source.ElementalEffectType,
+        ElementalEffectExpireTime = source.ElementalEffectExpireTime,
+        ElementalEffectAttackPoint = source.ElementalEffectAttackPoint,
+        ElementalEffectMagicPoint = source.ElementalEffectMagicPoint
+    };
 
     public Task<ItemRemoval> RemoveItemAsync(string characterName, uint itemHandle,
         Func<ItemEntity, long> resolveCount)
@@ -1146,7 +1202,7 @@ public class CharacterService : ICharacterService
     };
 
     public Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp,
-        long gold, int chaos, float x, float y, bool pkMode)
+        long gold, int chaos, float x, float y, bool pkMode, PvpProgress? pvp = null, int? stamina = null)
     {
         if (string.IsNullOrEmpty(characterName))
         {
@@ -1176,7 +1232,14 @@ public class CharacterService : ICharacterService
             character.Jp = jp;
             character.Gold = gold;
             character.Chaos = chaos;
+            if (stamina.HasValue) character.Stamina = Math.Max(0, stamina.Value);
             character.PkMode = pkMode;
+            if (pvp is { } progress)
+            {
+                character.ImmoralPoint = MoralityRules.Normalize(progress.ImmoralPoint);
+                character.PkCount = Math.Max(0, progress.PkCount);
+                character.DkCount = Math.Max(0, progress.DkCount);
+            }
 
             // Without this a warp is undone by the next login: the position was never persisted
             // during play, so the character always reloaded where it last logged in.
