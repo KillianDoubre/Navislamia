@@ -128,8 +128,11 @@ des scripts externes est désactivé. Un script externe chargé peut remplacer s
   Ni les invocations des joueurs, ni le PvP, ni les soins/buffs de groupe ne sont ajoutés ici.
 - Les paramètres d'amélioration restent nuls, comme dans les compétences offensives précédentes.
   `cast_range` est contrôlé pour les familles de zone et multi-coups, y compris la portée d'arme (-1) ;
-  les autres familles restent à compléter. Interruption, empilement et résistance
-  aux états ne sont pas ajoutés.
+  les autres familles le sont par `CastRules.InRange` (`socle-lancer-competences.md`). Depuis la fusion du
+  2 octobre, le délai de lancement de ces familles est celui du lancer en attente commun : Échap l'annule,
+  les coups le repoussent, un étourdissement ou une téléportation l'interrompt ; les tirs commencent ensuite
+  dans `CastDamageSequence`. Les coups de zone portent la haine de la compétence, et les compétences de zone
+  des monstres passent par le bouclier de mana et le renvoi.
 
 ## Vérification
 
