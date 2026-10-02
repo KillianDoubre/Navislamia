@@ -294,7 +294,15 @@ public class PartyServiceTests
         };
         var repository = A.Fake<IMonsterResourceRepository>();
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
-            .Returns(new[] { new MonsterResourceEntity { Id = 2101, Level = 5, Hp = 100 } });
+            .Returns(new[]
+            {
+                new MonsterResourceEntity
+                {
+                    Id = 2101, Level = 5, Hp = 100, Exp = 40, Jp = 21,
+                    GoldDropPercentage = 100, GoldMin = 20, GoldMax = 20,
+                    ChaosDropPercentage = 100, ChaosMin = 10, ChaosMax = 10
+                }
+            });
         var world = new MonsterWorldState(repository, Options.Create(options));
         var rates = new RateService(new StaticOptionsMonitor<RatesOptions>(new RatesOptions { EventStatePath = "" }));
         var quests = A.Fake<IQuestService>();
@@ -302,15 +310,82 @@ public class PartyServiceTests
             A.Fake<IGroundItemService>(), rates, A.Fake<IStatService>(), A.Fake<IStateCatalog>(), _parties, quests);
 
         // A level-5 monster has hp + 20 x level = 200 HP (MonsterCombatStats): deal more than that.
+        // Both clients stream the monster, each under its own handle: the chaos gain is announced around the
+        // corpse only to the clients that can place it.
+        Info(ana).SpawnedMonsters[0] = 0x40000100;
+        Info(bo).SpawnedMonsters[0] = 0x40000101;
         combat.ApplyDamage(ana, 0, 500, 1_000).Should().Be(0);
         combat.ApplyDamage(bo, 0, 500, 1_000).Should().Be(0);
         A.CallTo(() => quests.OnMonsterKilledAsync(ana, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
         A.CallTo(() => quests.OnMonsterKilledAsync(bo, 2101, 1000, 2000, A<float>._)).MustHaveHappenedOnceExactly();
 
-        (Info(ana).CharacterExp + Info(bo).CharacterExp).Should().Be(35);
+        // The columns come from the resource row, the per-cent rolls are always hit here, and the two
+        // level-10 members outlevel the level-5 monster: the split happens first (40 / 2 and 21 / 2 with the
+        // remainder to the first), then 1 - 0.05 x 5 = 0.75 for experience and JP, truncating.
+        (Info(ana).CharacterExp + Info(bo).CharacterExp).Should().Be(30);
+        Info(ana).CharacterExp.Should().Be(15);
+        Info(bo).CharacterExp.Should().Be(15);
         (Info(ana).CharacterJp + Info(bo).CharacterJp).Should().Be(15);
+        Math.Abs(Info(ana).CharacterJp - Info(bo).CharacterJp).Should().Be(1, "21 JP leaves a remainder");
         (Info(ana).CharacterGold + Info(bo).CharacterGold).Should().Be(20);
-        Math.Abs(Info(ana).CharacterExp - Info(bo).CharacterExp).Should().Be(1);
+        (Info(ana).CharacterChaos + Info(bo).CharacterChaos).Should().Be(10);
+
+        // The chaos gain is announced twice: the region frame around the corpse and the property the client
+        // keeps.
+        Frames(ana, GamePackets.TM_SC_GET_CHAOS).Should().ContainSingle();
+        Frames(bo, GamePackets.TM_SC_GET_CHAOS).Should().ContainSingle();
+        Frames(ana, GamePackets.TM_SC_PROPERTY).Should().ContainSingle();
+        Encoding.ASCII.GetString(Frames(ana, GamePackets.TM_SC_PROPERTY)[0], 12, 16).TrimEnd('\0')
+            .Should().Be("chaos");
+        BinaryPrimitives.ReadInt64LittleEndian(Frames(ana, GamePackets.TM_SC_PROPERTY)[0].AsSpan(28, 8))
+            .Should().Be(5);
+    }
+
+    [Test]
+    public void KillRewardsFollowTheResourceRowTheLevelGapAndTheDistance()
+    {
+        var ana = Player(1, "Ana");
+        var bo = Player(2, "Bo");
+        _parties.TryHandleCommand(ana, "/pcreate Wolves");
+        Join(ana, bo);
+        Info(ana).CharacterLevel = 20;
+        Info(ana).X = 1000;
+        Info(ana).Y = 2000;
+        // 520 units from the corpse: still a party member (the party range is 540), out of the 500 units the
+        // official still grants experience and chaos in.
+        Info(bo).X = 1000;
+        Info(bo).Y = 2520;
+
+        var options = new MonsterSpawnOptions
+        {
+            Spawns = { new MonsterSpawnPoint { MonsterId = 2101, X = 1000, Y = 2000, Count = 1, Radius = 0 } }
+        };
+        var repository = A.Fake<IMonsterResourceRepository>();
+        A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._))
+            .Returns(new[]
+            {
+                new MonsterResourceEntity
+                {
+                    Id = 2101, Level = 10, Hp = 100, Exp = 100, Jp = 100,
+                    GoldDropPercentage = 0, ChaosDropPercentage = 0
+                }
+            });
+        var world = new MonsterWorldState(repository, Options.Create(options));
+        var rates = new RateService(new StaticOptionsMonitor<RatesOptions>(new RatesOptions { EventStatePath = "" }));
+        var combat = new CombatService(world, A.Fake<IMonsterSpawnService>(), A.Fake<ILevelingService>(),
+            A.Fake<IGroundItemService>(), rates, A.Fake<IStatService>(), A.Fake<IStateCatalog>(), _parties,
+            A.Fake<IQuestService>());
+
+        combat.ApplyDamage(ana, 0, 500, 1_000);
+
+        // The level-20 leader outlevels the level-10 monster by ten: 1 - 0.05 x 10 = 0.5, so 50 of its 50.
+        Info(ana).CharacterExp.Should().Be(25);
+        Info(ana).CharacterJp.Should().Be(25);
+        Info(bo).CharacterExp.Should().Be(0, "the corpse is 520 units away, beyond the 500 unit reward range");
+        Info(bo).CharacterJp.Should().Be(0);
+        (Info(ana).CharacterGold + Info(bo).CharacterGold).Should().Be(0, "the row drops no gold");
+        (Info(ana).CharacterChaos + Info(bo).CharacterChaos).Should().Be(0, "the row drops no chaos");
+        Frames(ana, GamePackets.TM_SC_GET_CHAOS).Should().BeEmpty();
     }
 
     [Test]
@@ -389,6 +464,12 @@ public class PartyServiceTests
             ((StorageTestHarness.FrameConnection)client.Connection).Sent.Clear();
         }
     }
+
+    /// <summary>The frames a client received with the given id.</summary>
+    private static List<byte[]> Frames(GameClient client, GamePackets id) =>
+        ((StorageTestHarness.FrameConnection)client.Connection).Sent
+            .Where(frame => BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4, 2)) == (ushort)id)
+            .ToList();
 
     /// <summary>The <c>@PARTY</c> lines a client received: TS_SC_CHAT type 100, message from offset 31.</summary>
     private static List<string> Lines(GameClient client) =>

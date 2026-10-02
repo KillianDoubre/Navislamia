@@ -28,6 +28,12 @@ public class RatesOptions
     /// </summary>
     public double CreatureCardDrop { get; set; } = 1;
 
+    /// <summary>
+    /// Chance that a killed monster drops chaos, on top of its <c>chaos_drop_percentage</c> column. The
+    /// official <c>GameRule::fChaosDropRate</c>; NGemity has no such rate (its chaos always drops).
+    /// </summary>
+    public double Chaos { get; set; } = 1;
+
     /// <summary>Delay before a killed monster respawns.</summary>
     public int MonsterRespawnSeconds { get; set; } = 10;
 

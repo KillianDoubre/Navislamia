@@ -57,7 +57,7 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/save` | oui | Lua `save` | sauvegarde la progression sans se déconnecter |
 | `/chaos <montant>` | oui | Navislamia | ajoute ou retire du chaos, entre 0 et `int.MaxValue` |
 | `/rate` | oui | Navislamia | rates effectifs (base × événement), temps restant et réglages non multiplicateurs |
-| `/rate <type> <multiplicateur> <durée>` | oui | Navislamia | événement de rates annoncé à tous, `type` = `exp`, `jp`, `gold`, `drop`, `card` ou `all` |
+| `/rate <type> <multiplicateur> <durée>` | oui | Navislamia | événement de rates annoncé à tous, `type` = `exp`, `jp`, `gold`, `drop`, `card`, `chaos` ou `all` |
 | `/rate reset [type]` | oui | Navislamia | fin anticipée, d'un type ou de tous |
 | `/rates` | non | Navislamia | rates effectifs, en lecture seule |
 | `/gametime [heures]` | oui | Navislamia | décale l'heure du monde (`TS_SC_GAME_TIME`) pour tous et la renvoie ; `0` remet l'heure réelle, sans argument affiche l'heure |
@@ -139,6 +139,7 @@ d'origine) par défaut.
 | `Gold` | or gagné par kill | NGemity `Game.GoldDropRate` |
 | `ItemDrop` | chance de chaque emplacement de drop, plafonnée à 100 % | NGemity `Game.ItemDropRate` |
 | `CreatureCardDrop` | facteur de plus sur un emplacement dont l'objet **direct** est une carte d'invocation (groupe 13) | NGemity `Game.CreatureCardDropRate` |
+| `Chaos` | facteur sur la **chance** (pas le montant) qu'un monstre tué lâche du chaos : `chaos_drop_percentage × Chaos` est comparé à `rand % 100` | officiel `GameRule::fChaosDropRate` (`0x1404f7dc0`) |
 | `MonsterRespawnSeconds` | délai de réapparition d'un monstre tué (10) | constante du code |
 | `GroundItemLifetimeSeconds` | durée de vie d'un objet au sol (120) | constante du code |
 | `SkillJpCost` | facteur sur le coût en JP d'un niveau de compétence | Navislamia |

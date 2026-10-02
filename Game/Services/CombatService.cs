@@ -36,6 +36,7 @@ public class CombatService : ICombatService
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
+    private readonly object _rewardLock = new();
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
@@ -383,33 +384,113 @@ public class CombatService : ICombatService
         }
 
         var (dropX, dropY) = _worldState.GetPosition(instanceId);
-        _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z);
-        AwardKill(client, instance.Level, dropX, dropY, info.Layer);
+        _groundItemService.DropForMonster(client, instance.MonsterId, dropX, dropY, instance.Z, instanceId);
+        AwardKill(client, instance, instanceId, dropX, dropY, info.Layer);
         if (_quests is not null)
             foreach (var member in _parties.RewardMembers(client, dropX, dropY, info.Layer))
                 _ = _quests.OnMonsterKilledAsync(member, instance.MonsterId, dropX, dropY, instance.Z);
         return targetHp;
     }
 
-    private void AwardKill(GameClient killer, int monsterLevel, float x, float y, byte layer)
+    /// <summary>
+    /// What a kill gives its beneficiaries, taken from the monster's own resource row rather than from a
+    /// formula (docs/packet-specs/socle-recompenses-monstres.md §9.1): the row's experience and JP, a gold
+    /// roll and a chaos roll, each behind its per-cent chance. Gold and chaos are drawn <b>once</b> for the
+    /// kill, the way the official <c>procDropGold</c> / <c>procDropChaos</c> (<c>0x1400b3ac0</c>,
+    /// <c>0x1400b7e20</c>) do, and then shared like the rest of the loot; the rates are applied on the way
+    /// out, after the sharing, and the two level-gap malus rules of <see cref="MonsterRewardRules"/> after
+    /// the per-beneficiary split for experience and JP, before it for gold and chaos.
+    /// </summary>
+    private void AwardKill(GameClient killer, MonsterInstance monster, long instanceId, float x, float y,
+        byte layer)
     {
-        // The rates apply to the reward, rounded at random so a fractional rate is exact on average.
-        var (baseExp, baseJp, baseGold) = CombatRewards.Compute(monsterLevel);
-        var exp = _rates.Scale(baseExp, RateType.Exp);
-        var jp = _rates.Scale(baseJp, RateType.Jp);
-        var gold = _rates.Scale(baseGold, RateType.Gold);
         var members = _parties.RewardMembers(killer, x, y, layer);
         if (members.Count == 0) members = new[] { killer };
+
+        var highestLevel = 0;
+        foreach (var member in members)
+        {
+            highestLevel = Math.Max(highestLevel, member.ConnectionInfo.CharacterLevel);
+        }
+
+        var rewards = monster.Rewards;
+        var loot = MonsterRewardRules.LootFactor(monster.Level, highestLevel);
+        var goldChance = rewards.GoldDropPercentage * _rates.Get(RateType.Gold) * loot;
+        var chaosChance = rewards.ChaosDropPercentage * _rates.Get(RateType.Chaos) * loot;
+
+        long goldRoll;
+        long chaosRoll;
+        lock (_rewardLock)
+        {
+            goldRoll = MonsterRewardRules.RollsChance(goldChance, _random)
+                ? MonsterRewardRules.RollAmount(rewards.GoldMin, rewards.GoldMax, _random)
+                : 0;
+            chaosRoll = MonsterRewardRules.RollsChance(chaosChance, _random)
+                ? MonsterRewardRules.RollAmount(rewards.ChaosMin, rewards.ChaosMax, _random)
+                : 0;
+        }
+
+        var gold = _rates.Scale(goldRoll, RateType.Gold);
+
         for (var i = 0; i < members.Count; i++)
         {
             var client = members[i];
             var info = client.ConnectionInfo;
-            info.CharacterExp += exp / members.Count + (i < exp % members.Count ? 1 : 0);
-            info.CharacterJp += jp / members.Count + (i < jp % members.Count ? 1 : 0);
+
+            // The official grants experience and chaos within 500 units of the corpse only, and the party
+            // shares keep their denominator: an out-of-reach member takes nothing, not a bigger slice.
+            if (!MonsterRewardRules.WithinRewardRange(info.X, info.Y, x, y))
+            {
+                continue;
+            }
+
+            var expShare = rewards.Exp / members.Count + (i < rewards.Exp % members.Count ? 1 : 0);
+            var jpShare = rewards.Jp / members.Count + (i < rewards.Jp % members.Count ? 1 : 0);
+            info.CharacterExp += _rates.Scale(
+                MonsterRewardRules.ScaleForLevelGap(expShare, monster.Level, info.CharacterLevel),
+                RateType.Exp);
+            info.CharacterJp += _rates.Scale(
+                MonsterRewardRules.ScaleForLevelGap(jpShare, monster.Level, info.CharacterLevel),
+                RateType.Jp);
             info.AddGold(gold / members.Count + (i < gold % members.Count ? 1 : 0));
-            client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
-            client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+            client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle,
+                info.CharacterExp, info.CharacterJp));
+            client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold,
+                info.CharacterChaos));
+
+            var chaosShare = (int)(chaosRoll / members.Count + (i < chaosRoll % members.Count ? 1 : 0));
+            if (chaosShare > 0)
+            {
+                info.CharacterChaos += chaosShare;
+                client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "chaos",
+                    info.CharacterChaos));
+                SendChaosGain(killer, client, instanceId, chaosShare);
+            }
+
             _levelingService.ApplyExperience(client);
+        }
+    }
+
+    /// <summary>
+    /// <c>TM_SC_GET_CHAOS</c> (213): the official broadcasts it to the whole region mesh around the corpse
+    /// (<c>ArcadiaServer::Broadcast</c> from <c>0x1400b6f1d</c>). Here that set is the clients that stream the
+    /// corpse — the killer's witnesses plus the two clients that are always at the corpse, the killer and the
+    /// beneficiary — each with its own handle for the monster, since the handle differs per client. A client
+    /// that does not stream the corpse cannot place the frame and gets nothing, so every client receives the
+    /// gain exactly once.
+    /// </summary>
+    private void SendChaosGain(GameClient killer, GameClient beneficiary, long instanceId, int chaos)
+    {
+        var playerHandle = beneficiary.ConnectionInfo.CharacterHandle;
+        ObserverFrames.SendMonsterFrame(_players, killer, instanceId,
+            (observer, corpseHandle) => ReferenceEquals(observer, beneficiary)
+                ? null
+                : GameRewardPackets.BuildGetChaos(playerHandle, corpseHandle, chaos));
+
+        var own = beneficiary.ConnectionInfo.GetMonsterHandle(instanceId);
+        if (own != 0)
+        {
+            beneficiary.Connection.Send(GameRewardPackets.BuildGetChaos(playerHandle, own, chaos));
         }
     }
 

@@ -16,7 +16,9 @@ namespace Navislamia.Game.Services;
 /// by every instance of the resource. <see cref="SkillLinkId"/> is <c>monster_skill_link_id</c>, the key of
 /// its skills in <see cref="MonsterSkillCatalog"/>. <see cref="MonsterGroup"/> and <see cref="GroupFirstAttack"/>
 /// are <c>monster_group</c> and <c>f_group_first_attack</c>, read by the official group aggro
-/// (<see cref="MonsterAiRules.JoinsGroupAttack"/>).
+/// (<see cref="MonsterAiRules.JoinsGroupAttack"/>). <see cref="Rewards"/> is the reward block of the same
+/// row, read by <see cref="MonsterRewardRules"/> at the monster's death (docs/packet-specs/
+/// socle-recompenses-monstres.md §9.1).
 /// </para>
 /// </remarks>
 public readonly record struct MonsterInstance(
@@ -40,4 +42,27 @@ public readonly record struct MonsterInstance(
     MonsterCombatStats Combat = null,
     int SkillLinkId = 0,
     int MonsterGroup = 0,
-    bool GroupFirstAttack = false);
+    bool GroupFirstAttack = false,
+    MonsterRewardColumns Rewards = default);
+
+/// <summary>
+/// The reward columns of a <c>tf_monster_resource</c> row, carried by every <see cref="MonsterInstance"/> so
+/// the death of a monster never queries the database
+/// (docs/packet-specs/socle-recompenses-monstres.md §6, §9.1).
+/// </summary>
+/// <remarks>
+/// <see cref="GoldDropPercentage"/> and <see cref="ChaosDropPercentage"/> are <b>per cent</b>, compared with
+/// <c>rand % 100</c>; gold and chaos are then drawn in <c>[min, max]</c> inclusive
+/// (<see cref="MonsterRewardRules"/>). Experience and JP are the amounts before the level-gap malus and the
+/// server rate.
+/// </remarks>
+public readonly record struct MonsterRewardColumns(
+    int Exp,
+    int Jp,
+    int GoldDropPercentage,
+    int GoldMin,
+    int GoldMax,
+    int ChaosDropPercentage,
+    int ChaosMin,
+    int ChaosMax);
+

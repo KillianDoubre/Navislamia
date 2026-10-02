@@ -12,7 +12,14 @@ public enum RateType
     Jp,
     Gold,
     ItemDrop,
-    CreatureCardDrop
+    CreatureCardDrop,
+
+    /// <summary>
+    /// The chance of the chaos a monster drops, the official <c>GameRule::fChaosDropRate</c>
+    /// (<c>0x1404f7dc0</c>): a factor on the per-cent chance, not on the amount
+    /// (docs/packet-specs/socle-recompenses-monstres.md §7.2, §9.1).
+    /// </summary>
+    Chaos
 }
 
 /// <summary>The chat names of the rate types, and the labels the announcements use.</summary>
@@ -26,7 +33,8 @@ public static class RateTypes
         ["jp"] = RateType.Jp,
         ["gold"] = RateType.Gold,
         ["drop"] = RateType.ItemDrop,
-        ["card"] = RateType.CreatureCardDrop
+        ["card"] = RateType.CreatureCardDrop,
+        ["chaos"] = RateType.Chaos
     }.ToFrozenDictionary();
 
     /// <summary>
@@ -61,6 +69,7 @@ public static class RateTypes
         RateType.Gold => "Gold",
         RateType.ItemDrop => "Drop",
         RateType.CreatureCardDrop => "Card drop",
+        RateType.Chaos => "Chaos",
         _ => type.ToString()
     };
 

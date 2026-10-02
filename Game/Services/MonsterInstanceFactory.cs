@@ -123,7 +123,10 @@ public static class MonsterInstanceFactory
                 resource.FirstAttack != 0, resource.VisibleRange, resource.ChaseRange,
                 (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale,
                 resource.TamingId, resource.TamingPercentage, combat, resource.MonsterSkillLinkId,
-                resource.MonsterGroup, resource.GroupFirstAttack != 0));
+                resource.MonsterGroup, resource.GroupFirstAttack != 0,
+                new MonsterRewardColumns(resource.Exp, resource.Jp, resource.GoldDropPercentage,
+                    resource.GoldMin, resource.GoldMax, resource.ChaosDropPercentage, resource.ChaosMin,
+                    resource.ChaosMax)));
         }
     }
 
