@@ -424,10 +424,11 @@ public class ResurrectionPacketTests
     }
 
     private const int ResurrectionStateId = 13472;
-    private const int ResurrectionScrollId = 603002;
+    /// <summary>A resurrection potion of ResurrectByPotion (effect 114); the Resurrection Scroll 603002 is not one.</summary>
+    private const int ResurrectionScrollId = 910004;
     private const int ScrollHandle = 77;
 
-    // --- RT_UsePotion: the Resurrection Scroll (docs/packet-specs/socle-effets-resurrection.md, lot R2) ---
+    // --- RT_UsePotion: a resurrection potion (docs/packet-specs/socle-mort-joueur.md §2) ---
 
     [Test]
     public void ResurrectByItem_ConsumesOneScrollAndComesBackInPlace()
@@ -442,10 +443,10 @@ public class ResurrectionPacketTests
 
         client.OnDataReceived(connection.BytesAvailable);
 
-        // Skill 6001 level 1: 10 % of the 5000 max HP; var2 = 0 gives no MP, the 100 kept stay.
+        // var1 = 0.1: 10 % of the 5000 max HP; a potion leaves the MP as they were.
         ConnectionInfoOf(client).CharacterHp.Should().Be(500);
         ConnectionInfoOf(client).CharacterMp.Should().Be(100);
-        Properties(connection).Should().Equal(("hp", 500L), ("mp", 100L));
+        Properties(connection).Should().Equal(("hp", 500L));
         Results(connection).Should().Equal(A574Result((ushort)ResultCode.Success));
         A.CallTo(() => services.WarpCalls.Warp(A<GameClient>._, A<float>._, A<float>._))
             .MustNotHaveHappened();
@@ -694,11 +695,10 @@ public class ResurrectionPacketTests
 
         public TestServices()
         {
-            var scroll = new ResurrectionItem(ResurrectionScrollId, 6001, 1, SkillEffectType.Resurrection,
-                new[] { 0.1m, 0m });
-            A.CallTo(() => ResurrectionItems.TryGet(A<int>._, out scroll)).Returns(false);
-            A.CallTo(() => ResurrectionItems.TryGet(ResurrectionScrollId, out scroll))
-                .Returns(true).AssignsOutAndRefParameters(scroll);
+            A.CallTo(() => ResurrectionItems.Potions).Returns(new[]
+            {
+                new ResurrectionPotion(ResurrectionScrollId, 0.1m, 0.3m)
+            });
 
             // State 13472 as the 9.4 data carries it: 5 % of the HP and 3 % of the MP, flat.
             var resurrection = new ResurrectionStateValues(0.05m, 0m, 0.03m, 0m);

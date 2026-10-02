@@ -27,6 +27,8 @@ public class BuffCatalog : IBuffCatalog
     public const int ToggleAura = 701;
     public const int ToggleDifferentialAura = 702;
     public const int PhysicalSingleDamage = 30001;
+    public const int Resurrection = 504;
+    public const int ResurrectionWithRecover = 30501;
 
     /// <summary>
     /// EF_ACTIVATE_FIELD_PROP (0x251D). This is how a portal is used: the client casts the prop's
@@ -52,7 +54,7 @@ public class BuffCatalog : IBuffCatalog
     public static readonly int[] CastableEffectTypes =
     {
         MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, ToggleAura, ToggleDifferentialAura,
-        PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming
+        PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming, Resurrection, ResurrectionWithRecover
     };
 
     /// <summary>
@@ -123,7 +125,7 @@ public class BuffCatalog : IBuffCatalog
         // spell carry their effect themselves.
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
                 or SkillCastKind.ActivateProp or SkillCastKind.Summon or SkillCastKind.Unsummon
-                or SkillCastKind.Taming)
+                or SkillCastKind.Taming or SkillCastKind.Resurrection)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -197,6 +199,18 @@ public class BuffCatalog : IBuffCatalog
                 Unsummon => SkillCastKind.Unsummon,
                 _ => SkillCastKind.Taming
             };
+            return true;
+        }
+
+        // A resurrection on a character (tf_avatar): 6013, the creature scroll's skill, targets summons only.
+        if (row.EffectType is Resurrection or ResurrectionWithRecover)
+        {
+            if (!row.UseOnCharacter)
+            {
+                return false;
+            }
+
+            kind = SkillCastKind.Resurrection;
             return true;
         }
 

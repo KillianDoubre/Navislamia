@@ -55,6 +55,7 @@ public class SkillCastService : ISkillCastService
     private readonly IWarpService _warpService;
     private readonly IPlayerVisibilityService _players;
     private readonly ICombatRandom _random;
+    private readonly ILevelingService _leveling;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
@@ -62,8 +63,9 @@ public class SkillCastService : ISkillCastService
         MonsterWorldState monsterState,
         ICombatService combatService, IFieldPropCatalog fieldPropCatalog, IWarpService warpService,
         IPlayerVisibilityService players = null, CastInterrupts interrupts = null, ICombatRandom random = null,
-        bool runTicks = true)
+        bool runTicks = true, ILevelingService leveling = null)
     {
+        _leveling = leveling;
         _players = players;
         _random = random ?? CombatRandom.Shared;
         interrupts?.Attach(this);
@@ -325,6 +327,16 @@ public class SkillCastService : ISkillCastService
             case SkillCastKind.ActivateProp:
                 ActivateProp(client, targetInstanceId);
                 break;
+            case SkillCastKind.Resurrection:
+                hit = ResurrectPlayer(fields, skillLevel, (uint)targetInstanceId);
+                if (hit is null)
+                {
+                    // The target came back, or left, while the spell was being cast.
+                    SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+                    return;
+                }
+
+                break;
             default:
                 // Every kind is handled above; a new one must not silently behave like a buff.
                 _logger.Error("Skill {skillId} has unhandled kind {kind}", request.SkillId, fields.Kind);
@@ -356,6 +368,19 @@ public class SkillCastService : ISkillCastService
     /// </summary>
     private bool InCastRange(ConnectionInfo info, CastableBuffFields fields, long targetInstanceId, uint now)
     {
+        if (fields.Kind == SkillCastKind.Resurrection)
+        {
+            if (_players is null || !_players.Registry.TryResolve((uint)targetInstanceId, out var target))
+            {
+                return false;
+            }
+
+            var (px, py) = info.PositionAt(now);
+            var (tx2, ty2) = target.ConnectionInfo.PositionAt(now);
+            return CastRules.InRange(fields.CastRange, _statService.Compute(info).Total.AttackRange, px, py,
+                CombatRange.PlayerUnitSize, tx2, ty2, CombatRange.PlayerUnitSize, false);
+        }
+
         if (!TargetsAMonster(fields.Kind) || !_monsterState.TryGetInstance(targetInstanceId, out var instance))
         {
             return true;
@@ -556,6 +581,11 @@ public class SkillCastService : ISkillCastService
     {
         targetInstanceId = -1;
 
+        if (kind == SkillCastKind.Resurrection)
+        {
+            return TryResolveDeadPlayer(info, request.Target, out targetInstanceId, out error);
+        }
+
         if (TargetsAMonster(kind))
         {
             if (!info.TryResolveMonster(request.Target, out targetInstanceId))
@@ -578,6 +608,106 @@ public class SkillCastService : ISkillCastService
         }
 
         error = ResultCode.Success;
+        return true;
+    }
+
+    /// <summary>
+    /// The target of a resurrection: another player, dead, whom the caster sees. A living target is
+    /// <c>NotActable</c>, an unknown or unseen one <c>NotExist</c>.
+    /// </summary>
+    private bool TryResolveDeadPlayer(ConnectionInfo info, uint handle, out long targetInstanceId,
+        out ResultCode error)
+    {
+        targetInstanceId = -1;
+        bool seen;
+        lock (info.PlayerVisibilityLock)
+        {
+            seen = info.SpawnedPlayers.ContainsKey(handle);
+        }
+
+        if (handle == 0 || handle == info.CharacterHandle || !seen || _players is null
+            || !_players.Registry.TryResolve(handle, out var target))
+        {
+            error = ResultCode.NotExist;
+            return false;
+        }
+
+        if (target.ConnectionInfo.CharacterHp > 0)
+        {
+            error = ResultCode.NotActable;
+            return false;
+        }
+
+        targetInstanceId = handle;
+        error = ResultCode.Success;
+        return true;
+    }
+
+    /// <summary>
+    /// <c>SKILL_RESURRECTION</c> / <c>SKILL_RESURRECTION_WITH_RECOVER</c> on a dead player: HP and MP from the
+    /// skill's variables (<see cref="ResurrectionRules.VitalsBySkill"/>), a share of the death's experience back
+    /// (<see cref="ResurrectionRules.SkillExpRatio"/>), where they fell. The hit is <c>SHT_REBIRTH</c>. Null when
+    /// the target is no longer there or no longer dead.
+    /// </summary>
+    private SkillHit? ResurrectPlayer(CastableBuffFields fields, int skillLevel, uint handle)
+    {
+        if (_players is null || !_players.Registry.TryResolve(handle, out var target)
+            || target.ConnectionInfo.CharacterHp > 0)
+        {
+            return null;
+        }
+
+        var info = target.ConnectionInfo;
+        var stats = _statService.Compute(info).Total;
+        var effect = (Navislamia.Game.DataAccess.Entities.Enums.SkillEffectType)fields.EffectType;
+        var previousMp = info.CharacterMp;
+        var (hp, mp) = ResurrectionRules.VitalsBySkill(effect, fields.Vars, skillLevel, stats.MaxHp, stats.MaxMp,
+            info.CharacterMp);
+
+        info.CharacterHp = hp;
+        info.CharacterMp = mp;
+        target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+        target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+        var exp = _leveling?.RestoreDeathExperience(target, ResurrectionRules.SkillExpRatio(effect, fields.Vars,
+            skillLevel)) ?? 0;
+
+        _logger.Debug("{clientTag} was resurrected by skill {skillId} with {hp} hp and {exp} exp back",
+            target.ClientTag, fields.SkillId, hp, exp);
+        return new SkillHit(SkillHitType.Rebirth, handle, hp, hp, IncMp: mp - previousMp,
+            RecoveryExp: (int)Math.Min(exp, int.MaxValue), TargetMp: mp);
+    }
+
+    public ResultCode CheckItemSkillTarget(GameClient client, int skillId, uint targetHandle)
+    {
+        if (!_catalog.TryGet(skillId, out var fields) || fields.Kind != SkillCastKind.Resurrection)
+        {
+            return ResultCode.Success;
+        }
+
+        return TryResolveDeadPlayer(client.ConnectionInfo, targetHandle, out _, out var error)
+            ? ResultCode.Success
+            : error;
+    }
+
+    public bool ApplyItemSkill(GameClient client, int skillId, int skillLevel, uint targetHandle)
+    {
+        if (!_catalog.TryGet(skillId, out var fields) || fields.Kind != SkillCastKind.Resurrection)
+        {
+            return ApplyItemSkill(client, skillId, skillLevel);
+        }
+
+        var level = Math.Max(1, skillLevel);
+        var hit = ResurrectPlayer(fields, level, targetHandle);
+        if (hit is null)
+        {
+            return false;
+        }
+
+        var info = client.ConnectionInfo;
+        var request = new GameActionPackets.SkillRequest((ushort)skillId, info.CharacterHandle, targetHandle,
+            info.X, info.Y, info.Z, (sbyte)info.Layer, (byte)level);
+        SendSkill(client, request, fields.Kind, targetHandle, SkillPacketType.Fire, 0, 0, hit);
+        SendSkill(client, request, fields.Kind, targetHandle, SkillPacketType.Complete, 0, 0);
         return true;
     }
 
@@ -938,7 +1068,7 @@ public class SkillCastService : ISkillCastService
                 ObserverFrames.SendMonsterFrame(_players, client, targetInstanceId, (_, handle) =>
                     Frame(handle, hit is { } monsterHit ? monsterHit with { TargetHandle = handle } : null));
                 break;
-            case SkillCastKind.Buff or SkillCastKind.Aura or SkillCastKind.Heal:
+            case SkillCastKind.Buff or SkillCastKind.Aura or SkillCastKind.Heal or SkillCastKind.Resurrection:
                 _players?.SendToObservers(client, Frame(request.Target, hit));
                 break;
         }

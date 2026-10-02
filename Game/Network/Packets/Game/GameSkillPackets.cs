@@ -20,7 +20,13 @@ public enum SkillHitType : byte
     MagicDamage = 1,
     Result = 10,
     AddHp = 20,
-    AddMp = 21
+    AddMp = 21,
+
+    /// <summary>
+    /// <c>SHT_REBIRTH</c>: <c>TS_SC_SKILL__HIT_REBIRTH</c> = target_hp, nIncHP, nIncMP, nRecoveryEXP, target_mp,
+    /// every field int32 at Epic 7.3 (rzu <c>TS_SC_SKILL.h</c>, <c>target_mp</c> int32 from EPIC_7_1).
+    /// </summary>
+    Rebirth = 23
 }
 
 /// <summary>
@@ -34,7 +40,7 @@ public enum SkillHitType : byte
 /// is the damage hit's <c>flag</c> (int32 @14), with the <c>ATTACK_INFO__FLAG</c> values.
 /// </remarks>
 public readonly record struct SkillHit(SkillHitType Type, uint TargetHandle, int TargetStat, int IncStat,
-    byte Flag = 0);
+    byte Flag = 0, int IncMp = 0, int RecoveryExp = 0, int TargetMp = 0);
 
 /// <summary>
 /// <c>TS_SC_SKILL</c> (401) and <c>TS_SC_STATE</c> (505), Epic 7.3 layouts.
@@ -109,6 +115,15 @@ public static class GameSkillPackets
                 record[9] = 0;
                 BinaryPrimitives.WriteInt32LittleEndian(record.Slice(10, 4), hit.Value.IncStat);
                 BinaryPrimitives.WriteInt32LittleEndian(record.Slice(14, 4), hit.Value.Flag);
+            }
+            else if (hit.Value.Type == SkillHitType.Rebirth)
+            {
+                // HIT_REBIRTH: target_hp, nIncHP, nIncMP, nRecoveryEXP, target_mp.
+                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(5, 4), hit.Value.TargetStat);
+                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(9, 4), hit.Value.IncStat);
+                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(13, 4), hit.Value.IncMp);
+                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(17, 4), hit.Value.RecoveryExp);
+                BinaryPrimitives.WriteInt32LittleEndian(record.Slice(21, 4), hit.Value.TargetMp);
             }
             else
             {

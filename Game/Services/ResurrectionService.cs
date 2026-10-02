@@ -32,11 +32,13 @@ public class ResurrectionService : IResurrectionService
     private readonly ISkillCastService _skillCastService;
     private readonly ICharacterService _characterService;
     private readonly IResurrectionItemCatalog _resurrectionItems;
+    private readonly ILevelingService _leveling;
 
     public ResurrectionService(IWarpService warpService, IStatService statService, IStateCatalog stateCatalog,
         ISkillCastService skillCastService, ICharacterService characterService,
-        IResurrectionItemCatalog resurrectionItems)
+        IResurrectionItemCatalog resurrectionItems, ILevelingService leveling = null)
     {
+        _leveling = leveling;
         _warpService = warpService;
         _statService = statService;
         _stateCatalog = stateCatalog;
@@ -92,6 +94,9 @@ public class ResurrectionService : IResurrectionService
             info.CharacterHp = hp;
             info.CharacterMp = mp;
 
+            // The way back to town gives no experience back: the death's loss is final.
+            info.DeathExpLoss = 0;
+
             // The return point carries its own layer: the character may have died on another layer of
             // the same map. Warp stops the attack, drops the aggro, leaves every visible object and
             // re-streams the surroundings around the new position.
@@ -115,23 +120,32 @@ public class ResurrectionService : IResurrectionService
     }
 
     /// <summary>
-    /// <c>RT_UsePotion</c>: the character comes back <b>where it fell</b> by using one resurrection item
-    /// from its bag — in this data, the Resurrection Scroll (603002, skill 6001 level 1, 10% of max HP).
-    /// NGemity leaves this branch empty; the effect is its item path (<c>Player::UseItem</c> →
-    /// <c>ITEM_EFFECT_INSTANT::SKILL</c> → <c>SKILL_RESURRECTION</c>) applied by the dead character to itself.
-    /// One unit is consumed and the stack update (255, or 254 for the last one) precedes the vitals and the
-    /// result, the order of <c>TM_CS_USE_ITEM</c>. Without such an item: <c>NotActable</c>, nothing changes.
+    /// <c>RT_UsePotion</c> (<c>StructPlayer::ResurrectByPotion</c>, 2012-11 <c>0x1400e5650</c>): the character comes
+    /// back <b>where it fell</b> by using one resurrection potion from its bag, looked for in the reference's order
+    /// (2010454, 2902042, 910005, 910004, effect 114). HP = <c>var1 × max HP</c>, the MP stay as they are, and
+    /// <c>var2</c> of the death's experience comes back. One unit is consumed; the stack update (255, or 254 for
+    /// the last one) precedes the vitals and the result. Without a potion: <c>NotActable</c>, nothing changes.
+    /// The Resurrection Scroll (603002) is not one of them: it is skill 6001, used on <b>another</b> dead player.
     /// </summary>
     private async Task ResurrectByItemAsync(GameClient client, ushort requestId)
     {
         var info = client.ConnectionInfo;
         try
         {
-            ResurrectionItem used = default;
-            var consumed = await _characterService.ConsumeFirstAsync(info.CharacterName,
-                item => _resurrectionItems.TryGet((int)item.ItemResourceId, out used));
+            ResurrectionPotion used = default;
+            (Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity Item, long Remaining)? consumed = null;
+            foreach (var potion in _resurrectionItems.Potions)
+            {
+                consumed = await _characterService.ConsumeFirstAsync(info.CharacterName,
+                    item => item.ItemResourceId == potion.ItemResourceId);
+                if (consumed is not null)
+                {
+                    used = potion;
+                    break;
+                }
+            }
 
-            if (consumed is not { } result || !_resurrectionItems.TryGet((int)result.Item.ItemResourceId, out used))
+            if (consumed is not { } result)
             {
                 client.SendResult(requestId, (ushort)ResultCode.NotActable);
                 return;
@@ -143,18 +157,15 @@ public class ResurrectionService : IResurrectionService
                 : GameCharacterPackets.BuildUpdateItemCount(handle, result.Remaining));
 
             var stats = _statService.Compute(info).Total;
-            var (hp, mp) = ResurrectionRules.VitalsBySkill(used.Effect, used.Vars, used.SkillLevel, stats.MaxHp,
-                stats.MaxMp, info.CharacterMp);
-
+            var hp = ResurrectionRules.PotionHp(used.HpRatio, stats.MaxHp);
             info.CharacterHp = hp;
-            info.CharacterMp = mp;
 
             client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
-            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+            var restored = _leveling?.RestoreDeathExperience(client, used.ExpRatio) ?? 0;
             client.SendResult(requestId, (ushort)ResultCode.Success);
 
-            _logger.Debug("{clientTag} resurrected in place by item {itemId} (skill {skillId} level {level}) with {hp} hp",
-                client.ClientTag, used.ItemResourceId, used.SkillId, used.SkillLevel, hp);
+            _logger.Debug("{clientTag} resurrected in place by potion {itemId} with {hp} hp and {exp} exp back",
+                client.ClientTag, used.ItemResourceId, hp, restored);
         }
         catch (Exception exception)
         {
@@ -206,6 +217,7 @@ public class ResurrectionService : IResurrectionService
 
             client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
             client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+            _leveling?.RestoreDeathExperience(client, values.ExpRatio(state.StateLevel));
             client.SendResult(requestId, (ushort)ResultCode.Success);
 
             _logger.Debug("{clientTag} resurrected in place by state {stateId} level {level} with {hp} hp",

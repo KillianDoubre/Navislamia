@@ -9,14 +9,20 @@ namespace Navislamia.Game.Services.Stats;
 /// They are ratios, not percent numbers: state 13472 carries <c>0.05</c> for 5 % of the HP.
 /// </summary>
 public readonly record struct ResurrectionStateValues(decimal HpBase, decimal HpPerLevel, decimal MpBase,
-    decimal MpPerLevel)
+    decimal MpPerLevel, decimal ExpBase = 0m, decimal ExpPerLevel = 0m)
 {
     /// <summary>Reads <c>value_0..value_3</c>; a missing value reads 0.</summary>
     public static ResurrectionStateValues From(decimal[] values)
     {
         decimal At(int index) => values != null && index < values.Length ? values[index] : 0m;
-        return new ResurrectionStateValues(At(0), At(1), At(2), At(3));
+        return new ResurrectionStateValues(At(0), At(1), At(2), At(3), At(4), At(5));
     }
+
+    /// <summary>
+    /// The share of the death's experience given back: <c>value_4 + value_5 × level</c>
+    /// (<c>StructCreature::ResurrectByState</c>, 2012-11 <c>0x14008c920</c>).
+    /// </summary>
+    public decimal ExpRatio(int level) => ExpBase + ExpPerLevel * Math.Max(0, level);
 
     public decimal HpRatio(int level) => HpBase + HpPerLevel * Math.Max(0, level);
 

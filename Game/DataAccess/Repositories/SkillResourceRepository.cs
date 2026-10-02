@@ -105,7 +105,8 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.ProbabilityIncBySlv,
                 skill.CastingType,
                 skill.CastingLevel,
-                skill.IsPassive))
+                skill.IsPassive,
+                skill.UseOnCharacter))
             .ToList();
     }
 
@@ -150,7 +151,8 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.ProbabilityIncBySlv,
                 skill.CastingType,
                 skill.CastingLevel,
-                skill.IsPassive))
+                skill.IsPassive,
+                skill.UseOnCharacter))
             .ToList();
     }
 

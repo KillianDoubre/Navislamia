@@ -46,6 +46,16 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<ItemEffectFields> GetItemsWithInstantEffect(short effect)
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Where(item => item.BaseTypes.Contains(effect) || item.OptTypes.Contains(effect))
+            .Select(item => new ItemEffectFields((int)item.Id, item.ItemType, item.BaseTypes, item.BaseVar1,
+                item.BaseVar2, item.OptTypes, item.OptVar1, item.OptVar2))
+            .ToList();
+    }
+
     public IReadOnlyList<ItemGroupFields> GetGroupFields()
     {
         return _context.ItemResources

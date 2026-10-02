@@ -114,6 +114,21 @@ public class ItemUseService : IItemUseService
             return;
         }
 
+        // An item whose skill needs a particular target (the Resurrection Scroll: a dead player in sight) is judged
+        // before anything is spent.
+        if (hasFields)
+        {
+            foreach (var skillId in SkillSlots(fields))
+            {
+                var check = _states.CheckItemSkillTarget(client, skillId, request.TargetHandle);
+                if (check != ResultCode.Success)
+                {
+                    client.SendResult(UseItemRequestId, (ushort)check, value);
+                    return;
+                }
+            }
+        }
+
         // NGemity erases the unit inside Player::UseItem, so the stack update (TS_SC_UPDATE_ITEM_COUNT,
         // or TS_SC_DESTROY_ITEM for the last unit) leaves before the result.
         if (_catalog.IsConsumedOnUse((int)item.ItemResourceId))
@@ -155,7 +170,7 @@ public class ItemUseService : IItemUseService
                 info.ItemCooldowns[cooldownKey] = unchecked(now + ServerClock.FromSeconds(fields.CoolTime));
                 client.Connection.Send(GameCharacterPackets.BuildItemCoolTime(info.ItemCooldowns, now));
             }
-            ApplyEffects(client, fields);
+            ApplyEffects(client, fields, request.TargetHandle);
         }
         _logger.Debug("{clientTag} used item {resourceId} (handle {itemHandle}, target {targetHandle})",
             client.ClientTag, item.ItemResourceId, request.ItemHandle, request.TargetHandle);
@@ -174,14 +189,34 @@ public class ItemUseService : IItemUseService
     }
 
     private void ApplyEffects(GameClient client,
-        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
+        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields, uint targetHandle = 0)
     {
-        ApplySlots(client, fields.BaseTypes, fields.BaseVar1, fields.BaseVar2, fields);
-        ApplySlots(client, fields.OptTypes, fields.OptVar1, fields.OptVar2, fields);
+        ApplySlots(client, fields.BaseTypes, fields.BaseVar1, fields.BaseVar2, fields, targetHandle);
+        ApplySlots(client, fields.OptTypes, fields.OptVar1, fields.OptVar2, fields, targetHandle);
+    }
+
+    /// <summary>The skill ids an item's <c>Skill</c> slots cast.</summary>
+    private static System.Collections.Generic.IEnumerable<int> SkillSlots(Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
+    {
+        foreach (var (types, values) in new[] { (fields.BaseTypes, fields.BaseVar1), (fields.OptTypes, fields.OptVar1) })
+        {
+            if (types is null || values is null)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < Math.Min(types.Length, values.Length); i++)
+            {
+                if ((ItemEffectInstant)types[i] == ItemEffectInstant.Skill && values[i] > 0)
+                {
+                    yield return (int)values[i];
+                }
+            }
+        }
     }
 
     private void ApplySlots(GameClient client, short[] types, decimal[] values, decimal[] levels,
-        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
+        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields, uint targetHandle = 0)
     {
         if (types is null || values is null) return;
         var info = client.ConnectionInfo;
@@ -214,7 +249,7 @@ public class ItemUseService : IItemUseService
                 case ItemEffectInstant.Skill when amount > 0:
                     if (!ApplyRecoverySkill(client, fields, amount))
                         _states.ApplyItemSkill(client, amount,
-                            levels is not null && i < levels.Length ? (int)levels[i] : 1);
+                            levels is not null && i < levels.Length ? (int)levels[i] : 1, targetHandle);
                     break;
             }
         }

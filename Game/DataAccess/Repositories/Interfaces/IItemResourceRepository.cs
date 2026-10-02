@@ -93,6 +93,9 @@ public interface IItemResourceRepository
     /// </summary>
     IReadOnlyList<ItemEffectFields> GetInstantSkillItems();
 
+    /// <summary>Every item carrying the instant effect <paramref name="effect"/> in a base or an opt slot.</summary>
+    IReadOnlyList<ItemEffectFields> GetItemsWithInstantEffect(short effect) => System.Array.Empty<ItemEffectFields>();
+
     IReadOnlyList<ItemGroupFields> GetGroupFields();
 
     /// <summary>Every item resource's unit weight, for the carried weight.</summary>

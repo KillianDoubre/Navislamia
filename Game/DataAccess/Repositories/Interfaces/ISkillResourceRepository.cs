@@ -34,7 +34,14 @@ public enum SkillCastKind
     /// The creature spell 4003 (<c>EF_TAMING</c> 603): an attempt on a living monster, judged by
     /// <see cref="Navislamia.Game.Services.TamingRules"/>.
     /// </summary>
-    Taming
+    Taming,
+
+    /// <summary>
+    /// <c>EF_RESURRECTION</c> (504) and <c>EF_RESURRECTION_WITH_RECOVER</c> (30501) on a character
+    /// (<c>tf_avatar</c>): a dead player in sight comes back where they fell
+    /// (docs/packet-specs/socle-mort-joueur.md §3).
+    /// </summary>
+    Resurrection
 }
 
 public readonly record struct CastableBuffFields(
@@ -98,7 +105,8 @@ public readonly record struct CastableSkillRow(
     int ProbabilityIncBySlv = 0,
     string CastingType = null,
     string CastingLevel = null,
-    bool IsPassive = false);
+    bool IsPassive = false,
+    bool UseOnCharacter = false);
 
 /// <summary>A resurrection skill (<c>EF_RESURRECTION</c> 504 or <c>EF_RESURRECTION_WITH_RECOVER</c> 30501).</summary>
 public readonly record struct ResurrectionSkillRow(int SkillId, int EffectType, decimal[] Vars);

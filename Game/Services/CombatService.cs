@@ -32,6 +32,9 @@ public class CombatService : ICombatService
 
     /// <summary>Where a hit or a death tells the cast in progress (StructSkill::onDamage, CancelSkill).</summary>
     private readonly Casting.ICastInterrupts _casts;
+
+    /// <summary>The PK server's items lost on death (procDecreaseEXPAndDropItem).</summary>
+    private readonly Death.IDeathDropService _deathDrops;
     private readonly IStateCatalog _states;
     private readonly ICombatRandom _random;
     private readonly IPlayerVisibilityService _players;
@@ -44,8 +47,9 @@ public class CombatService : ICombatService
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
         IStatService stats, IStateCatalog states, IPartyService parties, IQuestService quests = null,
         ICombatRandom random = null, IPlayerVisibilityService players = null,
-        Casting.ICastInterrupts casts = null)
+        Casting.ICastInterrupts casts = null, Death.IDeathDropService deathDrops = null)
     {
+        _deathDrops = deathDrops;
         _casts = casts;
         _parties = parties;
         _quests = quests;
@@ -274,6 +278,10 @@ public class CombatService : ICombatService
             StopAttack(target);
             _casts?.Interrupt(target);
             _levelingService.ApplyDeathPenalty(target);
+            if (_deathDrops is not null)
+            {
+                _ = _deathDrops.DropOnDeathAsync(target);
+            }
         }
         else if (wasAlive && damage > 0)
         {

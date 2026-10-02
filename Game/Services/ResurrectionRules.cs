@@ -129,6 +129,26 @@ public static class ResurrectionRules
         return (hp, mp);
     }
 
+    /// <summary>
+    /// The share of the death's experience a resurrection skill gives back: <c>var2 × level</c> for
+    /// <c>SKILL_RESURRECTION</c> (2012-11 <c>0x1402312f0</c>), <c>var4 + var5 × level</c> for
+    /// <c>SKILL_RESURRECTION_WITH_RECOVER</c> (<c>0x140231bb0</c>); the enhancement terms are zero.
+    /// </summary>
+    public static decimal SkillExpRatio(SkillEffectType effect, decimal[] vars, int skillLevel)
+    {
+        decimal Var(int index) => vars is not null && index < vars.Length ? vars[index] : 0m;
+        return effect == SkillEffectType.ResurrectionWithRecover
+            ? Var(4) + Var(5) * skillLevel
+            : Var(2) * skillLevel;
+    }
+
+    /// <summary>
+    /// The HP a resurrection potion gives back (<c>StructPlayer::ResurrectByPotion</c>, 2012-11
+    /// <c>0x1400e5650</c>): <c>var1 × max HP</c>, at least 1. The MP are left as they are.
+    /// </summary>
+    public static int PotionHp(decimal hpRatio, float maxHp) =>
+        (int)Math.Clamp(hpRatio * (decimal)maxHp, 1m, Math.Max(1m, (decimal)maxHp));
+
     public static (int Hp, int Mp) VitalsByState(ResurrectionStateValues values, int stateLevel, float maxHp,
         float maxMp, int currentMp)
     {

@@ -164,6 +164,12 @@ public class ConnectionInfo
     public readonly object CastLock = new();
 
     /// <summary>
+    /// The experience the last death took (<c>StructPlayer</c> <c>+0x1d0</c>): a resurrection gives a share of it
+    /// back, a respawn in town forfeits it (docs/packet-specs/socle-mort-joueur.md).
+    /// </summary>
+    public long DeathExpLoss { get; set; }
+
+    /// <summary>
     /// The speed of the character's current walk: <see cref="EchoedMoveSpeed"/> slowed by its load
     /// (<see cref="Navislamia.Game.Services.Weight.WeightRules.MoveSpeed"/>), set at each move request and used
     /// for the echo, the peers' copy and the position estimate alike.
@@ -571,6 +577,8 @@ public class ConnectionInfo
         {
             PendingCast = null;
         }
+
+        DeathExpLoss = 0;
 
         CharacterName = string.Empty;
         TimeSyncGaps.Clear();
