@@ -419,6 +419,54 @@ authentiques), les étapes 2 et 3 sont des suites motivées. Rien n'oblige à cr
 
 ---
 
+## 15. État d'implémentation (étape 1, branche `hermes/packet-socle-recompenses-monstres`)
+
+Rédigé par `navis-dev` après la fiche ; les renvois pointent sur les sections ci-dessus.
+
+### 15.1 Ce qui est en place
+
+- **Colonnes portées à l'instance** : `MonsterResourceRepository.GetByIds` projette `Exp`, `Jp`,
+  `GoldDropPercentage`, `GoldMin`, `GoldMax`, `ChaosDropPercentage`, `ChaosMin`, `ChaosMax` ;
+  `MonsterInstance.Rewards` (`MonsterRewardColumns`) les porte, `MonsterInstanceFactory` les remplit : un
+  kill ne requête plus la base.
+- **`CombatRewards` a disparu** (la formule `10 + 5 × niveau` et ses deux tests) ; `CombatService.AwardKill`
+  lit `monster.Rewards`.
+- **Règles pures** dans `Game/Services/MonsterRewardRules.cs`, testées par
+  `Tests/Game/MonsterRewardRulesTests.cs` (dont une ligne réelle de l'export, id 7032030) :
+  `WithinRewardRange` (500 unités), `ScaleForLevelGap` (0,05 par niveau, troncature), `LootFactor`
+  (0,2 au-delà de dix niveaux), `PassesChance` / `RollsChance` (pour cent contre `rand % 100`),
+  `RollAmount` (`irand` inclusif, bornes tolérées dans les deux sens).
+- **Trames** : `GameRewardPackets.BuildGetChaos` (213, 25 octets) et `BuildItemDropInfo` (282, 15 octets),
+  avec `TM_SC_GET_CHAOS = 213` / `TM_SC_ITEM_DROP_INFO = 282` dans `GamePackets` et un bras `log + continue`
+  dans `GameClient.cs` : elles sont S→C seules, et sans ce bras un membre de l'enum atteindrait le `switch`
+  final et casserait la boucle de réception. Offsets couverts par `Tests/Game/RewardPacketsTests.cs`.
+- **Or et chaos tirés une fois par kill**, puis répartis par la division entière du socle (le reste au
+  premier membre), comme l'exp l'était déjà ; l'exp et le JP sont partagés **puis** passés au malus d'écart
+  de niveau, qui est donc par bénéficiaire.
+- **Taux** : `RateType.Chaos` + `RatesOptions.Chaos` (défaut 1), appliqué à la **chance** comme
+  `fChaosDropRate` ; `/rate chaos …` et `/rates` le portent (`docs/gm-commands.md` mis à jour).
+- **213** part aux témoins du tueur — l'équivalent Navislamia du `Broadcast` de région, puisqu'un client qui
+  ne streame pas le cadavre ne peut rien placer — le handle du cadavre étant résolu client par client — puis
+  au tueur ; **507** (`chaos`) part au bénéficiaire.
+- **282** part aux mêmes destinataires que l'`ENTER` de l'objet et juste avant lui, et seulement si le client
+  connaît le monstre (`GetMonsterHandle != 0`).
+
+### 15.2 Écarts assumés
+
+1. **L'or reste crédité en bourse** (`TM_SC_GOLD_UPDATE`) au lieu de tomber au sol en objet de code 0 :
+   §12.4 / A VERIFIER 7 laisse le ramassage d'un tel objet non établi, et un tas non ramassable perdrait
+   l'or au lieu de le créditer. Le **montant**, lui, vient bien des colonnes.
+2. **Aucune ligne 282 pour l'or**, pour la même raison.
+3. **`*2` ignorées** (§12.1) et **pas de seuil de rang** (§12.2) : non tranchés par Killian.
+4. **Pas d'arrondi aléatoire** sur l'or et le chaos : les montants tirés sont des entiers (`irand`), le malus
+   porte sur la chance, donc aucun arrondi n'est requis.
+5. **Constat hors lot** : `GetByIds` ne projette toujours pas `TamingId` / `TamingPercentage` (le
+   `Select` explicite ne les demande pas, l'entité projetée n'est pas suivie). `MonsterInstanceFactory` les
+   lit donc à 0 dans le monde et `TamingRules.IsTamable` refuse tout : à traiter dans le lot de
+   l'apprivoisement, pas ici.
+
+---
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Colonnes `*2` (§12.1)** : personne ne les lit, ni dans l'exécutable 2012-11, ni dans NGemity (qui les
@@ -442,6 +490,23 @@ authentiques), les étapes 2 et 3 sont des suites motivées. Rien n'oblige à cr
    le seul prérequis d'infrastructure du lot** (si elles sont vides, il faut un import avant le code).
 7. **Confirmation en jeu** : un tas d'or au sol est-il bien l'objet de code 0 pour le client 7.3, et le
    ramassage d'un tel objet crédite-t-il la bourse ?
+
+### Réserves de l'implémentation (`navis-dev`, §15)
+
+8. **Malus de distance et d'écart de niveau implémentés** : la fiche les plaçait en étape 1 (§9.1 point 4) et
+   ils le sont, mais ils changent le comportement d'aujourd'hui (A VERIFIER 3). Si tu préfères un serveur
+   indulgent, ils se retirent en deux appels dans `CombatService.AwardKill` — `WithinRewardRange` et
+   `ScaleForLevelGap` — sans toucher aux colonnes ni aux trames.
+9. **Colonnes vides en base** : rien ne remplace une colonne à 0, donc un monstre dont la ligne n'est pas
+   importée ne donne plus rien (l'export contient d'ailleurs des lignes légitimement à `exp = 0`, par exemple
+   les ids 23 à 26). À vérifier avant publication (A VERIFIER 6).
+10. **Purge de l'or au sol** : tant que le ramassage d'un objet de code 0 n'est pas établi, l'or reste crédité
+    en bourse (§15.2 points 1 et 2). Dis-moi si tu veux le tas au sol, avec le lot de ramassage.
+11. **Le familier qui porte le coup fatal** (A VERIFIER 5) : `AwardKill` récompense le client que
+    `ApplyDamage` a reçu comme attaquant ; ce que le chemin du familier y passe n'a pas été vérifié dans ce
+    lot, et rien ici ne le corrige.
+12. **`taming_id` / `taming_percentage` toujours absents de la projection** (§15.2 point 5) : constat de ce
+    réveil, hors du lot des récompenses.
 
 ## Bloc destiné à `CLAUDE.md` (à recopier tel quel dans la description de la MR — `navis-ref` n'écrit pas `CLAUDE.md`)
 
