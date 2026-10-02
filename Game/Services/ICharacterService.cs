@@ -169,6 +169,14 @@ public interface ICharacterService
     Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold,
         int chaos, float x, float y, bool pkMode);
 
+    /// <summary>
+    /// Persists a job change (docs/packet-specs/socle-changement-metier.md): the new job at job level 1, the jobs
+    /// left behind with the job level each reached (<c>job_N</c>/<c>jlv_N</c>), the depth flag, and the talent
+    /// points the master class grants. Returns the character's talent points afterwards, null when it does not exist.
+    /// </summary>
+    Task<int?> ChangeJobAsync(string characterName, int job, IReadOnlyList<(int Job, int JobLevel)> previousJobs,
+        int talentPoints);
+
 }
 
 /// <summary>What a cage's pet is called, and whether its master has named it yet.</summary>

@@ -522,7 +522,7 @@ public class GmCommandService : IGmCommandService
 
         while (info.CharacterJobLevel < target)
         {
-            if (!_levelingService.TryGetNextJobLevelCost(Math.Max(1, info.CharacterJobLevel), out var cost))
+            if (!_levelingService.TryGetNextJobLevelCost(info.PreviousJobs.Count, Math.Max(1, info.CharacterJobLevel), out var cost))
             {
                 break;
             }

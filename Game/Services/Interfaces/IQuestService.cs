@@ -36,4 +36,10 @@ public interface IQuestService
     Task OnMonsterKilledAsync(GameClient client, int monsterId, float x, float y, float z);
     Task LeaveWorldAsync(GameClient client);
     Task RefreshAsync(GameClient client);
+
+    /// <summary>
+    /// The official <c>get_quest_progress(code)</c>: <c>255</c> completed, <c>2</c> finishable, <c>1</c> in progress,
+    /// <c>0</c> not taken, <c>-1</c> unknown code. "Not taken" does not judge whether the quest could be accepted.
+    /// </summary>
+    Task<int> GetQuestProgressAsync(GameClient client, int code) => Task.FromResult(-1);
 }

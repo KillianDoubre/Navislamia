@@ -32,6 +32,9 @@ public interface IPartyService
     /// <summary>HP or MP changed: the members see the new percentages when they moved.</summary>
     void OnVitalsChanged(GameClient client);
 
+    /// <summary>A member changed job: its entry is broadcast again.</summary>
+    void OnJobChanged(GameClient client) { }
+
     IReadOnlyList<GameClient> RewardMembers(GameClient killer, float x, float y, byte layer);
     bool CanTakeDrop(GameClient owner, GameClient picker, long? dropPartyId);
     GameClient LootRecipient(GameClient picker, long? dropPartyId, float x, float y, byte layer);
@@ -154,6 +157,21 @@ public sealed class PartyService : IPartyService
             }
 
             BroadcastMemberInfo(party, client);
+        }
+    }
+
+    /// <summary>
+    /// A member changed job: <c>PartyManager::OnChangeCharacterJob</c> refreshes the member's entry, whose job
+    /// field the party window shows.
+    /// </summary>
+    public void OnJobChanged(GameClient client)
+    {
+        lock (_gate)
+        {
+            if (TryGetParty(client.ConnectionInfo.CharacterHandle, out var party))
+            {
+                BroadcastMemberInfo(party, client);
+            }
         }
     }
 

@@ -956,6 +956,44 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<int?> ChangeJobAsync(string characterName, int job,
+        IReadOnlyList<(int Job, int JobLevel)> previousJobs, int talentPoints)
+    {
+        if (string.IsNullOrEmpty(characterName) || previousJobs is null || previousJobs.Count > 3)
+        {
+            return Task.FromResult<int?>(null);
+        }
+
+        return RunExclusiveAsync<int?>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return null;
+            }
+
+            // Three slots of previous jobs, like m_nPrevJobId[MAX_JOB_DEPTH - 1]; the slot is the depth left.
+            var jobs = new Job[3];
+            var jobLevels = new int[3];
+            for (var depth = 0; depth < previousJobs.Count; depth++)
+            {
+                jobs[depth] = (Job)previousJobs[depth].Job;
+                jobLevels[depth] = previousJobs[depth].JobLevel;
+            }
+
+            character.PreviousJobs = jobs;
+            character.JobLvs = jobLevels;
+            character.CurrentJob = (Job)job;
+            character.Jlv = 1;
+            // Telecaster keeps the depth as a single bit: 1 base, 2 first job, 4 second job, 8 master class.
+            character.JobDepth = (JobDepth)(1 << previousJobs.Count);
+            character.TalentPoint += Math.Max(0, talentPoints);
+
+            await repository.SaveChangesAsync();
+            return character.TalentPoint;
+        });
+    }
+
     public Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp,
         long gold, int chaos, float x, float y, bool pkMode)
     {

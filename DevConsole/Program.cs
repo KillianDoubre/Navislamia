@@ -106,12 +106,35 @@ public class Program
         ConfigureFieldProps(services, context);
         ConfigureMarketCatalog(services, context);
         ConfigurePetCatalog(services, context);
+        ConfigureJobLevelCosts(services, context);
     }
 
     /// <summary>
     /// The pets the 7.3 client knows (<c>tools/export_pet_catalog.py</c> from its <c>db_pet.rdb</c>). Without
     /// the file, no cage calls a pet and using one is only acknowledged.
     /// </summary>
+    /// <summary>
+    /// The JP cost of a job level at each job depth (<c>job-level-costs.73.json</c>, 64-bit because the
+    /// master-class tier overflows the database's <c>integer[]</c>). Without the file only the base tier works,
+    /// from the database.
+    /// </summary>
+    private static void ConfigureJobLevelCosts(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "job-level-costs.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<JobLevelCostOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("JobLevelCosts")
+            .Deserialize<JobLevelCostOptions>() ?? new JobLevelCostOptions();
+
+        services.Configure<JobLevelCostOptions>(options => options.Depths = catalog.Depths);
+    }
+
     private static void ConfigurePetCatalog(IServiceCollection services, HostBuilderContext context)
     {
         var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "pet-catalog.73.json");
@@ -321,6 +344,8 @@ public class Program
         services.AddSingleton<INpcResourceRepository, NpcResourceRepository>();
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();
+        services.AddSingleton<Navislamia.Game.Services.Jobs.IJobChangeService,
+            Navislamia.Game.Services.Jobs.JobChangeService>();
         services.AddSingleton<IMarketCatalog, MarketCatalog>();
         services.AddSingleton<IMarketService, MarketService>();
         services.AddSingleton<IMarketTradeService, MarketTradeService>();

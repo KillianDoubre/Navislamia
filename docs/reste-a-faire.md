@@ -25,6 +25,8 @@ Liste de ce qui n'est pas fini sur `master`, par priorité. Le détail de chaque
   élevé, à 200 comme à 281.
 - **Récompenses des monstres** : malus d'écart de niveau, portée de 500, trame 282 avant chaque objet et tas
   d'or, propriété `chaos` (`socle-recompenses-monstres.md` §15).
+- **Changement de métier** (`socle-changement-metier.md`) : PNJ de métier, tutoriel 3019, classe maître 11555,
+  textes `sconv`, fenêtre de compétences et JLv au-delà de 10.
 - **Vitesse d'écho** (`socle-vitesse-echo.md`) : marche du joueur et du familier vue par les autres.
 - **Diffusion** (`socle-diffusion-combat.md`, `socle-diffusion-compagnons.md`) : à deux clients, coups, mort,
   assis, PK, familier, invocations, icônes d'états.
@@ -54,8 +56,13 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
   disponible (148 ressources) et mode raid. Renforts `respawn_near_monster` et marquage
   `set_auto_user` sont implémentés et testés.
 - Éléments : les dégâts élémentaires partent sur le fil mais aucune résistance n'est modélisée.
-- Récompenses : pondération selon les dégâts et pénalités d'écart de niveau, bonus de donjon/PC bang
-  et stamina restent à modéliser ; le partage égal du groupe est conservé.
+- Récompenses : pondération selon les dégâts, bonus de donjon/PC bang et stamina restent à modéliser ; le
+  partage égal du groupe est conservé (le malus d'écart de niveau et la portée de 500 sont faits, MR #78).
+- États actifs d'un monstre non envoyés quand il entre dans la vue d'un joueur.
+- Buffs : ni persistance à la déconnexion, ni buff sur les membres du groupe ou les invocations, ni soins de
+  zone.
+- Équipement : race, classe et profondeur de métier non jugées (colonnes `limit_*` non importées).
+- Titres : ne donnent rien, rien ne permet d'en obtenir un.
 - PvP : les terrains PK ne sont pas connus (`GameRules:PkFieldsEverywhere`, désactivé), seules les attaques
   normales visent un joueur (pas les compétences), l'immoralité n'existe pas.
 - Mort du joueur : objets lâchés seulement sur un serveur PK, comme l'officiel ; à trancher si on le veut
@@ -63,13 +70,27 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 
 ## 4. Systèmes absents
 
+- Changement de métier : livré (`socle-changement-metier.md`) ; restent le changement de race, la réinitialisation des
+  compétences de classe maître et les compétences de talent.
 - Invocations et apprivoisement (`socle-apprivoisement-invocation.md`) : rien n'émet 301/305, aucune carte
-  n'est liée.
-- Guildes, donjons d'instance (`enter_dungeon` ne fait que téléporter), HuntaHolic, hôtel des ventes.
+  n'est liée, les sorts 4001-4003 sont refusés : l'invocateur n'est pas jouable.
+- Guildes : création (`show_guild_create`), alliance, taxe, donjon de guilde et siège (`warp_to_siege_dungeon`).
+- Donjons d'instance et donjons secrets (20 dialogues `warp_to_instance_dungeon`, `question_secret_dungeon_*`) :
+  `enter_dungeon` ne fait que téléporter.
+- HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes (pages vides, aucune mécanique).
+- Ferme de créatures : non implémentée par décision (2026-09-30).
+- Dialogues PNJ non exécutés : timbres et quêtes d'événement (`question_stamp_*`, `valentine_*`, `event_*`),
+  durabilité des objets (`max_item_durability`), `tp_skill`, cadeaux (`second_present_*`,
+  `dormancyuser_item_*`), `random_item_change_menu`.
 - Artisanat : type 102 non résolu (codes de condition 24/25 inconnus).
 - 52 quêtes 701 (scripts Lua), systèmes de faveur côté client (aucun paquet connu n'affiche la faveur).
 
-## 5. Écarts connus, petits
+## 5. Données
+
+- Une partie des ressources 9.4 n'est pas filtrée contre le client 7.3.
+- Le lien état → icône du client n'est pas établi : un état 9.4 s'applique mais reste invisible.
+
+## 6. Écarts connus, petits
 
 - Entrepôt : un dépôt ne rejoint jamais une pile existante (l'exception de capacité de l'officiel n'a donc pas
   de cas) ; messages système `@575`/`@576` de l'officiel non envoyés.

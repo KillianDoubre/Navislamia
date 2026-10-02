@@ -398,13 +398,22 @@ sequence the client needs is untouched. Without them the stat window only caught
 entry: the JLv/stat dependency arrived with the stat work while this trigger kept its old sequence.
 **Any change to what feeds the stats must revisit every trigger** (login, level-up, JLv-up,
 equip/unequip, skill learn).
-Only the first job tier is wired; higher tiers need `jp_1..jp_3` in a `bigint` array. The job level
-persists through `SaveProgressAsync`.
+**The tier is the job depth** (the number of jobs left behind, `ConnectionInfo.PreviousJobs.Count`): the four
+`jp_0..jp_3` columns come from `DevConsole/job-level-costs.73.json` (`tools/export_job_level_costs.py`, 64-bit —
+`jp_3` overflows the database's `integer[]`), capped at JLv 10, 50, 50 and 60. The job level persists through
+`SaveProgressAsync`.
+
+**Job change** (`docs/packet-specs/socle-changement-metier.md`): the official Epic 7 Lua (`NPC_JobChange.lua`,
+`NPC_Tutorial.lua`) ported as `Game/Services/Jobs/` — dynamic dialog pages built by `JobChangeService` and shown by
+`NpcDialogService`, menus hard-coded like the Lua (Lv/JLv 10/10, 50/40, then the master class at NPC 11555 with
+147/49 and quest 3322), everything judged again at the commit, `ICharacterService.ChangeJobAsync`, then the
+`job_N`/`jlv_N`/`job`/`job_level`/`job_depth` properties, the stats and a `@SCRIPT` chat line.
 
 Skill learning is server-authoritative. Epic 7.3 sends `TM_CS_LEARN_SKILL` (`402`, 17 bytes) with the
 character handle, skill id and requested level. `SkillCatalog` validates that the request advances by
 exactly one level, belongs to the current job tree, satisfies character/JLv/skill prerequisites and
-does not exceed the configured maximum. It then derives the JP cost from
+does not exceed the configured maximum. **The trees of the jobs left behind come first**, each with the job level
+reached there, then the current tree (`SkillCatalog.EvaluateAcrossJobs`, `StructPlayer::IsLearnableSkill`). It then derives the JP cost from
 `DevConsole/skill-catalog.73.json`; this immutable runtime index contains 1,320 job/skill definitions
 for the 42 classic jobs and is generated from the Epic 7 `SkillTreeResource` (keyed by `job_id` at that
 epic, no `JobResource` join) and `SkillJPResource` by `tools/export_skill_catalog.py`

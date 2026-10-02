@@ -34,4 +34,18 @@ public interface ILevelingService
     /// (<see cref="JobLevelCurve.NextCost"/>) — never inferred from the cost, which a rate of 0 makes 0.
     /// </summary>
     bool TryGetNextJobLevelCost(int currentJobLevel, out long cost);
+
+    /// <summary>
+    /// The same at a job depth (0 base, 1 first job, 2 second job, 3 master class): the official
+    /// <c>GetNeedJpForJobLevelUp(level, depth)</c> reads <c>jp_&lt;depth&gt;</c>. The depth of a character is the
+    /// number of jobs it has left behind (<c>ConnectionInfo.PreviousJobs</c>).
+    /// </summary>
+    bool TryGetNextJobLevelCost(int jobDepth, int currentJobLevel, out long cost) =>
+        jobDepth == 0 ? TryGetNextJobLevelCost(currentJobLevel, out cost) : NoCost(out cost);
+
+    private static bool NoCost(out long cost)
+    {
+        cost = 0;
+        return false;
+    }
 }

@@ -202,6 +202,23 @@ public sealed class QuestService : IQuestService, IDisposable
         catch (Exception exception) { _logger.Error(exception, "Could not accept quest {code}", code); Chat(client, $"START|FAIL|NOT_STARTABLE|{textId}"); }
     }
 
+    public async Task<int> GetQuestProgressAsync(GameClient client, int code)
+    {
+        if (_options is null || !_resources.ContainsKey(code)) return -1;
+        await using var db = new TelecasterContext(_options);
+        var name = client.ConnectionInfo.CharacterName;
+        var characterId = await db.Characters.AsNoTracking().Where(c => c.CharacterName == name)
+            .Select(c => (long?)c.Id).FirstOrDefaultAsync();
+        if (characterId is not { } id) return -1;
+        var active = await db.CharacterQuests.AsNoTracking()
+            .Where(q => q.CharacterId == id && q.Code == code)
+            .Select(q => (int?)q.Progress).FirstOrDefaultAsync();
+        if (active is { } progress) return progress == QuestRules.Finishable ? 2 : 1;
+        var completed = await db.CharacterQuestCompletions.AsNoTracking()
+            .AnyAsync(q => q.CharacterId == id && q.Code == code);
+        return completed ? 255 : 0;
+    }
+
     public async Task SendQuestListAsync(GameClient client)
     {
         try

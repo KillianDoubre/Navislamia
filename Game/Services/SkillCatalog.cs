@@ -60,6 +60,39 @@ public class SkillCatalog
         return maxLevel > 0;
     }
 
+    /// <summary>
+    /// <c>StructPlayer::IsLearnableSkill</c>: the trees of the jobs left behind first, each with the job level it
+    /// reached there, then the current job's tree with the current job level. The search goes on only while the
+    /// answer is "not in this tree", "beyond this tree's maximum" or "job level too low" — any other answer is
+    /// final, as in the official loop.
+    /// </summary>
+    public SkillLearnEvaluation EvaluateAcrossJobs(IReadOnlyList<(int Job, int JobLevel)> previousJobs, int jobId,
+        int characterLevel, int jobLevel, int skillId, byte currentLevel, byte targetLevel,
+        IReadOnlyDictionary<int, byte> learnedSkills, long availableJp, double costRate = 1)
+    {
+        var evaluation = new SkillLearnEvaluation(ResultCode.LimitJob, 0);
+        foreach (var (previousJob, previousJobLevel) in previousJobs ?? Array.Empty<(int, int)>())
+        {
+            if (previousJob == 0)
+            {
+                continue;
+            }
+
+            evaluation = Evaluate(previousJob, characterLevel, previousJobLevel, skillId, currentLevel, targetLevel,
+                learnedSkills, availableJp, costRate);
+            if (!KeepsSearching(evaluation.Result))
+            {
+                return evaluation;
+            }
+        }
+
+        return Evaluate(jobId, characterLevel, jobLevel, skillId, currentLevel, targetLevel, learnedSkills,
+            availableJp, costRate);
+    }
+
+    private static bool KeepsSearching(ResultCode result) =>
+        result is ResultCode.LimitJob or ResultCode.LimitMax or ResultCode.NotEnoughJobLevel;
+
     public SkillLearnEvaluation Evaluate(int jobId, int characterLevel, int jobLevel, int skillId,
         byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp,
         double costRate = 1)

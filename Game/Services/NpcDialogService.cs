@@ -27,10 +27,13 @@ public class NpcDialogService : INpcDialogService
     private readonly IStorageService _storageService;
     private readonly IMarketService _marketService;
     private readonly IQuestService _quests;
+    private readonly Jobs.IJobChangeService _jobChange;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
-        IStorageService storageService, IMarketService marketService, IQuestService quests = null)
+        IStorageService storageService, IMarketService marketService, IQuestService quests = null,
+        Jobs.IJobChangeService jobChange = null)
     {
+        _jobChange = jobChange;
         _warpService = warpService;
         _storageService = storageService;
         _marketService = marketService;
@@ -59,6 +62,22 @@ public class NpcDialogService : INpcDialogService
                     client.ClientTag);
                 return;
             }
+        }
+
+        // The master-class NPC's contact is a job change page of its own (NPC_master_partdevil_contact), absent
+        // from the catalogue's contact list.
+        if (_jobChange is not null && npcId == Jobs.JobChangeRules.MasterNpcId)
+        {
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+                info.NpcDialogHandle = handle;
+                revision = info.NpcDialogRevision;
+            }
+
+            _ = SelectJobChangeAsync(client, handle, revision, Jobs.JobChangeRules.MasterContact, string.Empty);
+            return;
         }
 
         if (_quests?.HasNpcQuests((int)npcId) == true)
@@ -168,6 +187,21 @@ public class NpcDialogService : INpcDialogService
         }
 
         var function = ReadFunctionName(trigger);
+
+        // The job change pages depend on the character (race, job, levels, quests), so they are built here rather
+        // than read from the catalogue; their triggers were advertised like any other.
+        if (_jobChange is not null && Jobs.JobChangeRules.Handles(function))
+        {
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                revision = info.NpcDialogRevision;
+            }
+
+            _ = SelectJobChangeAsync(client, npcHandle, revision, function, trigger);
+            return;
+        }
+
         if (!TryShow(client, npcHandle, function))
         {
             lock (info.NpcVisibilityLock)
@@ -324,6 +358,52 @@ public class NpcDialogService : INpcDialogService
             }
         }
         catch (Exception exception) { _logger.Error(exception, "Could not handle quest dialog selection"); }
+    }
+
+    private async Task SelectJobChangeAsync(GameClient client, uint handle, long revision, string function,
+        string trigger)
+    {
+        try
+        {
+            var info = client.ConnectionInfo;
+            int npcId;
+            lock (info.NpcVisibilityLock)
+            {
+                if (info.NpcDialogHandle != handle || !info.SpawnedNpcIdsByHandle.TryGetValue(handle, out var id))
+                {
+                    return;
+                }
+
+                npcId = (int)id;
+            }
+
+            var step = await _jobChange.SelectAsync(client, npcId, function, trigger);
+            if (step.Page is { } page)
+            {
+                if (step.WithQuests && _quests?.HasNpcQuests(npcId) == true)
+                {
+                    page.Menu.InsertRange(0, await _quests.GetNpcOffersAsync(client, npcId));
+                }
+
+                ShowDynamic(client, handle, revision, page, 0, 0);
+            }
+            else
+            {
+                lock (info.NpcVisibilityLock)
+                {
+                    info.ClearNpcDialog();
+                }
+            }
+
+            if (step.CommitJob != 0)
+            {
+                await _jobChange.CommitAsync(client, npcId, step.CommitJob, step.Tutorial);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not handle job change dialog {function}", function);
+        }
     }
 
     private static void ShowDynamic(GameClient client, uint handle, long revision, NpcDialogDefinition dialog, int type, int code)

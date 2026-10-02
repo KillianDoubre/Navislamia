@@ -440,7 +440,7 @@ public class GmCommandServiceTests
         info.CharacterJobLevel = 1;
         info.CharacterJp = 7;
         long cost;
-        A.CallTo(() => _leveling.TryGetNextJobLevelCost(A<int>._, out cost)).Returns(true)
+        A.CallTo(() => _leveling.TryGetNextJobLevelCost(0, A<int>._, out cost)).Returns(true)
             .AssignsOutAndRefParameters(40L);
         A.CallTo(() => _leveling.ApplyJobLevelUp(client, CharacterHandle)).Invokes(() =>
         {
@@ -463,9 +463,9 @@ public class GmCommandServiceTests
         var info = StorageTestHarness.Session(client);
         info.CharacterJobLevel = 9;
         long cost;
-        A.CallTo(() => _leveling.TryGetNextJobLevelCost(9, out cost)).Returns(true)
+        A.CallTo(() => _leveling.TryGetNextJobLevelCost(0, 9, out cost)).Returns(true)
             .AssignsOutAndRefParameters(40L);
-        A.CallTo(() => _leveling.TryGetNextJobLevelCost(10, out cost)).Returns(false);
+        A.CallTo(() => _leveling.TryGetNextJobLevelCost(0, 10, out cost)).Returns(false);
         A.CallTo(() => _leveling.ApplyJobLevelUp(client, CharacterHandle)).Invokes(() =>
         {
             info.CharacterJp -= 40;

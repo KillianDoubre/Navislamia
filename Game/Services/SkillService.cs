@@ -43,8 +43,8 @@ public class SkillService : ISkillService
         }
 
         var currentLevel = info.LearnedSkills.GetValueOrDefault(request.SkillId);
-        var evaluation = _catalog.Evaluate(info.CharacterJob, info.CharacterLevel, info.CharacterJobLevel,
-            request.SkillId, currentLevel, request.TargetLevel, info.LearnedSkills, info.CharacterJp,
+        var evaluation = _catalog.EvaluateAcrossJobs(info.PreviousJobs, info.CharacterJob, info.CharacterLevel,
+            info.CharacterJobLevel, request.SkillId, currentLevel, request.TargetLevel, info.LearnedSkills, info.CharacterJp,
             _rates.SkillJpCost);
         if (!evaluation.IsSuccess)
         {

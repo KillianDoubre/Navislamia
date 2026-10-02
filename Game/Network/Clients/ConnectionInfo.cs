@@ -264,6 +264,12 @@ public class ConnectionInfo
     public int CommercialTakeoutInProgress;
 
     public uint ClientClockOffset { get; set; }
+    /// <summary>
+    /// 1 while a job change is being committed (validation, database, packets): a second confirmation sent in the
+    /// meantime would otherwise change the job twice. Taken with <c>Interlocked.CompareExchange</c>.
+    /// </summary>
+    public int JobChangeInProgress;
+
     public List<int> TimeSyncGaps { get; } = new();
     public DateTime NextInventoryArrangeAt { get; set; }
     public string CharacterName { get; set; }

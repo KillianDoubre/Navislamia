@@ -19,12 +19,18 @@ public class LevelingService : ILevelingService
 
     private long[] _cumulativeExp;
     private int[] _jobJpCost;
+
+    /// <summary>The four job depths' costs from the catalogue; null when it is absent (depth 0 then reads the database).</summary>
+    private readonly long[][] _jobJpCostByDepth;
     private int _maxLevel;
 
     public LevelingService(ILevelResourceRepository repository, IStatService statService, IRateService rates,
-        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null)
+        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
+        Microsoft.Extensions.Options.IOptions<Navislamia.Configuration.Options.JobLevelCostOptions> jobLevelCosts = null)
     {
         _rules = rules;
+        var depths = jobLevelCosts?.Value?.Depths;
+        _jobJpCostByDepth = depths is { Length: > 0 } ? depths : null;
         _rates = rates;
         _repository = repository;
         _statService = statService;
@@ -145,10 +151,24 @@ public class LevelingService : ILevelingService
     public bool TryGetExperienceFor(int level, out long exp) =>
         LevelCurve.TryGetExperienceFor(_cumulativeExp, _maxLevel, level, out exp);
 
-    public bool TryGetNextJobLevelCost(int currentJobLevel, out long cost)
+    public bool TryGetNextJobLevelCost(int currentJobLevel, out long cost) =>
+        TryGetNextJobLevelCost(0, currentJobLevel, out cost);
+
+    public bool TryGetNextJobLevelCost(int jobDepth, int currentJobLevel, out long cost)
     {
         cost = 0;
-        var baseCost = _jobJpCost == null ? 0 : JobLevelCurve.NextCost(_jobJpCost, currentJobLevel);
+        long baseCost;
+        if (_jobJpCostByDepth != null)
+        {
+            baseCost = jobDepth >= 0 && jobDepth < _jobJpCostByDepth.Length
+                ? JobLevelCurve.NextCost(_jobJpCostByDepth[jobDepth], currentJobLevel)
+                : 0;
+        }
+        else
+        {
+            baseCost = jobDepth == 0 && _jobJpCost != null ? JobLevelCurve.NextCost(_jobJpCost, currentJobLevel) : 0;
+        }
+
         if (baseCost <= 0)
         {
             return false;
@@ -163,7 +183,7 @@ public class LevelingService : ILevelingService
         const ushort requestId = (ushort)GamePackets.TM_CS_JOB_LEVEL_UP;
         var target = unchecked((int)targetHandle);
 
-        if (_jobJpCost == null)
+        if (_jobJpCost == null && _jobJpCostByDepth == null)
         {
             client.SendResult(requestId, (ushort)ResultCode.NotActable, target);
             return;
@@ -172,7 +192,8 @@ public class LevelingService : ILevelingService
         var info = client.ConnectionInfo;
         var current = info.CharacterJobLevel < 1 ? 1 : info.CharacterJobLevel;
         // A base cost of 0 is the capped tier; the rate is applied after, so a rate of 0 is free, not capped.
-        if (!TryGetNextJobLevelCost(current, out var cost))
+        // The tier is the job depth: a first job levels on jp_1, not on the base job's jp_0.
+        if (!TryGetNextJobLevelCost(info.PreviousJobs.Count, current, out var cost))
         {
             client.SendResult(requestId, (ushort)ResultCode.LimitMax, target);
             return;
