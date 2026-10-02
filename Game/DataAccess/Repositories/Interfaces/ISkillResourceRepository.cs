@@ -73,7 +73,10 @@ public readonly record struct CastableBuffFields(
     byte CastingLevel = 0,
     bool Cancelable = false,
     int EffectType = 0,
-    bool IsHarmful = false);
+    bool IsHarmful = false,
+    decimal HateMod = 0m,
+    int HateBasic = 0,
+    decimal HatePerSkl = 0m);
 
 /// <summary>The raw fields the catalog classifies into a <see cref="SkillCastKind"/>.</summary>
 public readonly record struct CastableSkillRow(
@@ -106,7 +109,10 @@ public readonly record struct CastableSkillRow(
     string CastingType = null,
     string CastingLevel = null,
     bool IsPassive = false,
-    bool UseOnCharacter = false);
+    bool UseOnCharacter = false,
+    decimal HateMod = 0m,
+    int HateBasic = 0,
+    decimal HatePerSkl = 0m);
 
 /// <summary>A resurrection skill (<c>EF_RESURRECTION</c> 504 or <c>EF_RESURRECTION_WITH_RECOVER</c> 30501).</summary>
 public readonly record struct ResurrectionSkillRow(int SkillId, int EffectType, decimal[] Vars);

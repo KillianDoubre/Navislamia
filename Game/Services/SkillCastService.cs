@@ -882,6 +882,10 @@ public class SkillCastService : ISkillCastService
         var healed = Math.Min(heal, Math.Max(0, maxHp - info.CharacterHp));
         info.CharacterHp += healed;
 
+        // AddHateToEnemyList: the healed player's enemies now hate the healer too.
+        _monsterState.AddHateFromHelp(client, client,
+            HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, healed));
+
         client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
         return new SkillHit(SkillHitType.AddHp, info.CharacterHandle, info.CharacterHp, healed);
     }
@@ -906,7 +910,8 @@ public class SkillCastService : ISkillCastService
             SkillDamageCurve.HitBonus(fields, info.CharacterLevel, targetLevel),
             SkillDamageCurve.CriticalBonus(fields, skillLevel));
 
-        var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage);
+        var hate = HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, hit.Damage);
+        var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage, hate);
         var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
 
         return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags);
@@ -929,6 +934,10 @@ public class SkillCastService : ISkillCastService
                 fields.SkillId, chance);
             return;
         }
+
+        // The state skill draws the monster's attention whether or not the state then stacks.
+        _monsterState.AddHate(instanceId, client,
+            HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, 0));
 
         var duration = BuffCurve.DurationTicks(fields, skillLevel);
         var stateLevel = BuffCurve.StateLevel(fields, skillLevel);

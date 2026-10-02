@@ -162,7 +162,10 @@ public class BuffCatalog : IBuffCatalog
             // and StructSkill::Cancel refuses a skill without it (socle-lancer-competences.md §5).
             row.IsPassive,
             row.EffectType,
-            row.IsHarmful);
+            row.IsHarmful,
+            row.HateMod,
+            row.HateBasic,
+            row.HatePerSkl);
         return true;
     }
 

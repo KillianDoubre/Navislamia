@@ -106,7 +106,10 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.CastingType,
                 skill.CastingLevel,
                 skill.IsPassive,
-                skill.UseOnCharacter))
+                skill.UseOnCharacter,
+                skill.HateMod,
+                skill.HateBasic,
+                skill.HatePerSkill))
             .ToList();
     }
 
@@ -152,7 +155,10 @@ public class SkillResourceRepository : ISkillResourceRepository
                 skill.CastingType,
                 skill.CastingLevel,
                 skill.IsPassive,
-                skill.UseOnCharacter))
+                skill.UseOnCharacter,
+                skill.HateMod,
+                skill.HateBasic,
+                skill.HatePerSkill))
             .ToList();
     }
 

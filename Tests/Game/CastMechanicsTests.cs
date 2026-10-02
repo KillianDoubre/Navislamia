@@ -242,13 +242,13 @@ public class CastMechanicsTests
 
         Steps(harness).Should().Equal(SkillPacketType.Casting);
         harness.Info.PendingCast.Should().NotBeNull();
-        A.CallTo(() => harness.Combat.ApplyDamage(A<GameClient>._, A<long>._, A<uint>._, A<int>._)).MustNotHaveHappened();
+        A.CallTo(() => harness.Combat.ApplyDamage(A<GameClient>._, A<long>._, A<uint>._, A<int>._, A<int>._)).MustNotHaveHappened();
 
         harness.Service.ProcessCasts(unchecked(now + 200));
 
         Steps(harness).Should().Equal(SkillPacketType.Casting, SkillPacketType.Fire, SkillPacketType.Complete);
         harness.Info.PendingCast.Should().BeNull();
-        A.CallTo(() => harness.Combat.ApplyDamage(harness.Client, InstanceId, MonsterHandle, A<int>._))
+        A.CallTo(() => harness.Combat.ApplyDamage(harness.Client, InstanceId, MonsterHandle, A<int>._, A<int>._))
             .MustHaveHappenedOnceExactly();
     }
 
@@ -275,7 +275,7 @@ public class CastMechanicsTests
         harness.Service.ProcessCasts(unchecked(ServerClock.Now + 500));
 
         Steps(harness).Should().Equal(SkillPacketType.Casting, SkillPacketType.Cancel);
-        A.CallTo(() => harness.Combat.ApplyDamage(A<GameClient>._, A<long>._, A<uint>._, A<int>._)).MustNotHaveHappened();
+        A.CallTo(() => harness.Combat.ApplyDamage(A<GameClient>._, A<long>._, A<uint>._, A<int>._, A<int>._)).MustNotHaveHappened();
     }
 
     [Test]

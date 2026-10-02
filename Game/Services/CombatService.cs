@@ -342,7 +342,11 @@ public class CombatService : ICombatService
         return instance.Combat.Compute(effects);
     }
 
-    public int ApplyDamage(GameClient client, long instanceId, uint targetHandle, int damage)
+    /// <summary>A swing: the monster's hate grows by the damage (<c>StructCreature::Attack</c>).</summary>
+    public int ApplyDamage(GameClient client, long instanceId, uint targetHandle, int damage) =>
+        ApplyDamage(client, instanceId, targetHandle, damage, damage);
+
+    public int ApplyDamage(GameClient client, long instanceId, uint targetHandle, int damage, int hate)
     {
         if (!_worldState.TryGetInstance(instanceId, out var instance))
         {
@@ -353,9 +357,9 @@ public class CombatService : ICombatService
         var targetHp = _worldState.ApplyDamage(instanceId, damage);
         if (targetHp > 0)
         {
-            // The monster fights back. Every monster retaliates, aggressive or not; the AI service
-            // takes it from here (Kill clears the aggro on death below).
-            _worldState.SetAggro(instanceId, client);
+            // The monster fights back. Every monster retaliates, aggressive or not, toward whoever it hates most;
+            // the AI service takes it from here (Kill clears the aggro on death below).
+            _worldState.AddHate(instanceId, client, hate);
             return targetHp;
         }
 
