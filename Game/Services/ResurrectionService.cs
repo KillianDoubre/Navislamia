@@ -33,11 +33,14 @@ public class ResurrectionService : IResurrectionService
     private readonly ICharacterService _characterService;
     private readonly IResurrectionItemCatalog _resurrectionItems;
     private readonly ILevelingService _leveling;
+    private readonly Compete.ICompeteService _compete;
 
     public ResurrectionService(IWarpService warpService, IStatService statService, IStateCatalog stateCatalog,
         ISkillCastService skillCastService, ICharacterService characterService,
-        IResurrectionItemCatalog resurrectionItems, ILevelingService leveling = null)
+        IResurrectionItemCatalog resurrectionItems, ILevelingService leveling = null,
+        Compete.ICompeteService compete = null)
     {
+        _compete = compete;
         _leveling = leveling;
         _warpService = warpService;
         _statService = statService;
@@ -61,6 +64,22 @@ public class ResurrectionService : IResurrectionService
         if (result != ResultCode.Success)
         {
             client.SendResult(requestId, (ushort)result);
+            return;
+        }
+
+        if (request.Type == ResurrectionType.Compete)
+        {
+            // Only the loser of a duel who died for it: ResurrectByCompete, in place, a tenth of the HP, no penalty.
+            if (_compete is null || !_compete.ConsumeLoss(client))
+            {
+                client.SendResult(requestId, (ushort)ResultCode.NotActable);
+                return;
+            }
+
+            var hp = ResurrectionRules.CompeteHp(_statService.Compute(info).Total.MaxHp);
+            info.CharacterHp = hp;
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+            client.SendResult(requestId, (ushort)ResultCode.Success);
             return;
         }
 

@@ -367,6 +367,8 @@ public class Program
         services.AddSingleton<RateEventTicker>();
         services.AddSingleton<IMonsterDropCatalog, MonsterDropCatalog>();
         services.AddSingleton<IGroundItemService, GroundItemService>();
+        services.AddSingleton<Navislamia.Game.Services.Compete.ICompeteService,
+            Navislamia.Game.Services.Compete.CompeteService>();
         services.AddSingleton<Navislamia.Game.Services.Death.IDeathDropService,
             Navislamia.Game.Services.Death.DeathDropService>();
         services.AddSingleton<ICraftingSocleService, CraftingSocleService>();

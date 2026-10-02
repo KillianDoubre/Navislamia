@@ -744,3 +744,33 @@ employé.
     nom de `4500` sans NUL dans ses 31 octets. Choix cohérent avec §5.7 et avec le socle voisin
     (instances de jeu), mais il laisse le drapeau « en attente » du client armé si le client
     lui-même émettait un jour une telle trame. Faut-il répondre plutôt que journaliser ?
+
+## 10. Duel livré — 2 octobre 2026 (règles du serveur officiel)
+
+Sources : `CaptainHerlockServer.exe` 2012-11, `CompeteManager::RequestCompeteToPlayer` (`0x140250770`),
+`AnswerRequestFromPlayer` (`0x14024ff20`), `PlayerCompeteInfo::OnAnswerRequest` (`0x14024cf60`), `OnAnswerTimeout`
+(`0x14024d2c0`), `OnEndCountdown` (`0x14024d5b0`), `OnRetire` (`0x14024da80`), `OnCompeteTimeout` (`0x14024e0d0`),
+`Validate` (`0x14024e660`), `StructPlayer::IsEnemy` (`0x1400e3210`), `ResurrectByCompete` (`0x1400e5c10`) et les
+appelants de `RetireCompeteWithPlayer`. Code : `Game/Services/Compete/CompeteService.cs`,
+`GameCompeteServerPackets`, `CombatService` (combat entre joueurs). Tests : `Tests/Game/CompeteTests.cs`.
+
+- **Demande (4500)**, dans l'ordre officiel : demandeur déjà en attente (63) ou en duel (61), cible en attente (67) ou
+  en duel (65), cible à plus de **500** (2) ; cible introuvable : `NotExist` (1). Succès : `TS_SC_RESULT(4500, 0)` et
+  **4501** à la cible. Les terrains (`IsInField`, champ de bataille, prière) ne sont pas modélisés : partout est permis.
+- **Réponse (4502)** dans les **60 s** : sans demande en attente, 62. `answer_type` relayé en **4503** au demandeur ;
+  `0` (accepter) lance un **compte à rebours de 10 s** (**4504** aux deux : nom et handle de l'adversaire) ; toute autre
+  valeur clôt l'invitation. Sans réponse : 4503 `answer_type = 3` aux deux.
+- **Début** (**4505** aux deux) au bout du compte à rebours ; durée maximale **900 s**. Le terrain du duel est le point
+  milieu des deux joueurs à l'acceptation ; s'en éloigner de plus de 500 fait perdre.
+- **Fin** (**4506** aux deux : vainqueur, perdant, `end_type`) : 0 victoire (le perdant meurt), 1 déconnexion ou
+  retour au lobby, 2 hors de la zone, 3 délai, 4 un tiers (un monstre ou un autre joueur) blesse un duelliste,
+  5 changement de lieu (téléportation).
+- **Combat** : `IsEnemy` rend ennemis les deux côtés d'un duel commencé ; `TS_CS_ATTACK_REQUEST` vers un joueur ouvre
+  une session de coups jugés par la même règle que contre un monstre (stats de la cible, portée de l'arme), envoyée à
+  l'attaquant et à ses observateurs. Une mort en duel ne coûte **aucune expérience**.
+- **513 type 3** (`ResurrectByCompete`) : seul le perdant d'un duel mort au combat ; **10 %** des PV max, sur place.
+- **Mode PK hors duel** : la règle officielle (deux joueurs en terrain PK, ni même groupe ni même guilde, l'un des deux
+  en mode PK) est portée derrière l'option `GameRules:PkFieldsEverywhere` (désactivée) : les terrains PK ne sont pas
+  connus ici. Un meurtre hors duel ne coûte de l'expérience que sur un serveur PK (`GameRules:PkServer`).
+- **Non porté** : les compétences offensives sur un joueur (seuls les coups normaux), l'immoralité, la fenêtre de
+  type de duel (`compete_type` est relayé tel quel).

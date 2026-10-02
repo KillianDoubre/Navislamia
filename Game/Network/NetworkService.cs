@@ -40,6 +40,9 @@ public class NetworkService : INetworkService
     public readonly IBoothWatchService BoothWatchService;
     public readonly IFieldPropService FieldPropService;
     public readonly ISkillCastService SkillCastService;
+
+    /// <summary>The duel (4500-4506); null in harnesses that do not build it.</summary>
+    public readonly Navislamia.Game.Services.Compete.ICompeteService CompeteService;
     public readonly ISkillCardService SkillCardService;
     public readonly IEventAreaService EventAreaService;
     public readonly IResurrectionService ResurrectionService;
@@ -93,8 +96,10 @@ public class NetworkService : INetworkService
         ICardSocketService cardSocketService,
         Navislamia.Game.Services.Party.IPartyService partyService,
         Navislamia.Game.Services.Trade.IPlayerTradeService playerTradeService,
-        Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService)
+        Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService,
+        Navislamia.Game.Services.Compete.ICompeteService competeService = null)
     {
+        CompeteService = competeService;
         CarriedWeightService = carriedWeightService;
         PartyService = partyService;
         PlayerTradeService = playerTradeService;

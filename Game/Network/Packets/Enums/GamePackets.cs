@@ -391,6 +391,11 @@ public enum GamePackets : ushort
     // server to client ids join with lots C2-C4. See docs/packet-specs/socle-competition-joueurs.md.
     TM_CS_COMPETE_REQUEST = 4500,
     TM_CS_COMPETE_ANSWER = 4502,
+    TM_SC_COMPETE_REQUEST = 4501,
+    TM_SC_COMPETE_ANSWER = 4503,
+    TM_SC_COMPETE_COUNTDOWN = 4504,
+    TM_SC_COMPETE_START = 4505,
+    TM_SC_COMPETE_END = 4506,
 
     TM_CS_RANKING_TOP_RECORD = 5000,
     TM_SC_RANKING_TOP_RECORD = 5001,

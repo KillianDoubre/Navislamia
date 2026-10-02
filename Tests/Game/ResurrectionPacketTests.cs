@@ -178,10 +178,9 @@ public class ResurrectionPacketTests
     [Test]
     public void CheckRequest_RefusesTheTypesThatBelongToALaterLot()
     {
-        foreach (var type in new[] { ResurrectionType.Compete, ResurrectionType.Deathmatch })
-        {
-            ResurrectionRules.CheckRequest(type, Handle, 0).Should().Be(ResultCode.NotActable);
-        }
+        // Deathmatch instances do not exist; a duel's loss is judged by the duel service (ResurrectByCompete).
+        ResurrectionRules.CheckRequest(ResurrectionType.Deathmatch, Handle, 0).Should().Be(ResultCode.NotActable);
+        ResurrectionRules.CheckRequest(ResurrectionType.Compete, Handle, 0).Should().Be(ResultCode.Success);
     }
 
     [Test]

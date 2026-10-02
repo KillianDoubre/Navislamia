@@ -46,7 +46,8 @@ public static class ResurrectionRules
             return ResultCode.NotActable;
         }
 
-        if (type is not (ResurrectionType.UseNone or ResurrectionType.UseState or ResurrectionType.UsePotion))
+        if (type is not (ResurrectionType.UseNone or ResurrectionType.UseState or ResurrectionType.UsePotion
+                or ResurrectionType.Compete))
         {
             return ResultCode.NotActable;
         }
@@ -148,6 +149,12 @@ public static class ResurrectionRules
     /// </summary>
     public static int PotionHp(decimal hpRatio, float maxHp) =>
         (int)Math.Clamp(hpRatio * (decimal)maxHp, 1m, Math.Max(1m, (decimal)maxHp));
+
+    /// <summary>
+    /// <c>StructPlayer::ResurrectByCompete</c> (2012-11 <c>0x1400e5c10</c>): a tenth of the maximum HP comes back
+    /// (the global ratio 1 000 of a <c>c_fixed&lt;10000&gt;</c>), at least 1.
+    /// </summary>
+    public static int CompeteHp(float maxHp) => Math.Max(1, (int)(maxHp / 10f));
 
     public static (int Hp, int Mp) VitalsByState(ResurrectionStateValues values, int stateLevel, float maxHp,
         float maxMp, int currentMp)

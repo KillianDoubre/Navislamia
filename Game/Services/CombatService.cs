@@ -39,6 +39,10 @@ public class CombatService : ICombatService
 
     /// <summary>Where an arrow is spent.</summary>
     private readonly ICharacterService _characters;
+
+    /// <summary>The duel, which makes two players enemies (StructPlayer::IsEnemy).</summary>
+    private readonly Compete.ICompeteService _compete;
+    private readonly Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> _rules;
     private readonly ICombatRandom _random;
     private readonly IPlayerVisibilityService _players;
     private readonly object _lock = new();
@@ -51,8 +55,11 @@ public class CombatService : ICombatService
         IStatService stats, IStateCatalog states, IPartyService parties, IQuestService quests = null,
         ICombatRandom random = null, IPlayerVisibilityService players = null,
         Casting.ICastInterrupts casts = null, Death.IDeathDropService deathDrops = null,
-        ICharacterService characters = null)
+        ICharacterService characters = null, Compete.ICompeteService compete = null,
+        Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null)
     {
+        _compete = compete;
+        _rules = rules;
         _characters = characters;
         _deathDrops = deathDrops;
         _casts = casts;
@@ -76,9 +83,18 @@ public class CombatService : ICombatService
 
         // A character at 0 HP is dead (this version has no death packet, the hp value is the whole state):
         // it must not start swinging, exactly as SkillCastService refuses a cast at 0 HP.
-        if (!MonsterAiRules.IsAlive(info.CharacterHp)
-            || !info.TryResolveMonster(targetHandle, out var targetInstanceId)
-            || !_worldState.IsAlive(targetInstanceId))
+        if (!MonsterAiRules.IsAlive(info.CharacterHp))
+        {
+            return;
+        }
+
+        if (!info.TryResolveMonster(targetHandle, out var targetInstanceId))
+        {
+            StartPlayerAttack(client, targetHandle);
+            return;
+        }
+
+        if (!_worldState.IsAlive(targetInstanceId))
         {
             return;
         }
@@ -166,6 +182,12 @@ public class CombatService : ICombatService
 
     private void ProcessSwing(AttackSession session, DateTime now)
     {
+        if (session.TargetPlayer is not null)
+        {
+            ProcessPlayerSwing(session, now);
+            return;
+        }
+
         var client = session.Client;
         var info = client.ConnectionInfo;
 
@@ -449,6 +471,11 @@ public class CombatService : ICombatService
         }
 
         var hp = DamagePlayer(target, damage);
+        if (damage > 0)
+        {
+            _compete?.OnDamagedByOther(target, null);
+        }
+
         if (hp <= 0 || damage <= 0 || attackerInstanceId < 0)
         {
             return hp;
@@ -470,6 +497,169 @@ public class CombatService : ICombatService
         }
 
         return hp;
+    }
+
+    /// <summary>
+    /// <c>StructPlayer::IsEnemy</c> between two players (2012-11 <c>0x1400e3210</c>): the two sides of a started duel
+    /// always; otherwise only in a PK field (an option here, off by default), never within a party or a guild, and
+    /// only when one of the two is in PK mode.
+    /// </summary>
+    public static bool IsPlayerEnemy(ConnectionInfo attacker, ConnectionInfo target, bool competing, bool pkField)
+    {
+        if (competing)
+        {
+            return true;
+        }
+
+        if (!pkField)
+        {
+            return false;
+        }
+
+        if (attacker.PartyId is { } party && party == target.PartyId
+            || attacker.GuildId is { } guild && guild != 0 && guild == target.GuildId)
+        {
+            return false;
+        }
+
+        return target.PkMode || attacker.PkMode;
+    }
+
+    private bool IsEnemy(GameClient attacker, GameClient target) =>
+        !ReferenceEquals(attacker, target)
+        && IsPlayerEnemy(attacker.ConnectionInfo, target.ConnectionInfo, _compete?.AreCompeting(attacker, target) == true,
+            _rules?.CurrentValue?.PkFieldsEverywhere == true);
+
+    private void StartPlayerAttack(GameClient client, uint targetHandle)
+    {
+        var info = client.ConnectionInfo;
+        bool seen;
+        lock (info.PlayerVisibilityLock)
+        {
+            seen = info.SpawnedPlayers.ContainsKey(targetHandle);
+        }
+
+        if (!seen || _players is null || !_players.Registry.TryResolve(targetHandle, out var target)
+            || !MonsterAiRules.IsAlive(target.ConnectionInfo.CharacterHp) || !IsEnemy(client, target))
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            _sessions[client] = new AttackSession
+            {
+                Client = client,
+                TargetInstanceId = -1,
+                TargetHandle = targetHandle,
+                AttackerHandle = info.CharacterHandle,
+                NextSwingAt = DateTime.UtcNow,
+                TargetPlayer = target
+            };
+        }
+    }
+
+    /// <summary>
+    /// A swing at a player: the same official rule as at a monster (<see cref="CombatFormulas.Resolve"/>, the target's
+    /// own stats), measured from the attacker's weapon range, sent to the attacker and everyone who sees it.
+    /// </summary>
+    private void ProcessPlayerSwing(AttackSession session, DateTime now)
+    {
+        var client = session.Client;
+        var target = session.TargetPlayer;
+        var info = client.ConnectionInfo;
+        var targetInfo = target.ConnectionInfo;
+
+        bool seen;
+        lock (info.PlayerVisibilityLock)
+        {
+            seen = info.SpawnedPlayers.ContainsKey(session.TargetHandle);
+        }
+
+        if (!seen || !MonsterAiRules.IsAlive(info.CharacterHp) || !MonsterAiRules.IsAlive(targetInfo.CharacterHp)
+            || !IsEnemy(client, target))
+        {
+            StopAttack(client);
+            return;
+        }
+
+        var stats = _stats.Compute(info).Total;
+        var nowTick = ServerClock.Now;
+        var (ax, ay) = info.PositionAt(nowTick);
+        var (tx, ty) = targetInfo.PositionAt(nowTick);
+        if (!Casting.CastRules.InRange(Casting.CastRules.WeaponRange, stats.AttackRange, ax, ay,
+                CombatRange.PlayerUnitSize, tx, ty, CombatRange.PlayerUnitSize, false))
+        {
+            session.NextSwingAt = now.AddMilliseconds(RangeRetryMs);
+            return;
+        }
+
+        var defender = _stats.Compute(targetInfo).Total;
+        var hit = CombatFormulas.Resolve(Combatant.From(stats, info.CharacterLevel),
+            Combatant.From(defender, targetInfo.CharacterLevel), stats.AttackPointRight, DamageKind.Physical, 0, 0,
+            _random);
+        var targetHp = DamagePlayerByPlayer(client, target, hit.Damage);
+
+        var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
+        var frame = GameAttackPackets.BuildAttackEvent(info.CharacterHandle, targetInfo.CharacterHandle, intervalMs,
+            intervalMs, GameAttackPackets.ActionAttack, Combat.AttackMechanics.AttackFlag(false, false, info.EquippedWeapon),
+            new[] { new AttackHit(hit.Damage, (byte)hit.Flags, targetHp) }, info.CharacterHp);
+        if (_players is not null)
+        {
+            _players.SendToObservers(client, frame, includeSelf: true);
+        }
+        else
+        {
+            client.Connection.Send(frame);
+            target.Connection.Send(frame);
+        }
+
+        if (targetHp <= 0)
+        {
+            StopAttack(client);
+            return;
+        }
+
+        session.NextSwingAt = now.AddMilliseconds(intervalMs);
+    }
+
+    /// <summary>
+    /// Damage a player deals to another: HP (509 to observers), the cast it disturbs, and on the killing blow the end
+    /// of the duel (the loser keeps its experience) or, outside a duel, the death penalty of a PK server only — a
+    /// player kill costs nothing elsewhere (<c>procDecreaseEXPAndDropItem</c>).
+    /// </summary>
+    public int DamagePlayerByPlayer(GameClient attacker, GameClient target, int damage)
+    {
+        var info = target.ConnectionInfo;
+        var wasAlive = MonsterAiRules.IsAlive(info.CharacterHp);
+        info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+        target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+
+        var competing = _compete?.AreCompeting(attacker, target) == true;
+        if (!competing && damage > 0)
+        {
+            _compete?.OnDamagedByOther(target, attacker);
+        }
+
+        if (wasAlive && !MonsterAiRules.IsAlive(info.CharacterHp))
+        {
+            StopAttack(target);
+            _casts?.Interrupt(target);
+            if (competing)
+            {
+                _compete.OnKilledBy(target, attacker);
+            }
+            else if (_rules?.CurrentValue?.PkServer == true)
+            {
+                _levelingService.ApplyDeathPenalty(target);
+            }
+        }
+        else if (wasAlive && damage > 0)
+        {
+            _casts?.Damaged(target, damage);
+        }
+
+        return info.CharacterHp;
     }
 
     public StatBlock GetPlayerStats(GameClient client) => _stats?.Compute(client.ConnectionInfo).Total;
@@ -684,6 +874,9 @@ public class CombatService : ICombatService
 
         /// <summary>A bow's aiming half is done: the next turn shoots.</summary>
         public bool Aimed;
+
+        /// <summary>The player attacked, in a duel or a PK fight; null for a monster.</summary>
+        public GameClient TargetPlayer;
     }
 
     private sealed class PendingLeave
