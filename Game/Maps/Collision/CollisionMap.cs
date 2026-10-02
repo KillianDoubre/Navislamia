@@ -224,8 +224,13 @@ public sealed class CollisionMap
     /// </summary>
     public static CollisionMap Load(string directory)
     {
-        var cfg = Path.Combine(directory, "terrainseamlessworld.cfg");
-        if (!File.Exists(cfg))
+        if (!Directory.Exists(directory))
+        {
+            return Empty;
+        }
+
+        var files = FileIndex(directory);
+        if (!files.TryGetValue("terrainseamlessworld.cfg", out var cfg))
         {
             return Empty;
         }
@@ -276,8 +281,7 @@ public sealed class CollisionMap
         var polygons = new List<BlockPolygon>();
         foreach (var (mapX, mapY, name) in maps)
         {
-            var file = Path.Combine(directory, name + ".nfa");
-            if (!File.Exists(file))
+            if (!files.TryGetValue(name + ".nfa", out var file))
             {
                 continue;
             }
@@ -286,6 +290,22 @@ public sealed class CollisionMap
         }
 
         return new CollisionMap(polygons);
+    }
+
+    /// <summary>
+    /// The files of <paramref name="directory"/> by name, ignoring case. The <c>.cfg</c> names its maps in
+    /// upper case (<c>M001_002</c>) while the extracted files are lower case (<c>m001_002.nfa</c>): on a
+    /// case-sensitive file system an exact lookup found no map at all.
+    /// </summary>
+    private static Dictionary<string, string> FileIndex(string directory)
+    {
+        var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in Directory.EnumerateFiles(directory))
+        {
+            files.TryAdd(Path.GetFileName(path), path);
+        }
+
+        return files;
     }
 
     public static void ReadAttributeFile(string file, float originX, float originY, float attributeLength,

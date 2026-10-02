@@ -58,3 +58,12 @@
   chargent donc plus, les obstacles si.
 - La vitesse renvoyée pour un joueur (`EchoedMoveSpeed = 100`) et celle du familier (120) ne suivent pas la
   règle `vitesse / 7` (17 pour 120) : NON ÉTABLI, à vérifier en jeu avant d'y toucher.
+
+## Correctif — 2 octobre 2026 : casse des noms de carte
+
+`terrainseamlessworld.cfg` nomme ses cartes en majuscules (`MAPFILE=…,M001_002,…`) alors que les fichiers
+extraits sont en minuscules (`m001_002.nfa`). `CollisionMap.Load` cherchait le nom exact : sous Windows cela
+passait, sur un système de fichiers sensible à la casse (le VPS de la pipeline) **aucune carte ne se chargeait**
+et `The_attribute_file_is_read_in_world_coordinates` échouait. Le répertoire est désormais indexé une fois,
+sans tenir compte de la casse, pour le `.cfg` comme pour chaque `.nfa`. Vérifié sur le VPS : le test échoue
+avant, passe après, suite complète 2554/2554.
