@@ -126,7 +126,8 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
-            .Select(item => new ItemWearFields((int)item.Id, item.WearType))
+            .Select(item => new ItemWearFields((int)item.Id, item.WearType, item.Rank, item.UseMinLevel,
+                item.UseMaxLevel))
             .ToList();
     }
 }
