@@ -344,3 +344,74 @@ Lecture seule : `objdump -d/-h/-s` et recherche d'octets sur les binaires, `stri
   décision du dépôt (filtre `unchecked((int)(now - EndTick)) < 0`), pas une observation de l'officiel ;
   la tolérance du client à un 505 précédant l'`ENTER` n'est pas prouvée (lecture statique seulement).
 ```
+
+## 11. Implémentation (navis-dev, 2 octobre 2026)
+
+Commit `c93811e` sur `hermes/packet-socle-etats-monstre-entree` (base `d9d013a`), qui suit le commit de
+la fiche. Les neuf points de §5.3 sont en place, aucun paquet ni champ n'est ajouté :
+
+| Point de §5.3 | Où, dans le code |
+| --- | --- |
+| 1. point d'insertion unique | `MonsterSpawnService.Sync` passe le rappel `onEntered` à `WorldObjectStreamer.Stream` (`Game/Services/MonsterSpawnService.cs:44-49`) |
+| 2. même verrou, même handle | le rappel part **dans** le `lock (visibilityLock)` et **après** `handlesById[id] = handle` (`Game/Services/WorldObjectStreamer.cs:71-81`) |
+| 3. quels états | `MonsterWorldState.GetStates(instanceId)` — copie prise sous `_stateLock`, donc ordre `MonsterVisibilityLock` → `_stateLock` |
+| 4. filtre des états échus | `if (unchecked((int)(now - state.EndTick)) >= 0) continue;` avec `now = ServerClock.Now`, le test exact de `RemoveExpiredStates` |
+| 5. encodeur | `GameSkillPackets.BuildState(handle, state.StateHandle, (uint)state.StateId, (ushort)state.StateLevel, state.EndTick, state.StartTick)` |
+| 6. rien quand il n'y a rien | le rappel n'est appelé que pour un monstre qui entre, et `states.Count == 0` sort avant toute trame |
+| 7. un seul observateur | `client.Connection.Send` sur le client synchronisé : ni diffusion, ni `ObserverFrames` |
+| 8. ordre | l'`ENTER` est envoyé avant le rappel : un `ENTER` (3), puis un 505 par état |
+| 9. cas déjà couverts | inchangés : la sortie de vue libère le handle (`DespawnMissing`), la pose passe toujours par `ObserverFrames.SendMonsterFrame` |
+
+Le seul code partagé touché est `WorldObjectStreamer.Stream`, qui gagne un paramètre **optionnel**
+`Action<T, uint> onEntered = null` en fin de signature : les appels de `NpcSpawnService` et de
+`FieldPropService` ne changent pas d'une ligne et ne passent aucun rappel.
+
+### 11.1 Mesure du critère « enum et dispatch ensemble »
+
+Ce lot **n'ajoute aucun membre** à `GamePackets` (le 505 y est depuis la base : `TM_SC_STATE = 505`,
+`GamePackets.cs:207`) et ne touche ni `GamePackets.cs` ni `GameClient.cs` — `git diff --name-only
+d9d013a HEAD` ne liste que `MonsterSpawnService.cs`, `WorldObjectStreamer.cs`,
+`Tests/Game/MonsterEnterStateTests.cs` et cette fiche. Relevé du 2 octobre 2026 :
+
+- `GamePackets` : **197** membres, dont **83** `TM_SC_*`, identiques à la base ;
+- `GameClient.cs` : **150** membres distincts référencés en `(ushort)GamePackets.` ;
+- **47** membres sans bras, **tous** `TM_SC_*` (dont `TM_SC_STATE`) : ce sont des identifiants que le
+  serveur ne fait qu'émettre, donc aucun ne peut atteindre le `throw … "Unknown Packet Type"` final.
+  Le 505 émis par ce lot est donc S→C pur, sans bras de dispatch — la convention est mesurée, pas
+  supposée. Armer les 47 membres préexistants est hors périmètre de ce lot.
+
+### 11.2 Tests
+
+`Tests/Game/MonsterEnterStateTests.cs`, **6 tests**, aucun test existant modifié ou supprimé
+(base relevée : 2839 puis **2845**).
+
+- **Offsets de la trame produite** (`The_state_frames_carry_the_505_offsets_of_the_entering_monster`) :
+  63 octets, `length` @0 = 63, `id` @4 = 505, checksum @6 = somme des 6 premiers octets, puis chaque
+  octet relu à sa position — `state_code` @13 (octets `3E 0A 00 00`), `state_level` @17 (`02 03`, donc
+  **après** `state_code`), `end_time` @19 en little endian, `start_time` @23, `state_value` @27 = 0,
+  `state_string_value` @31 sur 32 octets nuls. Les valeurs `state_code` / `state_level` sont distinctes,
+  donc un échange des deux champs fait échouer le test.
+- **Moitié (a) de la carte** : un monstre porteur de deux états fait suivre son `ENTER` de deux 505,
+  dans l'ordre de pose, chacune au handle de l'`ENTER` de **ce** client, avec le `state_handle` rendu
+  par `AddState` (`state_handle` @11), le niveau et les deux horodatages.
+- **Moitié (b)** : un monstre sans état actif ne produit **que** son `ENTER`.
+- **Un état échu n'est pas annoncé** (décision de §7.2) : `end_time` déjà passé ⇒ `ENTER` seul.
+- **Pas de doublon** : une seconde synchronisation d'un monstre déjà en vue n'émet rien.
+- **Un handle par client** : deux observateurs reçoivent la même pose sous **leur** handle, différent,
+  celui de leur `ENTER` respectif.
+
+### 11.3 Ce que ce lot ne change pas, et réserves
+
+- Aucun champ `NON ÉTABLI` de §7 n'a été deviné : la durée et le `state_level` réels des états de
+  monstre d'Arcadia restent à constater en jeu (§7.7), ainsi que la tolérance du client à un 505
+  précédant l'`ENTER` (§7.1 — le lot suit l'ordre de l'officiel, il ne suppose rien).
+- Le filtre des états échus (§5.3 point 4, couvert par un test) reste une **décision du dépôt** : la
+  boucle officielle ne compare aucune horloge (§7.2).
+- `state_value` = 0 et `state_string_value` à zéro sont inchangés (§7.4) : `ActiveBuff` ne porte pas de
+  valeur, la fiche ne prétend pas d'où l'officiel la tire.
+- Un état à durée infinie (`end_time = 0xffffffff`) n'est toujours pas modélisé (§7.5) : `EndTick` est
+  un échéancier, et ce lot ne l'invente pas.
+
+### 11.4 Bloc prêt à coller dans `CLAUDE.md`
+
+Voir §10, recopié tel quel dans la description de la MR (Hermes refuse l'écriture de `CLAUDE.md`).
