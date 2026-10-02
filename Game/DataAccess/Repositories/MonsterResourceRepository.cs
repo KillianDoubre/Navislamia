@@ -66,7 +66,17 @@ public class MonsterResourceRepository : IMonsterResourceRepository
                 GoldMax = resource.GoldMax,
                 ChaosDropPercentage = resource.ChaosDropPercentage,
                 ChaosMin = resource.ChaosMin,
-                ChaosMax = resource.ChaosMax
+                ChaosMax = resource.ChaosMax,
+                // MonsterSpawns:UseSecondaryRewards (game.change_monster_drop_set) reads the *2 set.
+                Exp2 = resource.Exp2,
+                Jp2 = resource.Jp2,
+                GoldMin2 = resource.GoldMin2,
+                GoldMax2 = resource.GoldMax2,
+                ChaosMin2 = resource.ChaosMin2,
+                ChaosMax2 = resource.ChaosMax2,
+                // TamingRules reads them through MonsterInstance; without them every monster is untamable.
+                TamingId = resource.TamingId,
+                TamingPercentage = resource.TamingPercentage
             })
             .ToList();
     }
