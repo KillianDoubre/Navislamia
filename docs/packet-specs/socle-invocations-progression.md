@@ -78,4 +78,4 @@ Voir `socle-equipement-invocation.md`.
 - L'état de chute 9001 n'est pas appliqué ; la chance de chute de 75 % sur un coup critique n'est pas
   modélisée (30 % seulement).
 - Compétences actives et maintien `/hold` livrés : voir `socle-invocations-competences-actives.md`.
-- L'amélioration d'une carte de créature (`MIX_ENHANCE_CREATURE_CARD`, 104/105) n'est pas portée.
+- L'amélioration d'une carte de créature (104/105) est livrée avec l'artisanat officiel (`socle-artisanat-objets-officiel.md`).

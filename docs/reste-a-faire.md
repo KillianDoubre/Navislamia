@@ -102,8 +102,8 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Invocations et apprivoisement : apprivoisement, formation, invocation, renvoi, marche et attaque de
   l'invocation livrés (`socle-apprivoisement-invocation.md` §15), puis la suite (`socle-invocations-progression.md`)
   et l'équipement, puis les compétences actives et le maintien `/hold`
-  (`socle-invocations-competences-actives.md`), **à vérifier en jeu**. Restent : l'état de chute 9001,
-  l'amélioration des cartes de créature.
+  (`socle-invocations-competences-actives.md`), **à vérifier en jeu**. Reste : l'état de chute 9001
+  (l'amélioration des cartes de créature est livrée avec l'artisanat).
 - Guildes : création (`show_guild_create`), alliance, taxe, donjon de guilde et siège (`warp_to_siege_dungeon`).
 - Donjons d'instance et donjons secrets (20 dialogues `warp_to_instance_dungeon`, `question_secret_dungeon_*`) :
   `enter_dungeon` ne fait que téléporter.
