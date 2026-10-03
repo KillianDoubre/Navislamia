@@ -233,9 +233,14 @@ public class AuctionPacketsTests
         ItemFixedInfoWriter.Write(motif, ItemFixedInfo.FromItem(item));
         record.Slice(0, ItemFixedInfoWriter.Size).ToArray().Should().Equal(motif);
 
-        BinaryPrimitives.ReadInt16LittleEndian(record.Slice(75, 2)).Should().Be((short)ItemWearType.Armor);
-        BinaryPrimitives.ReadUInt32LittleEndian(record.Slice(77, 4)).Should().Be(77u);
+        // A summon's item travels unworn: the 287 after the summon's 301 puts it on (socle-equipement-invocation.md).
+        BinaryPrimitives.ReadInt16LittleEndian(record.Slice(75, 2)).Should().Be(-1);
+        BinaryPrimitives.ReadUInt32LittleEndian(record.Slice(77, 4)).Should().Be(0u);
         BinaryPrimitives.ReadInt32LittleEndian(record.Slice(81, 4)).Should().Be(6);
+
+        item.EquippedBySummonId = null;
+        record = GameCharacterPackets.BuildInventory(new[] { item }).Single().AsSpan(HeaderSize + 2, 85);
+        BinaryPrimitives.ReadInt16LittleEndian(record.Slice(75, 2)).Should().Be((short)ItemWearType.Armor);
     }
 
     [Test]

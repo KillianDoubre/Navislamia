@@ -123,7 +123,7 @@ public static class GameCharacterPackets
             foreach (var item in character.Items)
             {
                 var slot = (int)item.WearInfo;
-                if (slot < 0 || slot >= WearSlots)
+                if (slot < 0 || slot >= WearSlots || item.EquippedBySummonId is not null)
                 {
                     continue;
                 }
@@ -390,9 +390,12 @@ public static class GameCharacterPackets
         ItemFixedInfoWriter.Write(span.Slice(0, ItemFixedInfoWriter.Size), ItemFixedInfo.FromItem(item));
 
         var positionOffset = ItemFixedInfoWriter.Size;
-        BinaryPrimitives.WriteInt16LittleEndian(span.Slice(positionOffset, 2), (short)item.WearInfo);
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(positionOffset + 2, 4),
-            (uint)(item.EquippedBySummonId ?? 0));
+        // A summon's item travels unworn here: its owner is a world handle the client learns with the summon's 301,
+        // and the 287 that follows it puts the item on the summon (CreatureService).
+        var bySummon = item.EquippedBySummonId is not null;
+        BinaryPrimitives.WriteInt16LittleEndian(span.Slice(positionOffset, 2),
+            bySummon ? (short)ItemWearType.None : (short)item.WearInfo);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(positionOffset + 2, 4), 0);
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(positionOffset + 6, 4), item.Idx);
     }
 

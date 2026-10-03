@@ -74,7 +74,7 @@ public sealed class DeathDropService : IDeathDropService
             if (Rolls(_random.Next(999) + 1))
             {
                 var start = _random.Next(WearSlots);
-                var worn = items.Where(item => item.WearInfo != ItemWearType.None && (int)item.WearInfo >= start
+                var worn = items.Where(item => ItemWearRules.IsWornByPlayer(item) && (int)item.WearInfo >= start
                                                && (int)item.WearInfo < WearSlots)
                     .OrderBy(item => (int)item.WearInfo).FirstOrDefault();
                 if (worn is not null)

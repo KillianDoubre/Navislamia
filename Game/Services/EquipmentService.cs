@@ -172,7 +172,7 @@ public class EquipmentService : IEquipmentService
             if ((ItemWearType)request.Position == ItemWearType.BagSlot && _weights is not null)
             {
                 var bag = (await _characterService.GetCarriedItemsAsync(info.CharacterName))
-                    .FirstOrDefault(carried => carried.WearInfo == ItemWearType.BagSlot);
+                    .FirstOrDefault(carried => ItemWearRules.IsWornByPlayerAt(carried, ItemWearType.BagSlot));
                 if (bag is not null && !_weights.CanTakeOffBag(info, (int)bag.ItemResourceId))
                 {
                     client.SendResult(UnequipRequestId, (ushort)ResultCode.TooHeavy, 0);

@@ -3,6 +3,8 @@ using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Packets.Game;
 
+using Navislamia.Game.DataAccess.Entities.Telecaster;
+
 namespace Navislamia.Game.Services;
 
 /// <summary>
@@ -29,6 +31,17 @@ public static class ItemWearRules
     /// (<c>TwofingerRing</c> 94, <c>Twohand</c> 99, <c>Skill</c> 100, <c>SummonOnly</c> 200) are not
     /// representable: writing them would hide the item from the wear info while marking it worn.
     /// </summary>
+    /// <summary>
+    /// Worn by the character itself. A summon's item keeps its summon slot (0, 1, 2…) in <c>WearInfo</c> with
+    /// <c>EquippedBySummonId</c> set, and those slots read as the player's weapon, shield, armour…
+    /// </summary>
+    public static bool IsWornByPlayer(ItemEntity item) =>
+        item.WearInfo != ItemWearType.None && item.EquippedBySummonId is null;
+
+    /// <summary>Worn by the character itself at <paramref name="slot"/>.</summary>
+    public static bool IsWornByPlayerAt(ItemEntity item, ItemWearType slot) =>
+        item.EquippedBySummonId is null && item.WearInfo == slot;
+
     public static bool IsWearableSlot(ItemWearType wearType)
     {
         return InSlotRange((int)wearType);

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
@@ -89,6 +90,15 @@ public interface ICreatureService
     void SetSummonVitals(GameClient master, CreatureCard card, int hp, int mp);
 
     bool Evolve(GameClient client, CreatureCard card);
+
+    /// <summary>
+    /// <c>TM_CS_PUTON_ITEM</c> (200) on a summon handle (<c>onPutonItem</c> with a summon target): answers the request
+    /// itself, <c>AccessDenied</c> when the handle is not one of the master's summons.
+    /// </summary>
+    Task EquipItemAsync(GameClient client, GameActionPackets.PutonItemRequest request) => Task.CompletedTask;
+
+    /// <summary><c>TM_CS_PUTOFF_ITEM</c> (201) on a summon handle (<c>onPutoffItem</c>).</summary>
+    Task UnequipItemAsync(GameClient client, GameActionPackets.PutoffItemRequest request) => Task.CompletedTask;
 }
 
 /// <summary>A summon in the world as a monster fights it: where it is, how alive it is, and its body and stats.</summary>
@@ -130,14 +140,21 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private readonly CancellationTokenSource _stop = new();
 
     private readonly Progression.ITitleService _titles;
+    private readonly IItemWearCatalog _wearCatalog;
+    private readonly IItemMatchCatalog _itemMatch;
+    private readonly Stats.IItemStatCatalog _itemStats;
 
     public CreatureService(ICreatureCatalog catalog, ICharacterService characters, MonsterWorldState world,
         ICombatService combat, SummonWorldService summons, IPlayerVisibilityService players = null,
         IPartyService parties = null, IBuffCatalog skills = null, CreatureEvents events = null,
         ICombatRandom random = null, bool runTicks = true, SkillCatalog skillTrees = null,
         ISkillPassiveCatalog passives = null, Rates.IRateService rates = null, IPkFieldService pkFields = null,
-        Progression.ITitleService titles = null)
+        Progression.ITitleService titles = null, IItemWearCatalog wearCatalog = null,
+        IItemMatchCatalog itemMatch = null, Stats.IItemStatCatalog itemStats = null)
     {
+        _wearCatalog = wearCatalog;
+        _itemMatch = itemMatch;
+        _itemStats = itemStats;
         _titles = titles;
         _pkFields = pkFields;
         _skillTrees = skillTrees;
@@ -213,6 +230,17 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             skills = Array.Empty<SummonSkillRecord>();
         }
 
+        IReadOnlyList<ItemEntity> equipment;
+        try
+        {
+            equipment = await _characters.GetSummonEquipmentAsync(info.CharacterName) ?? Array.Empty<ItemEntity>();
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not load the summon equipment of {clientTag}", client.ClientTag);
+            equipment = Array.Empty<ItemEntity>();
+        }
+
         CreatureCard main = null;
         lock (info.SummonLock)
         {
@@ -221,6 +249,11 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             {
                 var card = ToCard(record);
                 info.CreatureCards[card.ItemId] = card;
+                foreach (var worn in equipment.Where(item => card.HasSummon && SummonWearRules.IsWornBy(item, card.SummonId)))
+                {
+                    card.Equipment.Add(new SummonWornItem(worn.Id, (int)worn.ItemResourceId, (int)worn.WearInfo,
+                        worn.Enhance));
+                }
             }
 
             foreach (var skill in skills)
@@ -246,6 +279,16 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         }
 
         client.Connection.Send(GameCharacterPackets.BuildEquipSummon(info.SummonSlots));
+
+        // The inventory went out with the summons' items unworn: each one now goes on its summon, whose handle the
+        // client has just learnt (SendItemWearInfoMessage of DB_Login's summon branch).
+        foreach (var card in SlottedCards(info))
+        {
+            foreach (var worn in equipment.Where(item => SummonWearRules.IsWornBy(item, card.SummonId)))
+            {
+                SendSummonItemWear(client, card, worn);
+            }
+        }
 
         // The main summon comes back with its master (StructPlayer::onLogin, AddNoise 50).
         if (main is not null && main.HasSummon && Array.IndexOf(info.SummonSlots, main.ItemId) >= 0)
@@ -402,6 +445,13 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private StatBlock StatsOf(ConnectionInfo info, CreatureCard card, SummonResourceInfo resource)
     {
         var block = CreatureRules.SummonStats(resource, card.Level, Context(info, card));
+        // StructSummon::CalculateStat: the worn items' options, like the master's.
+        var worn = ItemEffectsOf(info, card);
+        if (worn.Length > 0)
+        {
+            StatCalculator.ApplyEffects(block, worn);
+        }
+
         if (_passives is null)
         {
             return block;
@@ -417,6 +467,175 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         }
 
         return block;
+    }
+
+    private StatEffect[] ItemEffectsOf(ConnectionInfo info, CreatureCard card)
+    {
+        if (_itemStats is null)
+        {
+            return Array.Empty<StatEffect>();
+        }
+
+        lock (info.SummonLock)
+        {
+            return card.Equipment.SelectMany(item => _itemStats.GetEffects(item.ResourceId)).ToArray();
+        }
+    }
+
+    // ---- equipment ----------------------------------------------------------------------------------------------
+
+    private const ushort PutOnRequestId = (ushort)GamePackets.TM_CS_PUTON_ITEM;
+    private const ushort PutOffRequestId = (ushort)GamePackets.TM_CS_PUTOFF_ITEM;
+
+    private CreatureCard SummonOf(ConnectionInfo info, uint summonHandle)
+    {
+        lock (info.SummonLock)
+        {
+            return info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == summonHandle && c.HasSummon);
+        }
+    }
+
+    public async Task EquipItemAsync(GameClient client, GameActionPackets.PutonItemRequest request)
+    {
+        var info = client.ConnectionInfo;
+        var card = SummonOf(info, request.TargetHandle);
+        if (card is null)
+        {
+            client.SendResult(PutOnRequestId, (ushort)ResultCode.AccessDenied, 0);
+            return;
+        }
+
+        if (info.CharacterHp <= 0 || _wearCatalog is null)
+        {
+            client.SendResult(PutOnRequestId, (ushort)ResultCode.NotActable, 0);
+            return;
+        }
+
+        var item = await _characters.GetItemByHandleAsync(info.CharacterName, request.ItemHandle);
+        if (item is null)
+        {
+            client.SendResult(PutOnRequestId, (ushort)ResultCode.NotExist, 0);
+            return;
+        }
+
+        // StructSummon::TranslateWearPosition: a card-form item, wearable, at the summon's level.
+        if (!SummonWearRules.IsCardForm(item.Flag) || !_wearCatalog.TryGetWearFields(item.ItemResourceId, out var fields)
+            || !ItemWearRules.IsWearAllowed(fields, card.Level))
+        {
+            client.SendResult(PutOnRequestId, (ushort)ResultCode.NotActable, 0);
+            return;
+        }
+
+        var group = _itemMatch is not null && _itemMatch.TryGetFields(item.ItemResourceId, out var match)
+            ? (ItemGroup)match.Group : ItemGroup.Etc;
+        var slots = _catalog.Enhance(card.Enhance).SlotAmount;
+        SummonEquipResult result;
+        try
+        {
+            result = await _characters.EquipSummonItemAsync(info.CharacterName, request.ItemHandle, card.SummonId,
+                (_, worn) => SummonWearRules.Resolve(request.Position, group, worn.Select(entry =>
+                    new SummonWearRules.Worn((int)entry.WearInfo, GroupOf(entry.ItemResourceId))).ToArray(), slots));
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not equip item {itemHandle} on summon {summonHandle} for {clientTag}",
+                request.ItemHandle, request.TargetHandle, client.ClientTag);
+            client.SendResult(PutOnRequestId, (ushort)ResultCode.DBError, 0);
+            return;
+        }
+
+        if (result.Code != ResultCode.Success)
+        {
+            client.SendResult(PutOnRequestId, (ushort)result.Code, 0);
+            return;
+        }
+
+        lock (info.SummonLock)
+        {
+            if (result.Displaced is { } displaced)
+            {
+                card.Equipment.RemoveAll(worn => worn.ItemId == displaced.Id);
+            }
+
+            card.Equipment.Add(new SummonWornItem(result.Equipped.Id, (int)result.Equipped.ItemResourceId,
+                (int)result.Equipped.WearInfo, result.Equipped.Enhance));
+        }
+
+        // putoffItem then putonItem: the 287 of each item, on the summon's handle.
+        if (result.Displaced is { } off)
+        {
+            SendSummonItemWear(client, card, off);
+        }
+
+        SendSummonItemWear(client, card, result.Equipped);
+        RefreshEquippedSummon(client, card);
+        client.SendResult(PutOnRequestId, (ushort)ResultCode.Success, 0);
+    }
+
+    public async Task UnequipItemAsync(GameClient client, GameActionPackets.PutoffItemRequest request)
+    {
+        var info = client.ConnectionInfo;
+        var card = SummonOf(info, request.TargetHandle);
+        if (card is null)
+        {
+            client.SendResult(PutOffRequestId, (ushort)ResultCode.AccessDenied, 0);
+            return;
+        }
+
+        ItemEntity item;
+        try
+        {
+            item = await _characters.UnequipSummonItemAsync(info.CharacterName, card.SummonId, request.Position);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not take off slot {slot} of summon {summonHandle} for {clientTag}",
+                request.Position, request.TargetHandle, client.ClientTag);
+            client.SendResult(PutOffRequestId, (ushort)ResultCode.DBError, 0);
+            return;
+        }
+
+        if (item is null)
+        {
+            client.SendResult(PutOffRequestId, (ushort)ResultCode.NotExist, 0);
+            return;
+        }
+
+        lock (info.SummonLock)
+        {
+            card.Equipment.RemoveAll(worn => worn.ItemId == item.Id);
+        }
+
+        SendSummonItemWear(client, card, item);
+        RefreshEquippedSummon(client, card);
+        client.SendResult(PutOffRequestId, (ushort)ResultCode.Success, 0);
+    }
+
+    private int GroupOf(long resourceId) =>
+        _itemMatch is not null && _itemMatch.TryGetFields(resourceId, out var fields) ? (int)fields.Group : 0;
+
+    /// <summary><c>SendItemWearInfoMessage(master, summon, item)</c>: the 287 of a summon's item.</summary>
+    private static void SendSummonItemWear(GameClient client, CreatureCard card, ItemEntity item) =>
+        client.Connection.Send(GameCharacterPackets.BuildItemWearInfo((uint)item.Id, (short)item.WearInfo,
+            item.WearInfo == ItemWearType.None ? 0 : card.SummonHandle, (int)item.Enhance, (byte)item.ElementalEffectType));
+
+    /// <summary>The summon's stats after a put-on or put-off: both stat packets on its handle.</summary>
+    private void RefreshEquippedSummon(GameClient client, CreatureCard card)
+    {
+        if (!_catalog.TryGetSummon(card.SummonCode, out var resource))
+        {
+            return;
+        }
+
+        RefreshSummonStats(client, card, resource);
+        var byItem = new StatBlock();
+        var effects = ItemEffectsOf(client.ConnectionInfo, card);
+        if (effects.Length > 0)
+        {
+            StatCalculator.ApplyEffects(byItem, effects);
+        }
+
+        client.Connection.Send(GameStatPackets.BuildStatInfo(card.SummonHandle, byItem, StatInfoType.ByItem));
     }
 
     // ---- experience -------------------------------------------------------------------------------------------

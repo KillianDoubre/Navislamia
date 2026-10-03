@@ -403,7 +403,7 @@ public class GameActions : IActions
 
             if (!character.Items.IsNullOrEmpty())
             {
-                foreach (var item in character.Items.Where(i => i.WearInfo != ItemWearType.None))
+                foreach (var item in character.Items.Where(ItemWearRules.IsWornByPlayer))
                 {
                     characterLobbyInfo.WearInfo[(int)item.WearInfo] = (int)item.ItemResourceId;
                     characterLobbyInfo.WearItemEnhanceInfo[(int)item.WearInfo] = (int)item.Enhance;

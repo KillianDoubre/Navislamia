@@ -44,6 +44,9 @@ public sealed class CreatureCard
     /// <summary>Whether <see cref="Hp"/> is a real value: a fresh summon row (0 HP) starts full, not dead.</summary>
     public bool HpKnown { get; set; }
 
+    /// <summary>The items the summon wears (<c>m_anWear</c>), guarded by the session's summon lock.</summary>
+    public System.Collections.Generic.List<SummonWornItem> Equipment { get; } = new();
+
     /// <summary>The skills the summon learned, by id (<c>SummonSkills</c>), guarded by the session's summon lock.</summary>
     public System.Collections.Generic.Dictionary<int, byte> Skills { get; } = new();
 
@@ -57,3 +60,6 @@ public sealed class CreatureCard
     public bool IsBound => CreatureRules.IsBound(Flag);
     public bool HasSummon => SummonId != 0 && SummonCode != 0;
 }
+
+/// <summary>One item a summon wears: the item row, its resource and its summon slot.</summary>
+public readonly record struct SummonWornItem(long ItemId, int ResourceId, int Slot, uint Enhance);

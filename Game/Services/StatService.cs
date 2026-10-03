@@ -140,6 +140,11 @@ public class StatService : IStatService
 
         foreach (var item in character.Items)
         {
+            if (item.EquippedBySummonId is not null)
+            {
+                continue;
+            }
+
             if (item.WearInfo == ItemWearType.Weapon)
             {
                 info.RightWeaponEffects = _itemStats.GetEffects((int)item.ItemResourceId);
@@ -166,7 +171,7 @@ public class StatService : IStatService
 
         foreach (var item in character.Items)
         {
-            if (item.WearInfo == ItemWearType.Weapon)
+            if (ItemWearRules.IsWornByPlayerAt(item, ItemWearType.Weapon))
             {
                 return _itemStats.GetWeaponType((int)item.ItemResourceId);
             }
@@ -257,7 +262,7 @@ public class StatService : IStatService
         {
             // A spare-set item (24..27) is worn but gives nothing until the swap brings it to its main slot
             // (StructPlayer::TranslateWearPosition: "spare items do not apply their performance").
-            if (item.WearInfo == ItemWearType.None || item.WearInfo >= ItemWearType.SpareWeapon
+            if (!ItemWearRules.IsWornByPlayer(item) || item.WearInfo >= ItemWearType.SpareWeapon
                 && item.WearInfo <= ItemWearType.SpareDecoShield)
             {
                 continue;

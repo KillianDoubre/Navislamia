@@ -254,7 +254,7 @@ public class CharacterService : ICharacterService
         return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
-            var item = character?.Items?.FirstOrDefault(entry => entry.WearInfo == position);
+            var item = character?.Items?.FirstOrDefault(entry => ItemWearRules.IsWornByPlayerAt(entry, position));
             if (item is null)
             {
                 return null;
@@ -287,8 +287,8 @@ public class CharacterService : ICharacterService
             var moves = new List<(ItemEntity Item, ItemWearType To)>();
             foreach (var (main, spare) in SwapPairs)
             {
-                var worn = character.Items.FirstOrDefault(item => item.WearInfo == main);
-                var kept = character.Items.FirstOrDefault(item => item.WearInfo == spare);
+                var worn = character.Items.FirstOrDefault(item => ItemWearRules.IsWornByPlayerAt(item, main));
+                var kept = character.Items.FirstOrDefault(item => ItemWearRules.IsWornByPlayerAt(item, spare));
                 if (worn is not null)
                 {
                     moves.Add((worn, spare));
@@ -318,6 +318,70 @@ public class CharacterService : ICharacterService
             await repository.SaveChangesAsync();
             return (character, moves.Select(move => move.Item).ToList());
         });
+    }
+
+    public Task<SummonEquipResult> EquipSummonItemAsync(string characterName, uint itemHandle, long summonId,
+        Func<ItemEntity, IReadOnlyList<ItemEntity>, int?> chooseSlot)
+    {
+        return RunInventoryAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var item = FindByHandle(character?.Items, itemHandle);
+            if (item is null)
+            {
+                return new SummonEquipResult(ResultCode.AccessDenied, null, null);
+            }
+
+            if (item.WearInfo != ItemWearType.None || item.EquippedBySummonId is not null)
+            {
+                return new SummonEquipResult(ResultCode.NotActable, null, null);
+            }
+
+            var worn = character.Items.Where(entry => Creatures.SummonWearRules.IsWornBy(entry, summonId)).ToList();
+            if (chooseSlot(item, worn) is not { } slot)
+            {
+                return new SummonEquipResult(ResultCode.NotActable, null, null);
+            }
+
+            var displaced = worn.FirstOrDefault(entry => (int)entry.WearInfo == slot);
+            if (displaced is not null)
+            {
+                displaced.WearInfo = ItemWearType.None;
+                displaced.EquippedBySummonId = null;
+            }
+
+            item.WearInfo = (ItemWearType)slot;
+            item.EquippedBySummonId = (int)summonId;
+            await repository.SaveChangesAsync();
+            return new SummonEquipResult(ResultCode.Success, item, displaced);
+        });
+    }
+
+    public Task<ItemEntity> UnequipSummonItemAsync(string characterName, long summonId, int slot)
+    {
+        return RunInventoryAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var item = character?.Items?.FirstOrDefault(entry =>
+                Creatures.SummonWearRules.IsWornBy(entry, summonId) && (int)entry.WearInfo == slot);
+            if (item is null)
+            {
+                return null;
+            }
+
+            item.WearInfo = ItemWearType.None;
+            item.EquippedBySummonId = null;
+            await repository.SaveChangesAsync();
+            return item;
+        });
+    }
+
+    public async Task<IReadOnlyList<ItemEntity>> GetSummonEquipmentAsync(string characterName)
+    {
+        using var repository = _repositories.Create();
+        var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+        return character?.Items?.Where(item => item.EquippedBySummonId is not null && item.WearInfo != ItemWearType.None)
+            .ToList() ?? new List<ItemEntity>();
     }
 
     public Task UnwearItemsAsync(string characterName, IReadOnlyCollection<long> itemIds)
@@ -365,7 +429,7 @@ public class CharacterService : ICharacterService
                 return new EquipItemResult(EquipItemOutcome.AlreadyWorn, character, null, null);
             }
 
-            var displaced = character.Items.FirstOrDefault(entry => entry.WearInfo == position);
+            var displaced = character.Items.FirstOrDefault(entry => ItemWearRules.IsWornByPlayerAt(entry, position));
             if (displaced is not null)
             {
                 displaced.WearInfo = ItemWearType.None;
@@ -442,7 +506,7 @@ public class CharacterService : ICharacterService
         return RunInventoryAsync(characterName, async repository =>
         {
             var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
-            var target = character?.Items?.FirstOrDefault(entry => entry.WearInfo == position);
+            var target = character?.Items?.FirstOrDefault(entry => ItemWearRules.IsWornByPlayerAt(entry, position));
             if (target is null)
             {
                 return new CardSocketResult(ResultCode.NotExist, null, null, 0);

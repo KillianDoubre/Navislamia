@@ -60,6 +60,23 @@ public interface ICharacterService
     Task UnwearItemsAsync(string characterName, IReadOnlyCollection<long> itemIds) => Task.CompletedTask;
 
     /// <summary>
+    /// <c>StructCreature::Puton</c> on a summon: the bag item of <paramref name="itemHandle"/> goes to the slot
+    /// <paramref name="chooseSlot"/> picks from the summon's worn items (null refuses), displacing what that slot
+    /// held, in one save.
+    /// </summary>
+    Task<SummonEquipResult> EquipSummonItemAsync(string characterName, uint itemHandle, long summonId,
+        Func<ItemEntity, IReadOnlyList<ItemEntity>, int?> chooseSlot) =>
+        Task.FromResult(new SummonEquipResult(Navislamia.Game.Network.Packets.ResultCode.NotActable, null, null));
+
+    /// <summary><c>StructSummon::putoffItem</c>: the item the summon wears at <paramref name="slot"/> goes back to the bag.</summary>
+    Task<ItemEntity> UnequipSummonItemAsync(string characterName, long summonId, int slot) =>
+        Task.FromResult<ItemEntity>(null);
+
+    /// <summary>Every item the character's summons wear.</summary>
+    Task<IReadOnlyList<ItemEntity>> GetSummonEquipmentAsync(string characterName) =>
+        Task.FromResult<IReadOnlyList<ItemEntity>>(Array.Empty<ItemEntity>());
+
+    /// <summary>
     /// <c>onSwapEquip</c> (223): the weapon, shield and their decorations change places with the spare set. Every
     /// spare item that would come to a main slot is judged by <paramref name="mayWearMain"/> first, and one refusal
     /// leaves everything as it was (null). Returns the character and the items that moved.
@@ -267,3 +284,7 @@ public sealed record TamingCommit(long ConsumedItemId, long RemainingAmount, Ite
     public long? MirrorItemId { get; init; }
     public long MirrorRemaining { get; init; }
 }
+
+/// <summary>A summon's put-on: the result code, the item worn, the item it took the place of.</summary>
+public sealed record SummonEquipResult(Navislamia.Game.Network.Packets.ResultCode Code, ItemEntity Equipped,
+    ItemEntity Displaced);

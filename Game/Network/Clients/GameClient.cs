@@ -1429,7 +1429,17 @@ public class GameClient : Client
 
         try
         {
-            await _networkService.EquipmentService.EquipAsync(this, request);
+            // onPutonItem: a target other than the character is one of its summons (socle-equipement-invocation.md).
+            // Routed here: EquipmentService cannot depend on the creatures (combat → death drop → equipment cycle).
+            if (request.TargetHandle != 0 && request.TargetHandle != ConnectionInfo.CharacterHandle
+                && _networkService.CreatureService is { } creatures)
+            {
+                await creatures.EquipItemAsync(this, request);
+            }
+            else
+            {
+                await _networkService.EquipmentService.EquipAsync(this, request);
+            }
         }
         catch (Exception exception)
         {
@@ -1854,7 +1864,15 @@ public class GameClient : Client
 
         try
         {
-            await _networkService.EquipmentService.UnequipAsync(this, request);
+            if (request.TargetHandle != 0 && request.TargetHandle != ConnectionInfo.CharacterHandle
+                && _networkService.CreatureService is { } creatures)
+            {
+                await creatures.UnequipItemAsync(this, request);
+            }
+            else
+            {
+                await _networkService.EquipmentService.UnequipAsync(this, request);
+            }
         }
         catch (Exception exception)
         {
