@@ -68,6 +68,21 @@ public class PartyServiceTests
         Info(ana).PartyId.Should().Be(1);
     }
 
+    [Test]
+    public void Dungeon_party_snapshot_uses_membership_registry_instead_of_session_party_id()
+    {
+        var ana = Player(1, "Ana");
+        Info(ana).PartyId = 999;
+        _parties.DungeonParty(ana).Should().BeNull();
+        Info(ana).PartyId = null;
+        _parties.TryHandleCommand(ana, "/pcreate Wolves");
+        var party = _parties.DungeonParty(ana);
+        party!.Id.Should().Be(1);
+        party.Leader.Should().Be(1);
+        party.Members.Should().Equal(1u);
+        party.Online.Should().ContainSingle().Which.Should().BeSameAs(ana);
+    }
+
     [TestCase("/pcreate Bad|Name", "INVALID_PARTY_NAME")]
     [TestCase("/pcreate Bad-Name", "INVALID_PARTY_NAME")]
     public void CreateRefusesANameThatIsNotLettersAndDigits(string command, string error)

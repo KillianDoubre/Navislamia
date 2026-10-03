@@ -12,6 +12,15 @@ namespace Navislamia.Game.Services.Progression;
 /// </summary>
 public static class TitleEvents
 {
+    public const int DungeonSiegeStart = 5201;
+    public const int DungeonSiegeEnd = 5202;
+    public static Func<TitleConditionType, long?> SiegeStart(int dungeon, bool attacker) => type =>
+        type.Category == DungeonSiegeStart && type.Values is { Length: >= 2 }
+        && (type.Values[0] == 0 || type.Values[0] == dungeon) && (type.Values[1] != 0) == attacker ? 1 : null;
+    public static Func<TitleConditionType, long?> SiegeEnd(int dungeon, bool attacker, bool success) => type =>
+        type.Category == DungeonSiegeEnd && type.Values is { Length: >= 3 }
+        && (type.Values[0] == 0 || type.Values[0] == dungeon) && (type.Values[1] != 0) == attacker
+        && (type.Values[2] != 0) == success ? 1 : null;
     public const int SummonTameByCode = 3001;
     public const int SummonTameByRate = 3002;
     public const int SummonEquipByCode = 3101;

@@ -8,12 +8,16 @@ public enum ChatType : byte
     Global = 0x04,
     Party = 0x0A,
     Guild = 0x0B,
+    AttackTeam = 12,
+    GuildSystem = 110,
+    RaidSystem = 130,
+    AllianceSystem = 150,
 
     /// <summary><c>CHAT_NOTICE</c>, the server-wide announcement line (<c>/notice</c>).</summary>
     Notice = 0x14,
 
     /// <summary>
-    /// 100: the system line of party, guild and alliance events (<c>@PARTY</c>, <c>@GUILD</c>...), which the
+    /// 100: the system line of party events (<c>@PARTY</c>), which the
     /// client parses instead of printing — the official server's <c>SendChatMessage(…, 100, "@PARTY", …)</c>.
     /// </summary>
     PartySystem = 0x64,

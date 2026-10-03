@@ -5,6 +5,7 @@ namespace Navislamia.Game.Services;
 
 public interface IGroundItemService
 {
+    void RemoveDungeonItems(byte layer, int cellX, int cellY) { }
     void Sync(GameClient client);
     void LeaveWorld(GameClient client);
 

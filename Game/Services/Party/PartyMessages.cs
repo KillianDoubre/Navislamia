@@ -15,7 +15,7 @@ public static class PartyMessages
     public const string Sender = "@PARTY";
 
     /// <summary><c>onPartyCreate</c>: <c>CREATE|%s|%s|%d|</c> — party, leader, then 0.</summary>
-    public static string Create(string party, string leader) => $"CREATE|{party}|{leader}|0|";
+    public static string Create(string party, string leader, int type = 0) => $"CREATE|{party}|{leader}|{type}|";
 
     /// <summary><c>onPartyInvite</c>: <c>INVITE|%s|%s|%d|%d|</c> — inviter, party, id, password.</summary>
     public static string Invite(string inviter, string party, int partyId, int password) =>
@@ -58,9 +58,9 @@ public static class PartyMessages
     /// level, min level, party type — then one entry per member, in the party's order.
     /// </summary>
     public static string PartyInfo(int partyId, string party, string leader, PartyShareMode mode, int maxLevel,
-        int minLevel, IEnumerable<PartyMemberView> members)
+        int minLevel, IEnumerable<PartyMemberView> members, int type = 0)
     {
-        var text = new StringBuilder($"PINFO|{partyId}|{party}|{leader}|{(int)mode}|{maxLevel}|{minLevel}|0|");
+        var text = new StringBuilder($"PINFO|{partyId}|{party}|{leader}|{(int)mode}|{maxLevel}|{minLevel}|{type}|");
         foreach (var member in members)
         {
             text.Append(Entry(member));

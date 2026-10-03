@@ -11,6 +11,9 @@ using Serilog;
 
 namespace Navislamia.Game.Services.Party;
 
+public sealed record DungeonParty(long Id, uint Leader, IReadOnlyList<uint> Members, IReadOnlyList<GameClient> Online,
+    string Name = "", int Type = 0, long AttackGuild = 0);
+
 /// <summary>
 /// Parties, driven entirely by chat commands and <c>@PARTY</c> system lines — the Epic 7.3 client has no
 /// party opcode: its party window sends <c>/pcreate</c>, <c>/pinvite</c>, <c>/pjoin %d %d</c>... and
@@ -20,6 +23,10 @@ namespace Navislamia.Game.Services.Party;
 /// </summary>
 public interface IPartyService
 {
+    int CreateAttackParty(GameClient client, string name, long guild, int type) => 0;
+    void DisbandAttackParty(long id) { }
+    bool AttackPartyExists(long id) => false;
+    DungeonParty DungeonParty(GameClient client) => null;
     /// <summary>Runs a party chat command; false when the line is not one, so it goes on to the GM commands.</summary>
     bool TryHandleCommand(GameClient client, string message);
 
@@ -49,6 +56,45 @@ public interface IPartyService
 
 public sealed class PartyService : IPartyService
 {
+    private readonly Guilds.GuildRuntime _guilds;
+    public bool AttackPartyExists(long id)
+    {
+        lock (_gate) return _parties.TryGetValue((int)id, out var party) && party.AttackGuild != 0;
+    }
+    public int CreateAttackParty(GameClient client, string name, long guild, int type)
+    {
+        lock (_gate)
+        {
+            if (type is not (1 or 2) || _partyOf.ContainsKey(client.ConnectionInfo.CharacterHandle)) return 0;
+            Create(client, new[] { "/pcreate", name }, guild, type);
+            return _partyOf.TryGetValue(client.ConnectionInfo.CharacterHandle, out var id) ? id : 0;
+        }
+    }
+    public void DisbandAttackParty(long id)
+    {
+        lock (_gate)
+        {
+            if (!_parties.TryGetValue((int)id, out var party) || party.AttackGuild == 0) return;
+            SendToParty(party, PartyMessages.Destroy(party.Name));
+            foreach (var member in party.Members)
+            {
+                _partyOf.Remove(member.CharacterId);
+                var online = Online(member.CharacterId);
+                if (online is not null) online.ConnectionInfo.PartyId = null;
+            }
+            _parties.Remove(party.Id);
+        }
+    }
+    public DungeonParty DungeonParty(GameClient client)
+    {
+        lock (_gate)
+        {
+            if (!TryGetParty(client.ConnectionInfo.CharacterHandle, out var party)) return null;
+            return new DungeonParty(party.Id, (uint)party.LeaderId,
+                party.Members.Select(m => (uint)m.CharacterId).ToArray(),
+                party.Members.Select(m => Online(m.CharacterId)).Where(c => c is not null).ToArray(), party.Name, party.Type, party.AttackGuild);
+        }
+    }
     public int MemberCount(GameClient client)
     {
         lock (_gate) return TryGetParty(client.ConnectionInfo.CharacterHandle, out var party) ? party.Members.Count : 1;
@@ -68,8 +114,9 @@ public sealed class PartyService : IPartyService
     private readonly Dictionary<long, int> _partyOf = new();
     private int _nextPartyId;
 
-    public PartyService(IPlayerVisibilityService players, IStatService stats, IBannedWordsRepository bannedWords)
+    public PartyService(IPlayerVisibilityService players, IStatService stats, IBannedWordsRepository bannedWords, Guilds.GuildRuntime guilds = null)
     {
+        _guilds = guilds;
         _players = players;
         _stats = stats;
         _bannedWords = bannedWords;
@@ -254,7 +301,8 @@ public sealed class PartyService : IPartyService
         }
     }
 
-    private void Create(GameClient client, string[] tokens)
+    private void Create(GameClient client, string[] tokens) => Create(client, tokens, 0, 0);
+    private void Create(GameClient client, string[] tokens, long guild, int type)
     {
         var info = client.ConnectionInfo;
         if (tokens.Length < 2)
@@ -287,6 +335,7 @@ public sealed class PartyService : IPartyService
         }
 
         var created = new PartyState(++_nextPartyId, name, NewPassword(), info.CharacterHandle);
+        created.AttackGuild = guild; created.Type = type;
         var member = new PartyMember(info.CharacterHandle, info.CharacterName);
         Remember(member, info);
         created.Members.Add(member);
@@ -294,7 +343,7 @@ public sealed class PartyService : IPartyService
         _partyOf[info.CharacterHandle] = created.Id;
         info.PartyId = created.Id;
 
-        Reply(client, PartyMessages.Create(name, info.CharacterName));
+        Reply(client, PartyMessages.Create(name, info.CharacterName, type));
         SendPartyInfo(client, created);
         _logger.Debug("{name} created party {party} ({id})", info.CharacterName, name, created.Id);
     }
@@ -313,6 +362,7 @@ public sealed class PartyService : IPartyService
         {
             return;
         }
+        if (party.AttackGuild != 0 && _guilds?.Effective(target.ConnectionInfo.GuildId) != party.AttackGuild) return;
 
         if (party.Members.Count >= MaxMembers)
         {
@@ -354,6 +404,7 @@ public sealed class PartyService : IPartyService
             Reply(client, "HAS_NO_AUTHORITY");
             return;
         }
+        if (party.AttackGuild != 0 && _guilds?.Effective(info.GuildId) != party.AttackGuild) return;
 
         // The official handler announces NEW before it checks the size and can then refuse: the size is
         // checked first here, so the members are never told about a join that does not happen.
@@ -486,7 +537,7 @@ public sealed class PartyService : IPartyService
         var online = views.Where(view => view.Online).Select(view => view.Level).DefaultIfEmpty(0).ToList();
         var leader = party.Find(party.LeaderId)?.Name ?? string.Empty;
         Reply(client, PartyMessages.PartyInfo(party.Id, party.Name, leader, party.ShareMode, online.Max(),
-            online.Min(), views));
+            online.Min(), views, party.Type));
     }
 
     private void BroadcastMemberInfo(PartyState party, GameClient subject)
@@ -584,6 +635,8 @@ public sealed class PartyService : IPartyService
 
     private sealed class PartyState
     {
+        public long AttackGuild { get; set; }
+        public int Type { get; set; }
         public PartyState(int id, string name, int password, long leaderId)
         {
             Id = id;

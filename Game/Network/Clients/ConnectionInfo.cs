@@ -57,6 +57,8 @@ public class ConnectionInfo
     public byte[] WearFrame { get; set; }
     public long? PartyId { get; set; }
     public long? GuildId { get; set; }
+    public long? AllianceId { get; set; }
+    public byte GuildPermission { get; set; }
     public int CharacterStamina { get; set; }
     public uint TargetHandle { get; set; }
     public int CharacterHp { get; set; }
@@ -622,6 +624,8 @@ public class ConnectionInfo
         WearFrame = null;
         PartyId = null;
         GuildId = null;
+        AllianceId = null;
+        GuildPermission = 0;
         CharacterStamina = 0;
         ItemCooldowns.Clear();
         CharacterMaxHp = 0;

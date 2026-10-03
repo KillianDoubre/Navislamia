@@ -104,9 +104,13 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
   et l'équipement, puis les compétences actives et le maintien `/hold`
   (`socle-invocations-competences-actives.md`), **à vérifier en jeu**. Reste : l'état de chute 9001
   (l'amélioration des cartes de créature est livrée avec l'artisanat).
-- Guildes : création (`show_guild_create`), alliance, taxe, donjon de guilde et siège (`warp_to_siege_dungeon`).
-- Donjons d'instance et donjons secrets (20 dialogues `warp_to_instance_dungeon`, `question_secret_dungeon_*`) :
-  `enter_dungeon` ne fait que téléporter.
+- Guildes : création (`show_guild_create`), alliance, taxe, inscription/classement des raids et objectifs de siège.
+  L'accès au siège vérifie désormais les horaires, le groupe et les guildes propriétaire/attaquante en base.
+- Donjons : accès aux 20 choix d'instance livré, salles isolées par groupe ou personnage, niveaux/difficultés,
+  clés de Vulcanus, sorties et nettoyage ; accès public, raid et siège distingués, horaires régionaux et guilde
+  contrôlés. Pages d'information des donjons secrets et raccourci de la guilde propriétaire raccordés
+  (`socle-donjons-instances-secrets.md`), **à vérifier en jeu**. Restent les scénarios Lua propres aux instances,
+  les apparitions conditionnelles des portails secrets et les alliances de guildes.
 - HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes (pages vides, aucune mécanique).
 - Ferme de créatures : non implémentée par décision (2026-09-30).
 - Dialogues PNJ non exécutés : timbres et quêtes d'événement (`question_stamp_*`, `valentine_*`, `event_*`),

@@ -36,6 +36,13 @@ public class GroundItemService : IGroundItemService
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
+    public void RemoveDungeonItems(byte layer, int cellX, int cellY)
+    {
+        foreach (var item in _items.Values)
+            if (item.Layer == layer && (layer != 1 || (int)(item.X / 16128) == cellX && (int)(item.Y / 16128) == cellY))
+                _items.TryRemove(item.Handle, out _);
+    }
+
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
         IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players,
         Weight.ICarriedWeightService weights = null, IPartyService parties = null)

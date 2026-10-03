@@ -51,6 +51,8 @@ public class CombatService : ICombatService
     private readonly IPlayerVisibilityService _players;
     private readonly IPkFieldService _pkFields;
     private readonly Progression.ITitleService _titles;
+    private readonly Guilds.GuildRuntime _guilds;
+    private readonly Guilds.GuildCombatEvents _guildEvents;
     private readonly object _lock = new();
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
@@ -64,8 +66,9 @@ public class CombatService : ICombatService
         ICharacterService characters = null, Compete.ICompeteService compete = null,
         Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
         bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null,
-        Creatures.ICreatureEvents creatures = null)
+        Creatures.ICreatureEvents creatures = null, Guilds.GuildRuntime guilds = null, Guilds.GuildCombatEvents guildEvents = null)
     {
+        _guilds = guilds; _guildEvents = guildEvents;
         _creatures = creatures;
         _pkFields = pkFields;
         _titles = titles;
@@ -557,7 +560,8 @@ public class CombatService : ICombatService
         }
 
         if (attacker.PartyId is { } party && party == target.PartyId
-            || attacker.GuildId is { } guild && guild != 0 && guild == target.GuildId)
+            || attacker.GuildId is { } guild && guild != 0 && guild == target.GuildId
+            || Guilds.GuildRules.SameAlliance(attacker, target))
         {
             return false;
         }
@@ -569,9 +573,10 @@ public class CombatService : ICombatService
         !ReferenceEquals(attacker, target)
         && attacker.ConnectionInfo.Layer == target.ConnectionInfo.Layer
         && !target.ConnectionInfo.IsImmortal
-        && IsPlayerEnemy(attacker.ConnectionInfo, target.ConnectionInfo, _compete?.AreCompeting(attacker, target) == true,
+        && (_guilds?.WarEnemy(attacker.ConnectionInfo, target.ConnectionInfo) == true
+            || _guilds?.Siege(attacker.ConnectionInfo) is null && IsPlayerEnemy(attacker.ConnectionInfo, target.ConnectionInfo, _compete?.AreCompeting(attacker, target) == true,
             _pkFields is not null ? _pkFields.IsPkField(attacker.ConnectionInfo) && _pkFields.IsPkField(target.ConnectionInfo)
-                : _rules?.CurrentValue?.PkFieldsEverywhere == true);
+                : _rules?.CurrentValue?.PkFieldsEverywhere == true));
 
     public void OnPkEnabled(GameClient client)
     {
@@ -756,7 +761,7 @@ public class CombatService : ICombatService
             {
                 _compete.OnKilledBy(target, attacker);
             }
-            else
+            else if (_guilds?.WarEnemy(attacker.ConnectionInfo, target.ConnectionInfo) != true)
             {
                 if (_rules?.CurrentValue?.PkServer == true)
                 {
@@ -880,6 +885,8 @@ public class CombatService : ICombatService
             return 0;
         }
 
+        if (_guilds?.CanDamage(client, instanceId) == false) return _worldState.GetHp(instanceId);
+
         var info = client.ConnectionInfo;
         var targetHp = _worldState.ApplyDamage(instanceId, damage, client, ServerClock.Now);
         _creatures?.MonsterDamaged(client, instanceId);
@@ -943,7 +950,7 @@ public class CombatService : ICombatService
         }
 
         var lootOwner = contribution.FirstOrDefault()?.Representative ?? client;
-        if (!instance.IsDungeonRaidMonster || instance.MonsterType >= 13)
+        if (_guilds?.IsObjective(instanceId) != true && (!instance.IsDungeonRaidMonster || instance.MonsterType >= 13))
             _groundItemService.DropForMonster(lootOwner, instance.MonsterId, dropX, dropY, instance.Z, instanceId, lootFactor);
         AwardKill(client, instanceId, targetHandle, instance, lootFactor, dropX, dropY, instance.Z, info.Layer, contribution);
         if (_quests is not null)
@@ -974,6 +981,28 @@ public class CombatService : ICombatService
         double lootFactor, float x, float y, float z, byte layer, IReadOnlyList<MonsterRewardGroup> contribution)
     {
         var reward = CombatRewards.Roll(monster.Rewards, _rates, _random, lootFactor);
+        if (_guildEvents?.Killed is not null)
+        {
+            _ = AwardGuildKillAsync(killer, instanceId, corpseHandle, monster, reward, x, y, z, layer, contribution);
+            return;
+        }
+        AwardReward(killer, instanceId, corpseHandle, monster, reward, x, y, z, layer, contribution);
+    }
+
+    private async Task AwardGuildKillAsync(GameClient killer, long instanceId, uint corpseHandle, MonsterInstance monster,
+        MonsterKillReward reward, float x, float y, float z, byte layer, IReadOnlyList<MonsterRewardGroup> contribution)
+    {
+        try
+        {
+            reward = await _guildEvents.OnKilledAsync(killer, monster, instanceId, reward);
+            AwardReward(killer, instanceId, corpseHandle, monster, reward, x, y, z, layer, contribution);
+        }
+        catch (Exception ex) { _logger.Error(ex, "Guild kill rewards failed for {Instance}", instanceId); }
+    }
+
+    private void AwardReward(GameClient killer, long instanceId, uint corpseHandle, MonsterInstance monster,
+        MonsterKillReward reward, float x, float y, float z, byte layer, IReadOnlyList<MonsterRewardGroup> contribution)
+    {
         if (reward.Gold > 0 && (!monster.IsDungeonRaidMonster || monster.MonsterType >= 13))
             _groundItemService.DropGoldForMonster(contribution.FirstOrDefault()?.Representative ?? killer,
                 reward.Gold, x, y, z, instanceId);

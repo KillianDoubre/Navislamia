@@ -23,13 +23,15 @@ public class WarpService : IWarpService
     private readonly Creatures.ICreatureService _creatures;
     private readonly IPlayerVisibilityService _playerVisibility;
     private readonly IGroundItemService _groundItems;
+    private readonly Dungeons.DungeonRooms _dungeons;
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
         IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
         IPlayerVisibilityService playerVisibility, IGroundItemService groundItems,
         Casting.ICastInterrupts casts = null, Compete.ICompeteService compete = null,
-        Creatures.ICreatureService creatures = null)
+        Creatures.ICreatureService creatures = null, Dungeons.DungeonRooms dungeons = null)
     {
+        _dungeons = dungeons;
         _creatures = creatures;
         _compete = compete;
         _casts = casts;
@@ -47,6 +49,9 @@ public class WarpService : IWarpService
     private readonly Compete.ICompeteService _compete;
 
     public void Warp(GameClient client, float x, float y)
+        => Warp(client, x, y, client.ConnectionInfo.Layer);
+
+    public void Warp(GameClient client, float x, float y, byte layer)
     {
         var info = client.ConnectionInfo;
 
@@ -61,6 +66,8 @@ public class WarpService : IWarpService
             info.TargetHandle = 0;
 
             LeaveEverything(client);
+
+            info.Layer = _dungeons?.OnWarp(client, x, y, layer) ?? layer;
 
             info.X = x;
             info.Y = y;

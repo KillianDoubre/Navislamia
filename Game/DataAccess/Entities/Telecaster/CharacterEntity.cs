@@ -17,6 +17,8 @@ public class CharacterEntity : Entity
 	public virtual PartyEntity Party { get; set; }
 	
 	public long? GuildId { get; set; }
+    public byte GuildPermission { get; set; }
+    public string GuildMemo { get; set; } = string.Empty;
 	public virtual GuildEntity Guild { get; set; }
 	
 	public long? PreviousGuildId { get; set; }

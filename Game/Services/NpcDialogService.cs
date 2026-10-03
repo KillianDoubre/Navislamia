@@ -29,11 +29,18 @@ public class NpcDialogService : INpcDialogService
     private readonly IQuestService _quests;
     private readonly Jobs.IJobChangeService _jobChange;
     private readonly Creatures.ICreatureDialogService _creatureDialogs;
+    private readonly Dungeons.IDungeonService _dungeons;
+    private readonly Dungeons.DungeonCatalog _dungeonCatalog;
+    private readonly Guilds.IGuildService _guilds;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
         IStorageService storageService, IMarketService marketService, IQuestService quests = null,
-        Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null)
+        Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null,
+        Dungeons.IDungeonService dungeons = null, Dungeons.DungeonCatalog dungeonCatalog = null, Guilds.IGuildService guilds = null)
     {
+        _guilds = guilds;
+        _dungeons = dungeons;
+        _dungeonCatalog = dungeonCatalog;
         _jobChange = jobChange;
         _creatureDialogs = creatureDialogs;
         _warpService = warpService;
@@ -65,6 +72,8 @@ public class NpcDialogService : INpcDialogService
                 return;
             }
         }
+
+        if (_guilds?.Contact(client, handle, (int)npcId) == true) return;
 
         // The master-class NPC's contact is a job change page of its own (NPC_master_partdevil_contact), absent
         // from the catalogue's contact list.
@@ -140,7 +149,13 @@ public class NpcDialogService : INpcDialogService
         // A teleport trigger carries its destination in the trigger itself, so it is resolved rather
         // than looked up as a follow-up dialog page. The guard above already proved the current
         // dialog advertised it.
+        if (_guilds?.Select(client, npcHandle, trigger) == true) return;
         var action = PropScript.Parse(trigger);
+        if (_dungeons is not null && Dungeons.DungeonService.Handles(action.Kind))
+        {
+            _ = SelectDungeonAsync(client, action);
+            return;
+        }
         if (_quests is not null && ReadFunctionName(trigger) is "set_quest_status" or "set_title_condition")
         {
             // Only an exact action from the current server-authored menu reaches Lua.
@@ -227,31 +242,78 @@ public class NpcDialogService : INpcDialogService
         }
     }
 
+    private async Task SelectDungeonAsync(GameClient client, PropAction action)
+    {
+        var result = await _dungeons.ExecuteAsync(client, action);
+        if (result != Navislamia.Game.Network.Packets.ResultCode.Success)
+            client.SendResult(3001, (ushort)result);
+    }
+
     private bool TryShow(GameClient client, uint npcHandle, string function)
     {
-        if (string.IsNullOrEmpty(function) || !_dialogs.TryGetValue(function, out var dialog))
-        {
-            return false;
-        }
-
         var info = client.ConnectionInfo;
         lock (info.NpcVisibilityLock)
         {
-            if (!info.SpawnedNpcIdsByHandle.ContainsKey(npcHandle))
+            if (!info.SpawnedNpcIdsByHandle.TryGetValue(npcHandle, out var npcId))
             {
                 return false;
             }
+
+            var dungeonId = 0;
+            _dungeonCatalog?.NpcDungeons.TryGetValue((int)npcId, out dungeonId);
+            NpcDialogDefinition definition;
+            if (function == "NPC_dungeon_siege_manager_contact" && dungeonId != 0)
+            {
+                definition = new NpcDialogDefinition { Title = "@90408501", Text = "@90408502" };
+                definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010121", Trigger = $"dungeon_information({dungeonId})" });
+                if (Dungeons.DungeonRules.SecretForOwner(dungeonId) != 0)
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90019007", Trigger = $"secret_dungeon_information({dungeonId})" });
+                AddDungeonEntry("Entrer dans le donjon", $"enter_dungeon({dungeonId})");
+                AddDungeonEntry("Commencer le raid de guilde", $"begin_dungeon_raid({dungeonId})");
+                AddDungeonEntry("Entrer dans le siege", $"warp_to_siege_dungeon({dungeonId})");
+                AddDungeonEntry("Rejoindre le donjon secret de ma guilde", "scf_teleport_to_owned_secret_dungeon()");
+                if (_guilds is not null && info.GuildId is > 0)
+                {
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Inscrire ma guilde au raid", Trigger = $"guild_dungeon_register({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Annuler l'inscription", Trigger = $"guild_dungeon_cancel({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Augmenter la taxe", Trigger = $"guild_dungeon_taxup({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Diminuer la taxe", Trigger = $"guild_dungeon_taxdown({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Collecter l'or", Trigger = $"guild_dungeon_gold({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Collecter les lak", Trigger = $"guild_dungeon_chaos({dungeonId})" });
+                }
+                definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010002", Trigger = "" });
+
+                void AddDungeonEntry(string label, string trigger)
+                {
+                    if (_dungeons?.Check(client, PropScript.Parse(trigger)) == Navislamia.Game.Network.Packets.ResultCode.Success)
+                        definition.Menu.Add(new NpcDialogMenuEntry { Label = label, Trigger = trigger });
+                }
+            }
+            else if (!string.IsNullOrEmpty(function) && _dialogs.TryGetValue(function, out var dialog))
+                definition = dialog.Definition;
+            else return false;
+
+            // The Lua exporter retained only the prefix of concatenated dungeon arguments. Recover it
+            // from the contacted NPC, never from client-supplied Lua or a global last-selected dungeon.
+            var menu = definition.Menu.Select(entry => new NpcDialogMenuEntry
+            {
+                Label = entry.Label,
+                Trigger = dungeonId != 0 && entry.Trigger.TrimEnd().EndsWith('(')
+                    && (ReadFunctionName(entry.Trigger).StartsWith("question_secret_dungeon_", StringComparison.Ordinal)
+                        || ReadFunctionName(entry.Trigger) is "secret_dungeon_information" or "NPC_dungeon_siege_manager_contact" or "dungeon_information")
+                    ? entry.Trigger + dungeonId + ")" : entry.Trigger
+            }).ToArray();
 
             info.NpcDialogHandle = npcHandle;
             info.NpcDialogRevision++;
             info.NpcQuestCode = 0;
             info.NpcDialogTriggers.Clear();
-            foreach (var trigger in dialog.Triggers)
+            foreach (var trigger in menu.Select(m => m.Trigger).Where(t => t.Length > 0))
             {
                 info.NpcDialogTriggers.Add(trigger);
             }
 
-            client.Connection.Send(GameNpcDialogPackets.CopyWithNpcHandle(dialog.PacketTemplate, npcHandle));
+            client.Connection.Send(GameNpcDialogPackets.BuildDialog(npcHandle, definition.Title, definition.Text, menu));
         }
         return true;
     }

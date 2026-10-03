@@ -428,7 +428,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             Name = info.CharacterName,
             JobId = (ushort)info.CharacterJob,
             RideHandle = 0,
-            GuildId = 0,
+            GuildId = (uint)(info.GuildId ?? 0),
         };
 
         return new Packet<TS_SC_ENTER_PLAYER>((ushort)GamePackets.TM_SC_ENTER, enter).Data;
