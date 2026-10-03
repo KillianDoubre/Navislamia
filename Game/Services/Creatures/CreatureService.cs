@@ -66,6 +66,29 @@ public interface ICreatureService
 
     /// <summary>452: the skills of a card's summon.</summary>
     void SendCardSkillList(GameClient client, uint itemHandle);
+
+    /// <summary><c>/ride &lt;handle&gt;</c>: the master mounts its summon.</summary>
+    bool Mount(GameClient client, uint summonHandle);
+
+    /// <summary><c>/unride</c>, or a fall.</summary>
+    void Unmount(GameClient client, sbyte flag = 0);
+
+    /// <summary>The speed byte of a rider, null when not riding.</summary>
+    byte? RidingSpeed(ConnectionInfo info);
+
+    IReadOnlyList<CreatureCard> FormedCards(ConnectionInfo info);
+
+    CreatureCard FindCard(ConnectionInfo info, uint cardHandle);
+
+    bool IsOut(ConnectionInfo info, CreatureCard card);
+
+    int FormOf(CreatureCard card);
+
+    (int Hp, int MaxHp, int Mp, int MaxMp) VitalsOf(GameClient client, CreatureCard card);
+
+    void SetSummonVitals(GameClient master, CreatureCard card, int hp, int mp);
+
+    bool Evolve(GameClient client, CreatureCard card);
 }
 
 /// <summary>A summon in the world as a monster fights it: where it is, how alive it is, and its body and stats.</summary>
@@ -98,6 +121,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private readonly Dictionary<uint, SummonMove> _moves = new();
     private readonly Dictionary<uint, SummonSwing> _swings = new();
     private readonly SkillCatalog _skillTrees;
+    private readonly IPkFieldService _pkFields;
     private readonly ISkillPassiveCatalog _passives;
     private readonly Rates.IRateService _rates;
 
@@ -109,8 +133,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         ICombatService combat, SummonWorldService summons, IPlayerVisibilityService players = null,
         IPartyService parties = null, IBuffCatalog skills = null, CreatureEvents events = null,
         ICombatRandom random = null, bool runTicks = true, SkillCatalog skillTrees = null,
-        ISkillPassiveCatalog passives = null, Rates.IRateService rates = null)
+        ISkillPassiveCatalog passives = null, Rates.IRateService rates = null, IPkFieldService pkFields = null)
     {
+        _pkFields = pkFields;
         _skillTrees = skillTrees;
         _passives = passives;
         _rates = rates;
@@ -253,6 +278,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
         // The summons' exp, level and vitals go with the master's save (Summons rows, DB_UpdateSummon).
         var info = client.ConnectionInfo;
+        info.RideHandle = 0;
         foreach (var (card, presence) in OutCards(info))
         {
             card.Hp = presence.Hp;
@@ -623,6 +649,13 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         var frame = GameStatPackets.BuildHpMp(summonHandle, -Math.Max(0, damage), hp, maxHp, 0, mp, maxMp);
         master.Connection.Send(frame);
         _players?.SendToObservers(master, frame);
+
+        // StructSummon::onDamage: a hit on the mount throws its rider off 30 times in 100.
+        if (!died && damage > 0 && info.RideHandle == summonHandle && _random.Next(100) <= UnmountProbabilityOnDamage)
+        {
+            Unmount(master, UnmountFall);
+        }
+
         if (died)
         {
             OnSummonDeath(master, summonHandle, byMonster);
@@ -665,6 +698,11 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         }
 
         _world.ForgetSummon(master, summonHandle);
+        if (info.RideHandle == summonHandle)
+        {
+            Unmount(master, UnmountFall);
+        }
+
         if (card is null)
         {
             return;
@@ -984,6 +1022,246 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     /// <summary>Whether a summon may be ridden: it learned Creature Riding (11001).</summary>
     public static bool IsRidable(CreatureCard card) => card.Skills.ContainsKey(CreatureRidingSkill);
 
+    // ---- mount ---------------------------------------------------------------------------------------------------
+
+    public const sbyte UnmountNormal = 0;
+    public const sbyte UnmountFall = 1;
+    public const sbyte UnmountUnsummon = 2;
+
+    /// <summary><c>GameRule::DEFAULT_UNMOUNT_PROBABILITY_ON_DAMAGE</c>: the chance in 100 a hit throws the rider off.</summary>
+    public const int UnmountProbabilityOnDamage = 30;
+
+    /// <summary><c>GameRule::UNMOUNT_PENALTY</c>: a fall costs 5 % of the rider's max HP.</summary>
+    public const float UnmountPenalty = 0.05f;
+
+    /// <summary>The location types a summon cannot be ridden in (<c>IsMountable</c>: secret and instance dungeons,
+    /// battle arena, prayer hall).</summary>
+    private static readonly short[] UnmountableLocations = { 12, 14, 15, 16 };
+
+    /// <summary>
+    /// <c>/ride &lt;handle&gt;</c>, <c>StructPlayer::MountSummon</c>: the master, able to act, not sitting, not in a
+    /// dungeon, mounts its summon out in the world when it is alive and learned Creature Riding. 320 to everyone who
+    /// sees the master on success, to the master alone (success 0) otherwise.
+    /// </summary>
+    public bool Mount(GameClient client, uint summonHandle)
+    {
+        var info = client.ConnectionInfo;
+        var presence = Array.Find(info.Summons, s => s.Handle == summonHandle);
+        CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == summonHandle);
+        }
+
+        var (x, y) = info.PositionAt(ServerClock.Now);
+        var mountable = info.RideHandle == 0 && info.CharacterHp > 0 && !info.IsSitting
+                        && presence is { Hp: > 0 } && card is not null && IsRidable(card)
+                        && !Progression.MonsterRewardBonuses.InDungeon(x, y)
+                        && Array.IndexOf(UnmountableLocations, _pkFields?.LocationType(info) ?? (short)0) < 0;
+        if (!mountable)
+        {
+            client.Connection.Send(GameSummonPackets.BuildMountSummon(info.CharacterHandle, summonHandle, 0, 0, false));
+            return false;
+        }
+
+        info.RideHandle = summonHandle;
+        _combat.StopAttack(client);
+        lock (_lock)
+        {
+            _swings.Remove(summonHandle);
+        }
+
+        var frame = GameSummonPackets.BuildMountSummon(info.CharacterHandle, summonHandle, x, y, true);
+        client.Connection.Send(frame);
+        _players?.SendToObservers(client, frame);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>StructPlayer::UnMount</c>: 321 to everyone who sees the master; a fall (<see cref="UnmountFall"/>) costs the
+    /// living rider 5 % of their max HP.
+    /// </summary>
+    public void Unmount(GameClient client, sbyte flag = UnmountNormal)
+    {
+        var info = client.ConnectionInfo;
+        var summonHandle = info.RideHandle;
+        if (summonHandle == 0)
+        {
+            return;
+        }
+
+        info.RideHandle = 0;
+        var frame = GameSummonPackets.BuildUnmountSummon(info.CharacterHandle, summonHandle, flag);
+        client.Connection.Send(frame);
+        _players?.SendToObservers(client, frame);
+        if (flag == UnmountFall && info.CharacterHp > 0)
+        {
+            _combat.DamagePlayer(client, (int)(Math.Max(0, info.CharacterMaxHp) * UnmountPenalty));
+        }
+    }
+
+    /// <summary>
+    /// The speed byte of a rider (<c>StructSummon::GetRidingMoveSpeed</c>: <c>riding_speed / 7 × m_fRideSpeedMod</c>,
+    /// the modifier 0.9 plus Creature Riding's <c>var0 + var1 × level</c>, at most 1), null when not riding. The rider
+    /// keeps its own speed when that is faster (<c>IsApplyingFasterSpeedInRiding</c>).
+    /// </summary>
+    public byte? RidingSpeed(ConnectionInfo info)
+    {
+        var summonHandle = info.RideHandle;
+        if (summonHandle == 0)
+        {
+            return null;
+        }
+
+        CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == summonHandle);
+        }
+
+        if (card is null || !_catalog.TryGetSummon(card.SummonCode, out var resource))
+        {
+            return null;
+        }
+
+        var level = card.Skills.GetValueOrDefault(CreatureRidingSkill);
+        var (var0, var1) = (0.1m, 0.01m);
+        if (_skills is not null && _skills.TryGet(CreatureRidingSkill, out var fields) && fields.Vars is { Length: >= 2 } vars)
+        {
+            (var0, var1) = (vars[0], vars[1]);
+        }
+
+        var modifier = Math.Min(1m, 0.9m + var0 + var1 * level);
+        return (byte)Math.Clamp((int)(resource.RidingSpeed / 7m * modifier), 0, byte.MaxValue);
+    }
+
+    public void OnPlayerDamaged(GameClient player, int damage, bool died)
+    {
+        var info = player.ConnectionInfo;
+        if (info.RideHandle == 0)
+        {
+            return;
+        }
+
+        // StructPlayer::onDead / onDamage: a dead rider falls, a hit rider falls 30 times in 100.
+        if (died || (damage > 0 && _random.Next(100) <= UnmountProbabilityOnDamage))
+        {
+            Unmount(player, UnmountFall);
+        }
+    }
+
+    // ---- the creature keeper's dialogs ---------------------------------------------------------------------
+
+    /// <summary>The summons of the formation, in slot order (<c>get_creature_handle(0..5)</c>).</summary>
+    public IReadOnlyList<CreatureCard> FormedCards(ConnectionInfo info)
+    {
+        lock (info.SummonLock)
+        {
+            return info.SummonSlots.Where(id => id != 0)
+                .Select(id => info.CreatureCards.GetValueOrDefault(id))
+                .Where(card => card is { HasSummon: true })
+                .ToList();
+        }
+    }
+
+    public CreatureCard FindCard(ConnectionInfo info, uint cardHandle)
+    {
+        lock (info.SummonLock)
+        {
+            return info.CreatureCards.Values.FirstOrDefault(c => c.Handle == cardHandle && c.HasSummon);
+        }
+    }
+
+    public bool IsOut(ConnectionInfo info, CreatureCard card) => IsCardInWorld(info, card.ItemId);
+
+    /// <summary>The summon's evolution depth (<c>evolution_depth</c>: 1 basic, 2 grown, 3 evolved).</summary>
+    public int FormOf(CreatureCard card) =>
+        _catalog.TryGetSummon(card.SummonCode, out var resource) ? Math.Max(1, resource.Form) : 1;
+
+    /// <summary>The summon's HP and MP with their maxima, out in the world or kept in its card.</summary>
+    public (int Hp, int MaxHp, int Mp, int MaxMp) VitalsOf(GameClient client, CreatureCard card)
+    {
+        var info = client.ConnectionInfo;
+        var presence = Array.Find(info.Summons, s => s.Handle == card.SummonHandle);
+        if (presence is not null)
+        {
+            lock (info.SummonLock)
+            {
+                return (presence.Hp, (int)presence.Stats.MaxHp, presence.Mp, (int)presence.Stats.MaxMp);
+            }
+        }
+
+        if (!_catalog.TryGetSummon(card.SummonCode, out var resource))
+        {
+            return (0, 0, 0, 0);
+        }
+
+        var stats = StatsOf(info, card, resource);
+        var (hp, mp) = Vitals(card, stats);
+        return (hp, (int)stats.MaxHp, mp, (int)stats.MaxMp);
+    }
+
+    /// <summary>
+    /// <c>StructSummon::DoEvolution</c> through <c>Creature_Evolution_exe</c>: a summon kept in its card, at level 50
+    /// in its first form or 100 in its second, becomes its <c>evolve_target</c>; the form it leaves and the level it
+    /// reached are kept (<c>ev_N_ID</c>/<c>ev_N_level</c>), the level stays, the stats follow, and the master gets
+    /// 307, the stats, vitals, level and exp of the summon. False when it may not evolve.
+    /// </summary>
+    public bool Evolve(GameClient client, CreatureCard card)
+    {
+        var info = client.ConnectionInfo;
+        if (!_catalog.TryGetSummon(card.SummonCode, out var resource) || resource.EvolveTarget == 0
+            || !_catalog.TryGetSummon(resource.EvolveTarget, out var target) || IsCardInWorld(info, card.ItemId))
+        {
+            return false;
+        }
+
+        var form = Math.Max(1, resource.Form);
+        var evolvable = form switch
+        {
+            1 => card.Level >= SummonProgression.NormalEvolveLevel,
+            2 => card.Level >= SummonProgression.GrowthEvolveLevel,
+            _ => false
+        };
+        if (!evolvable)
+        {
+            return false;
+        }
+
+        int previousHp, previousMp;
+        lock (info.SummonLock)
+        {
+            previousHp = card.Hp;
+            previousMp = card.Mp;
+            card.PreviousSummonIds[form - 1] = card.SummonCode;
+            card.PreviousLevels[form - 1] = card.Level;
+            card.SummonCode = target.Id;
+        }
+
+        var stats = StatsOf(info, card, target);
+        var (hp, mp) = Vitals(card, stats);
+        lock (info.SummonLock)
+        {
+            card.Hp = hp;
+            card.Mp = mp;
+            card.HpKnown = true;
+        }
+
+        if (card.SummonHandle != 0)
+        {
+            client.Connection.Send(GameSummonPackets.BuildSummonEvolution(card.Handle, card.SummonHandle,
+                card.SummonName, target.Id));
+            client.Connection.Send(GameStatPackets.BuildStatInfo(card.SummonHandle, stats, StatInfoType.Total));
+            client.Connection.Send(GameStatPackets.BuildHpMp(card.SummonHandle, hp - previousHp, hp, (int)stats.MaxHp,
+                mp - previousMp, mp, (int)stats.MaxMp));
+            client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(card.SummonHandle, card.Level, card.Level));
+            client.Connection.Send(GameCharacterPackets.BuildExpUpdate(card.SummonHandle, card.Exp, card.Jp));
+        }
+
+        _ = SaveProgressAsync(info, new[] { card });
+        return true;
+    }
+
     // ---- taming -----------------------------------------------------------------------------------------------
 
     public ResultCode CheckTaming(ConnectionInfo info, long instanceId)
@@ -1169,6 +1447,14 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             tamer.Connection.Send(commit.RemainingAmount > 0
                 ? GameCharacterPackets.BuildUpdateItemCount(card.Handle, commit.RemainingAmount)
                 : GameCharacterPackets.BuildDestroyItem(card.Handle));
+            if (commit.MirrorItemId is { } mirror)
+            {
+                // The broken Mirror of Taming Card, and its "@243" on the item line (ProcTame).
+                tamer.Connection.Send(commit.MirrorRemaining > 0
+                    ? GameCharacterPackets.BuildUpdateItemCount((uint)mirror, commit.MirrorRemaining)
+                    : GameCharacterPackets.BuildDestroyItem((uint)mirror));
+                tamer.Connection.Send(GameChatPackets.BuildChat("@SYSTEM", (byte)ChatType.Item, "@243"));
+            }
             if (commit.NewCard is not null)
             {
                 foreach (var frame in GameCharacterPackets.BuildInventory(new[] { commit.NewCard }))
@@ -1459,6 +1745,10 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         }
 
         _world.ForgetSummon(client, card.SummonHandle);
+        if (info.RideHandle == card.SummonHandle)
+        {
+            Unmount(client, UnmountUnsummon);
+        }
 
         // The card keeps the vitals its summon leaves with.
         if (Array.Find(info.Summons, s => s.Handle == card.SummonHandle) is { } presence)
@@ -1593,7 +1883,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         ReadOnlySpan<byte> waypoints)
     {
         var info = client.ConnectionInfo;
-        if (!OwnsSummon(client, summonHandle) || IsDeadSummon(info, summonHandle))
+        if (!OwnsSummon(client, summonHandle) || IsDeadSummon(info, summonHandle) || info.RideHandle == summonHandle)
         {
             return;
         }
@@ -1628,7 +1918,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     public void SummonAttack(GameClient client, uint summonHandle, uint targetHandle)
     {
         var info = client.ConnectionInfo;
-        if (!OwnsSummon(client, summonHandle) || IsDeadSummon(info, summonHandle))
+        if (!OwnsSummon(client, summonHandle) || IsDeadSummon(info, summonHandle) || info.RideHandle == summonHandle)
         {
             return;
         }

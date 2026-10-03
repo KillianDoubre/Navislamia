@@ -26,6 +26,9 @@ public interface ICreatureEvents
 
     /// <summary><c>StructPlayer::distributeExpToSummons</c>: the master gained hunting exp; its summons get their share.</summary>
     void ExperienceGained(GameClient player, long exp);
+
+    /// <summary>A player took damage (and may have died): a rider can fall.</summary>
+    void PlayerDamaged(GameClient player, int damage, bool died);
 }
 
 public interface ICreatureEventListener
@@ -37,6 +40,8 @@ public interface ICreatureEventListener
     long OnLimitPlayerExperience(GameClient player, long exp);
 
     void OnExperienceGained(GameClient player, long exp);
+
+    void OnPlayerDamaged(GameClient player, int damage, bool died);
 }
 
 public sealed class CreatureEvents : ICreatureEvents
@@ -53,4 +58,7 @@ public sealed class CreatureEvents : ICreatureEvents
         _listener?.OnLimitPlayerExperience(player, exp) ?? exp;
 
     public void ExperienceGained(GameClient player, long exp) => _listener?.OnExperienceGained(player, exp);
+
+    public void PlayerDamaged(GameClient player, int damage, bool died) =>
+        _listener?.OnPlayerDamaged(player, damage, died);
 }

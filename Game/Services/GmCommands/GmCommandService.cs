@@ -43,12 +43,15 @@ public class GmCommandService : IGmCommandService
     private readonly IRateService _rateService;
     private readonly Progression.ITitleService _titles;
 
+    private readonly Creatures.ICreatureService _creatures;
+
     public GmCommandService(IWarpService warpService, ICombatService combatService,
         ILevelingService levelingService, IStatService statService, ICharacterService characterService,
         IItemSortCatalog itemCatalog, MonsterWorldState monsterState, SkillCatalog skillCatalog,
         ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService,
-        Progression.ITitleService titles = null)
+        Progression.ITitleService titles = null, Creatures.ICreatureService creatures = null)
     {
+        _creatures = creatures;
         _rateService = rateService;
         _titles = titles;
         _warpService = warpService;
@@ -145,6 +148,29 @@ public class GmCommandService : IGmCommandService
                 _combatService.StopAttack(client);
                 info.IsSitting = true;
                 client.SendActorStatus();
+                break;
+
+            case GmCommand.Ride:
+                // onCheatRide: the summon's handle as the last token (the client's mount button sends it).
+                if (line.Args.Length == 0 || !uint.TryParse(line.Args[^1], out var rideHandle) || _creatures is null)
+                {
+                    Usage(client, definition);
+                    break;
+                }
+
+                // How the 7.3 client asks to get off is not established (it carries "/ride %u" and no
+                // "/unride"): a /ride while riding, on handle 0 or on the mount itself, gets off.
+                if (info.RideHandle != 0 && (rideHandle == 0 || rideHandle == info.RideHandle))
+                {
+                    _creatures.Unmount(client);
+                    break;
+                }
+
+                _creatures.Mount(client, rideHandle);
+                break;
+
+            case GmCommand.Unride:
+                _creatures?.Unmount(client);
                 break;
 
             case GmCommand.Standup:

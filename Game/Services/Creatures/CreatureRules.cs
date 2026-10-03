@@ -32,6 +32,12 @@ public static class CreatureRules
 
     public static uint SummonCardMask => TamingRules.SummonCardMask;
 
+    /// <summary>
+    /// <c>ITEM_CODE_MIRROR_OF_TAMING_CARD_ON_TEST</c>, <c>…_CARD</c> and <c>…_TRADABLE</c>, in the order
+    /// <c>ProcTame</c> looks for them: the first one found is broken by the draw and protects the card from a failure.
+    /// </summary>
+    public static readonly int[] MirrorOfTamingCards = { 9000111, 960019, 960021 };
+
     public static ItemFlag WithSummonFlag(ItemFlag flag) =>
         (ItemFlag)unchecked((int)(Raw(flag) | TamingRules.SummonCardMask));
 

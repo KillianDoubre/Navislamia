@@ -149,6 +149,9 @@ public class ConnectionInfo
     /// <summary>The monster being tamed (<c>StructPlayer::GetTamingTarget</c>), -1 for none.</summary>
     public long TamingTargetInstanceId { get; set; } = -1;
 
+    /// <summary>The handle of the summon the character rides (<c>m_nRideIdx</c>), 0 when on foot.</summary>
+    public uint RideHandle { get; set; }
+
     /// <summary>
     /// The pet the character has out, called by its cage (<c>PetSummonService</c>), or null. Guarded by
     /// <see cref="PetLock"/>: an item use and a warp can both move it. The player visibility reads the
@@ -617,6 +620,7 @@ public class ConnectionInfo
         MainSummonCardId = 0;
         TamingCardItemId = 0;
         TamingTargetInstanceId = -1;
+        RideHandle = 0;
         ActivePet = null;
         Summons = Array.Empty<Navislamia.Game.Services.SummonPresence>();
         PetPickupFilter = 0;

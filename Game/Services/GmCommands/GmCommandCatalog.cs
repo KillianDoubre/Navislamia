@@ -35,7 +35,9 @@ public enum GmCommand
     Chaos,
     Rate,
     Rates,
-    GameTime
+    GameTime,
+    Ride,
+    Unride
 }
 
 /// <summary>
@@ -57,6 +59,7 @@ public static class GmCommandCatalog
     public const string FromNgemity = "NGemity";
     public const string FromLua = "NGemity Lua";
     public const string FromRepository = "Navislamia";
+    public const string FromOfficial = "Official server (GameMessage.cpp command table)";
 
     public static IReadOnlyList<GmCommandDefinition> All { get; } = new[]
     {
@@ -65,6 +68,8 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Title, "title", false, "/title <id|0>", FromRepository),
         new GmCommandDefinition(GmCommand.Position, "position", false, "/position", FromNgemity),
         new GmCommandDefinition(GmCommand.Sitdown, "sitdown", false, "/sitdown", FromNgemity),
+        new GmCommandDefinition(GmCommand.Ride, "ride", false, "/ride <summon handle>", FromOfficial),
+        new GmCommandDefinition(GmCommand.Unride, "unride", false, "/unride", FromOfficial),
         new GmCommandDefinition(GmCommand.Standup, "standup", false, "/standup", FromNgemity),
         new GmCommandDefinition(GmCommand.Battle, "battle", false, "/battle [on|off]", FromNgemity),
         new GmCommandDefinition(GmCommand.Walk, "walk", false, "/walk [on|off]", FromNgemity),

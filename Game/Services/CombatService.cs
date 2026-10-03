@@ -460,6 +460,11 @@ public class CombatService : ICombatService
         var wasAlive = MonsterAiRules.IsAlive(info.CharacterHp);
         info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
         target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+        if (wasAlive)
+        {
+            // A rider hit, or killed, can fall off its summon (StructPlayer::onDamage / onDead).
+            _creatures?.PlayerDamaged(target, damage, !MonsterAiRules.IsAlive(info.CharacterHp));
+        }
 
         if (wasAlive && !MonsterAiRules.IsAlive(info.CharacterHp))
         {

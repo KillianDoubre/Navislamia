@@ -374,6 +374,8 @@ public class Program
         services.AddSingleton<INpcSpawnService, NpcSpawnService>();
         services.AddSingleton<Navislamia.Game.Services.Jobs.IJobChangeService,
             Navislamia.Game.Services.Jobs.JobChangeService>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureDialogService,
+            Navislamia.Game.Services.Creatures.CreatureDialogService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<IMarketCatalog, MarketCatalog>();
         services.AddSingleton<IMarketService, MarketService>();

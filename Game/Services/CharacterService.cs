@@ -1097,24 +1097,51 @@ public class CharacterService : ICharacterService
                 return null;
             }
 
-            // EraseItem(pItem, 1): one card of the stack, the empty one the taming marked.
-            long remaining;
-            if (card.Amount > 1)
+            // ProcTame: a Mirror of Taming Card in the bag is broken by the draw whatever its outcome (test, untradable,
+            // tradable, in that order), and protects the card from a failure.
+            ItemEntity mirror = null;
+            foreach (var code in Creatures.CreatureRules.MirrorOfTamingCards)
             {
-                card.Amount--;
-                remaining = card.Amount;
+                mirror = character.Items.FirstOrDefault(item => item.ItemResourceId == code && item.Amount >= 1
+                                                                 && item.WearInfo == ItemWearType.None);
+                if (mirror is not null)
+                {
+                    break;
+                }
             }
-            else
+
+            long? mirrorId = null;
+            long mirrorRemaining = 0;
+            if (mirror is not null)
             {
-                character.Items.Remove(card);
-                repository.DeleteItem(card);
-                remaining = 0;
+                mirrorId = mirror.Id;
+                mirrorRemaining = Consume(mirror);
+            }
+
+            // EraseItem(pItem, 1): one card of the stack, the empty one the taming marked — unless a mirror kept it.
+            long remaining = card.Amount;
+            if (success || mirror is null)
+            {
+                remaining = Consume(card);
             }
 
             if (!success)
             {
                 await repository.SaveChangesAsync();
-                return new TamingCommit(cardItemId, remaining, null, null);
+                return new TamingCommit(cardItemId, remaining, null, null) { MirrorItemId = mirrorId, MirrorRemaining = mirrorRemaining };
+            }
+
+            long Consume(ItemEntity item)
+            {
+                if (item.Amount > 1)
+                {
+                    item.Amount--;
+                    return item.Amount;
+                }
+
+                character.Items.Remove(item);
+                repository.DeleteItem(item);
+                return 0;
             }
 
             // AllocItem(0, code, 1, BY_TAMING) with ITEM_FLAG_SUMMON: a bound card no longer stacks.
@@ -1135,7 +1162,7 @@ public class CharacterService : ICharacterService
             var summon = NewSummon(character, bound.Id, summonCode, summonName, hp, mp);
             repository.AddSummon(summon);
             await repository.SaveChangesAsync();
-            return new TamingCommit(cardItemId, remaining, bound, summon);
+            return new TamingCommit(cardItemId, remaining, bound, summon) { MirrorItemId = mirrorId, MirrorRemaining = mirrorRemaining };
         });
     }
 

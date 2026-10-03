@@ -239,4 +239,9 @@ public sealed record SummonProgress(long SummonId, int SummonResourceId, int Lev
 /// A taming committed: the taming card left with <see cref="RemainingAmount"/> units (0 = deleted), and on success
 /// the new bound card and its summon.
 /// </summary>
-public sealed record TamingCommit(long ConsumedItemId, long RemainingAmount, ItemEntity NewCard, SummonEntity Summon);
+public sealed record TamingCommit(long ConsumedItemId, long RemainingAmount, ItemEntity NewCard, SummonEntity Summon)
+{
+    /// <summary>The Mirror of Taming Card the draw broke, if one was in the bag, and what is left of its stack.</summary>
+    public long? MirrorItemId { get; init; }
+    public long MirrorRemaining { get; init; }
+}

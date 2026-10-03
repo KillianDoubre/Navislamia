@@ -243,6 +243,12 @@ public class GameClient : Client
         // use it (docs/packet-specs/socle-vitesse-echo.md, socle-poids.md).
         var speed = _networkService.CarriedWeightService?.RealMoveSpeed(ConnectionInfo)
                     ?? ConnectionInfo.EchoedMoveSpeed;
+        // A rider moves at its mount's speed when that is faster (StructSummon::GetRidingMoveSpeed).
+        if (_networkService.CreatureService?.RidingSpeed(ConnectionInfo) is { } riding && riding > speed)
+        {
+            speed = riding;
+        }
+
         ConnectionInfo.MoveSpeed = speed;
         var total = 7 + 12 + count * 8;
         var packet = new byte[total];

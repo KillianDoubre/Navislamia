@@ -28,12 +28,14 @@ public class NpcDialogService : INpcDialogService
     private readonly IMarketService _marketService;
     private readonly IQuestService _quests;
     private readonly Jobs.IJobChangeService _jobChange;
+    private readonly Creatures.ICreatureDialogService _creatureDialogs;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
         IStorageService storageService, IMarketService marketService, IQuestService quests = null,
-        Jobs.IJobChangeService jobChange = null)
+        Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null)
     {
         _jobChange = jobChange;
+        _creatureDialogs = creatureDialogs;
         _warpService = warpService;
         _storageService = storageService;
         _marketService = marketService;
@@ -193,6 +195,13 @@ public class NpcDialogService : INpcDialogService
         }
 
         var function = ReadFunctionName(trigger);
+
+        // The creature keeper's pages (care, revival, evolution) depend on the summons, so they are built here too.
+        if (_creatureDialogs is not null && Creatures.CreatureDialogService.Handles(function))
+        {
+            SelectCreatureDialog(client, npcHandle, function, trigger);
+            return;
+        }
 
         // The job change pages depend on the character (race, job, levels, quests), so they are built here rather
         // than read from the catalogue; their triggers were advertised like any other.
@@ -364,6 +373,42 @@ public class NpcDialogService : INpcDialogService
             }
         }
         catch (Exception exception) { _logger.Error(exception, "Could not handle quest dialog selection"); }
+    }
+
+    private void SelectCreatureDialog(GameClient client, uint handle, string function, string trigger)
+    {
+        var info = client.ConnectionInfo;
+        int npcId;
+        long revision;
+        lock (info.NpcVisibilityLock)
+        {
+            if (info.NpcDialogHandle != handle || !info.SpawnedNpcIdsByHandle.TryGetValue(handle, out var id))
+            {
+                return;
+            }
+
+            npcId = (int)id;
+            revision = info.NpcDialogRevision;
+        }
+
+        try
+        {
+            var step = _creatureDialogs.Select(client, npcId, function, trigger);
+            if (step.Page is { } page)
+            {
+                ShowDynamic(client, handle, revision, page, 0, 0);
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not handle creature keeper dialog {function}", function);
+        }
+
+        lock (info.NpcVisibilityLock)
+        {
+            info.ClearNpcDialog();
+        }
     }
 
     private async Task SelectJobChangeAsync(GameClient client, uint handle, long revision, string function,

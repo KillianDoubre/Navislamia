@@ -23,4 +23,7 @@ public enum ChatType : byte
     /// sender <c>@SYSTEM</c> (<c>AllowedCommandInfo.cpp</c>, <c>onCheatPosition</c>).
     /// </summary>
     System = 0x1E,
+
+    /// <summary><c>CHAT_ITEM</c> (32): the item line, sender <c>@SYSTEM</c> (the official server's item messages).</summary>
+    Item = 0x20,
 }
