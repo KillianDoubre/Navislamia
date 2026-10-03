@@ -153,6 +153,14 @@ public class ConnectionInfo
     public uint RideHandle { get; set; }
 
     /// <summary>
+    /// <c>m_nTurnOnPkModeTime</c>/<c>m_nTurnOffPkModeTime</c>: the ar_time ticks at which a requested PK switch takes
+    /// effect, 0 when none is pending, both under <see cref="PkModeLock"/>.
+    /// </summary>
+    public uint TurnOnPkAt { get; set; }
+    public uint TurnOffPkAt { get; set; }
+    public object PkModeLock { get; } = new();
+
+    /// <summary>
     /// The pet the character has out, called by its cage (<c>PetSummonService</c>), or null. Guarded by
     /// <see cref="PetLock"/>: an item use and a warp can both move it. The player visibility reads the
     /// reference <b>without</b> that lock (a reference read is atomic): it holds an observer's visibility lock
@@ -621,6 +629,8 @@ public class ConnectionInfo
         TamingCardItemId = 0;
         TamingTargetInstanceId = -1;
         RideHandle = 0;
+        TurnOnPkAt = 0;
+        TurnOffPkAt = 0;
         ActivePet = null;
         Summons = Array.Empty<Navislamia.Game.Services.SummonPresence>();
         PetPickupFilter = 0;

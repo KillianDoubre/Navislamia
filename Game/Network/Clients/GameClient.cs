@@ -660,6 +660,13 @@ public class GameClient : Client
             return;
         }
 
+        // The official switch (onTurnOnPkMode): a PK field only, a 10-second countdown, a result either way.
+        if (_networkService.PkModeService is { } pk)
+        {
+            SendResult((ushort)GamePackets.TM_CS_TURN_ON_PK_MODE, (ushort)pk.RequestOn(this));
+            return;
+        }
+
         var wasPkOn = ConnectionInfo.PkMode;
         ConnectionInfo.PkMode = true;
         if (!wasPkOn) _networkService.CombatService.OnPkEnabled(this);
@@ -691,6 +698,13 @@ public class GameClient : Client
         {
             _logger.Warning("Malformed TM_CS_TURN_OFF_PK_MODE ({id}) Length: {length} received from {clientTag}",
                 (ushort)GamePackets.TM_CS_TURN_OFF_PK_MODE, buffer.Length, ClientTag);
+            return;
+        }
+
+        // The official switch (onTurnOffPkMode): a 30-second countdown, a result either way.
+        if (_networkService.PkModeService is { } pk)
+        {
+            SendResult((ushort)GamePackets.TM_CS_TURN_OFF_PK_MODE, (ushort)pk.RequestOff(this));
             return;
         }
 

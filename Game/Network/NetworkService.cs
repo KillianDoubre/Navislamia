@@ -46,6 +46,9 @@ public class NetworkService : INetworkService
 
     /// <summary>Taming, formation and summoning; null in harnesses that do not build it.</summary>
     public readonly Navislamia.Game.Services.Creatures.ICreatureService CreatureService;
+
+    /// <summary>The PK switch and its countdown (800/801).</summary>
+    public readonly Navislamia.Game.Services.IPkModeService PkModeService;
     public readonly ISkillCardService SkillCardService;
     public readonly IEventAreaService EventAreaService;
     public readonly IResurrectionService ResurrectionService;
@@ -101,8 +104,10 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Trade.IPlayerTradeService playerTradeService,
         Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService,
         Navislamia.Game.Services.Compete.ICompeteService competeService = null,
-        Navislamia.Game.Services.Creatures.ICreatureService creatureService = null)
+        Navislamia.Game.Services.Creatures.ICreatureService creatureService = null,
+        Navislamia.Game.Services.IPkModeService pkModeService = null)
     {
+        PkModeService = pkModeService;
         CompeteService = competeService;
         CreatureService = creatureService;
         CarriedWeightService = carriedWeightService;

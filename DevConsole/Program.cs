@@ -377,6 +377,7 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureDialogService,
             Navislamia.Game.Services.Creatures.CreatureDialogService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();
+        services.AddSingleton<IPkModeService, PkModeService>();
         services.AddSingleton<IMarketCatalog, MarketCatalog>();
         services.AddSingleton<IMarketService, MarketService>();
         services.AddSingleton<IMarketTradeService, MarketTradeService>();
