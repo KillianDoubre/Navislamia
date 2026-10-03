@@ -721,13 +721,18 @@ public class CharacterService : ICharacterService
 
     public Task<CraftCommitResult> ApplyCraftWithCreationAsync(string characterName,
         IReadOnlyList<CraftConsumption> consumed, IReadOnlyList<CraftCreation> created) =>
-        ApplyCraftAsync(characterName, consumed, null, created);
+        ApplyCraftAsync(characterName, consumed, null, created, null, 0);
 
     public Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
-        CraftTargetChange? change) => ApplyCraftAsync(characterName, consumed, change, null);
+        CraftTargetChange? change) => ApplyCraftAsync(characterName, consumed, change, null, null, 0);
+
+    public Task<CraftCommitResult> ApplyMixAsync(string characterName, CraftPlan plan) =>
+        ApplyCraftAsync(characterName, plan.Consumed, plan.Change, plan.Created, plan.Mutations,
+            plan.EtherealStoneDelta);
 
     private Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
-        CraftTargetChange? change, IReadOnlyList<CraftCreation> created)
+        CraftTargetChange? change, IReadOnlyList<CraftCreation> created, IReadOnlyList<CraftItemMutation> mutations,
+        long etherealStoneDelta)
     {
         return RunInventoryAsync(characterName, async repository =>
         {
@@ -783,9 +788,31 @@ public class CharacterService : ICharacterService
                 }
             }
 
+            foreach (var mutation in mutations ?? Array.Empty<CraftItemMutation>())
+            {
+                var item = FindByHandle(character.Items, mutation.Handle);
+                if (item is null)
+                {
+                    return CraftCommitResult.Failed(CraftCommitOutcome.ItemMissing);
+                }
+
+                if (mutation.Expected is { } expected && !MatchesCraftMaterial(item, expected))
+                {
+                    return CraftCommitResult.Failed(CraftCommitOutcome.TargetChanged);
+                }
+            }
+
             // Copy before consuming: the same stack can supply both cards and disappear entirely.
             var replacement = change is { SplitOne: true, Destroy: false }
                 ? CopyCraftCard(target, character) : null;
+            var copies = new List<(ItemEntity Copy, CraftCreation Creation)>();
+            foreach (var creation in created ?? Array.Empty<CraftCreation>())
+            {
+                if (creation.CopyOf != 0 && FindByHandle(character.Items, creation.CopyOf) is { } source)
+                {
+                    copies.Add((CopyCraftCard(source, character), creation));
+                }
+            }
             var remaining = new List<(uint Handle, long Remaining)>(asked.Count);
             foreach (var (handle, count) in asked)
             {
@@ -819,9 +846,28 @@ public class CharacterService : ICharacterService
                 }
             }
 
-            // MIX_CREATE_ITEM: every made item is a new row of the bag, like any item the server adds.
+            var mutated = new List<ItemEntity>();
+            foreach (var mutation in mutations ?? Array.Empty<CraftItemMutation>())
+            {
+                if (FindByHandle(character.Items, mutation.Handle) is { } item)
+                {
+                    mutation.Apply(item);
+                    mutated.Add(item);
+                }
+            }
+
+            // Every made item is a new row of the bag, like any item the server adds; a copy keeps its source's fields.
             var made = new List<ItemEntity>();
-            foreach (var creation in created ?? Array.Empty<CraftCreation>())
+            foreach (var (copy, creation) in copies)
+            {
+                copy.Amount = creation.Count;
+                copy.Enhance = (uint)Math.Max(0, creation.Enhance);
+                copy.Idx = character.Items.Max(entry => entry.Idx) + 1;
+                character.Items.Add(copy);
+                made.Add(copy);
+            }
+
+            foreach (var creation in (created ?? Array.Empty<CraftCreation>()).Where(entry => entry.CopyOf == 0))
             {
                 var item = new ItemEntity
                 {
@@ -830,6 +876,7 @@ public class CharacterService : ICharacterService
                     ItemResourceId = creation.ItemCode,
                     Amount = creation.Count,
                     Level = (uint)Math.Max(0, creation.Level),
+                    Enhance = (uint)Math.Max(0, creation.Enhance),
                     GenerateBySource = ItemGenerateSource.Mix,
                     WearInfo = ItemWearType.None,
                     Idx = character.Items.Count == 0
@@ -839,9 +886,21 @@ public class CharacterService : ICharacterService
                 made.Add(item);
             }
 
+            long? stone = null;
+            if (etherealStoneDelta != 0)
+            {
+                stone = Math.Clamp(character.EtherealStoneDurability + etherealStoneDelta, 0, CraftingEngine.MaxEtherealStone);
+                character.EtherealStoneDurability = (int)stone.Value;
+            }
+
             InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
             await repository.SaveChangesAsync();
-            return new CraftCommitResult(CraftCommitOutcome.Success, remaining, target) { Created = made };
+            return new CraftCommitResult(CraftCommitOutcome.Success, remaining, target)
+            {
+                Created = made,
+                Mutated = mutated,
+                EtherealStone = stone
+            };
         });
     }
 

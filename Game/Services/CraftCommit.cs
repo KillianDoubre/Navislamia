@@ -30,6 +30,12 @@ public sealed record CraftCommitResult(
     /// <summary>The rows a <c>MIX_CREATE_ITEM</c> added to the bag.</summary>
     public IReadOnlyList<ItemEntity> Created { get; init; } = Array.Empty<ItemEntity>();
 
+    /// <summary>The bag items a mutation changed, as they now stand.</summary>
+    public IReadOnlyList<ItemEntity> Mutated { get; init; } = Array.Empty<ItemEntity>();
+
+    /// <summary>The crafter's ethereal stone after the craft, when it moved.</summary>
+    public long? EtherealStone { get; init; }
+
     public static CraftCommitResult Failed(CraftCommitOutcome outcome) =>
         new(outcome, Array.Empty<(uint, long)>(), null);
 }

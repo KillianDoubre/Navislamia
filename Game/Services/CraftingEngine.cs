@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Packets;
 
 namespace Navislamia.Game.Services;
@@ -28,8 +30,30 @@ public readonly record struct CraftTargetChange(
     public long MinimumAmount { get; init; } = 1;
 }
 
-/// <summary>An item a craft creates (<c>MIX_CREATE_ITEM</c>): its code, how many, and the level it is made at.</summary>
-public readonly record struct CraftCreation(int ItemCode, long Count, int Level);
+/// <summary>
+/// An item a craft creates: its code, how many, the level and enhancement it is made at. <see cref="CopyOf"/>
+/// names a bag item whose copy it is (<c>procEnhanceFail</c>'s −3 skill card), made before anything is consumed.
+/// </summary>
+public readonly record struct CraftCreation(int ItemCode, long Count, int Level)
+{
+    public int Enhance { get; init; }
+    public uint CopyOf { get; init; }
+}
+
+/// <summary>
+/// A change to an item of the bag that stays there: its handle, the state it must still have, and the change.
+/// The commit applies it after the consumption, to an item still present.
+/// </summary>
+public sealed record CraftItemMutation(uint Handle, MixMaterial? Expected, Action<ItemEntity> Apply);
+
+/// <summary>A creature card that changed enhancement (<c>EnhanceCreatureCard</c>): the session's card follows.</summary>
+public readonly record struct CraftCardEnhance(uint CardHandle, int Enhance, bool Succeeded);
+
+/// <summary>What the craft engine reads besides the materials: the crafter's ethereal stone and the resource table.</summary>
+public sealed record MixContext(long EtherealStone, Func<int, ItemMixFields> ResourceOf)
+{
+    public static readonly MixContext Empty = new(0, _ => ItemMixFields.Empty);
+}
 
 /// <summary>
 /// A decided craft: the stacks to consume, what happens to the target, and the handles
@@ -46,32 +70,35 @@ public sealed record CraftPlan(
     /// <summary>The items <c>MIX_CREATE_ITEM</c> makes, one entry per code (an empty list is a failed draw).</summary>
     public IReadOnlyList<CraftCreation> Created { get; init; } = Array.Empty<CraftCreation>();
 
+    /// <summary>The changes to items that stay in the bag (the official effects other than enhancement).</summary>
+    public IReadOnlyList<CraftItemMutation> Mutations { get; init; } = Array.Empty<CraftItemMutation>();
+
+    /// <summary>What the crafter's ethereal stone gains or loses (<c>AddEtherealStoneDurability</c>).</summary>
+    public long EtherealStoneDelta { get; init; }
+
+    /// <summary>The 257 also reports the last item made.</summary>
+    public bool ReportCreated { get; init; }
+
+    /// <summary>No 257 at all: <c>SacrificeItemForEtherealStoneDurability</c> sends none on a success.</summary>
+    public bool NoResult { get; init; }
+
+    /// <summary>System lines on the item channel (<c>PrintfChatMessage(CHAT_ITEM, "@SYSTEM")</c>).</summary>
+    public IReadOnlyList<string> ChatLines { get; init; } = Array.Empty<string>();
+
+    public CraftCardEnhance? CardEnhance { get; init; }
+
     public static CraftPlan Refused(ResultCode code) =>
         new(code, Array.Empty<CraftConsumption>(), null, Array.Empty<uint>());
 }
 
 /// <summary>
-/// The effects of a resolved <c>TM_CS_MIX</c> (256), ported from NGemity's <c>MixManager</c> for the types
-/// its handler really carries out (<c>WorldSession.cpp:1474-1492</c>), with Killian's decisions of
-/// 2026-09-30 (docs/packet-specs/socle-artisanat-ressources.md §14) and the 9.4 data read as it is:
-/// <list type="table">
-/// <item><term>101 <c>MIX_ENHANCE</c></term><description>the cube (<c>need_item</c>) is consumed; gain drawn in
-/// <c>[mix_value_02, mix_value_03]</c> and capped at <c>max_enhance</c>; success chance
-/// <c>percentage[enhance]</c>; failure per <c>fail_result</c>: 2 destroys at +3 or less, else −3; 3 is −3
-/// floored at 0; 1, 0 and the unknown 4 set the <c>FAILED</c> bit and keep the sockets.</description></item>
-/// <item><term>103 <c>MIX_ENHANCE_WITHOUT_FAIL</c></term><description>cube and powder consumed; gain 1;
-/// failure takes one level off, floored at 0 (<c>MixManager.cpp:108-111</c>).</description></item>
-/// <item><term>311 <c>MIX_ADD_LEVEL_SET_FLAG</c></term><description>the materials are consumed and bit 0 — the
-/// card flag — takes the value <c>mix_value_03</c>: the nine rules at 1 require it off, the nine at 0
-/// require it on (their <c>CHECK_FLAG_OFF</c>/<c>ON 0</c> conditions).</description></item>
-/// <item><term>501 <c>MIX_RESTORE_ENHANCE_SET_FLAG</c></term><description>the materials are consumed and the
-/// bit <c>mix_value_01</c> is cleared — 3, <c>FAILED</c>, the bit every rule requires on: the repair.</description></item>
-/// </list>
-/// Type 102 follows retail EnhanceSkillCard: two equal skill cards and a cube produce a separate card.
-/// Type 601 follows retail CreateItem (<see cref="PlanCreate"/>).
+/// The effects of a resolved <c>TM_CS_MIX</c> (256), ported from the official server's <c>MixManager</c>: every
+/// type the Epic 7 data uses (<c>CraftingEngine.Official.cs</c>), 102 (<see cref="PlanSkillCard"/>) and 601
+/// (<see cref="PlanCreate"/>). The decisions of 2026-09-29, taken on NGemity's defaults before the official server
+/// was found, are superseded where it decides otherwise (docs/packet-specs/socle-artisanat-objets-officiel.md).
 /// Every other type answers <see cref="ResultCode.InvalidArgument"/>.
 /// </summary>
-public static class CraftingEngine
+public static partial class CraftingEngine
 {
     public const int MixEnhance = 101;
     public const int MixEnhanceSkillCard = 102;
@@ -98,9 +125,15 @@ public static class CraftingEngine
     /// otherwise), <paramref name="roll"/> returns an integer in <c>[min, max]</c> inclusive.
     /// </summary>
     public static CraftPlan Plan(MixResolution resolution, MixMaterial? target, EnhanceResourceEntity enhance,
-        Func<int, int, int> roll, Func<int, (int ItemId, long Count)?> pickFromGroup = null)
+        Func<int, int, int> roll, Func<int, (int ItemId, long Count)?> pickFromGroup = null, MixContext context = null)
     {
         var rule = resolution.Rule;
+        context ??= MixContext.Empty;
+        if (PlanOfficial(resolution, target, enhance, roll, pickFromGroup, context) is { } official)
+        {
+            return official;
+        }
+
         switch (rule.MixType)
         {
             case MixCreateItem:
@@ -108,32 +141,6 @@ public static class CraftingEngine
 
             case MixEnhanceSkillCard:
                 return PlanSkillCard(resolution, target, enhance, roll);
-
-            case MixEnhance:
-            case MixEnhanceWithoutFail:
-                return PlanEnhance(resolution, target, enhance, roll);
-
-            case MixAddLevelSetFlag:
-            {
-                if (target is not { } item)
-                {
-                    return CraftPlan.Refused(ResultCode.InvalidArgument);
-                }
-
-                var flag = rule.MixValue03 != 0 ? item.Flag | CardFlagMask : item.Flag & ~CardFlagMask;
-                return Change(resolution, item, item.Enhance, flag, destroy: false, success: true);
-            }
-
-            case MixRestoreEnhanceSetFlag:
-            {
-                if (target is not { } item || rule.MixValue01 is < 0 or > 31)
-                {
-                    return CraftPlan.Refused(ResultCode.InvalidArgument);
-                }
-
-                return Change(resolution, item, item.Enhance, item.Flag & ~(1 << rule.MixValue01), destroy: false,
-                    success: true);
-            }
 
             default:
                 return CraftPlan.Refused(ResultCode.InvalidArgument);
@@ -263,86 +270,5 @@ public static class CraftingEngine
                 ExpectedMaterial = item,
                 MinimumAmount = second.Handle == item.Handle ? 2 : 1
             }, success ? new[] { item.Handle } : Array.Empty<uint>());
-    }
-
-    private static CraftPlan PlanEnhance(MixResolution resolution, MixMaterial? target,
-        EnhanceResourceEntity enhance, Func<int, int, int> roll)
-    {
-        var rule = resolution.Rule;
-        if (target is not { } item || enhance is null || enhance.RequiredItemId is null)
-        {
-            return CraftPlan.Refused(ResultCode.InvalidArgument);
-        }
-
-        // The cube is the material whose code is the row's need_item; with the powder of 103 it may come
-        // first or second, as NGemity swaps them when the first is not a cube (MixManager.cpp:61-68).
-        var cube = resolution.Arranged.FirstOrDefault(material => material.ItemCode == enhance.RequiredItemId);
-        if (cube.Handle == 0)
-        {
-            return CraftPlan.Refused(ResultCode.InvalidArgument);
-        }
-
-        var consumed = new List<CraftConsumption> { new(cube.Handle, 1) };
-        if (rule.MixType == MixEnhanceWithoutFail)
-        {
-            var powder = resolution.Arranged.FirstOrDefault(material => material.Handle != cube.Handle);
-            if (powder.Handle == 0)
-            {
-                return CraftPlan.Refused(ResultCode.InvalidArgument);
-            }
-
-            consumed.Add(new CraftConsumption(powder.Handle, 1));
-        }
-
-        var current = item.Enhance;
-        var gain = rule.MixType == MixEnhance
-            ? roll(Math.Min(rule.MixValue02, rule.MixValue03), Math.Max(rule.MixValue02, rule.MixValue03))
-            : 1;
-        gain = (int)Math.Min(gain, enhance.MaxEnhance - current);
-        if (gain <= 0)
-        {
-            return CraftPlan.Refused(ResultCode.InvalidArgument);
-        }
-
-        var chance = enhance.Percentage is { } rates && current < rates.Length ? rates[(int)current] : 0m;
-        var succeeded = roll(0, RollScale) <= (int)(chance * RollScale);
-
-        if (succeeded)
-        {
-            return Plan(consumed, item, current + gain, item.Flag, destroy: false, success: true);
-        }
-
-        if (rule.MixType == MixEnhanceWithoutFail)
-        {
-            return Plan(consumed, item, Math.Max(0, current - 1), item.Flag, destroy: false, success: false);
-        }
-
-        return (int)enhance.FailResult switch
-        {
-            (int)FailResultType.SkillCard => current <= 3
-                ? Plan(consumed, item, current, item.Flag, destroy: true, success: false)
-                : Plan(consumed, item, current - 3, item.Flag, destroy: false, success: false),
-            (int)FailResultType.Accessory => Plan(consumed, item, Math.Max(0, current - 3), item.Flag, destroy: false,
-                success: false),
-            _ => Plan(consumed, item, current, item.Flag | FailedFlagMask, destroy: false, success: false)
-        };
-    }
-
-    /// <summary>A craft that consumes every arranged material at the count the resolution settled.</summary>
-    private static CraftPlan Change(MixResolution resolution, MixMaterial item, long enhance, int flag, bool destroy,
-        bool success)
-    {
-        var consumed = resolution.Arranged
-            .Select((material, group) => new CraftConsumption(material.Handle, resolution.ConsumedCounts[group]))
-            .ToArray();
-        return Plan(consumed, item, enhance, flag, destroy, success);
-    }
-
-    private static CraftPlan Plan(IReadOnlyList<CraftConsumption> consumed, MixMaterial item, long enhance, int flag,
-        bool destroy, bool success)
-    {
-        var change = new CraftTargetChange(item.Handle, item.Enhance, item.Flag, enhance, flag, destroy);
-        return new CraftPlan(ResultCode.Success, consumed, change,
-            success ? new[] { item.Handle } : Array.Empty<uint>());
     }
 }

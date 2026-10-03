@@ -28,7 +28,23 @@ public readonly record struct ItemWeightFields(int Id, decimal Weight);
 /// value behind <c>Item::GetItemClass()</c>.
 /// </summary>
 public readonly record struct ItemMatchFields(int Id, ItemGroup Group, ItemType Class, int Rank,
-    ItemWearType WearType, long SkillId = 0);
+    ItemWearType WearType, long SkillId = 0)
+{
+    /// <summary>The resource columns the official <c>MixManager</c> reads besides the four above.</summary>
+    public ItemMixFields Mix { get; init; }
+}
+
+/// <summary>
+/// The other <c>ItemBase</c> columns a mix condition or effect reads: <c>type</c> (<c>GetItemType</c>),
+/// <c>grade</c>, <c>price</c>, <c>endurance</c>, <c>ethereal_durability</c> (the maximum, in 1/10 000), the race
+/// allow-list, <c>summon_id</c>, and the first two option pairs (<c>fOptVar1/2[0..1]</c>, what the elemental mixes read).
+/// </summary>
+public sealed record ItemMixFields(int BaseType, int Grade, long Price, int Endurance, int MaxEtherealDurability,
+    int RaceLimit, int SummonId, decimal OptVar1First, decimal OptVar2First, decimal OptVar1Second,
+    decimal OptVar2Second)
+{
+    public static readonly ItemMixFields Empty = new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+}
 
 /// <summary>
 /// The two columns a sale prices an item from: its <c>rank</c> and its <c>price</c>

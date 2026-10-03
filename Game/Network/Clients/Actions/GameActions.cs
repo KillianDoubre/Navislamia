@@ -318,6 +318,7 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "dk_count", character.DkCount));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholicpoint", character.HuntaholicPoint));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholic_ent", character.HuntaholicEnterCount));
+        info.EtherealStone = character.EtherealStoneDurability;
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", MoralityRules.WireValue(info.ImmoralPoint)));
         client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle,

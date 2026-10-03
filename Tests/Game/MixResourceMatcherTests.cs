@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using FluentAssertions;
 using Navislamia.Game.DataAccess.Entities.Arcadia;
+using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Services;
 
 namespace Tests.Game;
@@ -279,24 +280,42 @@ public class MixResourceMatcherTests
     }
 
     [Test]
-    public void TheMaterialsArePairedByPosition()
+    public void TheMaterialsAreArrangedByConditionWhateverTheirOrder()
     {
-        // group 1 wants the 700202 stack, group 2 the 700201 one (fiche §14 point 9: position, as the loop
-        // the reference executes).
+        // GetProperMixInfoAndArrangeSubMaterials: each condition takes the first stack not yet claimed that
+        // satisfies it, and the stacks come out in condition order.
         var rule = new RuleBuilder(1154, 2)
             .Sub(1, (MixResourceMatcher.CheckItemId, 700202), (MixResourceMatcher.CheckItemCount, 9))
             .Sub(2, (MixResourceMatcher.CheckItemId, 700201), (MixResourceMatcher.CheckItemCount, 3))
             .Build();
 
         MixResourceMatcher.TryResolve(new[] { rule }, null,
-            new[] { Material(code: 700201, count: 3), Material(code: 700202, count: 9) }, out _)
-            .Should().BeFalse("the frame names the stacks the other way round, and group j only looks at stack j");
+            new[] { Material(code: 700201, count: 3), Material(code: 700202, count: 9) }, out var swapped)
+            .Should().BeTrue("the official arranges the stacks instead of pairing them by position");
+        swapped.ConsumedCounts.Should().Equal(9L, 3L);
+        swapped.Arranged.Select(material => material.ItemCode).Should().Equal(700202, 700201);
 
         MixResourceMatcher.TryResolve(new[] { rule }, null,
-            new[] { Material(code: 700202, count: 9), Material(code: 700201, count: 3) }, out var resolution)
+            new[] { Material(code: 700202, count: 9), Material(code: 700201, count: 3) }, out var straight)
             .Should().BeTrue();
-        resolution.ConsumedCounts.Should().Equal(9L, 3L);
-        resolution.Arranged.Select(material => material.ItemCode).Should().Equal(700202, 700201);
+        straight.Arranged.Select(material => material.ItemCode).Should().Equal(700202, 700201);
+    }
+
+    [Test]
+    public void TheFirstConditionClaimsTheFirstStackThatFits()
+    {
+        // Condition 1 accepts both stacks and claims the first; condition 2 then has only the second.
+        var rule = new RuleBuilder(1154, 2)
+            .Sub(1, (MixResourceMatcher.CheckItemGroup, 3))
+            .Sub(2, (MixResourceMatcher.CheckItemId, 700201))
+            .Build();
+
+        MixResourceMatcher.TryResolve(new[] { rule }, null,
+            new[] { Material(code: 700201, group: 3), Material(code: 700209, group: 3) }, out _)
+            .Should().BeFalse("the greedy arrangement gave 700201 to the first condition");
+        MixResourceMatcher.TryResolve(new[] { rule }, null,
+            new[] { Material(code: 700209, group: 3), Material(code: 700201, group: 3) }, out _)
+            .Should().BeTrue();
     }
 
     [Test]
@@ -341,57 +360,78 @@ public class MixResourceMatcherTests
             .Should().BeFalse("slot 5 names no material of this arrangement");
     }
 
-    [Test]
-    public void TheSameSummonCodeConditionRefusesARowThatItsOtherConditionsAccept()
-    {
-        // CHECK_SAME_SUMMON_CODE (20) is the one code the reference refuses in the post-arrangement
-        // (`MixManager.cpp:574-576`) while its pre-arrangement check leaves it inert (`default: break`,
-        // `:443-444`). The port keeps the refusal at that exact place, so the row is accepted on its other
-        // conditions and refused afterwards — and the line that answers false stays reachable, which is what
-        // makes it lockable. The reference dump carries no occurrence of code 20, so nothing else covers it.
-        var onTheTarget = new[] { new RuleBuilder(1016, 1)
-            .Main((MixResourceMatcher.CheckItemGroup, 3), (MixResourceMatcher.CheckSameSummonCode, 0))
-            .Sub(1, (MixResourceMatcher.CheckItemGroup, 3))
-            .Build() };
-        var onAGroup = new[] { new RuleBuilder(1016, 1)
-            .Main((MixResourceMatcher.CheckItemGroup, 3))
-            .Sub(1, (MixResourceMatcher.CheckItemGroup, 3), (MixResourceMatcher.CheckSameSummonCode, 0))
-            .Build() };
-
-        MixResourceMatcher.TryResolve(onTheTarget, Material(group: 3), new[] { Material(group: 3) }, out _)
-            .Should().BeFalse("the target's group is matched, then code 20 refuses the row");
-        MixResourceMatcher.TryResolve(onAGroup, Material(group: 3), new[] { Material(group: 3) }, out _)
-            .Should().BeFalse("the material group is matched, then code 20 refuses the row");
-    }
+    private static MixMaterial Card(int summonCode) =>
+        Material(group: 13) with { Instance = new MixInstance(0, 0, null, 0, summonCode) };
 
     [Test]
-    public void TheSameSummonCodeConditionRefusesEvenWhenNoStackIsArranged()
+    public void TheSameSummonCodeConditionComparesWithTheMainMaterial()
     {
-        // The second path to the same refusal: a row whose group carries code 20 but whose frame names no
-        // material at all. The pre-arrangement check has nothing to compare, so the post-arrangement is the
-        // only place the condition can be answered.
-        var rule = new[] { new RuleBuilder(1016, 0)
-            .Main((MixResourceMatcher.CheckItemGroup, 3), (MixResourceMatcher.CheckSameSummonCode, 0))
+        // post_arrange_check_material_info: the resource's summon_id first, else the card's summon code.
+        var rule = new[] { new RuleBuilder(1016, 1)
+            .Main((MixResourceMatcher.CheckItemGroup, 13))
+            .Sub(1, (MixResourceMatcher.CheckItemGroup, 13), (MixResourceMatcher.CheckSameSummonCode, 1))
             .Build() };
 
-        MixResourceMatcher.TryResolve(rule, Material(group: 3), Array.Empty<MixMaterial>(), out _)
-            .Should().BeFalse("code 20 refuses a row whose other conditions all agree");
+        MixResourceMatcher.TryResolve(rule, Card(2101), new[] { Card(2101) }, out _).Should().BeTrue();
+        MixResourceMatcher.TryResolve(rule, Card(2101), new[] { Card(2201) }, out _).Should().BeFalse();
     }
 
-    [TestCase(MixResourceMatcher.CheckElementalEffectMatch)]
-    [TestCase(MixResourceMatcher.CheckElementalEffectMismatch)]
-    [TestCase(MixResourceMatcher.CheckItemCountGe)]
-    [TestCase(MixResourceMatcher.CheckItemEtherealDurabilityE)]
-    [TestCase(MixResourceMatcher.CheckItemEtherealDurabilityNe)]
-    [TestCase(MixResourceMatcher.CheckItemGrade)]
-    [TestCase(MixResourceMatcher.CheckSameSummonCode)]
     [TestCase(0)]
     [TestCase(42)]
-    public void ACodeTheReferenceLeavesInertIsRefusedRatherThanSatisfied(int code)
+    [TestCase(MixResourceMatcher.CheckAwakenItem)]
+    public void ACodeWithoutAnEstablishedMeaningIsRefused(int code)
     {
         var rules = new[] { new RuleBuilder(1016, 0).Main((code, 1)).Build() };
 
         MixResourceMatcher.TryResolve(rules, Material(code: 700201), Array.Empty<MixMaterial>(), out _)
             .Should().BeFalse("a condition nobody established cannot validate a recipe");
+    }
+
+    private static bool Accepts(int code, int value, MixMaterial material)
+    {
+        var rules = new[] { new RuleBuilder(1016, 0).Main((MixResourceMatcher.CheckItemGroup, material.ItemGroup), (code, value)).Build() };
+        return MixResourceMatcher.TryResolve(rules, material, Array.Empty<MixMaterial>(), out _);
+    }
+
+    [Test]
+    public void TheElementalConditionsReadTheElementAsABit()
+    {
+        var fire = Material(group: 1) with { Instance = new MixInstance(0, 2, null, 0) };
+        var none = Material(group: 1) with { Instance = new MixInstance(0, 0, null, 0) };
+
+        Accepts(MixResourceMatcher.CheckElementalEffectMatch, 0b10, fire).Should().BeTrue("element 2 is bit 1");
+        Accepts(MixResourceMatcher.CheckElementalEffectMatch, 0b01, fire).Should().BeFalse();
+        Accepts(MixResourceMatcher.CheckElementalEffectMatch, 0, none).Should().BeTrue();
+        Accepts(MixResourceMatcher.CheckElementalEffectMismatch, 0b01, fire).Should().BeTrue();
+        Accepts(MixResourceMatcher.CheckElementalEffectMismatch, 0, none).Should().BeFalse();
+    }
+
+    [Test]
+    public void TheEtherealGradeAndSocketConditionsReadTheirFields()
+    {
+        var mix = new ItemMixFields(1, 3, 1000, 0, 1_370_000, 7, 0, 0, 0, 0, 0);
+        var spent = Material(group: 1) with { Mix = mix, Instance = new MixInstance(5, 0, new long[] { 4 }, 0) };
+        var never = Material(group: 1) with { Mix = mix, Instance = new MixInstance(0, 0, null, 0) };
+
+        Accepts(MixResourceMatcher.CheckItemEtherealDurabilityE, 5, spent).Should().BeTrue();
+        Accepts(MixResourceMatcher.CheckItemEtherealDurabilityNe, 1_370_000, spent).Should().BeTrue();
+        Accepts(MixResourceMatcher.CheckItemEtherealDurabilityE, 1_370_000, never).Should().BeTrue(
+            "a stored 0 is an item never initialised, read as full");
+        Accepts(MixResourceMatcher.CheckItemGrade, 3, spent).Should().BeTrue();
+        Accepts(MixResourceMatcher.CheckItemGrade, 2, spent).Should().BeFalse();
+        Accepts(MixResourceMatcher.CheckFirstSocketCodeMatch, 4, spent).Should().BeTrue();
+        Accepts(MixResourceMatcher.CheckMaxEtherealDurabilityNe, 0, spent).Should().BeTrue();
+        Accepts(MixResourceMatcher.CheckItemType, 1, spent).Should().BeTrue();
+    }
+
+    [Test]
+    public void ACountAtLeastConditionKeepsTheFrameCount()
+    {
+        var rule = new RuleBuilder(1154, 1).Sub(1, (MixResourceMatcher.CheckItemId, 7), (MixResourceMatcher.CheckItemCountGe, 5)).Build();
+
+        MixResourceMatcher.TryResolve(new[] { rule }, null, new[] { Material(code: 7, count: 4) }, out _).Should().BeFalse();
+        MixResourceMatcher.TryResolve(new[] { rule }, null, new[] { Material(code: 7, count: 8) }, out var resolution)
+            .Should().BeTrue();
+        resolution.ConsumedCounts.Should().Equal(8L);
     }
 }

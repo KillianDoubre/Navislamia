@@ -34,6 +34,8 @@ public class ItemEntity : Entity
     public ItemWearType WearInfo { get; set; }
     public long[] SocketItemIds { get; set; }
     public int RemainingTime { get; set; } // could be refactored into "ExpiresAt" -> using Datetime 
+    /// <summary>The item whose look this one takes (<c>MIX_CHANGE_APPEARANCE_CODE</c>), 0 for its own.</summary>
+    public int AppearanceCode { get; set; }
     public ElementalType ElementalEffectType { get; set; }
     public DateTime? ElementalEffectExpireTime { get; set; }
     public int ElementalEffectAttackPoint { get; set; }

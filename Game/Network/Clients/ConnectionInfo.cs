@@ -262,6 +262,9 @@ public class ConnectionInfo
     /// </summary>
     public bool PkMode { get; set; }
     public decimal ImmoralPoint { get; set; }
+
+    /// <summary>The ethereal stone's durability (<c>Characters.EtherealStoneDurability</c>), seeded at world entry.</summary>
+    public long EtherealStone { get; set; }
     public int PkCount { get; set; }
     public int DkCount { get; set; }
     public Navislamia.Game.Services.PvpProgress GetPvpProgress()

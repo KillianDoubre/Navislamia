@@ -85,10 +85,25 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
+            .Select(item => new
+            {
+                item.Id, item.Group, item.ItemType, item.Rank, item.WearType, item.SkillId, item.ItemBaseType,
+                item.Grade, item.Price, item.Endurance, item.EtherealDurability, item.RaceRestriction, item.SummonId,
+                item.OptVar1, item.OptVar2
+            })
+            .AsEnumerable()
             .Select(item => new ItemMatchFields((int)item.Id, item.Group, item.ItemType, item.Rank,
-                item.WearType, item.SkillId ?? 0))
+                item.WearType, item.SkillId ?? 0)
+            {
+                Mix = new ItemMixFields((int)item.ItemBaseType, item.Grade, item.Price, item.Endurance,
+                    item.EtherealDurability, (int)item.RaceRestriction, (int)(item.SummonId ?? 0),
+                    At(item.OptVar1, 0), At(item.OptVar2, 0), At(item.OptVar1, 1), At(item.OptVar2, 1))
+            })
             .ToList();
     }
+
+    private static decimal At(decimal[] values, int index) =>
+        values is not null && index < values.Length ? values[index] : 0m;
 
     public IReadOnlyList<ItemUseFields> GetUseFields()
     {

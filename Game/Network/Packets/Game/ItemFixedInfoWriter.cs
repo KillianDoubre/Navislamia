@@ -55,7 +55,7 @@ public readonly record struct ItemFixedInfo(
             ElementalEffectRemainTime: 0,
             ElementalEffectAttackPoint: item.ElementalEffectAttackPoint,
             ElementalEffectMagicPoint: item.ElementalEffectMagicPoint,
-            AppearanceCode: 0);
+            AppearanceCode: item.AppearanceCode);
     }
 }
 

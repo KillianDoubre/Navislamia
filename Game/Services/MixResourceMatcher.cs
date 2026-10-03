@@ -1,23 +1,23 @@
 using System;
 using System.Collections.Generic;
 using Navislamia.Game.DataAccess.Entities.Arcadia;
+using Navislamia.Game.DataAccess.Repositories.Interfaces;
 
 namespace Navislamia.Game.Services;
 
 /// <summary>
 /// One stack of the inventory as a rule condition reads it. Every field comes from one of the two rows
-/// the item is made of, exactly as NGemity's accessors do (docs/packet-specs/socle-artisanat-ressources.md
-/// §6.1):
+/// the item is made of (docs/packet-specs/socle-artisanat-ressources.md §6.1):
 /// <list type="bullet">
 /// <item><c>ItemCode</c>, <c>Level</c>, <c>Enhance</c>, <c>Flag</c>, <c>Count</c> — the item instance
-/// (<c>ItemEntity.ItemResourceId</c>, <c>Level</c>, <c>Enhance</c>, <c>Flag</c>, <c>Amount</c>,
-/// <c>Item.h:48-56</c>);</item>
+/// (<c>ItemEntity.ItemResourceId</c>, <c>Level</c>, <c>Enhance</c>, <c>Flag</c>, <c>Amount</c>);</item>
 /// <item><c>ItemGroup</c>, <c>ItemClass</c>, <c>ItemRank</c>, <c>WearType</c> — the item resource
-/// (<c>group</c>, <c>class</c>, <c>rank</c>, <c>wear_type</c>, <c>ObjectMgr.cpp:122-128</c>).</item>
+/// (<c>group</c>, <c>class</c>, <c>rank</c>, <c>wear_type</c>);</item>
+/// <item><see cref="Mix"/> — the other resource columns the official <c>MixManager</c> reads, and
+/// <see cref="Instance"/> the other instance fields (ethereal durability, element, sockets, summon).</item>
 /// </list>
-/// <c>Flag</c> is the retail bitset as stored, the convention the drop path already documents
-/// (<see cref="GroundItemDropRules.SummonFlagMask"/>): a condition names the <em>index</em> of a bit and
-/// the mask is built from it.
+/// <c>Flag</c> is the retail bitset as stored: a condition names the <em>index</em> of a bit and the mask is
+/// built from it.
 /// </summary>
 public readonly record struct MixMaterial(
     int ItemCode,
@@ -31,32 +31,48 @@ public readonly record struct MixMaterial(
     long Count,
     uint Handle = 0,
     long SkillId = 0,
-    long? AvailableCount = null);
+    long? AvailableCount = null,
+    ItemMixFields Mix = null,
+    MixInstance Instance = null)
+{
+    public ItemMixFields Resource => Mix ?? ItemMixFields.Empty;
+
+    /// <summary>
+    /// The current ethereal durability. Nothing in this server consumes it and no creation path sets it, so a
+    /// stored 0 on an item that has a maximum is an item never initialised, read as full — what the official
+    /// <c>AllocItem</c> would have given it (socle-artisanat-objets-officiel.md §2).
+    /// </summary>
+    public int CurrentEthereal => Instance is { } instance
+        ? instance.EtherealDurability == 0 ? Resource.MaxEtherealDurability : instance.EtherealDurability
+        : Resource.MaxEtherealDurability;
+
+    public long Socket(int index) =>
+        Instance?.Sockets is { } sockets && index < sockets.Length ? sockets[index] : 0;
+}
+
+/// <summary>The instance fields of a material that only some conditions and effects read.</summary>
+public sealed record MixInstance(int EtherealDurability, int ElementalType, long[] Sockets, int RemainingTime,
+    int SummonCode = 0, int SummonRate = 0, int SummonLevel = 1, bool Formed = false, int Endurance = 0,
+    int JokerBonus = 0);
 
 /// <summary>
 /// What a <c>TM_CS_MIX</c> frame resolves to: the rule that accepts the combination, and the quantity of
-/// each material the engine would consume, indexed by the group of the rule (the arrangement of the
-/// reference, <c>MixManager.cpp:280-284</c>). Nothing is consumed here: the resolution only reports.
+/// each material the engine would consume, indexed by the group of the rule. Nothing is consumed here.
 /// </summary>
 public readonly record struct MixResolution(MixResourceEntity Rule, IReadOnlyList<long> ConsumedCounts,
     IReadOnlyList<MixMaterial> Arranged);
 
 /// <summary>
-/// The resolution of a <c>TM_CS_MIX</c> (256) frame against the <c>MixResource</c> rules, a static and
-/// pure port of <c>MixManager</c> (<c>Chihiro/src/Crafting/MixManager.cpp:242-298</c> and
-/// <c>:345-452</c>, pinned in the fiche): the first rule of the table whose declared <c>sub_material_count</c>
-/// matches the frame, whose target group and material groups all accept the stacks the frame names, wins.
-///
-/// The materials are paired <em>by position</em>, as the executed reference loop does: see
-/// <see cref="TryArrange"/> and the fiche §14.
-///
-/// It decides <em>match or no match</em> and nothing else: no rate is rolled, no item is removed, no
-/// <c>TM_SC_MIX_RESULT</c> (257) is written. What a matched type does is the next lobe
-/// (docs/packet-specs/socle-artisanat-ressources.md §8, L2).
+/// The resolution of a <c>TM_CS_MIX</c> (256) frame, ported from the official server
+/// (<c>MixManager::GetProperMixInfoAndArrangeSubMaterials</c>, <c>check_material_info</c>,
+/// <c>post_arrange_check_material_info</c>, <c>MixManager.cpp:139-607</c>): the first rule of the table whose
+/// <c>sub_material_count</c> matches, whose target accepts the main material, and for which every sub condition
+/// finds a stack — <b>the first unclaimed stack, in frame order, that satisfies it</b> — wins. The stacks are then
+/// rearranged in condition order and the cross conditions (same item, same summon, socket comparisons…) judged.
+/// It replaces the positional pairing ported from NGemity (socle-artisanat-objets-officiel.md §1).
 /// </summary>
 public static class MixResourceMatcher
 {
-    /// <summary>NGemity's condition codes, extended by retail MixBase.h for skill cards.</summary>
     public const int CheckItemGroup = 1;
     public const int CheckItemClass = 2;
     public const int CheckItemId = 3;
@@ -77,15 +93,35 @@ public static class MixResourceMatcher
     public const int CheckItemGrade = 18;
     public const int CheckSameItemId = 19;
     public const int CheckSameSummonCode = 20;
-    // Retail MixBase.h; these compare with slot 0 (main) or n (sub n - 1).
+    public const int CheckItemExpiredTimeGe = 21;
+    public const int CheckItemExpiredTimeLe = 22;
+    public const int CheckFirstSocketCodeMatch = 23;
     public const int CheckSameItemEnhance = 24;
     public const int CheckSameSkillId = 25;
+    public const int CheckMaxEtherealDurabilityE = 26;
+    public const int CheckMaxEtherealDurabilityNe = 27;
+    public const int CheckFirstSocketCodeG = 28;
+    public const int CheckFirstSocketCodeL = 29;
+    public const int CheckItemType = 30;
+    public const int CheckSameItemClass = 31;
+    public const int CheckItemGroupNe = 32;
+    public const int CheckIncludeRaceLimit = 33;
+    public const int CheckAwakenItem = 34;
+    public const int CheckSameSummonRate = 35;
+    public const int CheckBaseFlagOn = 36;
+    public const int CheckDesignerDefinedType = 37;
+    public const int CheckBaseFlagOff = 38;
+
+    /// <summary><c>DESIGNER_TYPE_WEAPON</c>, <c>DESIGNER_TYPE_ARMOR</c> of <c>check_designer_defined_type</c>.</summary>
+    private const int DesignerWeapon = 1;
+    private const int DesignerArmor = 2;
+
+    /// <summary>The repository's race bits (Deva, Asura, Gaia = 1, 2, 4).</summary>
+    private const int RaceMask = 7;
 
     /// <summary>
-    /// Walks <paramref name="rules"/> in the order it is given (the order of the table, <c>MixManager.cpp:244</c>)
-    /// and returns the first one that accepts the frame. <paramref name="mainMaterial"/> is null when the
-    /// frame named no target (<c>main_item.handle == 0</c>, <c>WorldSession.cpp:1450</c>): a rule whose
-    /// target group carries no condition is the only one that can accept such a frame.
+    /// Walks <paramref name="rules"/> in table order and returns the first one that accepts the frame.
+    /// <paramref name="mainMaterial"/> is null when the frame named no target.
     /// </summary>
     public static bool TryResolve(
         IReadOnlyList<MixResourceEntity> rules,
@@ -102,7 +138,8 @@ public static class MixResourceMatcher
                 continue;
             }
 
-            if (!CheckMaterialInfo(MixResourceRules.MainMaterial(rule), mainMaterial, 1, out var mainCount))
+            // The main slot is always one unit.
+            if (!CheckMaterialInfo(MixResourceRules.MainMaterial(rule), mainMaterial, 1, out _))
             {
                 continue;
             }
@@ -112,7 +149,7 @@ public static class MixResourceMatcher
                 continue;
             }
 
-            if (!PostArrange(MixResourceRules.MainMaterial(rule), mainMaterial, arranged, counts, mainMaterial, mainCount))
+            if (!PostArrange(MixResourceRules.MainMaterial(rule), mainMaterial, arranged, mainMaterial))
             {
                 continue;
             }
@@ -120,14 +157,11 @@ public static class MixResourceMatcher
             var accepted = true;
             for (var group = 0; group < subMaterials.Count; group++)
             {
-                if (PostArrange(MixResourceRules.SubMaterial(rule, group), mainMaterial, arranged, counts,
-                        arranged[group], counts[group]))
+                if (!PostArrange(MixResourceRules.SubMaterial(rule, group), mainMaterial, arranged, arranged[group]))
                 {
-                    continue;
+                    accepted = false;
+                    break;
                 }
-
-                accepted = false;
-                break;
             }
 
             if (!accepted)
@@ -143,12 +177,8 @@ public static class MixResourceMatcher
     }
 
     /// <summary>
-    /// Pairs the material groups of the rule with the stacks of the frame <b>by position</b>: group
-    /// <c>j</c> must accept stack <c>j</c>. This is the loop the reference executes (<c>MixManager.cpp:257-276</c>
-    /// calls <c>check_material_info((*it).sub_material[idx], pSubItem[idx], pCountList[idx])</c> with the
-    /// same index on both sides), decided for 7.3 by Killian on 2026-09-30 (fiche §14 point 9). The
-    /// permuting <c>getProperMixInfoSub</c> (<c>:300-318</c>) has no caller and is not ported. The client
-    /// test of the fiche (§10 point 9: the same frame, materials in reverse order) can still overturn it.
+    /// For each sub condition in order, the first stack of the frame not yet claimed that satisfies it
+    /// (<c>abSubMaterialChecked</c>); the stacks come out in condition order with the count each was judged at.
     /// </summary>
     private static bool TryArrange(MixResourceEntity rule, IReadOnlyList<MixMaterial> subMaterials,
         out MixMaterial[] arranged, out long[] counts)
@@ -156,36 +186,46 @@ public static class MixResourceMatcher
         var count = subMaterials.Count;
         arranged = new MixMaterial[count];
         counts = new long[count];
+        var claimed = new bool[count];
 
         for (var group = 0; group < count; group++)
         {
-            if (!CheckMaterialInfo(MixResourceRules.SubMaterial(rule, group), subMaterials[group],
-                    subMaterials[group].Count, out var consumedCount))
+            var found = false;
+            for (var stack = 0; stack < count; stack++)
+            {
+                if (claimed[stack])
+                {
+                    continue;
+                }
+
+                if (!CheckMaterialInfo(MixResourceRules.SubMaterial(rule, group), subMaterials[stack],
+                        subMaterials[stack].Count, out var consumedCount))
+                {
+                    continue;
+                }
+
+                claimed[stack] = true;
+                arranged[group] = subMaterials[stack];
+                counts[group] = consumedCount;
+                found = true;
+                break;
+            }
+
+            if (!found)
             {
                 return false;
             }
-
-            arranged[group] = subMaterials[group];
-            counts[group] = consumedCount;
         }
 
         return true;
     }
 
     /// <summary>
-    /// The conditions each group has to satisfy. A group without a single condition only accepts an absent
-    /// stack (<c>return pItem == nullptr</c>, <c>MixManager.cpp:347-348</c>) — a frame that named an item
-    /// there is refused.
+    /// <c>check_material_info</c>. A group without a single condition only accepts an absent stack. A count
+    /// condition (10, 15) keeps the frame's count, otherwise one unit is taken. Expiry (21, 22), awakening (34)
+    /// and the base flags (36, 38) read columns this repository does not have: they refuse rather than let a
+    /// recipe through — no Epic 7 recipe uses them.
     /// </summary>
-    /// <remarks>
-    /// Codes 11, 12 and 15-18 are refused rather than satisfied: the reference leaves them inert (the body
-    /// of 11 and 12 is commented out, 15-18 have no case at all and fall into <c>default: break</c>). A
-    /// silent <c>default</c> would let a condition nobody established validate a recipe, so the port closes
-    /// instead — an unmatched frame is refused with <c>InvalidArgument</c>, the answer NGemity sends for a
-    /// frame no rule accepts (<c>WorldSession.cpp:1463-1466</c>). Codes 19 and 20 are decided in the
-    /// post-arrangement, as in the reference: the reference's <c>default: break</c> makes them inert here
-    /// too (<c>MixManager.cpp:443-444</c>), and code 20 answers <c>false</c> there (<c>:574-576</c>).
-    /// </remarks>
     private static bool CheckMaterialInfo(MixMaterialInfo info, MixMaterial? material,
         long declaredCount, out long consumedCount)
     {
@@ -208,125 +248,48 @@ public static class MixResourceMatcher
         {
             var code = info.Types[i];
             var value = info.Values[i];
-
-            if (code == 0)
+            var passes = code switch
             {
-                continue;
+                0 => true,
+                CheckItemGroup => value == stack.ItemGroup,
+                CheckItemClass => value == stack.ItemClass,
+                CheckItemId => value == stack.ItemCode,
+                CheckItemRank => value == stack.ItemRank,
+                CheckItemLevel => value == stack.Level,
+                CheckFlagOn => (FlagMask(value) & stack.Flag) != 0,
+                CheckFlagOff => (FlagMask(value) & stack.Flag) == 0,
+                CheckEnhanceMatch => value == stack.Enhance,
+                CheckEnhanceDismatch => value != stack.Enhance,
+                CheckItemCount => value == declaredCount,
+                CheckElementalEffectMatch => ElementalMatches(value, stack),
+                CheckElementalEffectMismatch => ElementalMismatches(value, stack),
+                CheckItemWearPositionMatch => value == stack.WearType,
+                CheckItemWearPositionMismatch => value != stack.WearType,
+                CheckItemCountGe => declaredCount >= value,
+                CheckItemEtherealDurabilityE => stack.CurrentEthereal == value,
+                CheckItemEtherealDurabilityNe => stack.CurrentEthereal != value,
+                CheckItemGrade => stack.Resource.Grade == value,
+                CheckFirstSocketCodeMatch => stack.Socket(0) == value,
+                CheckMaxEtherealDurabilityE => stack.Resource.MaxEtherealDurability == value,
+                CheckMaxEtherealDurabilityNe => stack.Resource.MaxEtherealDurability != value,
+                CheckItemType => stack.Resource.BaseType == value,
+                CheckItemGroupNe => stack.ItemGroup != value,
+                CheckSameSummonRate => stack.Instance is { SummonCode: not 0 } summon && summon.SummonRate == value,
+                CheckDesignerDefinedType => DesignerType(value, stack.ItemGroup),
+                // Decided once the stacks are arranged.
+                CheckSameItemId or CheckSameSummonCode or CheckSameItemEnhance or CheckSameSkillId
+                    or CheckFirstSocketCodeG or CheckFirstSocketCodeL or CheckSameItemClass or CheckIncludeRaceLimit => true,
+                _ => false
+            };
+
+            if (!passes)
+            {
+                return false;
             }
 
-            switch (code)
+            if (code is CheckItemCount or CheckItemCountGe)
             {
-                case CheckItemGroup:
-                    if (value != stack.ItemGroup)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckItemClass:
-                    if (value != stack.ItemClass)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckItemId:
-                    if (value != stack.ItemCode)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckItemRank:
-                    if (value != stack.ItemRank)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckItemLevel:
-                    if (value != stack.Level)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckFlagOn:
-                    if ((FlagMask(value) & stack.Flag) == 0)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckFlagOff:
-                    if ((FlagMask(value) & stack.Flag) != 0)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckEnhanceMatch:
-                    if (value != stack.Enhance)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckEnhanceDismatch:
-                    if (value == stack.Enhance)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckItemWearPositionMatch:
-                    if (value != stack.WearType)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckItemWearPositionMismatch:
-                    if (value == stack.WearType)
-                    {
-                        return false;
-                    }
-
-                    break;
-
-                case CheckItemCount:
-                    if (value != declaredCount)
-                    {
-                        return false;
-                    }
-
-                    countChecked = true;
-                    break;
-
-                case CheckSameItemId:
-                case CheckSameSummonCode:
-                case CheckSameItemEnhance:
-                case CheckSameSkillId:
-                    // Both are decided on the arranged stacks, not here: 19 by the post-arrangement
-                    // (MixManager.cpp:558-570), 20 by the same function answering false (:574-576). The
-                    // reference's `default: break` (:443-444) leaves them inert at this stage, so the
-                    // refusal stays where the reference puts it — and stays reachable, which is what makes
-                    // it testable.
-                    break;
-
-                default:
-                    // 11, 12, 15-18 and anything outside the table: refused, never satisfied.
-                    return false;
+                countChecked = true;
             }
         }
 
@@ -339,44 +302,71 @@ public static class MixResourceMatcher
     }
 
     /// <summary>
-    /// The conditions that only make sense once the materials are arranged: <c>CHECK_SAME_ITEM_ID</c> names
-    /// a slot of the arrangement (<c>value == 0</c> is the target, <c>n</c> the rearranged material
-    /// <c>n - 1</c>) and demands the same item code. The reference rejects a slot index outside
-    /// <c>[0, nSubMaterialCount]</c> (<c>MixManager.cpp:559-563</c>, where the bound is written with an
-    /// <c>&amp;&amp;</c> that makes it dead) — the port keeps the index inside the arrangement instead of
-    /// duplicating a condition it cannot honour.
+    /// <c>2^element &gt;&gt; 1</c>: no element is 0, element <c>n</c> the bit <c>n − 1</c>. No element passes only
+    /// a 0 condition; an element passes when its bit is in the condition.
+    /// </summary>
+    private static int ElementBit(MixMaterial stack) =>
+        stack.Instance is { ElementalType: > 0 and < 31 } instance ? 1 << (instance.ElementalType - 1) : 0;
+
+    private static bool ElementalMatches(int value, MixMaterial stack)
+    {
+        var bit = ElementBit(stack);
+        return bit == 0 ? value == 0 : (bit & value) == bit;
+    }
+
+    private static bool ElementalMismatches(int value, MixMaterial stack)
+    {
+        var bit = ElementBit(stack);
+        return bit == 0 ? value != 0 : (bit & value) != bit;
+    }
+
+    private static bool DesignerType(int value, int group) => value switch
+    {
+        DesignerWeapon => group == 1,
+        DesignerArmor => group is 2 or 3 or 4 or 5 or 6 or 7 or 8,
+        _ => false
+    };
+
+    /// <summary>
+    /// <c>post_arrange_check_material_info</c>: the conditions naming a slot of the arrangement (<c>0</c> the main
+    /// material, <c>n</c> the arranged sub material <c>n − 1</c>).
     /// </summary>
     private static bool PostArrange(MixMaterialInfo info, MixMaterial? mainMaterial,
-        IReadOnlyList<MixMaterial> arranged, IReadOnlyList<long> counts, MixMaterial? material, long count)
+        IReadOnlyList<MixMaterial> arranged, MixMaterial? material)
     {
         for (var i = 0; i < MixResourceRules.MaterialInfoCount; i++)
         {
-            if (info.Types[i] is CheckSameItemId or CheckSameItemEnhance or CheckSameSkillId)
+            var code = info.Types[i];
+            if (code is not (CheckSameItemId or CheckSameSummonCode or CheckSameItemEnhance or CheckSameSkillId
+                or CheckFirstSocketCodeG or CheckFirstSocketCodeL or CheckSameItemClass or CheckIncludeRaceLimit))
             {
-                var slot = info.Values[i];
-                var reference = slot == 0
-                    ? mainMaterial
-                    : slot > 0 && slot <= arranged.Count ? arranged[slot - 1] : null;
-
-                if (reference is null || material is null)
-                {
-                    return false;
-                }
-
-                var matches = info.Types[i] switch
-                {
-                    CheckSameItemId => material.Value.ItemCode == reference.Value.ItemCode,
-                    CheckSameItemEnhance => material.Value.Enhance == reference.Value.Enhance,
-                    _ => material.Value.SkillId > 0 && material.Value.SkillId == reference.Value.SkillId
-                };
-                if (!matches)
-                {
-                    return false;
-                }
+                continue;
             }
-            else if (info.Types[i] == CheckSameSummonCode)
+
+            var slot = info.Values[i];
+            // CHECK_SAME_SUMMON_CODE compares with the main material whatever its slot says.
+            var reference = code == CheckSameSummonCode || slot == 0
+                ? mainMaterial
+                : slot > 0 && slot <= arranged.Count ? arranged[slot - 1] : null;
+            if (reference is not { } other || material is not { } item)
             {
-                // The reference answers false here: the condition is not implemented (MixManager.cpp:574-576).
+                return false;
+            }
+
+            var passes = code switch
+            {
+                CheckSameItemId => item.ItemCode == other.ItemCode,
+                CheckSameItemEnhance => item.Enhance == other.Enhance,
+                CheckSameSkillId => item.SkillId > 0 && item.SkillId == other.SkillId,
+                CheckSameSummonCode => SummonCode(item) == SummonCode(other),
+                CheckFirstSocketCodeG => item.Socket(0) > other.Socket(0),
+                CheckFirstSocketCodeL => item.Socket(0) < other.Socket(0),
+                CheckSameItemClass => item.ItemClass == other.ItemClass,
+                _ => (item.Resource.RaceLimit & other.Resource.RaceLimit & RaceMask) == (item.Resource.RaceLimit & RaceMask)
+            };
+
+            if (!passes)
+            {
                 return false;
             }
         }
@@ -384,12 +374,10 @@ public static class MixResourceMatcher
         return true;
     }
 
-    /// <summary>
-    /// <c>1 &lt;&lt; (value &amp; 0x1F)</c> of the reference (<c>MixManager.cpp:380-389</c>): the condition
-    /// carries the <em>index</em> of a flag bit, the item carries the bitset.
-    /// </summary>
-    private static int FlagMask(int value)
-    {
-        return 1 << (value & 0x1F);
-    }
+    /// <summary>The summon code a card is compared on: the resource's own <c>summon_id</c> first, else the instance's.</summary>
+    private static int SummonCode(MixMaterial material) =>
+        material.Resource.SummonId != 0 ? material.Resource.SummonId : material.Instance?.SummonCode ?? 0;
+
+    /// <summary><c>ItemInstance::IsOn(index)</c>: the condition carries the index of a flag bit.</summary>
+    private static int FlagMask(int value) => 1 << (value & 0x1F);
 }

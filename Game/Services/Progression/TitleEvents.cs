@@ -31,6 +31,19 @@ public static class TitleEvents
         Exactly(type, SummonTameByCode, summonCode, success ? 1 : 0) || Exactly(type, SummonTameByRate, rate, success ? 1 : 0)
             ? 1 : null;
 
+    public const int SummonEnhanceByCode = 3201;
+    public const int SummonEnhanceByRate = 3202;
+
+    /// <summary>
+    /// <c>UpdateTitleConditionBySummonEnhance</c>: a creature card enhanced, every condition of its code (or rate)
+    /// asking that enhancement or less.
+    /// </summary>
+    public static Func<TitleConditionType, long?> SummonEnhance(int summonCode, int rate, int enhance) => type =>
+        type.Values is { Length: >= 2 } values
+        && (type.Category == SummonEnhanceByCode && values[0] == summonCode
+            || type.Category == SummonEnhanceByRate && values[0] == rate)
+        && values[1] <= enhance ? 1 : null;
+
     /// <summary><c>UpdateTitleConditionByItemUse</c>.</summary>
     public static Func<TitleConditionType, long?> ItemUsed(int itemCode) => type =>
         Exactly(type, ItemUseByCode, itemCode) ? 1 : null;

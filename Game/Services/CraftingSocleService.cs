@@ -32,12 +32,17 @@ public class CraftingSocleService : ICraftingSocleService
     private readonly int _localFlag;
     private readonly IMonsterDropCatalog _drops;
     private readonly Progression.ITitleService _titles;
+    private readonly Creatures.ICreatureCatalog _creatures;
+    private readonly Buffs.IBuffCatalog _skills;
 
     public CraftingSocleService(ICharacterService characterService, IMixResourceCatalog mixCatalog,
         IItemMatchCatalog itemCatalog, IEnhanceResourceCatalog enhanceCatalog = null,
         IOptions<CraftingOptions> craftingOptions = null, IEtherealSacrificeCatalog etherealSacrifices = null,
-        IMonsterDropCatalog drops = null, Progression.ITitleService titles = null)
+        IMonsterDropCatalog drops = null, Progression.ITitleService titles = null,
+        Creatures.ICreatureCatalog creatures = null, Buffs.IBuffCatalog skills = null)
     {
+        _creatures = creatures;
+        _skills = skills;
         _drops = drops;
         _titles = titles;
         _characterService = characterService;
@@ -205,12 +210,16 @@ public class CraftingSocleService : ICraftingSocleService
 
         EnhanceResourceEntity enhance = null;
         if (resolution.Rule.MixType is CraftingEngine.MixEnhance or CraftingEngine.MixEnhanceWithoutFail
-            or CraftingEngine.MixEnhanceSkillCard)
+            or CraftingEngine.MixEnhanceSkillCard or CraftingEngine.MixEnhanceCreatureCard
+            or CraftingEngine.MixEnhanceCreatureCardWithJoker)
         {
             _enhanceCatalog?.TryGetForServer(resolution.Rule.MixValue01, _localFlag, out enhance);
         }
 
-        var plan = CraftingEngine.Plan(resolution, target, enhance, Roll, PickFromGroup);
+        var info = client.ConnectionInfo;
+        var context = new MixContext(info.EtherealStone,
+            code => _itemCatalog.TryGetFields(code, out var fields) ? fields.Mix ?? ItemMixFields.Empty : ItemMixFields.Empty);
+        var plan = CraftingEngine.Plan(resolution, target, enhance, Roll, PickFromGroup, context);
         if (plan.Refusal != ResultCode.Success)
         {
             _logger.Warning(
@@ -223,11 +232,7 @@ public class CraftingSocleService : ICraftingSocleService
         CraftCommitResult commit;
         try
         {
-            commit = resolution.Rule.MixType == CraftingEngine.MixCreateItem
-                ? await _characterService.ApplyCraftWithCreationAsync(client.ConnectionInfo.CharacterName,
-                    plan.Consumed, plan.Created)
-                : await _characterService.ApplyCraftAsync(client.ConnectionInfo.CharacterName, plan.Consumed,
-                    plan.Change);
+            commit = await _characterService.ApplyMixAsync(client.ConnectionInfo.CharacterName, plan);
         }
         catch (Exception exception)
         {
@@ -267,27 +272,86 @@ public class CraftingSocleService : ICraftingSocleService
             }
         }
 
-        if (commit.Created.Count > 0)
+        // The items that changed and the items made: their records again (SendItemMessage).
+        var changed = commit.Mutated.Concat(commit.Created).ToArray();
+        if (changed.Length > 0)
         {
-            foreach (var frame in GameCharacterPackets.BuildInventory(commit.Created.ToArray()))
+            foreach (var frame in GameCharacterPackets.BuildInventory(changed))
             {
                 client.Connection.Send(frame);
             }
         }
 
-        // CreateItem reports one handle, the last item made, or none when the draw failed.
-        var resultHandles = commit.Created.Count > 0 ? new[] { (uint)commit.Created[^1].Id }
-            : plan.Change is { SplitOne: true } && plan.ResultHandles.Count > 0
-                ? new[] { (uint)commit.Target.Id } : plan.ResultHandles;
-        client.Connection.Send(GameCraftingPackets.BuildMixResult(resultHandles));
-        _logger.Information("Mix rule {ruleId} (type {mixType}) for {clientTag}: {outcome}", resolution.Rule.Id,
-            resolution.Rule.MixType, client.ClientTag, resultHandles.Count > 0 ? "success" : "failure");
+        if (commit.EtherealStone is { } stone)
+        {
+            info.EtherealStone = stone;
+            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "ethereal_stone", (int)stone));
+        }
 
-        // UpdateTitleConditionByItemCreateByMixing: what the mix made counts for the titles.
-        if (commit.Created.Count > 0 && _titles is not null)
+        foreach (var line in plan.ChatLines)
+        {
+            client.Connection.Send(GameChatPackets.BuildChat("@SYSTEM", (byte)ChatType.Item, line));
+        }
+
+        if (plan.CardEnhance is { } card)
+        {
+            OnCreatureCardEnhanced(client, card);
+        }
+
+        // CreateItem and the recycling report the last item made; the skill card its new unit; the others their plan.
+        uint[] resultHandles = plan.ReportCreated || resolution.Rule.MixType == CraftingEngine.MixCreateItem
+            ? commit.Created.Count > 0 ? new[] { (uint)commit.Created[^1].Id } : Array.Empty<uint>()
+            : plan.Change is { SplitOne: true } && plan.ResultHandles.Count > 0
+                ? new[] { (uint)commit.Target.Id } : plan.ResultHandles.ToArray();
+        if (!plan.NoResult)
+        {
+            client.Connection.Send(GameCraftingPackets.BuildMixResult(resultHandles));
+        }
+
+        _logger.Information("Mix rule {ruleId} (type {mixType}) for {clientTag}: {outcome}", resolution.Rule.Id,
+            resolution.Rule.MixType, client.ClientTag, resultHandles.Length > 0 || plan.NoResult ? "success" : "failure");
+
+        // UpdateTitleConditionByItemCreateByMixing: only MIX_CREATE_ITEM fills vCreatedItem (onMix).
+        if (resolution.Rule.MixType == CraftingEngine.MixCreateItem && commit.Created.Count > 0 && _titles is not null)
         {
             _ = _titles.RecordAsync(client, Progression.TitleEvents.ItemsMixed(
                 commit.Created.Select(item => ((int)item.ItemResourceId, item.Amount)).ToArray()));
+        }
+    }
+
+    /// <summary>
+    /// <c>EnhanceCreatureCard</c> after the save: the session's card takes its new enhancement (a success reborns the
+    /// summon full), and a success counts for the titles (<c>UpdateTitleConditionBySummonEnhance</c>).
+    /// </summary>
+    private void OnCreatureCardEnhanced(GameClient client, CraftCardEnhance change)
+    {
+        var info = client.ConnectionInfo;
+        Creatures.CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.GetValueOrDefault(change.CardHandle);
+            if (card is null)
+            {
+                return;
+            }
+
+            if (change.Enhance < 0)
+            {
+                info.CreatureCards.Remove(change.CardHandle);
+                return;
+            }
+
+            card.Enhance = change.Enhance;
+            if (change.Succeeded)
+            {
+                card.HpKnown = false;
+            }
+        }
+
+        if (change.Succeeded && _titles is not null && card.SummonCode != 0)
+        {
+            var rate = _creatures is not null && _creatures.TryGetSummon(card.SummonCode, out var summon) ? summon.Rate : 0;
+            _ = _titles.RecordAsync(client, Progression.TitleEvents.SummonEnhance(card.SummonCode, rate, change.Enhance));
         }
     }
 
@@ -373,7 +437,39 @@ public class CraftingSocleService : ICraftingSocleService
             count,
             handle,
             fields.SkillId,
-            item.Amount);
+            item.Amount,
+            fields.Mix,
+            InstanceOf(client.ConnectionInfo, item));
+    }
+
+    /// <summary>The instance fields a condition or an effect reads, and the creature card's summon when it has one.</summary>
+    private MixInstance InstanceOf(ConnectionInfo info, ItemEntity item)
+    {
+        int summonCode = 0, summonRate = 0, summonLevel = 1, joker = 0;
+        var formed = false;
+        lock (info.SummonLock)
+        {
+            if (info.CreatureCards.TryGetValue(item.Id, out var card) && card.HasSummon)
+            {
+                summonCode = card.SummonCode;
+                summonLevel = card.Level;
+                formed = Array.IndexOf(info.SummonSlots, item.Id) >= 0;
+                if (_creatures is not null && _creatures.TryGetSummon(card.SummonCode, out var summon))
+                {
+                    summonRate = summon.Rate;
+                }
+
+                // The joker's Friendship of Crown: var0 × level × 1000 of the creature card chance.
+                if (card.Skills.TryGetValue(CraftingEngine.FriendshipOfCrownSkill, out var level) && _skills is not null
+                    && _skills.TryGet(CraftingEngine.FriendshipOfCrownSkill, out var skill) && skill.Vars is { Length: > 0 } vars)
+                {
+                    joker = (int)(vars[0] * level * 1000);
+                }
+            }
+        }
+
+        return new MixInstance((int)item.EtherealDurability, (int)item.ElementalEffectType, item.SocketItemIds,
+            item.RemainingTime, summonCode, summonRate, summonLevel, formed, item.Endurance, joker);
     }
 
     /// <summary>

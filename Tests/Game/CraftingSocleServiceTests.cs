@@ -277,23 +277,64 @@ public class CraftingSocleServiceTests
         harness.Service.Roll = (min, max) => min;
 
         var raised = new ItemEntity { Id = TargetHandle, ItemResourceId = TargetResource, Amount = 1, Enhance = 1 };
-        A.CallTo(() => harness.CharacterService.ApplyCraftAsync(Character, A<IReadOnlyList<CraftConsumption>>._,
-                A<CraftTargetChange?>._))
-            .Returns(new CraftCommitResult(CraftCommitOutcome.Success, new[] { (MaterialHandle, 1L) }, raised));
+        CraftPlan applied = null;
+        A.CallTo(() => harness.CharacterService.ApplyMixAsync(Character, A<CraftPlan>._))
+            .ReturnsLazily((string _, CraftPlan plan) =>
+            {
+                applied = plan;
+                return Task.FromResult(new CraftCommitResult(CraftCommitOutcome.Success, new[] { (MaterialHandle, 1L) }, null)
+                    { Mutated = new[] { raised } });
+            });
 
         await harness.Service.HandleAsync(harness.Client, (ushort)GamePackets.TM_CS_MIX,
             MixFrame(TargetHandle, 1, (MaterialHandle, 1)));
 
-        A.CallTo(() => harness.CharacterService.ApplyCraftAsync(Character,
-                A<IReadOnlyList<CraftConsumption>>.That.Matches(lines => lines.Single() == new CraftConsumption(MaterialHandle, 1)),
-                A<CraftTargetChange?>.That.Matches(change => change!.Value.NewEnhance == 1 && change.Value.Handle == TargetHandle)))
-            .MustHaveHappenedOnceExactly();
+        applied.Should().NotBeNull();
+        applied!.Consumed.Select(line => (line.ItemHandle, line.Count)).Should().Equal((MaterialHandle, 1L));
+        var target = new ItemEntity { Enhance = 0 };
+        applied.Mutations.Should().ContainSingle(m => m.Handle == TargetHandle).Which.Apply(target);
+        target.Enhance.Should().Be(1);
 
         var ids = harness.Connection.Sent.Select(frame => BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4, 2))).ToList();
         ids.Should().Equal(new ushort[] { 255, 207, 257 }, "the cube stack, the raised item, then the mix result");
         var mixResult = harness.Connection.Sent.Last();
         BinaryPrimitives.ReadUInt32LittleEndian(mixResult.AsSpan(7, 4)).Should().Be(1);
         BinaryPrimitives.ReadUInt32LittleEndian(mixResult.AsSpan(11, 4)).Should().Be(TargetHandle);
+    }
+
+    [Test]
+    public async Task Mix_EtherealStoneSacrifice_PublishesTheStoneAndALineWithoutA257()
+    {
+        // SacrificeItemForEtherealStoneDurability (805): no main material, the sub material's price poured into the stone.
+        var rule = Rule(4000, 1);
+        rule.MixType = CraftingEngine.MixSacrificeForEtherealStone;
+        rule.MixValue01 = 100;
+        rule.MixValue04 = 100;
+        rule.Sub01Type01 = MixResourceMatcher.CheckItemId;
+        rule.Sub01Value01 = (int)MaterialResource;
+        var harness = Build(new[] { rule },
+            new Dictionary<uint, ItemEntity> { [MaterialHandle] = Item(MaterialResource) },
+            new Dictionary<long, ItemMatchFields>
+            {
+                [MaterialResource] = Fields(MaterialResource) with
+                    { Mix = new ItemMixFields(0, 0, 30_000, 0, 0, 7, 0, 0, 0, 0, 0) }
+            });
+        harness.Service.Roll = (min, max) => min;
+        CraftPlan applied = null;
+        A.CallTo(() => harness.CharacterService.ApplyMixAsync(Character, A<CraftPlan>._))
+            .ReturnsLazily((string _, CraftPlan plan) =>
+            {
+                applied = plan;
+                return Task.FromResult(new CraftCommitResult(CraftCommitOutcome.Success, new[] { (MaterialHandle, 0L) }, null)
+                    { EtherealStone = 30_000 });
+            });
+
+        await harness.Service.HandleAsync(harness.Client, (ushort)GamePackets.TM_CS_MIX, MixFrame(0, 0, (MaterialHandle, 1)));
+
+        applied!.EtherealStoneDelta.Should().Be(30_000);
+        var ids = harness.Connection.Sent.Select(frame => BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4, 2))).ToList();
+        ids.Should().Equal(new ushort[] { 254, (ushort)GamePackets.TM_SC_PROPERTY, (ushort)GamePackets.TM_SC_CHAT },
+            "the sacrifice leaves, the stone is published, the line follows, and no 257");
     }
 
     [Test]

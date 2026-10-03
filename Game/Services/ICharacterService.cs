@@ -174,6 +174,14 @@ public interface ICharacterService
     Task<CraftCommitResult> ApplyCraftWithCreationAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
         IReadOnlyList<CraftCreation> created) => ApplyCraftAsync(characterName, consumed, null);
 
+    /// <summary>
+    /// A whole <see cref="CraftPlan"/> in one save: the stacks consumed, the target change, the mutations of items that
+    /// stay, the items made (copies first) and the crafter's ethereal stone. Nothing applies when one stack or item is
+    /// not as the plan saw it.
+    /// </summary>
+    Task<CraftCommitResult> ApplyMixAsync(string characterName, CraftPlan plan) =>
+        ApplyCraftAsync(characterName, plan.Consumed, plan.Change);
+
     Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
         CraftTargetChange? change);
 

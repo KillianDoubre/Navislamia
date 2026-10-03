@@ -14,7 +14,7 @@ public sealed class CreatureCard
     public int Code { get; init; }
     public long Amount { get; set; }
     public ItemFlag Flag { get; set; }
-    public int Enhance { get; init; }
+    public int Enhance { get; set; }
     public long SummonId { get; set; }
     public int SummonCode { get; set; }
     public string SummonName { get; set; } = string.Empty;
