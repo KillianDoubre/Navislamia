@@ -17,7 +17,7 @@ using Navislamia.Game.Services.Interfaces;
 namespace Tests.Game;
 
 /// <summary>
-/// TM_CS_SWAP_EQUIP (223) is header-only: 7 bytes, no payload, no response. See
+/// TM_CS_SWAP_EQUIP (223) is header-only: 7 bytes, no payload, no result on success. See
 /// docs/packet-specs/223-swap-equip.md. There is no parser to test here, so the offsets are pinned on
 /// the frame itself and the dispatch is exercised against the real receive loop: a member of
 /// <see cref="GamePackets"/> that reaches the final switch throws "Unknown Packet Type" inside that
@@ -92,7 +92,7 @@ public class SwapEquipTests
         var receive = () => client.OnDataReceived(ClientPacketLength);
 
         receive.Should().NotThrow("an id defined in GamePackets must not reach the throwing switch");
-        connection.Sent.Should().BeEmpty("neither reference answers packet 223");
+        connection.Sent.Should().BeEmpty("a session without a character swaps nothing and answers nothing");
         connection.BytesAvailable.Should().Be(0, "the whole frame was consumed");
     }
 

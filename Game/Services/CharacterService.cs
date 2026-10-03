@@ -266,6 +266,60 @@ public class CharacterService : ICharacterService
         });
     }
 
+    /// <summary>The main slots and their spare twins (<c>WEAR_SPARE_*</c> = main + 24).</summary>
+    private static readonly (ItemWearType Main, ItemWearType Spare)[] SwapPairs =
+    {
+        (ItemWearType.Weapon, ItemWearType.SpareWeapon), (ItemWearType.Shield, ItemWearType.SpareShield),
+        (ItemWearType.DecoWeapon, ItemWearType.SpareDecoWeapon), (ItemWearType.DecoShield, ItemWearType.SpareDecoShield)
+    };
+
+    public Task<(CharacterEntity Character, IReadOnlyList<ItemEntity> Moved)?> SwapEquipAsync(string characterName,
+        Func<ItemEntity, bool> mayWearMain)
+    {
+        return RunExclusiveAsync<(CharacterEntity, IReadOnlyList<ItemEntity>)?>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            if (character?.Items is null)
+            {
+                return null;
+            }
+
+            var moves = new List<(ItemEntity Item, ItemWearType To)>();
+            foreach (var (main, spare) in SwapPairs)
+            {
+                var worn = character.Items.FirstOrDefault(item => item.WearInfo == main);
+                var kept = character.Items.FirstOrDefault(item => item.WearInfo == spare);
+                if (worn is not null)
+                {
+                    moves.Add((worn, spare));
+                }
+
+                if (kept is not null)
+                {
+                    if (!mayWearMain(kept))
+                    {
+                        return null;
+                    }
+
+                    moves.Add((kept, main));
+                }
+            }
+
+            if (moves.Count == 0)
+            {
+                return (character, Array.Empty<ItemEntity>());
+            }
+
+            foreach (var (item, to) in moves)
+            {
+                item.WearInfo = to;
+            }
+
+            await repository.SaveChangesAsync();
+            return (character, moves.Select(move => move.Item).ToList());
+        });
+    }
+
     public Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position)
     {
         return RunInventoryAsync(characterName, async repository =>

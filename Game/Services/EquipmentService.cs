@@ -51,13 +51,18 @@ public class EquipmentService : IEquipmentService
             return;
         }
 
-        if (!ItemWearRules.IsWearableSlot(request.Position))
+        // A spare slot (24..27) takes the item of its main twin unjudged: StructPlayer::TranslateWearPosition judges
+        // a spare item when the swap (223) brings it to the main slot, not before.
+        var spare = request.Position is >= (sbyte)ItemWearType.SpareWeapon and <= (sbyte)ItemWearType.SpareDecoShield;
+        if (!spare && !ItemWearRules.IsWearableSlot(request.Position))
         {
             client.SendResult(EquipRequestId, (ushort)ResultCode.InvalidArgument, 0);
             return;
         }
 
-        var refusal = await JudgeWearAsync(info, request.ItemHandle);
+        var refusal = spare
+            ? await JudgeSpareAsync(info, request.ItemHandle, (ItemWearType)request.Position)
+            : await JudgeWearAsync(info, request.ItemHandle);
         if (refusal != (ushort)ResultCode.Success)
         {
             client.SendResult(EquipRequestId, refusal, 0);
@@ -299,6 +304,79 @@ public class EquipmentService : IEquipmentService
         }
     }
 
+    /// <summary>The main slot a spare slot doubles (<c>WEAR_SPARE_*</c> minus 24).</summary>
+    public static ItemWearType MainOf(ItemWearType spare) => spare switch
+    {
+        ItemWearType.SpareWeapon => ItemWearType.Weapon,
+        ItemWearType.SpareShield => ItemWearType.Shield,
+        ItemWearType.SpareDecoWeapon => ItemWearType.DecoWeapon,
+        ItemWearType.SpareDecoShield => ItemWearType.DecoShield,
+        _ => ItemWearType.None
+    };
+
+    /// <summary>A spare slot takes an item whose own slot is the spare's main twin.</summary>
+    private async Task<ushort> JudgeSpareAsync(ConnectionInfo info, uint itemHandle, ItemWearType spare)
+    {
+        var placement = await ResolveSlotAsync(info.CharacterName, itemHandle);
+        if (placement.Code != (ushort)ResultCode.Success)
+        {
+            return placement.Code;
+        }
+
+        return placement.Slot == MainOf(spare) ? (ushort)ResultCode.Success : (ushort)ResultCode.NotActable;
+    }
+
+    /// <summary>
+    /// <c>TM_CS_SWAP_EQUIP</c> (223), <c>onSwapEquip</c>: the main weapon set and the spare one change places. A spare
+    /// item that comes to a main slot meets the wear requirements, and one refusal refuses the swap as a whole
+    /// (the official puts everything off first and can leave a refused item unworn). No result on success: the
+    /// 287 of every moved item, the stats and the 202 to whoever sees the character.
+    /// </summary>
+    public async Task SwapAsync(GameClient client)
+    {
+        const ushort swapRequestId = (ushort)GamePackets.TM_CS_SWAP_EQUIP;
+        var info = client.ConnectionInfo;
+        if (info.CharacterHandle == 0)
+        {
+            return;
+        }
+
+        if (info.CharacterHp <= 0)
+        {
+            client.SendResult(swapRequestId, (ushort)ResultCode.NotActable, 0);
+            return;
+        }
+
+        try
+        {
+            var swap = await _characterService.SwapEquipAsync(info.CharacterName, item =>
+                _wearCatalog.TryGetWearFields(item.ItemResourceId, out var fields) && IsWearAllowed(fields, info));
+            if (swap is not { } result)
+            {
+                client.SendResult(swapRequestId, (ushort)ResultCode.NotActable, 0);
+                return;
+            }
+
+            if (result.Moved.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var item in result.Moved)
+            {
+                SendItemWear(client, info.CharacterHandle, item);
+            }
+
+            SendStatInfo(client, info, info.CharacterHandle, result.Character);
+            PublishWear(client, result.Character);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not swap the equipment of {clientTag}", client.ClientTag);
+            client.SendResult(swapRequestId, (ushort)ResultCode.DBError, 0);
+        }
+    }
+
     private readonly record struct EquipStep(ushort Code, CharacterEntity Character)
     {
         public bool Succeeded => Code == (ushort)ResultCode.Success;
@@ -307,7 +385,8 @@ public class EquipmentService : IEquipmentService
     private void SendStatInfo(GameClient client, ConnectionInfo info, uint handle, CharacterEntity character)
     {
         _statService.Seed(info, character);
-        var result = _statService.Compute(character);
+        // The session's view once seeded: buffs, title, weapon range and a GM /speed included.
+        var result = _statService.Compute(info);
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.Total, StatInfoType.Total));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
         client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_hp", (int)result.Total.MaxHp));

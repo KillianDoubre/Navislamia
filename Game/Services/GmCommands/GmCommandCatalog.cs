@@ -37,7 +37,8 @@ public enum GmCommand
     Rates,
     GameTime,
     Ride,
-    Unride
+    Unride,
+    Speed
 }
 
 /// <summary>
@@ -87,6 +88,8 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Learn, "learn", true, "/learn <skill> [level]", FromLua),
         new GmCommandDefinition(GmCommand.Buff, "buff", true, "/buff <state> [level] [seconds]", FromLua),
         new GmCommandDefinition(GmCommand.Immortal, "immortal", true, "/immortal [on|off]", FromRepository),
+        new GmCommandDefinition(GmCommand.Speed, "speed", true, "/speed [move speed, 120 base | nothing to reset]",
+            FromRepository),
         new GmCommandDefinition(GmCommand.Pk, "pk", true, "/pk [on|off]", FromRepository),
         new GmCommandDefinition(GmCommand.Home, "home", true, "/home", FromRepository),
         new GmCommandDefinition(GmCommand.Target, "target", true, "/target", FromRepository),

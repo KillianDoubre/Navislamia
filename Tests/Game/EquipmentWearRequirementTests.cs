@@ -235,11 +235,12 @@ public class EquipmentWearRequirementTests
     public async Task EquipAsync_AnswersAPositionOutsideTheWearInfoBeforeReadingTheItem()
     {
         // The established order of the depot, kept as it is (§7.4 of the sheet): the position is judged
-        // before the item is read, and the code is InvalidArgument, not the official's 5.
+        // before the item is read, and the code is InvalidArgument, not the official's 5. 24..27 are the
+        // spare slots now, so the first position outside the wear info is 28.
         var harness = Build(300, Items((HeadyHandle, HeadyResource)),
             Wear(HeadyResource, ItemWearType.Armor, rank: 0));
 
-        await harness.Service.EquipAsync(harness.Client, new GameActionPackets.PutonItemRequest(24, HeadyHandle, 0));
+        await harness.Service.EquipAsync(harness.Client, new GameActionPackets.PutonItemRequest(28, HeadyHandle, 0));
 
         SingleResult(harness).Result.Should().Be((ushort)ResultCode.InvalidArgument);
         A.CallTo(() => harness.Characters.GetItemByHandleAsync(Character, A<uint>._)).MustNotHaveHappened();

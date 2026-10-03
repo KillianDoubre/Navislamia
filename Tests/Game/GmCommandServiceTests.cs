@@ -549,6 +549,38 @@ public class GmCommandServiceTests
     }
 
     [Test]
+    public async Task Speed_SetsTheOverrideSendsTheStatsAndResetsWithoutAValue()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        A.CallTo(() => _stats.Compute(info))
+            .Returns(new CharacterStatResult(new StatBlock { MaxHp = 800, MaxMp = 300 }, new StatBlock()));
+
+        await _service.HandleAsync(client, "/speed 400", Array.Empty<GameClient>());
+        info.MoveSpeedOverride.Should().Be(400);
+        connection.Sent.Count(frame => Id(frame) == (ushort)GamePackets.TM_SC_STAT_INFO)
+            .Should().Be(2, "the total and the by-item stat packets");
+
+        await _service.HandleAsync(client, "/speed", Array.Empty<GameClient>());
+        info.MoveSpeedOverride.Should().BeNull();
+        Replies(connection).Last().Text.Should().Be("Move speed reset.");
+
+        await _service.HandleAsync(client, "/speed 0", Array.Empty<GameClient>());
+        info.MoveSpeedOverride.Should().BeNull();
+    }
+
+    [Test]
+    public async Task Speed_IsPrivileged()
+    {
+        var (client, _) = NewClient(permission: 0);
+        var info = StorageTestHarness.Session(client);
+
+        await _service.HandleAsync(client, "/speed 400", Array.Empty<GameClient>());
+
+        info.MoveSpeedOverride.Should().BeNull();
+    }
+
+    [Test]
     public async Task Pk_SetsTheModeAndPublishesItsBit()
     {
         var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);

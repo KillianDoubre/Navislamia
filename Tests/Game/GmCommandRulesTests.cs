@@ -9,6 +9,19 @@ namespace Tests.Game;
 [TestFixture]
 public class GmCommandParserTests
 {
+    [TestCase(new string[0], true, null)]
+    [TestCase(new[] { "400" }, true, 400)]
+    [TestCase(new[] { "1785" }, true, 1785)]
+    [TestCase(new[] { "1786" }, false, null)]
+    [TestCase(new[] { "0" }, false, null)]
+    [TestCase(new[] { "fast" }, false, null)]
+    [TestCase(new[] { "400", "2" }, false, null)]
+    public void TryParseSpeed_ResetsWithoutAValueAndBoundsByTheWireByte(string[] args, bool ok, int? expected)
+    {
+        GmCommandRules.TryParseSpeed(args, out var speed).Should().Be(ok);
+        speed.Should().Be(expected);
+    }
+
     [Test]
     public void IsCommand_NeedsTheSlashAndAnyTypeButWhisper()
     {

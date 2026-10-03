@@ -15,4 +15,7 @@ public interface IEquipmentService
     /// read from the frame. Zero entries are empty slots.
     /// </summary>
     Task EquipSetAsync(GameClient client, uint[] handles);
+
+    /// <summary><c>TM_CS_SWAP_EQUIP</c> (223): the main and spare weapon sets change places.</summary>
+    Task SwapAsync(GameClient client) => Task.CompletedTask;
 }

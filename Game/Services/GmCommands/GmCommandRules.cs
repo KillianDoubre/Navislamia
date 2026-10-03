@@ -131,6 +131,31 @@ public static class GmCommandRules
                amount != 0 && (!positiveOnly || amount > 0);
     }
 
+    /// <summary>
+    /// The highest <c>/speed</c>: the walk travels as move speed / 7 in one byte (<c>MonsterMovement.SpeedByte</c>),
+    /// so 255 × 7 is the fastest the wire can carry.
+    /// </summary>
+    public const int MaxMoveSpeed = 255 * 7;
+
+    /// <summary><c>/speed [value]</c>: no argument resets (null), otherwise a move speed in <c>1..MaxMoveSpeed</c>.</summary>
+    public static bool TryParseSpeed(string[] args, out int? speed)
+    {
+        speed = null;
+        if (args is null || args.Length == 0)
+        {
+            return true;
+        }
+
+        if (args.Length != 1 || !int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ||
+            value < 1 || value > MaxMoveSpeed)
+        {
+            return false;
+        }
+
+        speed = value;
+        return true;
+    }
+
     /// <summary>Chaos is an int32 on the wire: the balance stays in <c>0..int.MaxValue</c>.</summary>
     public static int ApplyChaos(int current, long delta) =>
         (int)Math.Min(AddClamped(Math.Max(0, current), delta), int.MaxValue);

@@ -54,6 +54,12 @@ public class StatService : IStatService
             result.Total.AttackRange = info.WeaponAttackRange;
         }
 
+        // The GM command /speed replaces the move speed outright (load and mount still apply on top).
+        if (info.MoveSpeedOverride is { } speed && result.Total is not null)
+        {
+            result.Total.MoveSpeed = speed;
+        }
+
         return result;
     }
 
@@ -237,7 +243,10 @@ public class StatService : IStatService
         List<StatEffect> effects = null;
         foreach (var item in character.Items)
         {
-            if (item.WearInfo == ItemWearType.None)
+            // A spare-set item (24..27) is worn but gives nothing until the swap brings it to its main slot
+            // (StructPlayer::TranslateWearPosition: "spare items do not apply their performance").
+            if (item.WearInfo == ItemWearType.None || item.WearInfo >= ItemWearType.SpareWeapon
+                && item.WearInfo <= ItemWearType.SpareDecoShield)
             {
                 continue;
             }

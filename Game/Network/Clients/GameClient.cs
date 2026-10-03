@@ -3376,6 +3376,8 @@ public class GameClient : Client
             {
                 _logger.Debug("TM_CS_SWAP_EQUIP ({id}) Length: {length} received from {clientTag}",
                     header.ID, header.Length, ClientTag);
+                // onSwapEquip: the main and spare weapon sets change places (docs/packet-specs/223-swap-equip.md).
+                _ = _networkService.EquipmentService?.SwapAsync(this);
                 continue;
             }
 

@@ -287,6 +287,12 @@ public class ConnectionInfo
     public bool IsImmortal { get; set; }
 
     /// <summary>
+    /// Set by the GM command <c>/speed</c>: the stat move speed replaced by this value (120 is the base), so the
+    /// client's own walk, the echo and the peers' copy all follow. Null = the computed speed. Session only.
+    /// </summary>
+    public int? MoveSpeedOverride { get; set; }
+
+    /// <summary>
     /// 1 while an item resurrection is between its check and its effect. That path waits on the database
     /// to consume the item, and the character is still at 0 HP meanwhile: without this, two requests sent
     /// together would both pass the dead check and consume two items for one resurrection.
@@ -647,6 +653,7 @@ public class ConnectionInfo
         IsBattleMode = false;
         IsWalking = false;
         IsImmortal = false;
+        MoveSpeedOverride = null;
         lock (CastLock)
         {
             PendingCast = null;

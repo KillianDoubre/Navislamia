@@ -328,6 +328,18 @@ public class GmCommandService : IGmCommandService
                 Reply(client, immortal ? "Immortal: monsters deal no damage." : "Mortal again.");
                 break;
 
+            case GmCommand.Speed:
+                if (!GmCommandRules.TryParseSpeed(line.Args, out var speed))
+                {
+                    Usage(client, definition);
+                    break;
+                }
+
+                info.MoveSpeedOverride = speed;
+                SendStats(client);
+                Reply(client, speed is { } set ? $"Move speed: {set}." : "Move speed reset.");
+                break;
+
             case GmCommand.Pk:
                 if (!GmCommandRules.TryParseSwitch(line.Args, !info.PkMode, out var pk))
                 {
@@ -626,12 +638,19 @@ public class GmCommandService : IGmCommandService
             new[] { new KeyValuePair<int, byte>(skillId, level) }));
 
         _statService.RefreshPassives(info);
-        var stats = _statService.Compute(info);
+        SendStats(client);
+        Reply(client, $"Skill {skillId} level {level} learnt.");
+    }
+
+    /// <summary>Both stat packets and the max HP/MP properties, as every stat trigger sends them.</summary>
+    private void SendStats(GameClient client)
+    {
+        var handle = client.ConnectionInfo.CharacterHandle;
+        var stats = _statService.Compute(client.ConnectionInfo);
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.Total, StatInfoType.Total));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats.ByItem, StatInfoType.ByItem));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_hp", (int)stats.Total.MaxHp));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "max_mp", (int)stats.Total.MaxMp));
-        Reply(client, $"Skill {skillId} level {level} learnt.");
     }
 
     /// <summary>

@@ -53,6 +53,15 @@ public interface ICharacterService
 
     Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position);
 
+    /// <summary>
+    /// <c>onSwapEquip</c> (223): the weapon, shield and their decorations change places with the spare set. Every
+    /// spare item that would come to a main slot is judged by <paramref name="mayWearMain"/> first, and one refusal
+    /// leaves everything as it was (null). Returns the character and the items that moved.
+    /// </summary>
+    Task<(CharacterEntity Character, IReadOnlyList<ItemEntity> Moved)?> SwapEquipAsync(string characterName,
+        Func<ItemEntity, bool> mayWearMain) =>
+        Task.FromResult<(CharacterEntity, IReadOnlyList<ItemEntity>)?>(null);
+
     Task<ItemEntity[]> ArrangeInventoryAsync(string characterName, IItemSortCatalog catalog);
 
     Task<ItemEntity> GetItemByHandleAsync(string characterName, uint itemHandle);
