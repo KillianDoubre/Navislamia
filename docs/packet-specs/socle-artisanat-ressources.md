@@ -786,3 +786,9 @@ Préalable : `.\tools\Import-CraftingResources.ps1` (PostgreSQL démarré, migra
 
 Le type le plus nombreux de la table Epic 7 (2 610 recettes) : `CraftingEngine.PlanCreate`, port de
 `MixManager::CreateItem`. Détail, tirages et écarts : `socle-titres-secondaires-evenements.md` §4.
+
+## 17. Le `MixManager` officiel — livré le 2026-10-03
+
+Tous les types de la donnée Epic 7 sont exécutés, et la résolution suit l'officiel (arrangement des matériaux,
+conditions 11-38). Les décisions du §14 qui reprenaient NGemity (points 1, 3 et 9) sont remplacées là où
+l'officiel tranche : `socle-artisanat-objets-officiel.md`.

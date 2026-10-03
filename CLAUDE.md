@@ -2060,7 +2060,7 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   **arrangés** et non appariés par position, conditions 11-38 jugées, tous les matériaux de 101/103 consommés,
   `procEnhanceFail` officiel (1 vide les châsses sauf ceinture, 0 et 4 ne font rien). Un plan porte des mutations,
   copies, créations et la pierre, appliquées en une sauvegarde (`ApplyMixAsync`). Une durabilité éthérée stockée à 0
-  sur un objet qui a un maximum est lue pleine (rien ne l'initialise ni ne l'use). `ApplyCraftAsync` applique tout en une
+  sur un objet qui a un maximum est lue pleine (rien ne l'initialise ni ne l'use). L'application applique tout en une
   sauvegarde, **seulement si la cible est encore dans l'état où le craft a été décidé**. Réponse : 255/254 par pile,
   207 pour la cible, puis 257 (cible si réussite, vide si échec). Appariement **par position**.
   `Crafting:LocalFlag` = 1 ; données par `tools/Import-CraftingResources.ps1` (CSV 9.4), `Percentage` jusqu'à 25.

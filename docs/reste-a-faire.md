@@ -87,8 +87,9 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Titres : principal et secondaires, événements d'invocation et d'artisanat livrés. Restent les événements de
   siège, de meurtre PK, de PC bang, d'objet obtenu (2001), d'amélioration de carte de créature (3201) et de
   ceinture de cartes (3801).
-- Artisanat : 101/102/103/311/501/601 livrés ; restent 104/105 (cartes de créature), 201/202/212 (niveau),
-  402 (recyclage), 7xx/8xx (éléments, châsses, durabilité éthérée).
+- Artisanat : tous les types Epic 7 livrés sur le `MixManager` officiel (`socle-artisanat-objets-officiel.md`),
+  **à vérifier en jeu** ; restent l'usure de la durabilité éthérée (rien ne la consomme) et les lignes « objet
+  obtenu » (`@253`/`@254`).
 - PvP : restent les règles d'arène/siège et les alliances de guildes ; compte à rebours PK et autel livrés ; terrains PK, compétences et immoralité sont livrés et testés
   (`socle-pvp-terrains-competences-immoralite.md`).
 - Mort du joueur : objets lâchés seulement sur un serveur PK, comme l'officiel ; à trancher si on le veut
