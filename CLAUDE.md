@@ -2053,8 +2053,14 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   311 (bit 0 := `mix_value_03`) et 501 (efface le bit `mix_value_01`, 3 = `FAILED`) ; 102 combine deux cartes
   de même compétence et amélioration (conditions retail 24/25), consomme le cube et produit une unité
   distincte à +1 ; échec `SkillCard` : détruite jusqu'à +3, sinon nouvelle unité à −3. **601
-  `MIX_CREATE_ITEM`** (2 610 recettes) crée des objets, groupes de butin compris, en une sauvegarde
-  (`ApplyCraftWithCreationAsync`, `socle-titres-secondaires-evenements.md` §4). Les autres types sont refusés. `ApplyCraftAsync` applique tout en une
+  `MIX_CREATE_ITEM`** (2 610 recettes) crée des objets, groupes de butin compris (`socle-titres-secondaires-evenements.md` §4).
+  **Tous les autres types Epic 7 suivent le `MixManager` officiel** (`socle-artisanat-objets-officiel.md`) : cartes de
+  créature 104/105, niveau 2xx/3xx, recyclage 401/402, apparence 603, éléments 701/702, châsses 703/704, durabilité
+  éthérée 801-806 (pierre éthérée du personnage comprise). Il **remplace** les choix NGemity du 2026-09-29 : matériaux
+  **arrangés** et non appariés par position, conditions 11-38 jugées, tous les matériaux de 101/103 consommés,
+  `procEnhanceFail` officiel (1 vide les châsses sauf ceinture, 0 et 4 ne font rien). Un plan porte des mutations,
+  copies, créations et la pierre, appliquées en une sauvegarde (`ApplyMixAsync`). Une durabilité éthérée stockée à 0
+  sur un objet qui a un maximum est lue pleine (rien ne l'initialise ni ne l'use). `ApplyCraftAsync` applique tout en une
   sauvegarde, **seulement si la cible est encore dans l'état où le craft a été décidé**. Réponse : 255/254 par pile,
   207 pour la cible, puis 257 (cible si réussite, vide si échec). Appariement **par position**.
   `Crafting:LocalFlag` = 1 ; données par `tools/Import-CraftingResources.ps1` (CSV 9.4), `Percentage` jusqu'à 25.
