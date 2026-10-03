@@ -45,9 +45,24 @@ public interface IPartyService
     int MemberCount(GameClient client) => 1;
     bool CanTakeDrop(GameClient owner, GameClient picker, long? dropPartyId);
     GameClient LootRecipient(GameClient picker, long? dropPartyId, float x, float y, byte layer);
+
+    // The HuntaHolic room's party (PartyManager::TYPE_HUNTAHOLIC_PARTY), driven by HuntaholicService rather than
+    // by chat commands, which ignore it (socle-huntaholic.md §4).
+    int CreateHuntaholicParty(GameClient leader, string baseName) => 0;
+    bool JoinHuntaholicParty(int partyId, GameClient member) => false;
+    void LeaveHuntaholicParty(GameClient member) { }
+    void DestroyHuntaholicParty(int partyId) { }
+    IReadOnlyList<GameClient> OnlineMembers(int partyId) => System.Array.Empty<GameClient>();
+    int PartyMemberCount(int partyId) => 0;
+    bool IsPartyLeader(int partyId, GameClient client) => false;
+    string PartyName(int partyId) => string.Empty;
+    int PartyIdOf(GameClient client) => 0;
+
+    /// <summary><c>onInstanceGameEnter</c>: the player leaves (or, alone, destroys) the party they are in.</summary>
+    void LeaveForInstanceGame(GameClient client) { }
 }
 
-public sealed class PartyService : IPartyService
+public sealed partial class PartyService : IPartyService
 {
     public int MemberCount(GameClient client)
     {
@@ -68,8 +83,10 @@ public sealed class PartyService : IPartyService
     private readonly Dictionary<long, int> _partyOf = new();
     private int _nextPartyId;
 
-    public PartyService(IPlayerVisibilityService players, IStatService stats, IBannedWordsRepository bannedWords)
+    public PartyService(IPlayerVisibilityService players, IStatService stats, IBannedWordsRepository bannedWords,
+        Huntaholic.IHuntaholicCatalog huntaholics = null)
     {
+        _huntaholics = huntaholics;
         _players = players;
         _stats = stats;
         _bannedWords = bannedWords;
@@ -106,7 +123,10 @@ public sealed class PartyService : IPartyService
         {
             lock (_gate)
             {
-                handler(client, tokens);
+                if (!IsRefusedByHuntaholic(client, tokens))
+                {
+                    handler(client, tokens);
+                }
             }
         }
 
@@ -486,7 +506,7 @@ public sealed class PartyService : IPartyService
         var online = views.Where(view => view.Online).Select(view => view.Level).DefaultIfEmpty(0).ToList();
         var leader = party.Find(party.LeaderId)?.Name ?? string.Empty;
         Reply(client, PartyMessages.PartyInfo(party.Id, party.Name, leader, party.ShareMode, online.Max(),
-            online.Min(), views));
+            online.Min(), views, party.Huntaholic ? HuntaholicPartyType : 0));
     }
 
     private void BroadcastMemberInfo(PartyState party, GameClient subject)
@@ -598,6 +618,7 @@ public sealed class PartyService : IPartyService
         public long LeaderId { get; set; }
         public PartyShareMode ShareMode { get; set; }
         public int NextLootIndex { get; set; }
+        public bool Huntaholic { get; set; }
         public List<PartyMember> Members { get; } = new();
 
         public PartyMember Find(long characterId) => Members.FirstOrDefault(m => m.CharacterId == characterId);

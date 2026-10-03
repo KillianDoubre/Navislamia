@@ -59,6 +59,8 @@ public class NetworkService : INetworkService
     public readonly IBoothTradeService BoothTradeService;
     public readonly IMarketTradeService MarketTradeService;
     public readonly Navislamia.Game.Services.Party.IPartyService PartyService;
+    public readonly Navislamia.Game.Services.Huntaholic.IHuntaholicService HuntaholicService;
+    public readonly Navislamia.Game.Services.Auction.IAuctionService AuctionService;
     public readonly Navislamia.Game.Services.Trade.IPlayerTradeService PlayerTradeService;
     public readonly Navislamia.Game.Services.Weight.ICarriedWeightService CarriedWeightService;
     public readonly ISoulstoneCraftService SoulstoneCraftService;
@@ -105,8 +107,12 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService,
         Navislamia.Game.Services.Compete.ICompeteService competeService = null,
         Navislamia.Game.Services.Creatures.ICreatureService creatureService = null,
-        Navislamia.Game.Services.IPkModeService pkModeService = null)
+        Navislamia.Game.Services.IPkModeService pkModeService = null,
+        Navislamia.Game.Services.Huntaholic.IHuntaholicService huntaholicService = null,
+        Navislamia.Game.Services.Auction.IAuctionService auctionService = null)
     {
+        HuntaholicService = huntaholicService;
+        AuctionService = auctionService;
         PkModeService = pkModeService;
         CompeteService = competeService;
         CreatureService = creatureService;

@@ -364,7 +364,10 @@ public sealed class QuestService : IQuestService, IDisposable
                 character.Exp = checked(info.CharacterExp + exp);
                 character.Jp = checked(info.CharacterJp + jp);
                 character.Gold = checked(info.CharacterGold + gold);
-                character.HuntaholicPoint = checked(character.HuntaholicPoint + resource.HolicPoint);
+                // The session holds the balance (a market purchase spends it): the row takes the session's
+                // value plus the reward, and the session follows once committed.
+                character.HuntaholicPoint = (int)Math.Clamp((long)info.HuntaholicPoint + resource.HolicPoint, 0L,
+                    Huntaholic.HuntaholicEntryRefill.MaxOwnablePoint);
                 var completion = await db.CharacterQuestCompletions.SingleOrDefaultAsync(q => q.CharacterId == character.Id && q.Code == request.Code);
                 if (completion is null) db.CharacterQuestCompletions.Add(new CharacterQuestCompletionEntity { CharacterId = character.Id, Code = request.Code, CompletedAt = _time.GetUtcNow().UtcDateTime });
                 else completion.CompletedAt = _time.GetUtcNow().UtcDateTime;
@@ -372,6 +375,7 @@ public sealed class QuestService : IQuestService, IDisposable
                 // The implicit transaction commits consumption, rewards, history and removal together.
                 await db.SaveChangesAsync();
                 info.CharacterExp += exp; info.CharacterJp += jp; info.AddGold(gold);
+                if (resource.HolicPoint != 0) info.AddHuntaholicPoint(resource.HolicPoint);
                 try
                 {
                     _leveling?.ApplyExperience(client);
@@ -379,7 +383,7 @@ public sealed class QuestService : IQuestService, IDisposable
                     if (added.Count > 0) foreach (var packet in GameCharacterPackets.BuildInventory(added.ToArray())) client.Connection.Send(packet);
                     client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
                     client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
-                    client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "huntaholicpoint", character.HuntaholicPoint));
+                    client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "huntaholicpoint", info.HuntaholicPoint));
                     Chat(client, $"END|EXP|{request.Code}|{exp}|{jp}|{gold}|{resource.HolicPoint}");
                     foreach (var reward in added) Chat(client, $"END|REWARD|{reward.ItemResourceId}");
                 }

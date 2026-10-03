@@ -41,7 +41,14 @@ public enum SkillCastKind
     /// (<c>tf_avatar</c>): a dead player in sight comes back where they fell
     /// (docs/packet-specs/socle-mort-joueur.md §3).
     /// </summary>
-    Resurrection
+    Resurrection,
+
+    /// <summary>
+    /// The instance game spells 64818 (<c>SKILL_WARP_TO_HUNTAHOLIC_LOBBY</c>) and 64827 (<c>SKILL_INSTANCE_GAME_EXIT</c>),
+    /// effect 604: never learned, cast by the server on 4250/4251 (<c>CastSkill</c> in <c>onInstanceGameEnter</c>),
+    /// carried out by HuntaHolic when they fire (docs/packet-specs/socle-huntaholic.md §6).
+    /// </summary>
+    InstanceGame
 }
 
 public readonly record struct CastableBuffFields(

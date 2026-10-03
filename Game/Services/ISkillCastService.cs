@@ -31,6 +31,13 @@ public interface ISkillCastService
     bool ApplyItemSkill(GameClient client, int skillId, int skillLevel);
 
     /// <summary>
+    /// <c>pClient-&gt;CastSkill(skill_id, 1, self, …)</c> for an instance game spell (64818/64827): the cast a 4250/4251
+    /// starts, with its delay and its interruptions; Success when the cast began.
+    /// </summary>
+    Navislamia.Game.Network.Packets.ResultCode CastInstanceGameSkill(GameClient client, int skillId) =>
+        Navislamia.Game.Network.Packets.ResultCode.NotActable;
+
+    /// <summary>
     /// Takes the active instance of <paramref name="stateId"/> off the caster: <c>TS_SC_STATE</c> removal
     /// and the stat refresh, exactly as the expiry tick does. False when no such state is active.
     /// </summary>

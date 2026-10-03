@@ -3,8 +3,9 @@
 Sources (the Epic 7 Part 4 SVN dump, read with tools/rdu.py):
   * trunk/MarketResource.rdu: sort_id, name, code, price_ratio, huntaholic_ratio.
   * trunk/ItemResource.rdu: the item base price. NGemity's loader turns the ratio into the price the
-    window shows and the buyer pays: floor(price_ratio * item.price), huntaholic point 0
-    (ObjectMgr.cpp:847-852); a line whose item is unknown is skipped, like the reference.
+    window shows and the buyer pays: floor(price_ratio * item.price); the official server (GameMessage.cpp onMarketInfo) prices the
+    HuntaHolic points the same way, trunc(huntaholic_ratio * item.huntaholic_point). A line whose item is
+    unknown is skipped, like the reference.
   * the client's own db_item.rdb (optional): a line whose item the 7.3 client does not know would render
     nothing, so it is dropped.
   * the server Lua of the dump (trunk and branches): each <npc>_contact() names its market literally,
@@ -19,6 +20,10 @@ cash_usable_server == 0, so the flat_sum_* market wins whenever a pair exists.
 Dialogs the Lua does not cover are named by NAME_RULES below: the market names of MarketResource follow
 the NPC function names closely enough for these, and each rule is spelled out rather than guessed at run
 time. A dialog no rule names keeps its truncated trigger, which the market service still refuses.
+
+POSITIONAL dialogs name one market per menu entry, in menu order (the official Lua of the HuntaHolic
+merchants): an entry whose market the table does not hold is dropped with its own label, so the labels
+of the others stay theirs.
 
 Usage: python tools/export_market_catalog.py PART4_DIR [--client-items db_item.rdb]
 """
@@ -68,6 +73,18 @@ def name_rules(function):
     return None
 
 
+# The official huntaholic Lua (NPC_huntaholic.lua): hunterholic_point_market offers eight markets, the
+# third only where the cash shop exists (bearload_shop_creturecard_me is not in the Epic 7 table), and
+# the koreagarlic merchant the event shop.
+POSITIONAL = {
+    "hunterholic_point_market": ["bearload_shop_onlybear", "bearload_shop_beardeco",
+                                 "bearload_shop_creturecard_me", "bearload_shop_creturecard",
+                                 "bearload_shop_equipment", "bearload_shop_skillcard",
+                                 "bearload_shop_soulstone", "bearload_shop_cube"],
+    "NPC_huntaholic_koreagarlic_contact": ["bearload_eventshop"],
+}
+
+
 def lua_markets(part4):
     """{contact function: [market, ...]} from every Lua script of the dump, trunk first."""
     found = {}
@@ -113,12 +130,14 @@ def main(argv):
     allowed = client_items(argv[argv.index("--client-items") + 1]) if "--client-items" in argv else None
 
     items = rdu.RduTable(part4 / "trunk" / "ItemResource.rdu")
-    price_column = [c.name for c in items.columns].index("price")
+    item_columns = [c.name for c in items.columns]
+    price_column, point_column = item_columns.index("price"), item_columns.index("huntaholic_point")
     prices = {row[0]: row[price_column] for row in items.rows}
+    points = {row[0]: row[point_column] or 0 for row in items.rows}
 
     market = rdu.RduTable(part4 / "trunk" / "MarketResource.rdu")
     rows, skipped = [], {"unknown item": 0, "not in client": 0}
-    for sort_id, name, code, ratio, _hunt in market.rows:
+    for sort_id, name, code, ratio, hunt in market.rows:
         if code not in prices:
             skipped["unknown item"] += 1
             continue
@@ -127,7 +146,7 @@ def main(argv):
             continue
         rows.append({"Name": name, "SortId": sort_id, "Code": code,
                      "Price": int((ratio * prices[code]).to_integral_value(rounding="ROUND_FLOOR")),
-                     "HuntaholicPoint": 0})
+                     "HuntaholicPoint": int((hunt * points[code]).to_integral_value(rounding="ROUND_DOWN"))})
     known = {r["Name"] for r in rows}
     MARKETS_OUT.write_text(json.dumps({"MarketCatalog": {"Markets": rows}}, indent=1) + "\n", encoding="utf-8")
     print(f"{MARKETS_OUT.name}: {len(rows)} lines over {len(known)} markets, skipped {skipped}")
@@ -140,6 +159,13 @@ def main(argv):
         menu = dialog.get("Menu", [])
         merchant = [i for i, m in enumerate(menu) if m.get("Trigger", "").startswith("open_market")]
         if not merchant:
+            continue
+        if function in POSITIONAL and len(POSITIONAL[function]) == len(merchant):
+            canonical = {k.lower(): k for k in known}
+            keep = {i: canonical[n.lower()] for i, n in zip(merchant, POSITIONAL[function]) if n.lower() in canonical}
+            dialog["Menu"] = [dict(m, Trigger=f"open_market( '{keep[i]}' )") if i in keep else m
+                              for i, m in enumerate(menu) if i in keep or i not in merchant]
+            named += 1
             continue
         source = lua.get(function) or name_rules(function)
         markets = offered(source, known) if source else []

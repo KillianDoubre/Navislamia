@@ -157,7 +157,8 @@ public class PvpTests
         var method = typeof(GameClient).GetMethod("SaveProgressSafelyAsync", BindingFlags.NonPublic | BindingFlags.Instance);
         await (Task)method.Invoke(client, new object[] { "test" });
         A.CallTo(() => characters.SaveProgressAsync("Player", 10, A<int>._, A<long>._, A<long>._,
-            A<long>._, A<int>._, A<float>._, A<float>._, true, new PvpProgress(1000.3333m, 23, 7), 0))
+            A<long>._, A<int>._, A<float>._, A<float>._, true, new PvpProgress(1000.3333m, 23, 7), 0,
+            A<Navislamia.Game.Services.Huntaholic.HuntaholicProgress?>._))
             .MustHaveHappenedOnceExactly();
     }
 

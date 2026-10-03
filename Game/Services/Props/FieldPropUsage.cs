@@ -78,6 +78,7 @@ public static class FieldPropUsage
         return template.Action.Kind switch
         {
             PropActionKind.CommonWarpGate or PropActionKind.RunTeleport => true,
+            PropActionKind.HuntaholicLobby => true,
             PropActionKind.EnterDungeon or PropActionKind.ExitDungeon =>
                 catalog.TryGetDungeonStart(template.Action.DungeonId, out _, out _),
             _ => false

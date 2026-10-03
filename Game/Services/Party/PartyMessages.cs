@@ -58,9 +58,9 @@ public static class PartyMessages
     /// level, min level, party type — then one entry per member, in the party's order.
     /// </summary>
     public static string PartyInfo(int partyId, string party, string leader, PartyShareMode mode, int maxLevel,
-        int minLevel, IEnumerable<PartyMemberView> members)
+        int minLevel, IEnumerable<PartyMemberView> members, int type = 0)
     {
-        var text = new StringBuilder($"PINFO|{partyId}|{party}|{leader}|{(int)mode}|{maxLevel}|{minLevel}|0|");
+        var text = new StringBuilder($"PINFO|{partyId}|{party}|{leader}|{(int)mode}|{maxLevel}|{minLevel}|{type}|");
         foreach (var member in members)
         {
             text.Append(Entry(member));

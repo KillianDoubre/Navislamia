@@ -55,6 +55,7 @@ public class CombatService : ICombatService
     private readonly Dictionary<GameClient, AttackSession> _sessions = new();
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
+    private readonly Huntaholic.IHuntaholicEvents _huntaholic;
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
@@ -64,8 +65,9 @@ public class CombatService : ICombatService
         ICharacterService characters = null, Compete.ICompeteService compete = null,
         Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
         bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null,
-        Creatures.ICreatureEvents creatures = null)
+        Creatures.ICreatureEvents creatures = null, Huntaholic.IHuntaholicEvents huntaholic = null)
     {
+        _huntaholic = huntaholic;
         _creatures = creatures;
         _pkFields = pkFields;
         _titles = titles;
@@ -894,6 +896,9 @@ public class CombatService : ICombatService
         var now = DateTime.UtcNow;
         if (!_worldState.TryKill(instanceId, now + _rates.MonsterRespawnDelay)) return 0;
         var contribution = MonsterContribution.Resolve(_worldState.TakeDamageContributions(instanceId), client, ServerClock.Now);
+
+        // InstanceDungeon::onMonsterDelete: a HuntaHolic monster scores for its max-damage dealer.
+        _huntaholic?.MonsterKilled(instanceId, contribution.FirstOrDefault()?.Representative ?? client);
 
         // An area can kill a monster outside the caster's view. Each viewer receives its own handle.
         var removedStates = _worldState.ClearStates(instanceId);

@@ -346,6 +346,7 @@ public class MarketTradeTests
     {
         var service = Buyer(gold: 20_000, price: 5_000L, huntaholicPoint: 4);
         var (client, connection, info) = _buyer;
+        info.HuntaholicPoint = 100;
 
         await service.BuyAsync(client, ItemCode, 2);
 
@@ -354,29 +355,31 @@ public class MarketTradeTests
             new[]
             {
                 (ushort)GamePackets.TM_SC_GOLD_UPDATE,
+                (ushort)GamePackets.TM_SC_PROPERTY,
                 (ushort)GamePackets.TM_SC_INVENTORY,
                 (ushort)GamePackets.TM_SC_RESULT,
                 (ushort)GamePackets.TM_SC_NPC_TRADE_INFO
             });
 
         info.CharacterGold.Should().Be(10_000, "two units at 5000 gold each");
+        info.HuntaholicPoint.Should().Be(92, "two units at 4 HuntaHolic points each (official onBuyItem)");
 
         var gold = connection.Sent[0];
         gold.Length.Should().Be(19, "7 bytes of header plus a 8-byte gold and a 4-byte chaos");
         BinaryPrimitives.ReadUInt64LittleEndian(gold.AsSpan(7, 8)).Should().Be(10_000UL);
         BinaryPrimitives.ReadUInt32LittleEndian(gold.AsSpan(15, 4)).Should().Be(7U, "chaos is echoed as it stands");
 
-        Id(connection.Sent[1]).Should().Be((ushort)GamePackets.TM_SC_INVENTORY,
+        Id(connection.Sent[2]).Should().Be((ushort)GamePackets.TM_SC_INVENTORY,
             "the bought stack reaches the bag before the acknowledgement");
 
-        var result = connection.Sent[2];
+        var result = connection.Sent[3];
         result.Length.Should().Be(15, "7 bytes of header plus request_msg_id, result and value");
         BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(7, 2)).Should().Be(251,
             "the request is the one being answered");
         BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(9, 2)).Should().Be((ushort)ResultCode.Success);
         BinaryPrimitives.ReadInt32LittleEndian(result.AsSpan(11, 4)).Should().Be(ItemCode);
 
-        var echo = connection.Sent[3];
+        var echo = connection.Sent[4];
         echo.Length.Should().Be(36);
         echo[7].Should().Be(0, "is_sell is 0 on a purchase");
         BinaryPrimitives.ReadInt32LittleEndian(echo.AsSpan(8, 4)).Should().Be(ItemCode);
@@ -388,6 +391,48 @@ public class MarketTradeTests
         BinaryPrimitives.ReadUInt32LittleEndian(echo.AsSpan(32, 4)).Should().Be(MerchantHandle);
 
         A.CallTo(() => _characters.AddItemAsync("Buyer", ItemCode, 2)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task Buy_WithoutEnoughHuntaholicPoints_IsRefusedFiftyEightWithoutDebit()
+    {
+        var service = Buyer(gold: 20_000, price: 0L, huntaholicPoint: 30_000);
+        var (client, connection, info) = _buyer;
+        info.HuntaholicPoint = 29_999;
+
+        await service.BuyAsync(client, ItemCode, 1);
+
+        var result = connection.Sent.Single();
+        BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(9, 2)).Should().Be((ushort)ResultCode.NotEnoughHuntaholicPoint);
+        info.HuntaholicPoint.Should().Be(29_999);
+        info.CharacterGold.Should().Be(20_000);
+        A.CallTo(() => _characters.AddItemAsync(A<string>._, A<int>._, A<long>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task Buy_JudgesTheGoldBeforeThePoints()
+    {
+        var service = Buyer(gold: 10, price: 5_000L, huntaholicPoint: 10);
+        var (client, connection, info) = _buyer;
+        info.HuntaholicPoint = 0;
+
+        await service.BuyAsync(client, ItemCode, 1);
+
+        BinaryPrimitives.ReadUInt16LittleEndian(connection.Sent.Single().AsSpan(9, 2))
+            .Should().Be((ushort)ResultCode.NotEnoughMoney);
+    }
+
+    [Test]
+    public async Task Buy_ThatFailsToStore_GivesThePointsBack()
+    {
+        A.CallTo(() => _characters.AddItemAsync(A<string>._, A<int>._, A<long>._)).Returns((ItemEntity)null);
+        var service = Buyer(gold: 100, price: 0L, huntaholicPoint: 50);
+        var (client, _, info) = _buyer;
+        info.HuntaholicPoint = 60;
+
+        await service.BuyAsync(client, ItemCode, 1);
+
+        info.HuntaholicPoint.Should().Be(60);
     }
 
     [Test]
@@ -656,7 +701,7 @@ public class MarketTradeTests
     public async Task TheReceiveLoop_BuysOnTheWire()
     {
         // The whole path, frame included: the shop window's 13 bytes go in and the three answers come out.
-        var service = Buyer(gold: 20_000, price: 5_000L, huntaholicPoint: 4);
+        var service = Buyer(gold: 20_000, price: 5_000L, huntaholicPoint: 0);
         var connection = new StorageTestHarness.FrameConnection(BuyerFrame(ItemCode, 2));
         var client = StorageTestHarness.NewGameClient(connection, marketTradeService: service);
         var info = StorageTestHarness.Session(client);

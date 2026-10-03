@@ -88,17 +88,20 @@ public class MarketTradeService : IMarketTradeService
         }
 
         // The whole price of the transaction: the catalogue holds the absolute price, and the client buys
-        // buy_count units of it. The reference refuses a total it cannot afford — and a negative one,
-        // which its int32 arithmetic can produce — with 10 (:773-774).
+        // buy_count units of it, paid in gold and, on a HuntaHolic market, in points too (official
+        // onBuyItem, GameMessage.cpp: the gold is judged first, then the points, then the weight).
         var total = buyCount * line.Price;
+        var points = (long)buyCount * line.HuntaholicPoint;
 
-        // The check and the debit are one step under GoldLock: a kill reward, a booth trade or a second
-        // 251 can change the balance from another thread, and a read-then-write would lose one of them.
-        // The reference behaves the same way — its gold is the session's, checked then changed in one go
-        // (:771-779).
         if (info.CharacterGold < total)
         {
             client.SendResult(BuyItemId, (ushort)ResultCode.NotEnoughMoney, 0);
+            return;
+        }
+
+        if (info.HuntaholicPoint < points)
+        {
+            client.SendResult(BuyItemId, (ushort)ResultCode.NotEnoughHuntaholicPoint, 0);
             return;
         }
 
@@ -109,13 +112,20 @@ public class MarketTradeService : IMarketTradeService
             return;
         }
 
-        if (!info.TryDebitGold(total))
+        // The check and the debit are one step under GoldLock: a kill reward, a booth trade or a second
+        // 251 can change the balance from another thread, and a read-then-write would lose one of them.
+        var debit = info.TryDebitGoldAndHuntaholicPoint(total, points);
+        if (debit != ResultCode.Success)
         {
-            client.SendResult(BuyItemId, (ushort)ResultCode.NotEnoughMoney, 0);
+            client.SendResult(BuyItemId, (ushort)debit, 0);
             return;
         }
 
         client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+        if (points > 0)
+        {
+            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "huntaholicpoint", info.HuntaholicPoint));
+        }
 
         ItemEntity item;
 
@@ -126,7 +136,7 @@ public class MarketTradeService : IMarketTradeService
         catch (Exception exception)
         {
             _logger.Error(exception,
-                "Could not add the bought item {code} to {character}: the gold is credited back",
+                "Could not add the bought item {code} to {character}: the gold and points are credited back",
                 itemCode, info.CharacterName);
             item = null;
         }
@@ -139,6 +149,11 @@ public class MarketTradeService : IMarketTradeService
             // its own to fail on.
             var refunded = info.AddGold(total);
             client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(refunded, info.CharacterChaos));
+            if (points > 0)
+            {
+                client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "huntaholicpoint",
+                    info.AddHuntaholicPoint(points)));
+            }
             client.SendResult(BuyItemId, (ushort)ResultCode.DBError, 0);
 
             _logger.Warning("Purchase of item {code} for {character} was refused: the item was not added",
@@ -161,8 +176,8 @@ public class MarketTradeService : IMarketTradeService
         client.Connection.Send(GameTradePackets.BuildNpcTradeInfo(false, itemCode, buyCount, total,
             line.HuntaholicPoint, merchantHandle));
 
-        _logger.Debug("{clientTag} bought {count} × item {code} on market {market} for {total} gold",
-            client.ClientTag, buyCount, itemCode, marketName, total);
+        _logger.Debug("{clientTag} bought {count} × item {code} on market {market} for {total} gold and {points} points",
+            client.ClientTag, buyCount, itemCode, marketName, total, points);
     }
 
     private static bool TryFindLine(IReadOnlyList<MarketLine> lines, int itemCode, out MarketLine line)

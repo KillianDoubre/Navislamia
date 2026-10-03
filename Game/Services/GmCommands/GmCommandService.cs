@@ -406,7 +406,8 @@ public class GmCommandService : IGmCommandService
                 await _skillCastService.SaveBuffsAsync(client);
                 await _characterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
                     info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
-                    info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress(), info.CharacterStamina);
+                    info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress(), info.CharacterStamina,
+                    info.GetHuntaholicProgress());
                 Reply(client, "Progress saved.");
                 break;
 

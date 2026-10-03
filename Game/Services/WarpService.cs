@@ -28,8 +28,9 @@ public class WarpService : IWarpService
         IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
         IPlayerVisibilityService playerVisibility, IGroundItemService groundItems,
         Casting.ICastInterrupts casts = null, Compete.ICompeteService compete = null,
-        Creatures.ICreatureService creatures = null)
+        Creatures.ICreatureService creatures = null, Huntaholic.IHuntaholicEvents huntaholic = null)
     {
+        _huntaholic = huntaholic;
         _creatures = creatures;
         _compete = compete;
         _casts = casts;
@@ -45,10 +46,21 @@ public class WarpService : IWarpService
     /// <summary>WarpBegin cancels the cast in progress (StructCreature::CancelSkill).</summary>
     private readonly Casting.ICastInterrupts _casts;
     private readonly Compete.ICompeteService _compete;
+    private readonly Huntaholic.IHuntaholicEvents _huntaholic;
 
     public void Warp(GameClient client, float x, float y)
+        => Warp(client, x, y, client.ConnectionInfo.Layer);
+
+    /// <summary>
+    /// <c>PendWarp(x, y, layer)</c>: the same move onto another layer — a HuntaHolic lobby tier or a hunt room
+    /// (socle-huntaholic.md §5). The layer changes after the old place is left and before the new one is entered.
+    /// </summary>
+    public void Warp(GameClient client, float x, float y, byte layer)
     {
         var info = client.ConnectionInfo;
+
+        // StructPlayer::ProcessWarp: leaving a HuntaHolic for elsewhere leaves its room first.
+        _huntaholic?.BeforeWarp(client, x, y);
 
         try
         {
@@ -62,6 +74,7 @@ public class WarpService : IWarpService
 
             LeaveEverything(client);
 
+            info.Layer = layer;
             info.X = x;
             info.Y = y;
             info.DestinationX = x;

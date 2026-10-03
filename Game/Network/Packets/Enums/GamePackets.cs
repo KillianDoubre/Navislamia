@@ -450,6 +450,17 @@ public enum GamePackets : ushort
     // See docs/packet-specs/4005-huntaholic-leave-instance.md.
     TM_CS_HUNTAHOLIC_LEAVE_INSTANCE = 4005,
 
+    // The HuntaHolic lobby and hunt (docs/packet-specs/socle-huntaholic.md): the server to client frames of the
+    // family, X(<id>, true) in rzu, and 4008, which rzu declares but no constructor of the 7.3 client builds.
+    TM_SC_HUNTAHOLIC_INSTANCE_LIST = 4001,
+    TM_SC_HUNTAHOLIC_INSTANCE_INFO = 4002,
+    TM_SC_HUNTAHOLIC_HUNTING_SCORE = 4006,
+    TM_SC_HUNTAHOLIC_UPDATE_SCORE = 4007,
+    TM_CS_HUNTAHOLIC_LEAVE_LOBBY = 4008,
+    TM_SC_HUNTAHOLIC_BEGIN_HUNTING = 4009,
+    TM_SC_HUNTAHOLIC_MAX_POINT_ACHIEVED = 4010,
+    TM_SC_HUNTAHOLIC_BEGIN_COUNTDOWN = 4012,
+
     TM_SC_COMMERCIAL_STORAGE_INFO = 10003,
     TM_SC_COMMERCIAL_STORAGE_LIST = 10004,
     TM_CS_TAKEOUT_COMMERCIAL_ITEM = 10005,

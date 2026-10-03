@@ -132,6 +132,88 @@ public class ConnectionInfo
     public int BoothTradeInProgress;
     public int CharacterChaos { get; set; }
 
+    private int _huntaholicPoint;
+    private int _huntaholicEnterCount;
+
+    /// <summary>
+    /// HuntaHolic points (<c>Characters.HuntaholicPoint</c>), seeded at world entry and saved with the
+    /// progress. A market purchase and a hunt reward change it from two threads, so it moves under
+    /// <see cref="GoldLock"/> like the gold it is paid next to (socle-huntaholic.md).
+    /// </summary>
+    public int HuntaholicPoint
+    {
+        get { lock (GoldLock) { return _huntaholicPoint; } }
+        set { lock (GoldLock) { _huntaholicPoint = value; } }
+    }
+
+    /// <summary>The HuntaHolic entries left today (<c>Characters.HuntaholicEnterCount</c>), never below 0.</summary>
+    public int HuntaholicEnterCount
+    {
+        get { lock (GoldLock) { return _huntaholicEnterCount; } }
+        set { lock (GoldLock) { _huntaholicEnterCount = Math.Max(0, value); } }
+    }
+
+    /// <summary>
+    /// Where the player entered HuntaHolic from (<c>StoreCurrentStatesOnEnterInstanceGame</c>'s <c>hx</c>/<c>hy</c>),
+    /// kept for the session only: leaving goes back there, or to the starting town after a relog.
+    /// </summary>
+    public float HuntaholicReturnX { get; set; }
+    public float HuntaholicReturnY { get; set; }
+    public byte HuntaholicReturnLayer { get; set; }
+
+    /// <summary>When the entries are refilled next (local time), set at world entry.</summary>
+    public DateTime NextHuntaholicRefill { get; set; } = DateTime.MaxValue;
+
+    /// <summary>Adds points, capped at <c>HUNTAHOLIC_MAX_OWNABLE_POINT</c> and floored at 0; returns the balance.</summary>
+    public int AddHuntaholicPoint(long amount)
+    {
+        lock (GoldLock)
+        {
+            _huntaholicPoint = (int)Math.Clamp(_huntaholicPoint + amount, 0L,
+                Navislamia.Game.Services.Huntaholic.HuntaholicEntryRefill.MaxOwnablePoint);
+            return _huntaholicPoint;
+        }
+    }
+
+    /// <summary>
+    /// Takes <paramref name="gold"/> and <paramref name="points"/> together, or neither: a HuntaHolic market
+    /// line is paid in both (official <c>onBuyItem</c>). Returns the code the purchase is refused with.
+    /// </summary>
+    public Navislamia.Game.Network.Packets.ResultCode TryDebitGoldAndHuntaholicPoint(long gold, long points)
+    {
+        lock (GoldLock)
+        {
+            if (gold < 0 || _characterGold < gold)
+            {
+                return Navislamia.Game.Network.Packets.ResultCode.NotEnoughMoney;
+            }
+
+            if (points < 0 || _huntaholicPoint < points)
+            {
+                return Navislamia.Game.Network.Packets.ResultCode.NotEnoughHuntaholicPoint;
+            }
+
+            _characterGold -= gold;
+            _huntaholicPoint -= (int)points;
+            return Navislamia.Game.Network.Packets.ResultCode.Success;
+        }
+    }
+
+    /// <summary>Adds <paramref name="amount"/> entries (negative removes), never below 0; returns what is left.</summary>
+    public int AddHuntaholicEnterCount(int amount)
+    {
+        lock (GoldLock)
+        {
+            _huntaholicEnterCount = Math.Max(0, _huntaholicEnterCount + amount);
+            return _huntaholicEnterCount;
+        }
+    }
+
+    public Navislamia.Game.Services.Huntaholic.HuntaholicProgress GetHuntaholicProgress()
+    {
+        lock (GoldLock) return new(_huntaholicPoint, _huntaholicEnterCount);
+    }
+
     /// <summary>
     /// The creature formation as stored on the character (six item handles at most), read once at world
     /// entry. Both the login TM_EQUIP_SUMMON (303) and the answer to TM_CS_GET_SUMMON_SETUP_INFO (324)
@@ -634,6 +716,12 @@ public class ConnectionInfo
         CharacterJp = 0;
         CharacterGold = 0;
         CharacterChaos = 0;
+        HuntaholicPoint = 0;
+        HuntaholicEnterCount = 0;
+        HuntaholicReturnX = 0;
+        HuntaholicReturnY = 0;
+        HuntaholicReturnLayer = 0;
+        NextHuntaholicRefill = DateTime.MaxValue;
         SummonSlots = Array.Empty<long>();
         lock (SummonLock)
         {

@@ -1558,7 +1558,8 @@ public class CharacterService : ICharacterService
     };
 
     public Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp,
-        long gold, int chaos, float x, float y, bool pkMode, PvpProgress? pvp = null, int? stamina = null)
+        long gold, int chaos, float x, float y, bool pkMode, PvpProgress? pvp = null, int? stamina = null,
+        Huntaholic.HuntaholicProgress? huntaholic = null)
     {
         if (string.IsNullOrEmpty(characterName))
         {
@@ -1595,6 +1596,15 @@ public class CharacterService : ICharacterService
                 character.ImmoralPoint = MoralityRules.Normalize(progress.ImmoralPoint);
                 character.PkCount = Math.Max(0, progress.PkCount);
                 character.DkCount = Math.Max(0, progress.DkCount);
+            }
+
+            // The session's HuntaHolic balance and entries, and when it left: the next login owes a refill
+            // only if a 06:00 passed since (HuntaholicEntryRefill.RefillAfterLogout).
+            if (huntaholic is { } holic)
+            {
+                character.HuntaholicPoint = Math.Max(0, holic.Point);
+                character.HuntaholicEnterCount = Math.Max(0, holic.EnterCount);
+                character.LogoutTime = DateTime.UtcNow;
             }
 
             // Without this a warp is undone by the next login: the position was never persisted

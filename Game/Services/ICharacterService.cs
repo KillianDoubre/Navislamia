@@ -215,7 +215,8 @@ public interface ICharacterService
     /// Omitting it preserves those values for callers that do not own a session snapshot.
     /// </summary>
     Task SaveProgressAsync(string characterName, int level, int jobLevel, long exp, long jp, long gold,
-        int chaos, float x, float y, bool pkMode, PvpProgress? pvp = null, int? stamina = null);
+        int chaos, float x, float y, bool pkMode, PvpProgress? pvp = null, int? stamina = null,
+        Huntaholic.HuntaholicProgress? huntaholic = null);
 
     /// <summary>
     /// The character's creature cards (items whose resource is a summon card) with the summon row of each, the

@@ -72,12 +72,10 @@ public class ReceiveGuardTests
         connection.Sent.Should().BeEmpty();
     }
 
-    // TM_CS_HUNTAHOLIC_LEAVE_LOBBY (4008) is deliberately absent from GamePackets: the Epic 7.3 client
-    // neither builds this frame nor routes it inbound (the immediate 0xfa8 appears once in the whole .text,
-    // as a stack displacement; the inbound dispatcher sends 4008 to its "unhandled message" branch), so the
-    // repository applies to it the rule it already wrote down for 711. Declaring the id without giving it an
-    // arm would send it into the throwing switch of the receive loop, which is why this absence is a
-    // contract and not an oversight. See docs/packet-specs/4008-huntaholic-leave-lobby.md.
+    // TM_CS_HUNTAHOLIC_LEAVE_LOBBY (4008): the Epic 7.3 client neither builds this frame nor routes it inbound,
+    // but the official server handles it (onHuntaholicLeaveLobby), so since the HuntaHolic lobby exists it is
+    // declared with its own arm (socle-huntaholic.md §3). The contract that stays is the one this file guards:
+    // the frame never throws out of the receive loop. See docs/packet-specs/4008-huntaholic-leave-lobby.md.
     private const ushort HuntaHolicLeaveLobby = 4008;
 
     /// <summary>
@@ -85,10 +83,10 @@ public class ReceiveGuardTests
     /// contract for a packet the client can neither send nor receive.
     /// </summary>
     [Test]
-    public void HuntaHolicLeaveLobby_IsDeliberatelyAbsentFromThePacketEnum()
+    public void HuntaHolicLeaveLobby_IsDeclaredWithItsOwnArm()
     {
-        Enum.IsDefined(typeof(GamePackets), HuntaHolicLeaveLobby).Should().BeFalse(
-            "4008 is neither emitted nor handled by the 7.3 client, and a member without an arm would throw out of the receive loop");
+        Enum.IsDefined(typeof(GamePackets), HuntaHolicLeaveLobby).Should().BeTrue(
+            "the official server answers 4008, and its dispatch arm keeps it away from the throwing switch");
     }
 
     [Test]
@@ -130,8 +128,8 @@ public class ReceiveGuardTests
 
         var receive = () => client.OnDataReceived(connection.BytesAvailable);
 
-        receive.Should().NotThrow("an undeclared id is dropped by DefinedPackets, never reaching the throwing switch");
-        connection.Sent.Should().BeEmpty("no packet answers 4008, and no lobby state exists server-side");
+        receive.Should().NotThrow("4008 has its own arm, never reaching the throwing switch");
+        connection.Sent.Should().BeEmpty("without the HuntaHolic service nothing answers 4008");
         connection.BytesAvailable.Should().Be(0, "the frame is read out of the stream instead of being re-framed");
     }
 

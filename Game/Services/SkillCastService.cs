@@ -63,6 +63,7 @@ public partial class SkillCastService : ISkillCastService
     /// <summary>Taming (4003), summoning (4001) and sending back (4002).</summary>
     private readonly Creatures.ICreatureService _creatures;
     private readonly IBuffPersistence _buffPersistence;
+    private readonly Huntaholic.IHuntaholicEvents _huntaholic;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
@@ -72,8 +73,9 @@ public partial class SkillCastService : ISkillCastService
         IPlayerVisibilityService players = null, SkillEffectScheduler effects = null,
         CastInterrupts interrupts = null, ICombatRandom random = null, bool runTicks = true,
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
-        Creatures.ICreatureService creatures = null)
+        Creatures.ICreatureService creatures = null, Huntaholic.IHuntaholicEvents huntaholic = null)
     {
+        _huntaholic = huntaholic;
         _creatures = creatures;
         _leveling = leveling;
         _buffPersistence = buffPersistence;
@@ -128,28 +130,46 @@ public partial class SkillCastService : ISkillCastService
         }
     }
 
-    public void Cast(GameClient client, GameActionPackets.SkillRequest request)
+    public void Cast(GameClient client, GameActionPackets.SkillRequest request) => TryCast(client, request, false);
+
+    public ResultCode CastInstanceGameSkill(GameClient client, int skillId)
+    {
+        var info = client.ConnectionInfo;
+        var (x, y) = info.PositionAt(ServerClock.Now);
+        var request = new GameActionPackets.SkillRequest((ushort)skillId, info.CharacterHandle, info.CharacterHandle,
+            x, y, info.Z, (sbyte)info.Layer, 1);
+        return TryCast(client, request, true) ? ResultCode.Success : ResultCode.NotActable;
+    }
+
+    private bool TryCast(GameClient client, GameActionPackets.SkillRequest request, bool serverInitiated)
     {
         var info = client.ConnectionInfo;
         if (request.Caster != info.CharacterHandle && request.Caster != 0)
-        { CastSummon(client, request); return; }
+        { CastSummon(client, request); return false; }
         var now = ServerClock.Now;
+
+        // The instance game spells are never learned: only the server casts them (4250/4251), never a 400.
+        if (!serverInitiated && _catalog.TryGet(request.SkillId, out var asked) && asked.Kind == SkillCastKind.InstanceGame)
+        {
+            SendCastFailed(client, request, ResultCode.AccessDenied);
+            return false;
+        }
 
         lock (_lock)
             if (_casting.Contains(client))
-            { SendCastFailed(client, request, ResultCode.NotActable); return; }
+            { SendCastFailed(client, request, ResultCode.NotActable); return false; }
 
         if (!TryValidate(client, request, now, out var fields, out var targetInstanceId, out var skillLevel,
                 out var error))
         {
             SendCastFailed(client, request, error);
-            return;
+            return false;
         }
 
         if (!InCastRange(info, fields, targetInstanceId, now))
         {
             SendCastFailed(client, request, ResultCode.TooFar);
-            return;
+            return false;
         }
 
         var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
@@ -163,7 +183,7 @@ public partial class SkillCastService : ISkillCastService
             if (info.PendingCast is not null)
             {
                 SendCastFailed(client, request, ResultCode.NotActable);
-                return;
+                return false;
             }
 
             if (castDelay > 0)
@@ -186,6 +206,8 @@ public partial class SkillCastService : ISkillCastService
         {
             Fire(client, pending);
         }
+
+        return true;
     }
 
     /// <summary>
@@ -370,6 +392,15 @@ public partial class SkillCastService : ISkillCastService
             case SkillCastKind.ActivateProp:
                 ActivateProp(client, targetInstanceId);
                 break;
+            case SkillCastKind.InstanceGame:
+                // WARP_TO_HUNTAHOLIC_LOBBY judges again when it fires: a refusal is the skill's failed result.
+                if ((_huntaholic?.FireInstanceSkill(client, request.SkillId) ?? ResultCode.NotActable) != ResultCode.Success)
+                {
+                    SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+                    return;
+                }
+
+                break;
             case SkillCastKind.Taming:
                 if (_creatures?.StartTaming(client, targetInstanceId, skillLevel) != true)
                 {
@@ -548,6 +579,16 @@ public partial class SkillCastService : ISkillCastService
                     action.Y + Random.Shared.Next(0, 11));
                 break;
 
+            case PropActionKind.HuntaholicLobby:
+                uint propHandle;
+                lock (client.ConnectionInfo.PropVisibilityLock)
+                {
+                    client.ConnectionInfo.SpawnedProps.TryGetValue(instanceId, out propHandle);
+                }
+
+                _huntaholic?.ShowLobbyWindow(client, propHandle);
+                break;
+
             case PropActionKind.EnterDungeon:
             case PropActionKind.ExitDungeon:
                 if (_fieldPropCatalog.TryGetDungeonStart(action.DungeonId, out var x, out var y))
@@ -587,7 +628,17 @@ public partial class SkillCastService : ISkillCastService
 
         // A prop's activate skill is never learned: the client casts it because the prop advertises
         // it, so the learned list is the wrong gate and the prop itself is the authorisation.
-        if (fields.Kind == SkillCastKind.ActivateProp)
+        if (fields.Kind == SkillCastKind.InstanceGame)
+        {
+            // StructSkill::Cast's IsHuntaholicLobbyEnterableOwner for 64818; 64827 has no check of its own.
+            skillLevel = 1;
+            error = _huntaholic?.CheckInstanceSkill(client, request.SkillId) ?? ResultCode.NotActable;
+            if (error != ResultCode.Success)
+            {
+                return false;
+            }
+        }
+        else if (fields.Kind == SkillCastKind.ActivateProp)
         {
             skillLevel = 1;
 

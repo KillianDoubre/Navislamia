@@ -26,7 +26,7 @@ namespace Navislamia.Game.Services;
 public readonly record struct MoveOrder(float DestX, float DestY, byte Speed, uint StartTick,
     IReadOnlyList<(float X, float Y)> Path = null);
 
-public class MonsterWorldState
+public partial class MonsterWorldState
 {
     private readonly ILogger _logger = Log.ForContext<MonsterWorldState>();
     private readonly IMonsterResourceRepository _repository;
@@ -630,6 +630,12 @@ public class MonsterWorldState
 
             // A monster in combat is driven by the AI service, not the idle wander.
             if (_aggro.ContainsKey(instanceId))
+            {
+                return false;
+            }
+
+            // A HuntaHolic respawn entry with is_wandering = 0 stands where it was spawned.
+            if (_standing.Contains(instanceId))
             {
                 return false;
             }

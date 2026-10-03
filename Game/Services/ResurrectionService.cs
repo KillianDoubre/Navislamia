@@ -34,12 +34,14 @@ public class ResurrectionService : IResurrectionService
     private readonly IResurrectionItemCatalog _resurrectionItems;
     private readonly ILevelingService _leveling;
     private readonly Compete.ICompeteService _compete;
+    private readonly Huntaholic.IHuntaholicEvents _huntaholic;
 
     public ResurrectionService(IWarpService warpService, IStatService statService, IStateCatalog stateCatalog,
         ISkillCastService skillCastService, ICharacterService characterService,
         IResurrectionItemCatalog resurrectionItems, ILevelingService leveling = null,
-        Compete.ICompeteService compete = null)
+        Compete.ICompeteService compete = null, Huntaholic.IHuntaholicEvents huntaholic = null)
     {
+        _huntaholic = huntaholic;
         _compete = compete;
         _leveling = leveling;
         _warpService = warpService;
@@ -100,6 +102,14 @@ public class ResurrectionService : IResurrectionService
             }
 
             _ = ResurrectByItemAsync(client, requestId);
+            return;
+        }
+
+        // onResurrection: inside HuntaHolic the way back is its lobby, the hunt failed by death in the dungeon.
+        if (_huntaholic?.TryResurrect(client) == true)
+        {
+            info.DeathExpLoss = 0;
+            client.SendResult(requestId, (ushort)ResultCode.Success);
             return;
         }
 

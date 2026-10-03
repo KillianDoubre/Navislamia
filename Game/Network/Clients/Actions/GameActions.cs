@@ -110,6 +110,16 @@ public class GameActions : IActions
             position = DefaultSpawn;
         }
 
+        // DB_Login: a character saved inside HuntaHolic comes back on its level's lobby layer, and from the dungeon
+        // to the lobby itself (the hunt it left was quit when it logged out).
+        var layer = (byte)character.Layer;
+        if (_networkService.HuntaholicService is { } huntaholic)
+        {
+            var placed = huntaholic.PlaceAtLogin(character.Lv > 0 ? character.Lv : 1, position[0], position[1], layer);
+            position = new[] { (int)placed.X, (int)placed.Y, position[2] };
+            layer = placed.Layer;
+        }
+
         var level = character.Lv > 0 ? character.Lv : 1;
         var statResult = _statService.Compute(character);
         var stats = statResult.Total;
@@ -141,7 +151,7 @@ public class GameActions : IActions
         info.DkCount = character.DkCount;
         info.CharacterPermission = character.Permission;
         info.AutoUsed = character.AutoUsed;
-        info.Layer = (byte)character.Layer;
+        info.Layer = layer;
         info.X = position[0];
         info.Y = position[1];
         info.Z = position[2];
@@ -154,7 +164,7 @@ public class GameActions : IActions
         // during the session, since progress — and with it the position — is only written at logout.
         info.RespawnX = position[0];
         info.RespawnY = position[1];
-        info.RespawnLayer = (byte)character.Layer;
+        info.RespawnLayer = layer;
         info.LearnedSkills.Clear();
         foreach (var skill in character.Skills ?? Array.Empty<CharacterSkillEntity>())
         {
@@ -175,7 +185,7 @@ public class GameActions : IActions
             X = position[0],
             Y = position[1],
             Z = position[2],
-            Layer = (byte)character.Layer,
+            Layer = layer,
             FaceDirection = 0,
             RegionSize = WorldVisibility.RegionSize,
             Hp = hp,
@@ -221,7 +231,7 @@ public class GameActions : IActions
             X = result.X,
             Y = result.Y,
             Z = result.Z,
-            Layer = (byte)character.Layer,
+            Layer = layer,
             ObjType = 0,
             Status = ActorStatus.ForPlayer(info),
             FaceDirection = 0,
@@ -316,8 +326,24 @@ public class GameActions : IActions
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "permission", character.Permission));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "pk_count", character.PkCount));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "dk_count", character.DkCount));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholicpoint", character.HuntaholicPoint));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholic_ent", character.HuntaholicEnterCount));
+        // The daily entries: refilled at login when a 06:00 passed since the logout (DB_Login.cpp:644-711).
+        info.HuntaholicPoint = Math.Max(0, character.HuntaholicPoint);
+        info.HuntaholicEnterCount = character.HuntaholicEnterCount;
+        var localNow = DateTime.Now;
+        var owedRefill = Navislamia.Game.Services.Huntaholic.HuntaholicEntryRefill.RefillAfterLogout(
+            character.LogoutTime?.ToLocalTime(), localNow);
+        if (localNow >= owedRefill)
+        {
+            info.HuntaholicEnterCount = Navislamia.Game.Services.Huntaholic.HuntaholicEntryRefill.EntriesPerDay;
+            info.NextHuntaholicRefill = Navislamia.Game.Services.Huntaholic.HuntaholicEntryRefill.NextRefill(localNow);
+        }
+        else
+        {
+            info.NextHuntaholicRefill = owedRefill;
+        }
+
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholicpoint", info.HuntaholicPoint));
+        client.Connection.Send(GameStatPackets.BuildProperty(handle, "huntaholic_ent", info.HuntaholicEnterCount));
         info.EtherealStone = character.EtherealStoneDurability;
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "ethereal_stone", character.EtherealStoneDurability));
         client.Connection.Send(GameStatPackets.BuildProperty(handle, "immoral", MoralityRules.WireValue(info.ImmoralPoint)));

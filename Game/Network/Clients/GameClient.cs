@@ -1347,6 +1347,7 @@ public class GameClient : Client
             _networkService.SkillCastService.Unregister(this);
             _networkService.CompeteService?.Leave(this, Navislamia.Game.Services.Compete.CompeteEndType.Logout);
             _networkService.CreatureService?.OnWorldExit(this);
+            _networkService.HuntaholicService?.OnWorldExit(this);
 
             // The exit goes first: every observer must be told before the asynchronous save and the
             // socket cleanup (docs/packet-specs/socle-visibilite-joueurs.md §5.3, trigger 5). An open
@@ -1383,6 +1384,7 @@ public class GameClient : Client
             _networkService.CombatService.StopAttack(this);
             _networkService.CompeteService?.Leave(this, Navislamia.Game.Services.Compete.CompeteEndType.Logout);
             _networkService.CreatureService?.OnWorldExit(this);
+            _networkService.HuntaholicService?.OnWorldExit(this);
             _networkService.SkillCastService.Unregister(this);
             _networkService.BoothTradeService.CloseBooth(this);
             _networkService.PlayerTradeService?.CancelFor(this);
@@ -1419,7 +1421,8 @@ public class GameClient : Client
         {
             await _networkService.CharacterService.SaveProgressAsync(info.CharacterName, info.CharacterLevel,
                 info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
-                info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress(), info.CharacterStamina);
+                info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress(), info.CharacterStamina,
+                info.GetHuntaholicProgress());
         }
         catch (Exception exception)
         {
@@ -2145,6 +2148,20 @@ public class GameClient : Client
 
         _logger.Debug("TM_CS_HUNTAHOLIC_BEGIN_HUNTING ({id}) Length: {length} received from {clientTag}",
             (ushort)GamePackets.TM_CS_HUNTAHOLIC_BEGIN_HUNTING, buffer.Length, ClientTag);
+        _networkService.HuntaholicService?.BeginHunting(this);
+    }
+
+    /// <summary>TM_CS_HUNTAHOLIC_LEAVE_LOBBY (4008), header only: out of the lobby (socle-huntaholic.md §3).</summary>
+    private void HandleHuntaholicLeaveLobby(byte[] buffer)
+    {
+        if (!GameInstanceGamePackets.HasNoPayload(buffer))
+        {
+            _logger.Warning("Malformed HuntaHolic leave lobby request received from {clientTag} (Length: {length})",
+                ClientTag, buffer.Length);
+            return;
+        }
+
+        _networkService.HuntaholicService?.LeaveLobby(this);
     }
 
     private async Task HandleLearnSkillAsync(byte[] packet)
@@ -2209,6 +2226,7 @@ public class GameClient : Client
         _logger.Debug(
             "TM_CS_INSTANCE_GAME_ENTER ({id}) Length: {length} received from {clientTag}: instanceGameType={type}",
             (ushort)GamePackets.TM_CS_INSTANCE_GAME_ENTER, buffer.Length, ClientTag, request.InstanceGameType);
+        _networkService.HuntaholicService?.InstanceGameEnter(this, request.InstanceGameType);
     }
 
     /// <summary>
@@ -2226,6 +2244,7 @@ public class GameClient : Client
 
         _logger.Debug("TM_CS_INSTANCE_GAME_EXIT ({id}) Length: {length} received from {clientTag}",
             (ushort)GamePackets.TM_CS_INSTANCE_GAME_EXIT, buffer.Length, ClientTag);
+        _networkService.HuntaholicService?.InstanceGameExit(this);
     }
 
     /// <summary>
@@ -2255,6 +2274,7 @@ public class GameClient : Client
 
         _logger.Debug("TM_CS_HUNTAHOLIC_LEAVE_INSTANCE ({id}) Length: {length} received from {clientTag}",
             (ushort)GamePackets.TM_CS_HUNTAHOLIC_LEAVE_INSTANCE, buffer.Length, ClientTag);
+        _networkService.HuntaholicService?.LeaveInstance(this);
     }
 
     /// <summary>
@@ -2282,27 +2302,13 @@ public class GameClient : Client
             return;
         }
 
-        CharacterEntity character;
-        try
-        {
-            character = await _networkService.CharacterService.GetCharacterByNameAsync(ConnectionInfo.CharacterName);
-        }
-        catch (Exception exception)
-        {
-            _logger.Error(exception, "Could not read the score of {clientTag}", ClientTag);
-            return;
-        }
+        // onInstanceGameScoreRequest: the session's points (a purchase or a hunt may have moved them since the last
+        // save) and the rank among the online players, the RankingManager this server does not have.
+        var holicPoint = GameInstanceGamePackets.ToWireHolicPoint(ConnectionInfo.HuntaholicPoint);
+        var ranking = _networkService.HuntaholicService?.Ranking(this) ?? 0u;
+        await Task.CompletedTask;
 
-        if (character is null)
-        {
-            _logger.Warning("Instance game score request received from {clientTag} for an unknown character {name}",
-                ClientTag, ConnectionInfo.CharacterName);
-            return;
-        }
-
-        var holicPoint = GameInstanceGamePackets.ToWireHolicPoint(character.HuntaholicPoint);
-
-        Connection.Send(GameInstanceGamePackets.BuildScoreResponse(holicPoint, 0u, 0u, 0u));
+        Connection.Send(GameInstanceGamePackets.BuildScoreResponse(holicPoint, ranking, 0u, 0u));
         _logger.Debug(
             "TM_SC_INSTANCE_GAME_SCORE_REQUEST ({id}) Length: {length} sent to {clientTag}: holicpoint={holicpoint}",
             (ushort)GamePackets.TM_SC_INSTANCE_GAME_SCORE_REQUEST, GameInstanceGamePackets.ScoreResponseLength,
@@ -2340,6 +2346,8 @@ public class GameClient : Client
                 "TM_CS_HUNTAHOLIC_INSTANCE_LIST ({id}) Length: {length} page={page} received from {clientTag}",
                 (ushort)GamePackets.TM_CS_HUNTAHOLIC_INSTANCE_LIST, buffer.Length, page, ClientTag);
         }
+
+        _networkService.HuntaholicService?.InstanceList(this, page);
     }
 
     /// <summary>
@@ -2415,6 +2423,9 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_CS_HUNTAHOLIC_JOIN_INSTANCE, buffer.Length, ClientTag, request.InstanceNo,
                 request.HasPassword);
         }
+
+        _networkService.HuntaholicService?.JoinInstance(this, request.InstanceNo,
+            GameHuntaholicServerPackets.ReadJoinPassword(buffer));
     }
 
     /// <summary>
@@ -2442,6 +2453,8 @@ public class GameClient : Client
             "name={name} maxMemberCount={maxMemberCount} hasPassword={hasPassword}",
             (ushort)GamePackets.TM_CS_HUNTAHOLIC_CREATE_INSTANCE, buffer.Length, ClientTag, request.Name,
             request.MaxMemberCount, request.HasPassword);
+        _networkService.HuntaholicService?.CreateInstance(this, request.Name, request.MaxMemberCount,
+            GameHuntaholicServerPackets.ReadCreatePassword(buffer));
     }
 
     private static readonly int HeaderLength = Marshal.SizeOf<Header>();
@@ -3569,6 +3582,13 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_LEAVE_INSTANCE)
             {
                 HandleHuntaholicLeaveInstance(msgBuffer);
+                continue;
+            }
+
+            // TM_CS_HUNTAHOLIC_LEAVE_LOBBY (4008): declared by rzu, built by no constructor of the 7.3 client.
+            if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_LEAVE_LOBBY)
+            {
+                HandleHuntaholicLeaveLobby(msgBuffer);
                 continue;
             }
 

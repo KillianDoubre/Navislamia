@@ -53,10 +53,17 @@ public class BuffCatalog : IBuffCatalog
     /// <inheritdoc cref="SummonSkill"/>
     public const int TamingSkill = 4003;
 
+    /// <summary>Effect 604 of the two instance game spells (<see cref="SkillCastKind.InstanceGame"/>).</summary>
+    public const int InstanceGameEffect = 604;
+
+    public const int WarpToHuntaholicLobbySkill = 64818;
+    public const int InstanceGameExitSkill = 64827;
+
     public static readonly int[] CastableEffectTypes =
     {
         MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, AddRegionHpMp, AddRegionHp, ToggleAura, ToggleDifferentialAura,
         PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming, Resurrection, ResurrectionWithRecover,
+        InstanceGameEffect,
         30011, 30012, 30013, 30016, 232, 241, 261, 262, 263, 271
     };
 
@@ -132,7 +139,7 @@ public class BuffCatalog : IBuffCatalog
         // spell carry their effect themselves.
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
                 or SkillCastKind.ActivateProp or SkillCastKind.Summon or SkillCastKind.Unsummon
-                or SkillCastKind.Taming or SkillCastKind.Resurrection)
+                or SkillCastKind.Taming or SkillCastKind.Resurrection or SkillCastKind.InstanceGame)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -213,6 +220,13 @@ public class BuffCatalog : IBuffCatalog
                 _ => SkillCastKind.Taming
             };
             return true;
+        }
+
+        // StructSkill::ProcSkill dispatches these two on their ids: 604 is their effect and nothing else's.
+        if (row.SkillId is WarpToHuntaholicLobbySkill or InstanceGameExitSkill)
+        {
+            kind = SkillCastKind.InstanceGame;
+            return row.EffectType == InstanceGameEffect;
         }
 
         // A resurrection on a character (tf_avatar): 6013, the creature scroll's skill, targets summons only.

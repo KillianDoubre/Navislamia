@@ -108,6 +108,27 @@ public class Program
         ConfigurePetCatalog(services, context);
         ConfigureJobLevelCosts(services, context);
         ConfigureCreatureCatalog(services, context);
+        ConfigureHuntaholicCatalog(services, context);
+    }
+
+    /// <summary>
+    /// The HuntaHolic catalogue (<c>huntaholic-catalog.73.json</c>, <c>tools/export_huntaholic_catalog.py</c>): Bear
+    /// Road's lobby, dungeon, tiers and respawns. Without it there is no HuntaHolic.
+    /// </summary>
+    private static void ConfigureHuntaholicCatalog(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "huntaholic-catalog.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<HuntaholicCatalogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("HuntaholicCatalog")
+            .Deserialize<HuntaholicCatalogOptions>() ?? new HuntaholicCatalogOptions();
+        services.Configure<HuntaholicCatalogOptions>(options => options.Huntaholics = catalog.Huntaholics);
     }
 
     /// <summary>
@@ -459,6 +480,13 @@ public class Program
         services.AddSingleton<IEventAreaService, EventAreaService>();
         services.AddSingleton<IResurrectionItemCatalog, ResurrectionItemCatalog>();
         services.AddSingleton<IResurrectionService, ResurrectionService>();
+        services.AddSingleton<Navislamia.Game.Services.Huntaholic.IHuntaholicCatalog,
+            Navislamia.Game.Services.Huntaholic.HuntaholicCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Huntaholic.HuntaholicEvents>();
+        services.AddSingleton<Navislamia.Game.Services.Huntaholic.IHuntaholicEvents>(provider =>
+            provider.GetRequiredService<Navislamia.Game.Services.Huntaholic.HuntaholicEvents>());
+        services.AddSingleton<Navislamia.Game.Services.Huntaholic.IHuntaholicService,
+            Navislamia.Game.Services.Huntaholic.HuntaholicService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<SkillEffectScheduler>();

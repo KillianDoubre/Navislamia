@@ -10,7 +10,10 @@ public enum PropActionKind
     EnterDungeon,
     ExitDungeon,
     RunTeleport,
-    OpenMarket
+    OpenMarket,
+
+    /// <summary><c>huntaholic_lobby_menu()</c> (ETC_huntaholicprop.lua): the HuntaHolic lobby window.</summary>
+    HuntaholicLobby
 }
 
 /// <summary>
@@ -83,6 +86,8 @@ public static class PropScript
 
             "exit_dungeon" when arguments.Length == 1 && TryInt(arguments[0], out var id)
                 => new PropAction(PropActionKind.ExitDungeon, 0, 0, id),
+
+            "huntaholic_lobby_menu" => new PropAction(PropActionKind.HuntaholicLobby, 0, 0, 0),
 
             _ => PropAction.None
         };

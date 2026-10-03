@@ -29,11 +29,14 @@ public class NpcDialogService : INpcDialogService
     private readonly IQuestService _quests;
     private readonly Jobs.IJobChangeService _jobChange;
     private readonly Creatures.ICreatureDialogService _creatureDialogs;
+    private readonly Huntaholic.IHuntaholicService _huntaholic;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
         IStorageService storageService, IMarketService marketService, IQuestService quests = null,
-        Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null)
+        Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null,
+        Huntaholic.IHuntaholicService huntaholic = null)
     {
+        _huntaholic = huntaholic;
         _jobChange = jobChange;
         _creatureDialogs = creatureDialogs;
         _warpService = warpService;
@@ -195,6 +198,13 @@ public class NpcDialogService : INpcDialogService
         }
 
         var function = ReadFunctionName(trigger);
+
+        // NPC_huntaholic.lua: the lobby trip (go_to_huntaholic) and the JP boxes (hunterholic_jpbox_sell).
+        if (_huntaholic is not null && _huntaholic.HandlesDialog(function))
+        {
+            _ = _huntaholic.SelectDialogAsync(client, function, trigger);
+            return;
+        }
 
         // The creature keeper's pages (care, revival, evolution) depend on the summons, so they are built here too.
         if (_creatureDialogs is not null && Creatures.CreatureDialogService.Handles(function))
