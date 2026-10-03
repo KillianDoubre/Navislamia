@@ -421,3 +421,9 @@ du binaire (`strings -n 4`, `cmp`, `objdump -d -M intel --start-address/--stop-a
 balayages d'octets pour retrouver les immédiats `0x102`/`0x46A` et les sites d'appel). Aucun binaire
 client n'a été exécuté ; les adresses sont des VA du fichier `SFrame.exe` épinglé par son sha256
 ci-dessus, et chaque conclusion de §2/§3/§4 est vérifiable en rejouant le désassemblage aux VA citées.
+
+## 10. Points moraux (2026-10-03)
+
+`GetDonationRewardMoralPoint` du serveur officiel : 10 000 pièces d'or, ou 10 000 du prix de base d'un objet par
+unité, valent un point ; l'immoralité baisse d'autant (quatre décimales gardées), et un statut Bloody qui
+s'éteint repart avec la propriété `immoral`. Les points s'échangent ensuite à l'autel (259, §10 de sa fiche).

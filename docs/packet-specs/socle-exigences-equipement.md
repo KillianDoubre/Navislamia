@@ -257,13 +257,13 @@ d. La profondeur, elle, n'a **rien** à importer : `ItemResource.JobDepth` est a
 **Lot 3 — hors lot minimal, à nommer pour ne pas le croire fait.**
 
 - 223 `TM_CS_SWAP_EQUIP` : un échange porte deux objets, donc deux exigences (et un refus qui laisse l'état
-  intact).
+  intact). **Livré depuis (§12).**
 - Branche invocation : quand `target_handle` vise un familier, l'officiel route **tout** le contrôle sur la
   créature cible (ses propres niveau/race/métier). Le dépôt répond `NotExist` dès que la cible n'est pas le
   personnage lui-même (`EquipmentService.cs:42-46`) : le port sur invocation n'existe pas encore.
-- Restauration à la connexion : `WearInfo` relu de la base n'est jamais rejugé (un objet devenu
-  non-portable reste porté) — l'officiel non plus, ce n'est donc pas un écart, mais c'est le trou par lequel
-  un lot 2 mal cadré se contourne.
+- Restauration à la connexion : `WearInfo` relu de la base n'était jamais rejugé. **Correction** : cette
+  fiche disait que l'officiel ne le fait pas non plus ; c'est faux, `DB_Login::readEquipItemList`
+  (`DB_Login.cpp:1649`) rejuge chaque objet porté. **Livré depuis (§12).**
 
 ## 6. Écarts assumés avec NGemity
 
@@ -639,3 +639,27 @@ il est ignoré. Le CSV local est nécessaire aux tests Python de comparaison des
 à une autre race, un objet réservé à une autre classe et un objet de classe maître sur un métier
 antérieur ; chaque demande doit être refusée. Réessayer un ensemble mêlant un objet interdit et un
 objet autorisé pour vérifier que ce dernier peut être équipé.
+
+## 12. Lot 3 livré (2026-10-03, branche `claude/invocations-suite`)
+
+### 12.1 Revérification à la connexion
+
+`DB_Login::readEquipItemList` (`DB_Login.cpp:1600-1680`) : pour chaque objet porté d'emplacement
+`< MAX_SPARE_ITEM_WEAR`, un emplacement déjà pris (`m_anWear[pos]`), un `TranslateWearPosition` qui échoue ou un
+chevauchement font que l'objet **n'est pas porté** (il revient au sac). Les objets de rechange (24-27) passent
+sans jugement (`StructPlayer::TranslateWearPosition` les laisse à l'échange), ceux d'une invocation sont jugés
+pour elle.
+
+`EquipmentService.RevalidateWornItemsAsync`, appelé par `GameActions.OnLogin` **avant** les stats et la 202 :
+emplacement principal (0-23) pris deux fois (ordre des ids) ou exigences (niveau, race, classe, profondeur) non
+remplies → `WearInfo = None` dans le personnage chargé et en base (`ICharacterService.UnwearItemsAsync`, une
+sauvegarde), ligne `Information` au journal. Les règles gauche/droite de l'officiel (balles, arme en main gauche)
+ne sont pas jugées, comme à l'équipement.
+
+### 12.2 Rechange et échange 223
+
+Voir `223-swap-equip.md` §11. Un objet de rechange (24-27) ne donne aucune statistique.
+
+### 12.3 Invocation
+
+Voir `socle-equipement-invocation.md`.

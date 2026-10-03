@@ -300,3 +300,23 @@ références `push <longueur>` / `push <adresse de la chaîne>` dans `.text`
 immédiat, ce qui restitue la table id → nom du client. Sites relevés pour la
 zone concernée : `217 → 0x275be8`, `221 → 0x275c5e`, `222 → 0x275cd4`,
 `250 → 0x275d4a`, un corps de cas valant 118 octets (`0x76`).
+
+## 11. Implémentation officielle (2026-10-03, branche `claude/invocations-suite`)
+
+La §9 décrivait un socle sans effet faute de référence. Le serveur officiel tranche
+(`GameMessage.cpp` `onSwapEquip`, `StructPlayer::TranslateWearPosition`) :
+
+- **Emplacements de rechange** : `WEAR_SPARE_WEAPON` (24), `…_SHIELD` (25), `…_DECO_WEAPON` (26),
+  `…_DECO_SHIELD` (27), jumeaux des emplacements 0, 1, 22 et 23. `TM_CS_PUTON_ITEM` (200) y accepte un objet dont
+  l'emplacement propre est le jumeau principal, **sans juger ses exigences** (« les objets de rechange
+  n'appliquent pas leurs performances et sont jugés à l'échange »), sinon `NotActable`.
+- **Aucune statistique** : `StatService.ResolveItemEffects` ignore 24-27. La 202 ne les montre pas (24 cases).
+- **223** : principal et rechange échangent leur place, paire par paire. Chaque objet de rechange qui arrive à un
+  emplacement principal passe les exigences (niveau, race, classe, profondeur).
+- **Écart assumé** : un seul refus refuse **tout** l'échange (`TS_SC_RESULT(223, NotActable)`, rien ne bouge),
+  alors que l'officiel retire tout puis remet ce qui passe et peut laisser un objet déséquipé. Un mort ou un
+  personnage absent : `NotActable` ; une session sans personnage ne reçoit rien.
+- **Réponses** : la 287 de chaque objet déplacé, les deux 1000 et `max_hp`/`max_mp`, puis la 202 au joueur et à
+  ses observateurs. Aucun résultat sur un succès.
+- Code : `CharacterService.SwapEquipAsync` (une sauvegarde), `EquipmentService.SwapAsync`, tests
+  `Tests/Game/SpareEquipmentTests.cs`.

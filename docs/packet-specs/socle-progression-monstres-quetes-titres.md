@@ -51,7 +51,13 @@ est sauvegardée au lobby, à la déconnexion et avec `/save`.
 Options `GameRules` : `StaminaBonusRate` vaut 1 par défaut ; `DungeonRewardBonusRate` vaut 0.
 Ce dernier ajoute une proportion configurable d'EXP/JP dans les 81 cellules de donjon importées
 (par exemple 0,5 ajoute 50 %). Aucune proportion universelle de donjon n'est inventée : les valeurs
-de base restent celles des monstres. Le bonus PC bang et les comptes premium restent à traiter.
+de base restent celles des monstres.
+
+**Bonus PC bang** (`StructPlayer::getPCBangBonus`, livré le 2026-10-03) : le mode PC bang de la connexion — ou
+`GameRules:DefaultPcBangMode`, le serveur d'authentification du dépôt n'en envoyant aucun — ajoute
+`fAllyPCBangBonusRate` (0,1) ou `fPremiumPCBangBonusRate` (1,2) à l'EXP et aux JP d'un monstre, avant le bonus
+d'endurance dont le coût reste celui du gain nu. `procDropChaos` ajoute le bonus de chaos (0,1) et le détaille
+dans les champs bonus de la 213. Tous les taux sont des options `GameRules`.
 
 ## Les 52 quêtes 701
 
@@ -81,15 +87,15 @@ périodes de validité. Les compteurs, titres ouverts/obtenus et titre principal
 L'obtention fonctionne avec les morts de monstres, les quêtes acceptées/terminées, les compétences,
 l'or, le mode PK, l'immoralité et la possession d'un autre titre. `set_title_condition(id, valeur)`
 alimente une condition définie : remplacement pour `is_set`, cumul sinon. Les événements propres aux
-invocations, à l'artisanat, aux sièges et au PC bang restent à raccorder ; une condition inconnue ne
-donne aucun titre.
+sièges et au PC bang restent à raccorder (invocations et artisanat : voir
+`socle-titres-secondaires-evenements.md`) ; une condition inconnue ne donne aucun titre.
 
 `/titles` liste les identifiants obtenus ; `/title <id>` choisit un titre obtenu et disponible ;
 `/title 0` le retire. Ces commandes sont accessibles à tous. Le premier titre acquis est sélectionné
 automatiquement si aucun n'est actif. Ses options modifient les statistiques totales, sans apparaître
 dans les statistiques des objets ; elles sont recalculées à la reconnexion. Aucun paquet de gestion
-des titres propre à un client plus récent n'est inventé pour le client 7.3. Les titres secondaires
-ne sont pas encore modélisés.
+des titres propre à un client plus récent n'est inventé pour le client 7.3. Titres secondaires et
+événements d'invocation et d'artisanat : `socle-titres-secondaires-evenements.md`.
 
 Migration Telecaster : `Version0013_CharacterTitles`, exécutée au prochain démarrage du serveur.
 Les tests PostgreSQL utilisent exclusivement des schémas temporaires, retirés ensuite.

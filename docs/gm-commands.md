@@ -37,6 +37,12 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/standup` | non | NGemity | se relever |
 | `/battle [on\|off]` | non | NGemity | mode combat, `on` par défaut |
 | `/walk [on\|off]` | non | NGemity | marche au lieu de course ; sans argument, bascule |
+| `/ride <handle>` | non | officiel | monte l'invocation (Creature Riding) ; déjà monté, descend |
+| `/unride` | non | officiel | descend de la monture |
+| `/titles` | non | Navislamia | titres obtenus, titre principal et titres secondaires |
+| `/title <id\|0>` | non | Navislamia | titre principal (5 minutes entre deux changements) |
+| `/subtitle <1-5> <id\|0>` | non | officiel | titre secondaire, rang 5 au plus, 10 % de ses options |
+| `/speed [vitesse]` | oui | Navislamia | vitesse de déplacement de la session (120 de base, 1785 au plus) ; sans valeur, la remet |
 | `/doit` | oui | NGemity | tue tous les monstres visibles |
 | `/notice <texte>` | oui | Navislamia | annonce à tous les joueurs en jeu (`CHAT_NOTICE`, `0x14`) |
 | `/warp <x> <y>` | oui | Lua `warp` | téléporte le personnage |

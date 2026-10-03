@@ -781,3 +781,8 @@ Préalable : `.\tools\Import-CraftingResources.ps1` (PostgreSQL démarré, migra
 4. Transformer un objet en carte puis l'en sortir (311).
 5. Envoyer la même combinaison avec les matériaux dans l'autre ordre : si le client l'accepte chez lui mais que le
    serveur refuse, l'appariement doit redevenir permutant (§14 pt 9).
+
+## 16. `MIX_CREATE_ITEM` (601) — livré le 2026-10-03
+
+Le type le plus nombreux de la table Epic 7 (2 610 recettes) : `CraftingEngine.PlanCreate`, port de
+`MixManager::CreateItem`. Détail, tirages et écarts : `socle-titres-secondaires-evenements.md` §4.

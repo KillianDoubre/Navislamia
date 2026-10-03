@@ -148,7 +148,8 @@ The summon socle's server-to-client layouts live in `GameSummonPackets`, sized f
 `TS_SC_UNMOUNT_SUMMON (321)` 16. Epic 7.3 gives the name field 19 bytes — 18 usable
 characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
 301 and 305 are emitted by `CreatureService` (formation, login, summon, unsummon; see *Apprivoisement et
-invocation des créatures*); 302, 306, 307, 320 and 321 still have no caller. `BuildAddSummonInfo` takes `code`
+invocation des créatures*); 307, 320 and 321 by evolution and riding (`socle-invocations-progression.md`); 302 and
+306 still have no caller. `BuildAddSummonInfo` takes `code`
 and `summon_handle` from its caller instead of inventing either.
 
 A summon enters the world as `TS_SC_ENTER` (`3`) with `type = ET_NPC (1)` and `objType = EOT_Summon (4)` — the
@@ -176,8 +177,8 @@ bounded jitter (`AddNoise` in integer arithmetic: `raw % range - range/2`, 70 on
 warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `z`, never set, is 0 — and the
 region-cancel step of `AddNoise` is not portable either, since nothing resolves a position to a location id
 here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summon.cpp:35,88-91`), supplied by
-the caller. 302, 306, 307, 320 and 321 still have no caller: their trigger is untranched game policy (unbind
-rule, summon duration, evolution table, mount rules). `CharacterService` writes `MainSummonId` and
+the caller. 302 and 306 still have no caller: their trigger is untranched game policy (unbind rule, summon
+duration). `CharacterService` writes `MainSummonId` and
 `SummonSlotItemIds`, and those six columns hold *summon* sids like the official character row, not card ids:
 the session and the 303 speak card handles, `CharacterService` translates both ways.
 
@@ -376,8 +377,8 @@ sends no `TS_SC_GOLD_UPDATE`** (1001). Every ground drop of a monster, gold pile
 `TM_SC_ITEM_DROP_INFO` (282) right before its `ENTER`.
 `MonsterSpawns.UseSecondaryRewards` selects Exp2/Jp2 and alternate bounds (default false).
 Progress is saved by `CharacterService.SaveProgressAsync` on disconnect and the existing save path;
-there are no per-kill database writes. Contribution weights, level penalties and dungeon/PC-bang bonuses
-remain unmodelled. See `docs/packet-specs/socle-recompenses-monstres.md` (§15 for the merge of the two
+there are no per-kill database writes. The PC bang bonus is the official one (ally +10 %, premium +120 % EXP/JP,
++10 % chaos, `GameRules`; `socle-progression-monstres-quetes-titres.md`). See `docs/packet-specs/socle-recompenses-monstres.md` (§15 for the merge of the two
 implementations, MR #78 and Codex's).
 
 Experience levels the character server-side. `LevelResource` (300 rows, columns `level`/`exp`, extracted
@@ -645,9 +646,11 @@ the reference `WorldSession::onPutOnItem` / `onPutOffItem`.
 
 `TS_CS_PUTON_ITEM` (`200`, Epic < 9.6.3) is 16 bytes: `position` (int8 @7), `item_handle` (uint32 @8),
 `target_handle` (uint32 @12). `TS_CS_PUTOFF_ITEM` (`201`) is 12 bytes: `position` (int8 @7),
-`target_handle` (uint32 @8). Only the player is supported: a `target_handle` that is neither `0` nor the
-character handle answers `NotExist` (summons are ignored). `position` is a raw client byte, so it is
-bounds-checked against the 24 wear slots before it reaches the database; an out-of-range slot answers
+`target_handle` (uint32 @8). A `target_handle` that is neither `0` nor the character handle is one of the
+character's summons: `GameClient` routes it to `CreatureService` (see *Summon equipment* below; not
+`EquipmentService`, which cannot depend on the creatures without a DI cycle). `position` is a raw client byte,
+so it is bounds-checked against the 24 wear slots — or the spare slots 24..27, see *Spare set* below — before
+it reaches the database; an out-of-range slot answers
 `InvalidArgument` rather than persisting a `WearInfo` that `TS_SC_WEAR_INFO` would then skip, which would
 strand the item outside both the bag and the model.
 
@@ -684,6 +687,13 @@ job (100/200/300 for job 0 by race); an unknown job refuses the equip. Class is 
 digits. `tools/import_epic7.py` converts all seven `limit_*` columns into the existing masks.
 The embedded Arcadia migration `BackfillItemWearRestrictions` corrects 29,647 Epic 7 item IDs at startup;
 it preserves other columns and IDs outside the dump. See §11 of the equipment requirements sheet.
+
+**Spare set and swap** (`223-swap-equip.md` §11): positions 24..27 (`WEAR_SPARE_*`) take an item of their main
+twin (0, 1, 22, 23) unjudged and give **no stats**; `TM_CS_SWAP_EQUIP` (223) exchanges the main and spare sets,
+judging each spare item that comes to a main slot — one refusal refuses the whole swap (the official can leave an
+item unworn). **World entry judges the worn items again** (`DB_Login::readEquipItemList`,
+`EquipmentService.RevalidateWornItemsAsync`, before the stats): a main slot taken twice or an item whose
+requirements fail goes back to the bag, in base too.
 
 Equipping recomputes the stats and refreshes the cached item effects, the equipped weapon class and the
 passive effects on `ConnectionInfo` — a weapon change turns the gated masteries on and off, so all three
@@ -1596,7 +1606,10 @@ must pass all four**, the mask being a snapshot.
 The `&`-prefixed command lists found online do not exist in this client: none of their strings is in
 `SFrame.exe`.
 
-`/rate` and `/rates` read and drive the server rates; see *Rates* below.
+`/rate` and `/rates` read and drive the server rates; see *Rates* below. `/speed [value]` (privileged) replaces
+the session's stat move speed (`ConnectionInfo.MoveSpeedOverride`, read by `StatService.Compute(info)`, so the
+client's own walk, the echo and the peers follow; bounded by the wire byte, 255 × 7); no value resets it.
+`/ride`, `/unride`, `/titles`, `/title` and `/subtitle` are player commands.
 
 ## Rates
 
@@ -1638,7 +1651,7 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: a summon taking damage (monsters retaliate on its master); group aggro follows the official rule; **they walk at their `run_speed` and around the
+  modelled: a summon casting its active skills; group aggro follows the official rule; **they walk at their `run_speed` and around the
   `.nfa` obstacles** (paths for chase and return), and a death costs experience. **Monsters cast their single-target,
   state, heal, region and multi-hit skills**, including Lua triggers for casts/states, reinforcements
   (`respawn_near_monster`, no automatic respawn after death) and persisted anti-bot flags
@@ -1658,8 +1671,8 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   player's resurrection skill (504/30501) or, for a duel's loser, type 3 (`socle-mort-joueur.md`); items
   drop at death on a PK server only (`GameRules:PkServer`). Kill
   rewards use loaded EXP/JP, gold and chaos with damage contribution, level penalties and stamina.
-  An additional dungeon bonus is configurable (default zero); PC bang/premium bonuses remain
-  unmodelled (`socle-progression-monstres-quetes-titres.md`).
+  An additional dungeon bonus is configurable (default zero); the PC bang bonus follows the official
+  rates (`socle-progression-monstres-quetes-titres.md`).
 - Ground items are seen by nearby players; monster drops can be taken by the owner and eligible party members
 - NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
   warp**; shops, the quest lifecycle and advertised Lua objective/title callbacks also execute.
@@ -1681,13 +1694,13 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 - Equipping and unequipping work and persist and feed the stats; level, race, class and job depth are
   judged before 200/281 change inventory (`ItemWearRules.IsWearAllowed`, see *Equipment*).
   The Arcadia backfill is tested on disposable PostgreSQL and awaits startup on the real database.
-  Summon equipment, 223 and revalidation of already worn items at login remain outside this gate
-  (`docs/packet-specs/socle-exigences-equipement.md` lot 3)
+  Lot 3 is delivered (§12 of `socle-exigences-equipement.md`): worn items are judged again at world entry,
+  the spare set and the swap (223) work, and summons wear card-form items
 - Stats cover job/JLv/level, equipment, the supported passive skills, active buffs and toggled auras;
   main-title effects now apply after acquisition, selection and reconnect (`/titles`, `/title <id|0>`).
   Title definitions and conditions are embedded; quest/monster/skill/gold/PK conditions and Lua
-  `set_title_condition` can unlock titles. Secondary titles and specialized summon/crafting/siege/PC
-  bang events remain. Migration `Version0013_CharacterTitles` persists ownership and counters.
+  `set_title_condition` can unlock titles; secondary titles (`/subtitle`) and the summon and crafting
+  events too (`socle-titres-secondaires-evenements.md`). Siege, PK kill and PC bang events remain. Migration `Version0013_CharacterTitles` persists ownership and counters.
   `ParameterB` resistance bits 0..6
   work for items and states; other B bits remain undecoded. **Stats drive combat**: attack, defence,
   elemental resistance, accuracy, avoid, block, critical and
@@ -2039,8 +2052,9 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   et châsses gardées, 2 → détruit à +3 ou moins sinon −3, 3 → −3 plancher 0), 103 (cube + poudre, +1, échec −1),
   311 (bit 0 := `mix_value_03`) et 501 (efface le bit `mix_value_01`, 3 = `FAILED`) ; 102 combine deux cartes
   de même compétence et amélioration (conditions retail 24/25), consomme le cube et produit une unité
-  distincte à +1 ; échec `SkillCard` : détruite jusqu'à +3, sinon nouvelle unité à −3. Les autres types
-  sont refusés. `ApplyCraftAsync` applique tout en une
+  distincte à +1 ; échec `SkillCard` : détruite jusqu'à +3, sinon nouvelle unité à −3. **601
+  `MIX_CREATE_ITEM`** (2 610 recettes) crée des objets, groupes de butin compris, en une sauvegarde
+  (`ApplyCraftWithCreationAsync`, `socle-titres-secondaires-evenements.md` §4). Les autres types sont refusés. `ApplyCraftAsync` applique tout en une
   sauvegarde, **seulement si la cible est encore dans l'état où le craft a été décidé**. Réponse : 255/254 par pile,
   207 pour la cible, puis 257 (cible si réussite, vide si échec). Appariement **par position**.
   `Crafting:LocalFlag` = 1 ; données par `tools/Import-CraftingResources.ps1` (CSV 9.4), `Percentage` jusqu'à 25.
@@ -2150,8 +2164,18 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - **4001/4002** visent la **carte** formée ; l'invocation principale est renvoyée avant la suivante, revient à
   la connexion (bruit 50) et suit le warp. Marche (`TM_CS_MOVE_REQUEST` sur son handle, `speed_sync`) et
   attaque (`TM_CS_ATTACK_REQUEST` sur son handle) : ses dégâts passent par `ApplyDamage` **au nom du maître**.
-- Écarts (fiche §15.5) : ligne `Summons` créée dès l'apprivoisement, `ITEM_FLAG_TAMING` gardé en session,
-  miroir d'apprivoisement absent, l'invocation ne prend ni dégâts ni expérience et n'évolue pas.
+- Écarts (fiche §15.5) : ligne `Summons` créée dès l'apprivoisement, `ITEM_FLAG_TAMING` gardé en session.
+- **Suite livrée** (`socle-invocations-progression.md`) : stats officielles (`stat_id`, `CreatureEnhance`,
+  `CreatureLevelBonus`, coefficient 0,7 + Creature Mastery, niveau de combat du maître), expérience de chasse
+  partagée à 525 unités et JP par niveau, coups reçus, mort (pénalité, rappel après 60 s, morte jusqu'à sa
+  résurrection) et régénération ; arbres de compétences par invocation (402 sur son handle, 403/452, table
+  `SummonSkills`) ; monture `/ride` (320/321, Creature Riding 11001, chute 30 %) ; miroir de carte
+  d'apprivoisement ; évolution à 50/100 (307) ; pages du gardien des créatures. **Équipement** (200/201 sur un
+  handle d'invocation, `socle-equipement-invocation.md`) : objets en forme de carte (bit 0), au niveau de
+  l'invocation, emplacements `CreatureEnhance.slot_amount` ; l'objet garde son emplacement d'invocation dans
+  `WearInfo` avec `EquippedBySummonId`, donc **toute lecture côté joueur passe par
+  `ItemWearRules.IsWornByPlayer`/`IsWornByPlayerAt`** — sinon un objet d'invocation à l'emplacement 0 passe pour
+  l'arme du joueur.
 
 ### Familier (pet) — 350-352, entrée dans le monde, filtre 355
 
@@ -2354,7 +2378,9 @@ un delta** : publier un seul bit éteint tous les autres. Il ne se compose donc 
 `GameActions.OnLogin`, remis à `false` par `ClearCharacterSession`, réécrit par
 `CharacterService.SaveProgressAsync` (d'où le paramètre `bool pkMode`). Aucune migration : la
 colonne existe depuis `Version0001_TheBeginning`. Le protocole n'a **aucun paquet serveur PK** —
-`800` et `801` (trames d'en-tête seul) basculent `PkMode` et republient le masque par
+`800` et `801` (trames d'en-tête seul) suivent le compte à rebours officiel (`PkModeService`, 10 s pour
+l'allumer en terrain PK, 30 s pour l'éteindre, une seconde demande annule ; `socle-pk-compte-a-rebours.md`),
+chacune avec son `TS_SC_RESULT`, puis `PkMode` change et le masque repart par
 `GameClient.SendActorStatus`, qui passe par `ForPlayer(info)` et part aussi aux observateurs. Le mode PK
 n'ouvre le combat entre joueurs que si les deux sont en terrain PK (`PkFieldService`, polygones `.nfl`
 et `WorldLocation.LocationType`). Un lieu inconnu est protégé ; `GameRules:PkFieldsEverywhere` reste une

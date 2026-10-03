@@ -506,3 +506,13 @@ Synthèse de §7.9, avec les réserves propres au dev (§9.2) :
 | 5 | Bornes de la politique de refus : honorer un `count` nul, tolérer `N > 4`, plafond de quantité par ligne | §7.8 les laisse explicitement ouvertes ; le code refuse aujourd'hui les deux premières | §7.8, §9.2.1 |
 | 6 | Le client 7.3 attend-il vraiment la `TM_SC_RESULT` de request id 259 ? | bloc déduit d'une lecture statique du binaire, aucun essai en jeu | §5.2, §9.2.6 |
 | 7 | Relation avec la MR #26 (258) | fusion vérifiée propre, sans dépendance sémantique | §5.5, §9.1.10 |
+
+## 10. Effet officiel livré (2026-10-03)
+
+Le serveur officiel tranche les points 3 à 5 de la synthèse (`GameMessage.cpp` `onDonateReward`,
+`GetDonationRewardMoralPoint`) : les points moraux sont l'opposé de l'immoralité, et chaque banc coûte
+1 000 / 5 000 / 10 000 / 30 000 points pour les objets 3620026 / 3620025 / 3620024 / 3620023. Toute la sélection
+est refusée en `NotOwn` quand les points ne la couvrent pas, un banc inconnu en `InvalidArgument` ; un succès
+répond `TS_SC_RESULT(259, Success)`. Le don (258) baisse l'immoralité d'un point par 10 000 pièces d'or ou
+10 000 de prix de base d'objet (quatre décimales gardées) ; voir `258-donate-item.md` §10.
+Tests : `Tests/Game/DonationMoralityTests.cs`.

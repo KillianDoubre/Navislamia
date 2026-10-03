@@ -1,4 +1,4 @@
-# Reste à faire — état au 2 octobre 2026
+# Reste à faire — état au 3 octobre 2026
 
 Liste de ce qui n'est pas fini sur `master`, par priorité. Le détail de chaque point est dans la fiche citée
 (`docs/packet-specs/`) ou dans `CLAUDE.md` (*Current limitations*).
@@ -49,6 +49,15 @@ Liste de ce qui n'est pas fini sur `master`, par priorité. Le détail de chaque
 - **Migrations Telecaster** : `QuestLifecycle`, `Version0011_StorageGoldAndFavors` et
   `Version0012_CharacterStates`, `Version0013_CharacterTitles` n'ont pas encore tourné
   sur la base réelle (PostgreSQL arrêté pendant le travail) ; elles s'appliquent au démarrage du serveur.
+- **Invocations, suite** (`socle-invocations-progression.md`, `socle-equipement-invocation.md`) : expérience
+  partagée et montées de niveau, coups reçus et mort, compétences (402 sur l'invocation, 452), `/ride`,
+  évolution au gardien, miroir d'apprivoisement, équipement en forme de carte (200/201 sur l'invocation, 287
+  après la 301 à la connexion).
+- **Compte à rebours PK** (`socle-pk-compte-a-rebours.md`), **autel** (258/259), **bonus PC bang**.
+- **Équipement de rechange et 223**, **revérification à la connexion** (`socle-exigences-equipement.md` §12).
+- **Titres secondaires et événements** (`socle-titres-secondaires-evenements.md`), **création d'objets 601**.
+- **Migration Telecaster** `Version0014_SummonSkills` et `Version0015_SubTitles` au prochain démarrage.
+- **Commande `/speed`**.
 - **Migration Arcadia** : `BackfillItemWearRestrictions` remplit les masques de race/classe et la
   profondeur pour les 29 647 objets Epic 7. Testée sur PostgreSQL temporaire ; elle attend le prochain
   démarrage sur la base réelle.
@@ -70,17 +79,17 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Résistances élémentaires : livrées (`socle-resistances-elementaires.md`). **À trancher** : l'officiel
   divise la résistance par 300 en entiers (son propre TODO le signale comme un bug), donc une résistance
   sous 300 n'y a aucun effet ; le dépôt applique la formule voulue, proportionnelle.
-- Récompenses : bonus PC bang/premium restant ; pondération, stamina et bonus de donjon configurable
-  livrés. Le partage égal à l'intérieur de chaque groupe est conservé.
-- Équipement : le port sur invocation, la bascule 223 et la revalidation des objets déjà portés à la
-  connexion restent à traiter (`socle-exigences-equipement.md`, lot 3). Les restrictions de race, classe
-  et profondeur sont contrôlées sur les équipements 200 et 281 ; le codage réel de
+- Récompenses : pondération, stamina, bonus de donjon configurable et bonus PC bang livrés. Le partage égal à l'intérieur de chaque groupe est conservé.
+- Équipement : lot 3 livré (rechange et 223, revérification à la connexion, invocation). Écart : la 223 refuse
+  tout l'échange si un objet ne passe pas, l'officiel peut laisser un objet déséquipé ; le codage réel de
   `JobResources.JobDepth` (index ou bit) est à confirmer par une requête en base (`JobDepths` sait lire
   les deux).
-- Titres : obtention, persistance, choix et effets du titre principal livrés. Restent les titres
-  secondaires et les événements spécifiques d'invocation, d'artisanat, de siège et de PC bang.
-- PvP : restent les règles d'arène/siège, les alliances de guildes, le compte à rebours de bascule PK
-  et la conversion des dons de l'autel ; terrains PK, compétences et immoralité sont livrés et testés
+- Titres : principal et secondaires, événements d'invocation et d'artisanat livrés. Restent les événements de
+  siège, de meurtre PK, de PC bang, d'objet obtenu (2001), d'amélioration de carte de créature (3201) et de
+  ceinture de cartes (3801).
+- Artisanat : 101/102/103/311/501/601 livrés ; restent 104/105 (cartes de créature), 201/202/212 (niveau),
+  402 (recyclage), 7xx/8xx (éléments, châsses, durabilité éthérée).
+- PvP : restent les règles d'arène/siège et les alliances de guildes ; compte à rebours PK et autel livrés ; terrains PK, compétences et immoralité sont livrés et testés
   (`socle-pvp-terrains-competences-immoralite.md`).
 - Mort du joueur : objets lâchés seulement sur un serveur PK, comme l'officiel ; à trancher si on le veut
   ailleurs.
@@ -90,9 +99,9 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Changement de métier : livré (`socle-changement-metier.md`) ; restent le changement de race, la réinitialisation des
   compétences de classe maître et les compétences de talent.
 - Invocations et apprivoisement : apprivoisement, formation, invocation, renvoi, marche et attaque de
-  l'invocation livrés (`socle-apprivoisement-invocation.md` §15), **à vérifier en jeu**. Restent : l'invocation
-  qui prend des dégâts, son expérience, sa mort, ses compétences (452), l'évolution (307), la monture (320/321),
-  le miroir d'apprivoisement.
+  l'invocation livrés (`socle-apprivoisement-invocation.md` §15), puis la suite (`socle-invocations-progression.md`)
+  et l'équipement, **à vérifier en jeu**. Restent : les compétences actives lancées par l'invocation, la
+  commande de maintien, l'état de chute 9001, l'amélioration des cartes de créature.
 - Guildes : création (`show_guild_create`), alliance, taxe, donjon de guilde et siège (`warp_to_siege_dungeon`).
 - Donjons d'instance et donjons secrets (20 dialogues `warp_to_instance_dungeon`, `question_secret_dungeon_*`) :
   `enter_dungeon` ne fait que téléporter.
