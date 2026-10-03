@@ -25,4 +25,20 @@ public class GameRuleOptions
     public decimal StaminaBonusRate { get; set; } = 1m;
     /// <summary>Additional monster EXP/JP in imported dungeon cells; configured per server.</summary>
     public decimal DungeonRewardBonusRate { get; set; }
+
+    /// <summary>
+    /// The PC bang mode given to every player whose login carries none (0 none, 1 ally, 2 premium): the auth server
+    /// of this repository sends no mode, so this is how a server grants the bonus. The higher of the two applies.
+    /// </summary>
+    public byte DefaultPcBangMode { get; set; }
+
+    /// <summary>GameRule::fAllyPCBangBonusRate: the EXP/JP an ally PC bang adds (0.1).</summary>
+    public decimal AllyPcBangBonusRate { get; set; } = 0.1m;
+
+    /// <summary>GameRule::fPremiumPCBangBonusRate: the EXP/JP a premium PC bang adds (1.2).</summary>
+    public decimal PremiumPcBangBonusRate { get; set; } = 1.2m;
+
+    /// <summary>GameRule::fAllyPCBangChaosBonusRate / fPremiumPCBangChaosBonusRate: the chaos both add (0.1).</summary>
+    public decimal AllyPcBangChaosBonusRate { get; set; } = 0.1m;
+    public decimal PremiumPcBangChaosBonusRate { get; set; } = 0.1m;
 }

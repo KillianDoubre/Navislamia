@@ -19,14 +19,28 @@ public static class MonsterRewardBonuses
     }
 
     public static BonusReward Apply(long exp, long jp, int stamina, int level, decimal staminaRate,
-        bool inDungeon, decimal dungeonRate, bool staminaSave = false)
+        bool inDungeon, decimal dungeonRate, bool staminaSave = false, decimal pcBangRate = 0)
     {
         exp = Math.Max(0, exp); jp = Math.Max(0, jp); stamina = Math.Max(0, stamina);
+        // StructPlayer::AddExp: the PC bang bonus joins the gain first (getPCBangBonus), the stamina bonus is then
+        // a share of that larger gain, while its stamina cost stays the plain gain's (gain_exp).
         var cost = exp / StaminaRatio(level);
         var bonus = inDungeon ? Math.Clamp(dungeonRate, 0, 1000) : 0;
         if (staminaSave || stamina >= cost) bonus += Math.Clamp(staminaRate, 0, 1000);
         var remaining = staminaSave ? stamina : Math.Max(0, stamina - (int)Math.Min(int.MaxValue, cost));
-        long Add(long value) => (long)Math.Min(long.MaxValue, Math.Floor(value * (1 + bonus)));
+        var pcBang = 1 + Math.Clamp(pcBangRate, 0, 1000);
+        long Add(long value) => (long)Math.Min(long.MaxValue, Math.Floor(value * pcBang * (1 + bonus)));
         return new BonusReward(Add(exp), Add(jp), remaining);
     }
+
+    /// <summary>
+    /// <c>StructPlayer::getPCBangBonus</c>: the share an ally (1) or premium (2) PC bang adds to EXP and JP, 0 for
+    /// none (<c>GameRule::PCBANG_*</c>).
+    /// </summary>
+    public static decimal PcBangRate(int mode, decimal allyRate, decimal premiumRate) => mode switch
+    {
+        1 => allyRate,
+        2 => premiumRate,
+        _ => 0
+    };
 }

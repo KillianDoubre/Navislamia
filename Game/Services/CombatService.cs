@@ -979,9 +979,12 @@ public class CombatService : ICombatService
                     var maxChaos = reward.Chaos > 0 ? CombatRewards.ChaosCapacity(_stats.Compute(info).Total.MaxChaos) : 0;
                     exp = MoralityRules.RewardExperience(exp, info.ImmoralPoint);
                     exp = _creatures?.LimitPlayerExperience(client, exp) ?? exp;
+                    var pcBangMode = Math.Max(info.PcBangMode, _rules?.CurrentValue?.DefaultPcBangMode ?? 0);
+                    var pcBangRate = Progression.MonsterRewardBonuses.PcBangRate(pcBangMode,
+                        _rules?.CurrentValue?.AllyPcBangBonusRate ?? 0.1m, _rules?.CurrentValue?.PremiumPcBangBonusRate ?? 1.2m);
                     var bonus = Progression.MonsterRewardBonuses.Apply(exp, jp, info.CharacterStamina, info.CharacterLevel,
                         _rules?.CurrentValue?.StaminaBonusRate ?? 1m, Progression.MonsterRewardBonuses.InDungeon(x, y),
-                        _rules?.CurrentValue?.DungeonRewardBonusRate ?? 0m, HasStaminaSaver(info));
+                        _rules?.CurrentValue?.DungeonRewardBonusRate ?? 0m, HasStaminaSaver(info), pcBangRate);
                     exp = bonus.Exp; jp = bonus.Jp;
                     // distributeExpToSummons: after the bonuses, before the player's own exp is applied.
                     _creatures?.ExperienceGained(client, exp);
@@ -992,8 +995,12 @@ public class CombatService : ICombatService
                     }
                     info.CharacterExp = CombatRewards.AddProgress(info.CharacterExp, exp);
                     info.CharacterJp = CombatRewards.AddProgress(info.CharacterJp, jp);
-                    var gainedChaos = (int)Math.Min(CombatRewards.Share(MonsterContribution.Scale(reward.Chaos, group.Factor), members.Length, i),
-                        Math.Max(0L, (long)maxChaos - info.CharacterChaos));
+                    // The PC bang chaos bonus (fAllyPCBangChaosBonusRate / fPremiumPCBangChaosBonusRate).
+                    var chaosRate = Progression.MonsterRewardBonuses.PcBangRate(pcBangMode,
+                        _rules?.CurrentValue?.AllyPcBangChaosBonusRate ?? 0.1m, _rules?.CurrentValue?.PremiumPcBangChaosBonusRate ?? 0.1m);
+                    var chaosShare = CombatRewards.Share(MonsterContribution.Scale(reward.Chaos, group.Factor), members.Length, i);
+                    var chaosBonus = (int)Math.Floor(chaosShare * chaosRate);
+                    var gainedChaos = (int)Math.Min(chaosShare + chaosBonus, Math.Max(0L, (long)maxChaos - info.CharacterChaos));
                     info.CharacterChaos += gainedChaos;
                     // Keep notifications and level resolution in the same order as concurrent kill credits.
                     client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp, info.CharacterJp));
@@ -1001,7 +1008,10 @@ public class CombatService : ICombatService
                     {
                         // procDropChaos: 213 to the region, then StructPlayer::AddChaos's "chaos" property. The kill
                         // sends no 1001: the gold is on the ground until it is picked up.
-                        SendChaos(client, killer, instanceId, corpseHandle, gainedChaos);
+                        // procDropChaos: the bonus is in nChaos and detailed in the three bonus fields (none without one).
+                        var bonusType = (sbyte)(chaosBonus > 0 ? Math.Clamp((int)pcBangMode, 0, 2) : 0);
+                        SendChaos(client, killer, instanceId, corpseHandle, gainedChaos, bonusType,
+                            (sbyte)(bonusType == 0 ? 0 : (int)(chaosRate * 100)), bonusType == 0 ? 0 : chaosBonus);
                         client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "chaos", info.CharacterChaos));
                     }
 
@@ -1012,7 +1022,8 @@ public class CombatService : ICombatService
         }
     }
 
-    private void SendChaos(GameClient recipient, GameClient killer, long instanceId, uint killerCorpseHandle, int amount)
+    private void SendChaos(GameClient recipient, GameClient killer, long instanceId, uint killerCorpseHandle, int amount,
+        sbyte bonusType = 0, sbyte bonusPercent = 0, int bonus = 0)
     {
         var viewers = new HashSet<GameClient> { recipient };
         if (_players is not null && _players.Registry is not null)
@@ -1027,7 +1038,7 @@ public class CombatService : ICombatService
             var corpse = viewer.ConnectionInfo.GetMonsterHandle(instanceId);
             if (corpse == 0 && ReferenceEquals(viewer, killer)) corpse = killerCorpseHandle;
             if (corpse != 0) viewer.Connection.Send(GameRewardPackets.BuildGetChaos(
-                recipient.ConnectionInfo.CharacterHandle, corpse, amount));
+                recipient.ConnectionInfo.CharacterHandle, corpse, amount, bonusType, bonusPercent, bonus));
         }
     }
 
