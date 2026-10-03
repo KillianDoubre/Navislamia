@@ -85,14 +85,18 @@ public partial class SkillCastService
         void Fail(ResultCode code) => master.Connection.Send(GameSkillPackets.BuildSkill(request.SkillId, request.SkillLevel,
             request.Caster, request.Target, request.X, request.Y, request.Z, (byte)request.Layer, SkillPacketType.Casting,
             0, 0, actor?.Hp ?? 0, actor?.Mp ?? 0, errorCode: (ushort)code));
-        if (actor is null) { Fail(ResultCode.NotOwn); return; }
+        // onSkill: a dead master's request is dropped; a caster that is not one of its summons does not exist.
+        if (info.CharacterHp <= 0) return;
+        if (actor is null) { Fail(ResultCode.NotExist); return; }
         CreatureCard card;
         lock (info.SummonLock) card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == actor.Handle);
         if (card is null || !_catalog.TryGet(request.SkillId, out var fields)) { Fail(ResultCode.AccessDenied); return; }
         byte learned;
         lock (info.SummonLock) learned = card.Skills.GetValueOrDefault(request.SkillId);
-        if (learned == 0 || request.SkillLevel == 0 || request.SkillLevel > learned) { Fail(ResultCode.AccessDenied); return; }
-        var level = request.SkillLevel;
+        if (learned == 0) { Fail(ResultCode.AccessDenied); return; }
+        // onSkill: a level outside 1..learned is brought back to the learned one.
+        var level = request.SkillLevel >= 1 && request.SkillLevel <= learned ? request.SkillLevel : learned;
+        request = request with { SkillLevel = level };
         if (card.Level < fields.RequiredLevel) { Fail(ResultCode.NotActable); return; }
         if (request.Layer != actor.Layer || !float.IsFinite(request.X) || !float.IsFinite(request.Y) || !float.IsFinite(request.Z))
         { Fail(ResultCode.InvalidArgument); return; }
@@ -154,8 +158,8 @@ public partial class SkillCastService
                     var cost = BuffCurve.MpCost(fields, level);
                     if (actor.Mp < cost) { Fail(ResultCode.NotEnoughMP); return; }
                     actor.Mp -= cost;
-                card.SkillCooldowns[request.SkillId] = unchecked(now + BuffCurve.CooldownTicks(fields, level));
-                card.SkillCooldownDurations[request.SkillId] = BuffCurve.CooldownTicks(fields, level);
+                    card.SkillCooldowns[request.SkillId] = unchecked(now + BuffCurve.CooldownTicks(fields, level));
+                    card.SkillCooldownDurations[request.SkillId] = BuffCurve.CooldownTicks(fields, level);
                     card.CommonSkillReady = unchecked(now + BuffCurve.CommonDelayTicks(fields));
                 }
             _summonCasts.Add((master, actor.Handle), pending);
@@ -329,8 +333,8 @@ public partial class SkillCastService
                     : CombatFormulas.Resolve(Combatant.From(stats, cast.Card.Level), Combatant.From(defender, targetLevel),
                         damage, kind, SkillDamageCurve.HitBonus(f, cast.Card.Level, targetLevel),
                         SkillDamageCurve.CriticalBonus(f, cast.Cast.SkillLevel), _random, f.ElementalType);
-            var hp = target.Player is { } victim ? _combatService.DamagePlayerBySummon(cast.Master, victim, cast.Actor.Handle,
-                hit.Damage, kind == DamageKind.Magical)
+                var hp = target.Player is { } victim ? _combatService.DamagePlayerBySummon(cast.Master, victim, cast.Actor.Handle,
+                    hit.Damage, kind == DamageKind.Magical)
                     : _combatService.ApplyDamage(cast.Master, target.Id, cast.Master.ConnectionInfo.GetMonsterHandle(target.Id), hit.Damage, 0);
                 if (target.Monster is not null && hp > 0) _monsterState.AddSummonHate(target.Id, cast.Master, cast.Actor.Handle,
                     HateRules.SkillHate(f.HateMod, f.HateBasic, f.HatePerSkl, cast.Cast.SkillLevel, hit.Damage));

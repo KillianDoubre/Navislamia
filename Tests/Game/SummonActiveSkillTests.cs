@@ -167,9 +167,7 @@ public class SummonActiveSkillTests
 
     [TestCase("foreign")]
     [TestCase("unlearned")]
-    [TestCase("level")]
     [TestCase("dead")]
-    [TestCase("masterdead")]
     [TestCase("ridden")]
     [TestCase("mp")]
     [TestCase("layer")]
@@ -195,6 +193,29 @@ public class SummonActiveSkillTests
         }
         var mp = h.Actor.Mp; h.Cast(caster: caster, level: level, layer: layer, x: x);
         h.Actor.Mp.Should().Be(mp); h.Damage.Should().BeEmpty(); h.Error.Should().NotBe(0);
+    }
+
+    [Test]
+    public void A_level_above_the_learned_one_is_brought_back_to_it()
+    {
+        // onSkill: a skill level outside 1..learned becomes the learned level.
+        using var h = new Harness(Fields());
+        h.Cast(level: 3);
+        h.Error.Should().Be(0);
+        h.Actor.Mp.Should().Be(190);
+        h.Damage.Should().ContainSingle();
+    }
+
+    [Test]
+    public void A_dead_master_s_request_is_dropped_without_an_answer()
+    {
+        using var h = new Harness(Fields());
+        Info(h.Master).CharacterHp = 0;
+        var mp = h.Actor.Mp;
+        h.Cast();
+        h.Actor.Mp.Should().Be(mp);
+        h.Damage.Should().BeEmpty();
+        h.Frames(SkillPacketType.Casting).Should().BeEmpty();
     }
 
     [Test]

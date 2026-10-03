@@ -136,6 +136,19 @@ public class SupportSkillTests
         Info(caster).ActiveBuffs.Should().BeEmpty(); Info(member).ActiveBuffs.Should().ContainSingle(); summon.ActiveBuffs.Should().BeEmpty();
     }
 
+    [TestCase(2, 700)]
+    [TestCase(3, 800)]
+    [TestCase(5, 800)]
+    [TestCase(0, 800)]
+    public void The_asked_level_is_cast_when_learned_and_brought_back_to_the_learned_one_otherwise(int asked, int hp)
+    {
+        // onSkill: a level outside 1..learned becomes the learned level; a lower one is cast as asked.
+        var fields = Fields(1, 501); fields.Vars[1] = 1;
+        var h = new Harness(fields); var caster = h.Player(1); Info(caster).LearnedSkills[Skill] = 3;
+        h.Service.Cast(caster, new GameActionPackets.SkillRequest(Skill, 1, 1, 0, 0, 0, 0, (byte)asked));
+        Info(caster).CharacterHp.Should().Be(hp, "100 magic × level");
+    }
+
     [TestCase(521)] [TestCase(508)]
     public void Region_heals_use_caster_magic_target_maxima_and_publish_all_hits(int effect)
     {

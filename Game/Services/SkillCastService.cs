@@ -604,6 +604,12 @@ public partial class SkillCastService : ISkillCastService
                 return false;
             }
 
+            // onSkill: the asked level when it lies in 1..learned, the learned one otherwise.
+            if (request.SkillLevel >= 1 && request.SkillLevel < skillLevel)
+            {
+                skillLevel = request.SkillLevel;
+            }
+
             if (IsDamageSequence(fields) && info.Layer != 0)
             { error = ResultCode.NotActable; return false; }
             if (SkillCastRangeRules.AppliesTo(fields.EffectType) && request.Layer != info.Layer)

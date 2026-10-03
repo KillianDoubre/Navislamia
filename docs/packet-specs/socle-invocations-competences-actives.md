@@ -10,8 +10,10 @@ La requête `TM_CS_SKILL` (400) porte déjà le handle du lanceur. Si ce handle 
 présente appartenant au joueur, le serveur utilise sa carte et ses compétences apprises. Le lancement
 du personnage reste indépendant de celui de l'invocation.
 
-- Le niveau demandé doit être compris entre 1 et le niveau appris ; le niveau de l'invocation doit
-  satisfaire le niveau requis de la compétence.
+- Comme `onSkill` officiel, un niveau demandé hors de `1..niveau appris` est ramené au niveau appris (la
+  même règle vaut désormais pour le personnage, qui lançait toujours au niveau appris) ; le niveau de
+  l'invocation doit satisfaire le niveau requis de la compétence. Un lanceur qui n'est pas une
+  invocation du joueur répond `NotExist` ; la demande d'un maître mort est ignorée sans réponse.
 - Invocation morte, montée, étrangère, absente ou immobilisée par un état interrompant les
   compétences : refus avant consommation de MP. Le maître doit être vivant.
 - La portée part de la position interpolée de l'invocation, avec sa taille, sa portée d'attaque et
