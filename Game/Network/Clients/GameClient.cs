@@ -837,6 +837,9 @@ public class GameClient : Client
                 "TM_CS_SUMMON_CARD_SKILL_LIST ({id}) Length: {length} item_handle={itemHandle} received from {clientTag}",
                 (ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST, buffer.Length, itemHandle, ClientTag);
         }
+
+        // The skills of the card's summon, on the summon's handle (docs/packet-specs/socle-invocations-progression.md).
+        _networkService.CreatureService?.SendCardSkillList(this, itemHandle);
     }
 
     private void SyncVisibleObjects()
@@ -2101,7 +2104,12 @@ public class GameClient : Client
 
         try
         {
-            await _networkService.SkillService.LearnAsync(this, request);
+            // A 402 naming one of this client's summons is the summon's learning (StructSummon::IsLearnableSkill).
+            if (_networkService.CreatureService is not { } creatures || !await creatures.TryLearnSkillAsync(this, request))
+            {
+                await _networkService.SkillService.LearnAsync(this, request);
+            }
+
             if (_networkService.QuestService is not null) await _networkService.QuestService.RefreshAsync(this);
         }
         catch (Exception exception)

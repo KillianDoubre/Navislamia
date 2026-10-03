@@ -29,6 +29,10 @@ public class SkillUnlockRule
     public int RequiredJobLevel { get; set; }
     public double JpRatio { get; set; } = 1;
     public List<SkillPrerequisite> Prerequisites { get; set; } = new();
+
+    /// <summary>The card enhance range of a summon's rule (<c>cenhance_min/max</c>); a player counts as enhance 0.</summary>
+    public int MinCardEnhance { get; set; }
+    public int MaxCardEnhance { get; set; } = 5;
 }
 
 public class SkillPrerequisite

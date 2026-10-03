@@ -1228,6 +1228,57 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public async Task<IReadOnlyList<SummonSkillRecord>> GetSummonSkillsAsync(string characterName)
+    {
+        if (string.IsNullOrEmpty(characterName))
+        {
+            return Array.Empty<SummonSkillRecord>();
+        }
+
+        using var repository = _repositories.Create();
+        var character = await repository.GetCharacterByNameAsync(characterName);
+        if (character is null)
+        {
+            return Array.Empty<SummonSkillRecord>();
+        }
+
+        return (await repository.GetSummonSkillsAsync(character.Id))
+            .Select(skill => new SummonSkillRecord(skill.SummonId, skill.SkillId, skill.Level)).ToList();
+    }
+
+    public Task<bool> SaveSummonSkillAsync(string characterName, long summonId, int skillId, byte level, int remainingJp)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            var summon = (await repository.GetSummonsAsync(character.Id)).FirstOrDefault(s => s.Id == summonId);
+            if (summon is null)
+            {
+                return false;
+            }
+
+            var row = (await repository.GetSummonSkillsAsync(character.Id))
+                .FirstOrDefault(s => s.SummonId == summonId && s.SkillId == skillId);
+            if (row is null)
+            {
+                repository.AddSummonSkill(new SummonSkillEntity { SummonId = summonId, SkillId = skillId, Level = level });
+            }
+            else
+            {
+                row.Level = level;
+            }
+
+            summon.Jp = remainingJp;
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
+
     /// <summary><c>AllocNewSummon</c>: level 1, the drawn name, the card linked (<c>DB_InsertSummon</c>).</summary>
     private static SummonEntity NewSummon(CharacterEntity character, long cardItemId, int summonCode, string name,
         int hp, int mp) => new()

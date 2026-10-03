@@ -11,6 +11,7 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<AuctionEntity> Auctions { get; set; }
     public DbSet<CharacterEntity> Characters { get; set; }
     public DbSet<CharacterSkillEntity> CharacterSkills { get; set; }
+    public DbSet<SummonSkillEntity> SummonSkills { get; set; }
     public DbSet<CharacterStateEntity> CharacterStates { get; set; }
     public DbSet<CharacterTitleStateEntity> CharacterTitleStates { get; set; }
     public DbSet<CharacterQuestEntity> CharacterQuests { get; set; }
@@ -128,6 +129,17 @@ public class TelecasterContext : SoftDeletionContext
 
         modelBuilder.Entity<CharacterSkillEntity>()
             .HasIndex(skill => new { skill.CharacterId, skill.SkillId })
+            .IsUnique();
+
+        // A summon's skills (StructSummon::onRegisterSkill): one row per summon and skill, deleted with the summon.
+        modelBuilder.Entity<SummonSkillEntity>()
+            .HasOne(skill => skill.Summon)
+            .WithMany()
+            .HasForeignKey(skill => skill.SummonId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SummonSkillEntity>()
+            .HasIndex(skill => new { skill.SummonId, skill.SkillId })
             .IsUnique();
 
         modelBuilder.Entity<CharacterEntity>()

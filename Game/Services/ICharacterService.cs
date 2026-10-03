@@ -199,6 +199,17 @@ public interface ICharacterService
     Task<bool> SaveSummonProgressAsync(string characterName, IReadOnlyList<SummonProgress> summons) =>
         Task.FromResult(false);
 
+    /// <summary>Every skill the character's summons learned (<c>smp_read_summon_skill_list</c>).</summary>
+    Task<IReadOnlyList<SummonSkillRecord>> GetSummonSkillsAsync(string characterName) =>
+        Task.FromResult<IReadOnlyList<SummonSkillRecord>>(Array.Empty<SummonSkillRecord>());
+
+    /// <summary>
+    /// A summon learned a skill level: the row is inserted or raised and the summon's JP set to what is left, in one
+    /// save (<c>StructSummon::onRegisterSkill</c>). False when the summon is not the character's.
+    /// </summary>
+    Task<bool> SaveSummonSkillAsync(string characterName, long summonId, int skillId, byte level, int remainingJp) =>
+        Task.FromResult(false);
+
     /// <summary>
     /// Persists a job change (docs/packet-specs/socle-changement-metier.md): the new job at job level 1, the jobs
     /// left behind with the job level each reached (<c>job_N</c>/<c>jlv_N</c>), the depth flag, and the talent
@@ -217,6 +228,8 @@ public sealed record CreatureCardRecord(ItemEntity Card, SummonEntity Summon);
 
 /// <summary>What world entry needs of the creatures: the cards, the formation slots and the main summon.</summary>
 public sealed record CreatureState(IReadOnlyList<CreatureCardRecord> Cards, long[] Slots, long? MainSummonId);
+
+public sealed record SummonSkillRecord(long SummonId, int SkillId, byte Level);
 
 /// <summary>What <see cref="ICharacterService.SaveSummonProgressAsync"/> writes for one summon.</summary>
 public sealed record SummonProgress(long SummonId, int SummonResourceId, int Level, long Exp, int Jp, int MaxLevel,

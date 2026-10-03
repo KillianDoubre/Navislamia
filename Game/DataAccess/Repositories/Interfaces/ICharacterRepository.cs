@@ -60,6 +60,11 @@ public interface ICharacterRepository : IDisposable
 
     void AddSummon(SummonEntity summon);
 
+    /// <summary>The skills of every summon of a character, tracked.</summary>
+    Task<List<SummonSkillEntity>> GetSummonSkillsAsync(long characterId);
+
+    void AddSummonSkill(SummonSkillEntity skill);
+
     /// <summary>
     /// Avoid using SaveChanges directly from context as it applies modifications directly to the database.
     /// Finish all required operations for a step then call this method

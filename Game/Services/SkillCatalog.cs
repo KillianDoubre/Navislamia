@@ -68,7 +68,7 @@ public class SkillCatalog
     /// </summary>
     public SkillLearnEvaluation EvaluateAcrossJobs(IReadOnlyList<(int Job, int JobLevel)> previousJobs, int jobId,
         int characterLevel, int jobLevel, int skillId, byte currentLevel, byte targetLevel,
-        IReadOnlyDictionary<int, byte> learnedSkills, long availableJp, double costRate = 1)
+        IReadOnlyDictionary<int, byte> learnedSkills, long availableJp, double costRate = 1, int cardEnhance = 0)
     {
         var evaluation = new SkillLearnEvaluation(ResultCode.LimitJob, 0);
         foreach (var (previousJob, previousJobLevel) in previousJobs ?? Array.Empty<(int, int)>())
@@ -79,7 +79,7 @@ public class SkillCatalog
             }
 
             evaluation = Evaluate(previousJob, characterLevel, previousJobLevel, skillId, currentLevel, targetLevel,
-                learnedSkills, availableJp, costRate);
+                learnedSkills, availableJp, costRate, cardEnhance);
             if (!KeepsSearching(evaluation.Result))
             {
                 return evaluation;
@@ -87,15 +87,22 @@ public class SkillCatalog
         }
 
         return Evaluate(jobId, characterLevel, jobLevel, skillId, currentLevel, targetLevel, learnedSkills,
-            availableJp, costRate);
+            availableJp, costRate, cardEnhance);
     }
 
     private static bool KeepsSearching(ResultCode result) =>
         result is ResultCode.LimitJob or ResultCode.LimitMax or ResultCode.NotEnoughJobLevel;
 
+    /// <summary>Whether a job id has a tree (a classic job, or a summon resource at Epic 7).</summary>
+    public bool HasTree(int jobId) => _jobs.ContainsKey(jobId);
+
+    /// <summary>The skills of a tree, for a summon's skill list.</summary>
+    public IReadOnlyCollection<int> SkillsOf(int jobId) =>
+        _jobs.TryGetValue(jobId, out var skills) ? skills.Keys : Array.Empty<int>();
+
     public SkillLearnEvaluation Evaluate(int jobId, int characterLevel, int jobLevel, int skillId,
         byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp,
-        double costRate = 1)
+        double costRate = 1, int cardEnhance = 0)
     {
         if (targetLevel == 0 || targetLevel != currentLevel + 1)
         {
@@ -110,6 +117,7 @@ public class SkillCatalog
         var hasTargetRule = false;
         var hasCharacterLevel = false;
         var hasJobLevel = false;
+        var hasEnhance = false;
         SkillUnlockRule rule = null;
         foreach (var candidate in skill.Rules)
         {
@@ -131,6 +139,13 @@ public class SkillCatalog
             }
 
             hasJobLevel = true;
+            // GameContent::isLearnableSkill: a summon's rule bounds its card's enhance; a player counts as 0.
+            if (cardEnhance < candidate.MinCardEnhance || cardEnhance > candidate.MaxCardEnhance)
+            {
+                continue;
+            }
+
+            hasEnhance = true;
             if (candidate.Prerequisites.All(prerequisite => prerequisite.SkillId == 0 ||
                     learnedSkills.GetValueOrDefault(prerequisite.SkillId) >= prerequisite.Level))
             {
@@ -152,6 +167,11 @@ public class SkillCatalog
         if (!hasJobLevel)
         {
             return new SkillLearnEvaluation(ResultCode.NotEnoughJobLevel, 0);
+        }
+
+        if (!hasEnhance)
+        {
+            return new SkillLearnEvaluation(ResultCode.EnhanceLimit, 0);
         }
 
         if (rule is null)

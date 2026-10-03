@@ -7,6 +7,10 @@ tools/rdu.py writes out of the Epic 7 Part 4 dump (data/epic7), the data closest
     JobResource.skill_tree_id, which is why the PowerShell exporter joins through JobResource;
   * SkillJPResource.csv: jp_01..jp_50, the JP cost of each skill level.
 
+The summon trees are exported too: at Epic 7 a summon's tree is keyed by its own SummonResource id
+(StructSummon::IsLearnableSkill reads the trees of its forms), and each rule carries cenhance_min/max, the card
+enhance range GameContent::isLearnableSkill checks (every classic-job rule allows 0..5).
+
 A skill without a JP row is left out, as the SQL inner join does, and a skill's cost list stops at the
 highest level its rules allow (50 at most). SkillTreeId is not an Epic 7 column and is written as the job
 id: the runtime does not read it.
@@ -44,7 +48,8 @@ def main(argv):
 
     jp = {integer(r["skill_id"]): [integer(r[f"jp_{i:02d}"]) for i in range(1, 51)]
           for r in rows(source, "SkillJPResource")}
-    wanted = set(JOB_IDS)
+    summons = {integer(r["id"]) for r in rows(source, "SummonResource")}
+    wanted = set(JOB_IDS) | summons
     tree = [r for r in rows(source, "SkillTreeResource")
             if integer(r["job_id"]) in wanted and integer(r["skill_id"]) in jp]
     tree.sort(key=lambda r: tuple(integer(r[c]) for c in
@@ -65,6 +70,8 @@ def main(argv):
             "RequiredJobLevel": integer(r["job_lv"]),
             "JpRatio": int(ratio) if ratio.is_integer() else ratio,
             "Prerequisites": prerequisites,
+            "MinCardEnhance": integer(r.get("cenhance_min")),
+            "MaxCardEnhance": integer(r.get("cenhance_max")) if r.get("cenhance_max") not in (None, "") else 5,
         })
 
     catalog_jobs = []
@@ -79,13 +86,13 @@ def main(argv):
         catalog_jobs.append(job)
 
     output = {
-        "Source": "Epic 7 Part 4 classic-job trees and JP tables (tools/rdu.py); consumed by the Epic 7.3 protocol",
+        "Source": "Epic 7 Part 4 classic-job and summon trees and JP tables (tools/rdu.py); consumed by the Epic 7.3 protocol",
         "GeneratedAtUtc": datetime.now(timezone.utc).isoformat(),
         "SkillCatalog": {"Jobs": catalog_jobs},
     }
     with open(OUTPUT, "w", encoding="utf-8") as stream:
         json.dump(output, stream, ensure_ascii=False, separators=(",", ":"))
-    missing = sorted(wanted - set(jobs))
+    missing = sorted(set(JOB_IDS) - set(jobs))
     print(f"Exported {sum(len(j['Skills']) for j in catalog_jobs)} job/skill definitions for "
           f"{len(catalog_jobs)} jobs to {OUTPUT}" + (f"; jobs without a tree: {missing}" if missing else ""))
 

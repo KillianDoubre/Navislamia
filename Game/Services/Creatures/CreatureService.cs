@@ -60,6 +60,12 @@ public interface ICreatureService
 
     /// <summary>A monster's (or a player's) hit on a summon; the HP left.</summary>
     int DamageSummon(GameClient master, uint summonHandle, int damage, bool byMonster = true);
+
+    /// <summary>A 402 naming one of the client's summons; false when the handle is not one.</summary>
+    Task<bool> TryLearnSkillAsync(GameClient client, GameActionPackets.LearnSkillRequest request);
+
+    /// <summary>452: the skills of a card's summon.</summary>
+    void SendCardSkillList(GameClient client, uint itemHandle);
 }
 
 /// <summary>A summon in the world as a monster fights it: where it is, how alive it is, and its body and stats.</summary>
@@ -91,6 +97,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private readonly Dictionary<long, Taming> _tamings = new();
     private readonly Dictionary<uint, SummonMove> _moves = new();
     private readonly Dictionary<uint, SummonSwing> _swings = new();
+    private readonly SkillCatalog _skillTrees;
+    private readonly ISkillPassiveCatalog _passives;
+    private readonly Rates.IRateService _rates;
 
     /// <summary>Dead summons still in the world, by handle, with their master and the tick they died at.</summary>
     private readonly Dictionary<uint, (GameClient Master, uint Since)> _deadSince = new();
@@ -99,8 +108,12 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     public CreatureService(ICreatureCatalog catalog, ICharacterService characters, MonsterWorldState world,
         ICombatService combat, SummonWorldService summons, IPlayerVisibilityService players = null,
         IPartyService parties = null, IBuffCatalog skills = null, CreatureEvents events = null,
-        ICombatRandom random = null, bool runTicks = true)
+        ICombatRandom random = null, bool runTicks = true, SkillCatalog skillTrees = null,
+        ISkillPassiveCatalog passives = null, Rates.IRateService rates = null)
     {
+        _skillTrees = skillTrees;
+        _passives = passives;
+        _rates = rates;
         _catalog = catalog;
         _characters = characters;
         _world = world;
@@ -160,6 +173,17 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             return;
         }
 
+        IReadOnlyList<SummonSkillRecord> skills;
+        try
+        {
+            skills = await _characters.GetSummonSkillsAsync(info.CharacterName) ?? Array.Empty<SummonSkillRecord>();
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not load the summon skills of {clientTag}", client.ClientTag);
+            skills = Array.Empty<SummonSkillRecord>();
+        }
+
         CreatureCard main = null;
         lock (info.SummonLock)
         {
@@ -168,6 +192,15 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             {
                 var card = ToCard(record);
                 info.CreatureCards[card.ItemId] = card;
+            }
+
+            foreach (var skill in skills)
+            {
+                var owner = info.CreatureCards.Values.FirstOrDefault(c => c.SummonId == skill.SummonId);
+                if (owner is not null)
+                {
+                    owner.Skills[skill.SkillId] = skill.Level;
+                }
             }
 
             info.SummonSlots = state.Slots;
@@ -309,6 +342,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             (int)stats.MaxMp));
         client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(card.SummonHandle, card.Level, card.Level));
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(card.SummonHandle, card.Exp, card.Jp));
+        // StructPlayer::AddSummon: SendSkillMessage after the summon's information.
+        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillsOf(client.ConnectionInfo,
+            card)));
         card.InfoSent = true;
     }
 
@@ -330,8 +366,25 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private SummonStatContext Context(ConnectionInfo info, CreatureCard card) =>
         new(Math.Max(1, info.CharacterLevel), CreatureMastery(info), _catalog.Enhance(card.Enhance).StatAmplify);
 
-    private StatBlock StatsOf(ConnectionInfo info, CreatureCard card, SummonResourceInfo resource) =>
-        CreatureRules.SummonStats(resource, card.Level, Context(info, card));
+    private StatBlock StatsOf(ConnectionInfo info, CreatureCard card, SummonResourceInfo resource)
+    {
+        var block = CreatureRules.SummonStats(resource, card.Level, Context(info, card));
+        if (_passives is null)
+        {
+            return block;
+        }
+
+        // The summon's own passives (StructSummon::applyPassiveSkillEffect): a summon carries no weapon, so only
+        // the passives that need none apply.
+        var effects = SkillsOf(info, card).SelectMany(skill => _passives.Resolve(skill.Key, skill.Value, null))
+            .ToArray();
+        if (effects.Length > 0)
+        {
+            StatCalculator.ApplyEffects(block, effects);
+        }
+
+        return block;
+    }
 
     // ---- experience -------------------------------------------------------------------------------------------
 
@@ -790,6 +843,146 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             }
         }
     }
+
+    // ---- skills ----------------------------------------------------------------------------------------------
+
+    /// <summary><c>SKILL_CREATURE_RIDING</c>: a summon that learned it can be ridden (<c>onCompleteCalculateStat</c>).</summary>
+    public const int CreatureRidingSkill = 11001;
+
+    private const ushort LearnSkillRequestId = (ushort)GamePackets.TM_CS_LEARN_SKILL;
+
+    /// <summary>
+    /// <c>TM_CS_LEARN_SKILL</c> (402) naming one of the client's summons: <c>StructSummon::IsLearnableSkill</c> — the
+    /// trees of the forms left behind first, each at the level it reached, then the current form's at the summon's
+    /// level, the card's enhance bounding each rule — paid with the summon's JP. False when the handle is not a summon
+    /// of this client, so the player's own path answers it.
+    /// </summary>
+    public async Task<bool> TryLearnSkillAsync(GameClient client, GameActionPackets.LearnSkillRequest request)
+    {
+        var info = client.ConnectionInfo;
+        if (request.Handle == 0 || request.Handle == info.CharacterHandle)
+        {
+            return false;
+        }
+
+        CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == request.Handle && c.HasSummon);
+        }
+
+        if (card is null)
+        {
+            return false;
+        }
+
+        if (_skillTrees is null)
+        {
+            client.SendResult(LearnSkillRequestId, (ushort)ResultCode.NotActable, request.SkillId);
+            return true;
+        }
+
+        byte currentLevel;
+        Dictionary<int, byte> learned;
+        List<(int, int)> forms;
+        lock (info.SummonLock)
+        {
+            currentLevel = card.Skills.GetValueOrDefault(request.SkillId);
+            learned = new Dictionary<int, byte>(card.Skills);
+            forms = Enumerable.Range(0, 2).Where(i => card.PreviousSummonIds[i] != 0)
+                .Select(i => ((int)card.PreviousSummonIds[i], card.PreviousLevels[i])).ToList();
+        }
+
+        var evaluation = _skillTrees.EvaluateAcrossJobs(forms, card.SummonCode, card.Level, card.Level,
+            request.SkillId, currentLevel, request.TargetLevel, learned, card.Jp, _rates?.SkillJpCost ?? 1,
+            card.Enhance);
+        if (!evaluation.IsSuccess)
+        {
+            client.SendResult(LearnSkillRequestId, (ushort)evaluation.Result, request.SkillId);
+            return true;
+        }
+
+        var remaining = (int)Math.Max(0, card.Jp - evaluation.Cost);
+        if (!await _characters.SaveSummonSkillAsync(info.CharacterName, card.SummonId, request.SkillId,
+                request.TargetLevel, remaining))
+        {
+            client.SendResult(LearnSkillRequestId, (ushort)ResultCode.DBError, request.SkillId);
+            return true;
+        }
+
+        lock (info.SummonLock)
+        {
+            card.Jp = remaining;
+            card.Skills[request.SkillId] = request.TargetLevel;
+        }
+
+        // onJPChange then onRegisterSkill: the summon's JP, its new skill level, then the result.
+        client.Connection.Send(GameStatPackets.BuildProperty(card.SummonHandle, "jp", card.Jp));
+        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle,
+            new[] { new KeyValuePair<int, byte>(request.SkillId, request.TargetLevel) }));
+        client.SendResult(LearnSkillRequestId, (ushort)ResultCode.Success, request.SkillId);
+
+        // A passive (Creature Riding among them) moves the summon's stats.
+        if (_catalog.TryGetSummon(card.SummonCode, out var resource))
+        {
+            RefreshSummonStats(client, card, resource);
+        }
+
+        return true;
+    }
+
+    /// <summary>The stats of a summon whose skills or master changed, out in the world or kept in its card.</summary>
+    private void RefreshSummonStats(GameClient client, CreatureCard card, SummonResourceInfo resource)
+    {
+        var info = client.ConnectionInfo;
+        var stats = StatsOf(info, card, resource);
+        var presence = Array.Find(info.Summons, s => s.Handle == card.SummonHandle);
+        if (presence is not null)
+        {
+            _summons.RefreshStats(presence, stats);
+            stats = presence.Stats;
+        }
+
+        client.Connection.Send(GameStatPackets.BuildStatInfo(card.SummonHandle, stats, StatInfoType.Total));
+    }
+
+    /// <summary>
+    /// <c>TM_CS_SUMMON_CARD_SKILL_LIST</c> (452), the flip of a creature card: the skills of the card's summon (403 on
+    /// the summon's handle), after its 301 when the client does not know that summon yet.
+    /// </summary>
+    public void SendCardSkillList(GameClient client, uint itemHandle)
+    {
+        var info = client.ConnectionInfo;
+        CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.Values.FirstOrDefault(c => c.Handle == itemHandle && c.HasSummon);
+        }
+
+        if (card is null)
+        {
+            return;
+        }
+
+        if (!card.InfoSent)
+        {
+            SendSummonInfo(client, card);
+            return;
+        }
+
+        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillsOf(info, card)));
+    }
+
+    private static KeyValuePair<int, byte>[] SkillsOf(ConnectionInfo info, CreatureCard card)
+    {
+        lock (info.SummonLock)
+        {
+            return card.Skills.ToArray();
+        }
+    }
+
+    /// <summary>Whether a summon may be ridden: it learned Creature Riding (11001).</summary>
+    public static bool IsRidable(CreatureCard card) => card.Skills.ContainsKey(CreatureRidingSkill);
 
     // ---- taming -----------------------------------------------------------------------------------------------
 
