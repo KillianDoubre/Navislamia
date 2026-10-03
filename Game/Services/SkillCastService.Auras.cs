@@ -18,6 +18,7 @@ public partial class SkillCastService
         {
             foreach (var summon in client.ConnectionInfo.Summons)
             {
+                PulseSummonAuras(client, summon, now);
                 var expired = new List<ActiveBuff>();
                 lock (summon.BuffLock)
                     for (var i = summon.ActiveBuffs.Count - 1; i >= 0; i--)

@@ -1651,7 +1651,9 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 
 - Monsters auto-attack (kill + respawn), idle-wander, drop items at authentic rates, **retaliate when
   hit and aggro/chase/attack the player on sight** (aggressive monsters via `FirstAttack`); not
-  modelled: a summon casting its active skills; group aggro follows the official rule; **they walk at their `run_speed` and around the
+  summons cast their learned active skills with their own MP, stats, range, cast delays and cooldowns;
+  `/hold [handle] [on|off]` stops summon actions and gates following. See
+  `docs/packet-specs/socle-invocations-competences-actives.md`. Group aggro follows the official rule; **they walk at their `run_speed` and around the
   `.nfa` obstacles** (paths for chase and return), and a death costs experience. **Monsters cast their single-target,
   state, heal, region and multi-hit skills**, including Lua triggers for casts/states, reinforcements
   (`respawn_near_monster`, no automatic respawn after death) and persisted anti-bot flags

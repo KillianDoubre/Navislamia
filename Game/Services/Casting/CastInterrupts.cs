@@ -14,6 +14,9 @@ public interface ICastInterrupts
 
     /// <summary>A hit taken while casting: <c>StructSkill::onDamage</c>.</summary>
     void Damaged(GameClient client, int damage);
+    void InterruptSummon(GameClient client, uint handle) { }
+    void ForgetSummon(GameClient client, uint handle) { }
+    void SummonDamaged(GameClient client, uint handle, int damage) { }
     void ApplyState(GameClient client, int stateId, int level, uint duration) { }
 }
 
@@ -24,8 +27,15 @@ public sealed class CastInterrupts : ICastInterrupts
 
     public void Attach(ISkillCastService listener) => _listener = listener;
 
-    public void Interrupt(GameClient client) => _listener?.CancelCast(client);
+    public void Interrupt(GameClient client)
+    {
+        _listener?.CancelCast(client);
+        foreach (var summon in client.ConnectionInfo.Summons) _listener?.ForgetSummonCaster(client, summon.Handle);
+    }
 
     public void Damaged(GameClient client, int damage) => _listener?.OnCasterDamaged(client, damage);
+    public void InterruptSummon(GameClient client, uint handle) => _listener?.CancelSummonCast(client, handle, force: true);
+    public void ForgetSummon(GameClient client, uint handle) => _listener?.ForgetSummonCaster(client, handle);
+    public void SummonDamaged(GameClient client, uint handle, int damage) => _listener?.OnSummonCasterDamaged(client, handle, damage);
     public void ApplyState(GameClient client, int stateId, int level, uint duration) => _listener?.ApplyState(client, stateId, level, duration);
 }

@@ -115,6 +115,21 @@ public class GmCommandService : IGmCommandService
         var info = client.ConnectionInfo;
         switch (definition.Command)
         {
+            case GmCommand.Hold:
+                var args = line.Args;
+                uint holdHandle = 0;
+                var hold = true;
+                var switches = args;
+                if (args.Length > 0 && uint.TryParse(args[0], out holdHandle)) switches = args.Skip(1).ToArray();
+                else if (args.Length > 0 && args[0].ToLowerInvariant() is not ("on" or "off"))
+                { Usage(client, definition); break; }
+                if (!GmCommandRules.TryParseSwitch(switches, true, out hold) || args.Length > 2)
+                { Usage(client, definition); break; }
+                var heldCount = 0;
+                foreach (var summon in info.Summons.Where(s => holdHandle == 0 || s.Handle == holdHandle))
+                    if (_creatures?.HoldSummon(client, summon.Handle, hold) == true) heldCount++;
+                Reply(client, heldCount == 0 ? "No available summon." : hold ? "Summon hold enabled." : "Summon hold disabled.");
+                break;
             case GmCommand.Titles:
                 if (_titles is not null)
                 {

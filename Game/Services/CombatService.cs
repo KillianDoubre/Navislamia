@@ -593,6 +593,16 @@ public class CombatService : ICombatService
     }
 
     private bool IsEnemy(GameClient attacker, GameClient target) => ArePlayerEnemies(attacker, target);
+    public HitResult RollSummonHitOnPlayer(GameClient master, GameClient target, StatBlock stats, int level,
+        float damage, DamageKind kind, int accuracy, int critical, int element = 0)
+    {
+        if (!ArePlayerEnemies(master, target) || target.ConnectionInfo.CharacterHp <= 0)
+            return new HitResult(0, HitFlags.Miss);
+        var hit = CombatFormulas.Resolve(Combatant.From(stats, level),
+            Combatant.From(_stats.Compute(target.ConnectionInfo).Total, target.ConnectionInfo.CharacterLevel),
+            damage, kind, accuracy, critical, _random, element);
+        return hit with { Damage = PvpDamage(hit.Damage) };
+    }
 
     private void StartPlayerAttack(GameClient client, uint targetHandle)
     {
@@ -706,8 +716,14 @@ public class CombatService : ICombatService
     /// </summary>
     public int DamagePlayerByPlayer(GameClient attacker, GameClient target, int damage, bool magical = false) =>
         LandPlayerDamage(attacker, target, damage, magical, true);
+    public int DamagePlayerBySummon(GameClient master, GameClient target, uint summonHandle, int damage, bool magical = false)
+    {
+        var summon = Array.Find(master.ConnectionInfo.Summons, s => s.Handle == summonHandle);
+        return summon is not { Hp: > 0 } ? target.ConnectionInfo.CharacterHp
+            : LandPlayerDamage(master, target, damage, magical, true, summonHandle);
+    }
 
-    private int LandPlayerDamage(GameClient attacker, GameClient target, int damage, bool magical, bool reflect)
+    private int LandPlayerDamage(GameClient attacker, GameClient target, int damage, bool magical, bool reflect, uint summonHandle = 0)
     {
         var info = target.ConnectionInfo;
         if (!ArePlayerEnemies(attacker, target)) return info.CharacterHp;
@@ -762,6 +778,15 @@ public class CombatService : ICombatService
             foreach (var reflected in Combat.AttackMechanics.Reflects(states))
                 if (reflected.Ratio > _random.Next(100) + 1)
                 {
+                    if (summonHandle != 0)
+                    {
+                        var summon = Array.Find(attacker.ConnectionInfo.Summons, s => s.Handle == summonHandle);
+                        if (summon is not { Hp: > 0 }) break;
+                        var reflectedDamage = PvpDamage(CombatFormulas.ResistedDamage(
+                            Combat.AttackMechanics.ReflectAmount(reflected, damage, magical), summon.Stats.GetResistance(reflected.Element)));
+                        if (reflectedDamage > 0) _creatures?.SummonReflected(attacker, summonHandle, reflectedDamage);
+                        continue;
+                    }
                     var amount = PvpDamage(CombatFormulas.ResistedDamage(Combat.AttackMechanics.ReflectAmount(reflected, damage, magical),
                         _stats.Compute(attacker.ConnectionInfo).Total.GetResistance(reflected.Element)));
                     if (amount > 0) LandPlayerDamage(target, attacker, amount, magical, false);

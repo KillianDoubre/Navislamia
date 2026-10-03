@@ -114,6 +114,7 @@ public partial class SkillCastService : ISkillCastService
 
     public void Unregister(GameClient client)
     {
+        CancelAllSummonCasts(client);
         RemoveAllAuraProjections(client);
         lock (_lock)
         {
@@ -130,6 +131,8 @@ public partial class SkillCastService : ISkillCastService
     public void Cast(GameClient client, GameActionPackets.SkillRequest request)
     {
         var info = client.ConnectionInfo;
+        if (request.Caster != info.CharacterHandle && request.Caster != 0)
+        { CastSummon(client, request); return; }
         var now = ServerClock.Now;
 
         lock (_lock)
@@ -152,7 +155,7 @@ public partial class SkillCastService : ISkillCastService
         var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
         request = request with { SkillLevel = skillLevel };
         var pending = new PendingCast(request, fields, skillLevel, targetInstanceId, now, unchecked(now + castDelay))
-            { PlayerTarget = ResolvePlayerTarget(targetInstanceId) };
+        { PlayerTarget = ResolvePlayerTarget(targetInstanceId) };
 
         // One cast at a time: a second request while one is being cast is refused, never queued.
         lock (info.CastLock)
@@ -190,6 +193,7 @@ public partial class SkillCastService : ISkillCastService
     /// </summary>
     public void ProcessCasts(uint now)
     {
+        ProcessSummonCasts(now);
         GameClient[] clients;
         lock (_lock)
         {

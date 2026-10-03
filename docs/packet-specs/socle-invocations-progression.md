@@ -77,5 +77,5 @@ Voir `socle-equipement-invocation.md`.
 - `/ride` bascule (le client n'a pas de `/unride`) ; vitesse de monture `max(propre, monture)`.
 - L'état de chute 9001 n'est pas appliqué ; la chance de chute de 75 % sur un coup critique n'est pas
   modélisée (30 % seulement).
-- Une invocation ne lance pas ses compétences actives ; la commande de maintien (hold) n'existe pas.
+- Compétences actives et maintien `/hold` livrés : voir `socle-invocations-competences-actives.md`.
 - L'amélioration d'une carte de créature (`MIX_ENHANCE_CREATURE_CARD`, 104/105) n'est pas portée.
