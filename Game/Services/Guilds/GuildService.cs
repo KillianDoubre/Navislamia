@@ -351,8 +351,12 @@ public sealed partial class GuildService : IGuildService
     }
 
     private static int Hp(ConnectionInfo info) => info is null ? 0 : (int)Math.Clamp((long)info.CharacterHp * 100 / Math.Max(1, info.CharacterMaxHp), 0, 100);
-    private int Mp(ConnectionInfo info) => info is null ? 0 : (int)Math.Clamp((long)info.CharacterMp * 100
-        / Math.Max(1, _stats?.Compute(info)?.Total.MaxMp ?? info.CharacterMp), 0, 100);
+    private int Mp(ConnectionInfo info)
+    {
+        if (info is null) return 0;
+        var max = _stats?.Compute(info).Total is { } total ? (int)total.MaxMp : info.CharacterMp;
+        return (int)Math.Clamp((long)info.CharacterMp * 100 / Math.Max(1, max), 0, 100);
+    }
     public void OnVitalsChanged(GameClient client)
     {
         var info = client.ConnectionInfo;
