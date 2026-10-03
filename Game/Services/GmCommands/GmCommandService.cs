@@ -116,13 +116,26 @@ public class GmCommandService : IGmCommandService
         switch (definition.Command)
         {
             case GmCommand.Titles:
-                if (_titles is not null) Reply(client, "Titles: " + string.Join(", ", await _titles.GetOwnedAsync(client)));
+                if (_titles is not null)
+                {
+                    Reply(client, "Titles: " + string.Join(", ", await _titles.GetOwnedAsync(client)));
+                    Reply(client, $"Main: {info.MainTitleId}. Secondary: {string.Join(", ", info.SubTitleIds)}.");
+                }
+
                 break;
             case GmCommand.Title:
                 if (line.Args.Length != 1 || !int.TryParse(line.Args[0], out var titleId) || titleId < 0)
                 { Usage(client, definition); break; }
-                Reply(client, _titles is not null && await _titles.SelectAsync(client, titleId)
-                    ? $"Title: {titleId}." : "This title is not available.");
+                Reply(client, _titles is null ? "This title is not available."
+                    : TitleAnswer(await _titles.ChooseMainAsync(client, titleId), $"Title: {titleId}."));
+                break;
+            case GmCommand.SubTitle:
+                if (line.Args.Length != 2 || !int.TryParse(line.Args[0], out var subSlot) || subSlot is < 1 or > 5
+                    || !int.TryParse(line.Args[1], out var subTitleId) || subTitleId < 0)
+                { Usage(client, definition); break; }
+                Reply(client, _titles is null ? "This title is not available."
+                    : TitleAnswer(await _titles.ChooseSubAsync(client, subSlot - 1, subTitleId),
+                        $"Secondary title {subSlot}: {subTitleId}."));
                 break;
             case GmCommand.Help:
                 foreach (var available in GmCommandCatalog.AvailableTo(info.CharacterPermission))
@@ -641,6 +654,16 @@ public class GmCommandService : IGmCommandService
         SendStats(client);
         Reply(client, $"Skill {skillId} level {level} learnt.");
     }
+
+    private static string TitleAnswer(Progression.TitleChoice choice, string done) => choice switch
+    {
+        Progression.TitleChoice.Done => done,
+        Progression.TitleChoice.InUse => "This title is already worn.",
+        Progression.TitleChoice.CoolingDown => "The main title can only change every 5 minutes.",
+        Progression.TitleChoice.RateTooHigh => "Only a title of rate 5 or less can be a secondary title.",
+        Progression.TitleChoice.InvalidSlot => "The secondary title slots are 1 to 5.",
+        _ => "This title is not available."
+    };
 
     /// <summary>Both stat packets and the max HP/MP properties, as every stat trigger sends them.</summary>
     private void SendStats(GameClient client)

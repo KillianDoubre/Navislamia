@@ -38,7 +38,8 @@ public enum GmCommand
     GameTime,
     Ride,
     Unride,
-    Speed
+    Speed,
+    SubTitle
 }
 
 /// <summary>
@@ -67,6 +68,7 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Help, "help", false, "/help", FromRepository),
         new GmCommandDefinition(GmCommand.Titles, "titles", false, "/titles", FromRepository),
         new GmCommandDefinition(GmCommand.Title, "title", false, "/title <id|0>", FromRepository),
+        new GmCommandDefinition(GmCommand.SubTitle, "subtitle", false, "/subtitle <slot 1-5> <id|0>", FromOfficial),
         new GmCommandDefinition(GmCommand.Position, "position", false, "/position", FromNgemity),
         new GmCommandDefinition(GmCommand.Sitdown, "sitdown", false, "/sitdown", FromNgemity),
         new GmCommandDefinition(GmCommand.Ride, "ride", false, "/ride <summon handle>", FromOfficial),

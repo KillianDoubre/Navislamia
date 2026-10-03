@@ -19,6 +19,27 @@ public interface ITitleService
     Task<bool> SetConditionAsync(GameClient client, int conditionId, long count);
     Task<IReadOnlyList<int>> GetOwnedAsync(GameClient client);
     Task<bool> SelectAsync(GameClient client, int titleId);
+
+    /// <summary>An event of <see cref="TitleEvents"/>: each condition type takes its increment.</summary>
+    Task RecordAsync(GameClient client, Func<TitleConditionType, long?> increment) => Task.CompletedTask;
+
+    /// <summary><c>StructPlayer::SetMainTitle</c>, with the reason of a refusal.</summary>
+    Task<TitleChoice> ChooseMainAsync(GameClient client, int titleId) => Task.FromResult(TitleChoice.Failed);
+
+    /// <summary><c>StructPlayer::SetSubTitle</c>: slot 0..4, 0 empties it.</summary>
+    Task<TitleChoice> ChooseSubAsync(GameClient client, int slot, int titleId) => Task.FromResult(TitleChoice.Failed);
+}
+
+/// <summary>The answer to a title choice; everything but <see cref="Done"/> leaves the titles as they were.</summary>
+public enum TitleChoice
+{
+    Done,
+    NotOwned,
+    InUse,
+    CoolingDown,
+    RateTooHigh,
+    InvalidSlot,
+    Failed
 }
 
 public sealed class TitleService : ITitleService
@@ -27,11 +48,33 @@ public sealed class TitleService : ITitleService
     private readonly CharacterGate _gate;
     private readonly TitleCatalog _catalog;
     private readonly IStatService _stats;
+    private readonly Creatures.ICreatureCatalog _creatures;
     private readonly ILogger _logger = Log.ForContext<TitleService>();
 
     public TitleService(DbContextOptions<TelecasterContext> options, CharacterGate gate, TitleCatalog catalog,
-        IStatService stats)
-    { _options = options; _gate = gate; _catalog = catalog; _stats = stats; }
+        IStatService stats, Creatures.ICreatureCatalog creatures = null)
+    { _options = options; _gate = gate; _catalog = catalog; _stats = stats; _creatures = creatures; }
+
+    public Task RecordAsync(GameClient client, Func<TitleConditionType, long?> increment) => UpdateAsync(client, counts =>
+    {
+        foreach (var type in _catalog.Types.Values)
+            if (increment(type) is { } count)
+                counts[type.Id] = type.Set ? count : CombatRewards.AddProgress(counts.GetValueOrDefault(type.Id), count);
+    });
+
+    /// <summary>The session's creature cards as the summon conditions read them (formation, mount, cards held).</summary>
+    private IReadOnlyCollection<TitleEvents.Card> CardsOf(ConnectionInfo info)
+    {
+        lock (info.SummonLock)
+        {
+            if (info.CreatureCards.Count == 0) return Array.Empty<TitleEvents.Card>();
+            var formed = info.SummonSlots.Where(slot => slot != 0).ToHashSet();
+            return info.CreatureCards.Values.Select(card => new TitleEvents.Card(card.SummonCode,
+                _creatures is not null && _creatures.TryGetSummon(card.SummonCode, out var summon) ? summon.Rate : 0,
+                card.Enhance, Creatures.CreatureRules.IsBound(card.Flag), formed.Contains(card.ItemId),
+                info.RideHandle != 0 && card.SummonHandle == info.RideHandle)).ToArray();
+        }
+    }
 
     public Task RefreshAsync(GameClient client) => UpdateAsync(client, null);
 
@@ -73,6 +116,7 @@ public sealed class TitleService : ITitleService
                 var owned = state.OwnedTitleIds.ToHashSet();
                 var started = (await db.CharacterQuests.IgnoreQueryFilters().Where(q => q.CharacterId == character.Id)
                     .Select(q => q.Code).ToArrayAsync()).ToHashSet();
+                var cards = CardsOf(client.ConnectionInfo);
                 var ended = (await db.CharacterQuestCompletions.Where(q => q.CharacterId == character.Id)
                     .Select(q => q.Code).ToArrayAsync()).ToHashSet();
                 foreach (var type in _catalog.Types.Values)
@@ -86,7 +130,7 @@ public sealed class TitleService : ITitleService
                         6001 => client.ConnectionInfo.PkMode ? 1 : 0,
                         6101 => client.ConnectionInfo.ImmoralPoint >= type.Values[0]
                             && client.ConnectionInfo.ImmoralPoint <= type.Values[1] ? 1 : 0,
-                        _ => null
+                        _ => TitleEvents.FromCards(type, cards)
                     };
                     if (value.HasValue) counters[type.Id] = value.Value;
                 }
@@ -114,8 +158,12 @@ public sealed class TitleService : ITitleService
                 if (character.MainTitleId != 0 && !_catalog.IsAvailable(character.MainTitleId, DateTime.UtcNow))
                     character.MainTitleId = 0;
                 if (character.MainTitleId == 0 && acquired.Count > 0) character.MainTitleId = acquired[0];
+                var subs = SubTitlesOf(character);
+                for (var slot = 0; slot < subs.Length; slot++)
+                    if (subs[slot] != 0 && !_catalog.IsAvailable(subs[slot], DateTime.UtcNow)) subs[slot] = 0;
+                character.SubTitleIds = subs;
                 await db.SaveChangesAsync();
-                ApplySelection(client, character.MainTitleId);
+                ApplySelection(client, character.MainTitleId, subs);
                 foreach (var id in acquired) client.Connection.Send(GameChatPackets.BuildChat("@SYSTEM", 2,
                     $"Title acquired: {id}. /titles, /title <id>"));
                 return true;
@@ -132,31 +180,83 @@ public sealed class TitleService : ITitleService
         return state?.OwnedTitleIds ?? Array.Empty<int>();
     }
 
-    public async Task<bool> SelectAsync(GameClient client, int titleId)
+    public async Task<bool> SelectAsync(GameClient client, int titleId) =>
+        await ChooseMainAsync(client, titleId) == TitleChoice.Done;
+
+    public async Task<TitleChoice> ChooseMainAsync(GameClient client, int titleId)
     {
-        if (titleId < 0) return false;
+        if (titleId < 0) return TitleChoice.NotOwned;
+        var info = client.ConnectionInfo;
+        // SetMainTitle: 5 minutes between two changes of a worn main title, its removal included.
+        var now = ServerClock.Now;
+        if (info.MainTitleId != 0 && info.MainTitleLockedUntil != 0 && unchecked((int)(now - info.MainTitleLockedUntil)) < 0)
+            return TitleChoice.CoolingDown;
         await RefreshAsync(client);
-        return await _gate.RunAsync(client.ConnectionInfo.CharacterName, async () =>
+        return await ChooseAsync(client, titleId, (character, subs) =>
         {
-            await using var db = new TelecasterContext(_options);
-            var character = await db.Characters.SingleOrDefaultAsync(c => c.CharacterName == client.ConnectionInfo.CharacterName);
-            if (character is null) return false;
-            var state = await db.CharacterTitleStates.SingleOrDefaultAsync(s => s.CharacterId == character.Id);
-            if (titleId != 0 && (state?.OwnedTitleIds.Contains(titleId) != true || !_catalog.IsAvailable(titleId, DateTime.UtcNow)))
-                return false;
+            // IsUsableTitle: a title worn already, as main or secondary, is not chosen again.
+            if (titleId != 0 && (character.MainTitleId == titleId || subs.Contains(titleId))) return TitleChoice.InUse;
             character.MainTitleId = titleId;
-            await db.SaveChangesAsync();
-            ApplySelection(client, titleId);
-            return true;
+            if (titleId != 0) info.MainTitleLockedUntil = Deadline(now);
+            return TitleChoice.Done;
         });
     }
 
-    private void ApplySelection(GameClient client, int id)
+    public async Task<TitleChoice> ChooseSubAsync(GameClient client, int slot, int titleId)
+    {
+        if (slot < 0 || slot >= TitleCatalog.SubTitleCount) return TitleChoice.InvalidSlot;
+        if (titleId < 0) return TitleChoice.NotOwned;
+        // SetSubTitle: rate 5 at most.
+        if (titleId != 0 && _catalog.RateOf(titleId) > TitleCatalog.SubTitleRateLimit) return TitleChoice.RateTooHigh;
+        await RefreshAsync(client);
+        return await ChooseAsync(client, titleId, (character, subs) =>
+        {
+            if (titleId != 0 && (character.MainTitleId == titleId || subs.Contains(titleId))) return TitleChoice.InUse;
+            subs[slot] = titleId;
+            return TitleChoice.Done;
+        });
+    }
+
+    private Task<TitleChoice> ChooseAsync(GameClient client, int titleId, Func<CharacterEntity, int[], TitleChoice> choose)
+    {
+        return _gate.RunAsync(client.ConnectionInfo.CharacterName, async () =>
+        {
+            await using var db = new TelecasterContext(_options);
+            var character = await db.Characters.SingleOrDefaultAsync(c => c.CharacterName == client.ConnectionInfo.CharacterName);
+            if (character is null) return TitleChoice.Failed;
+            var state = await db.CharacterTitleStates.SingleOrDefaultAsync(s => s.CharacterId == character.Id);
+            if (titleId != 0 && (state?.OwnedTitleIds.Contains(titleId) != true || !_catalog.IsAvailable(titleId, DateTime.UtcNow)))
+                return TitleChoice.NotOwned;
+            var subs = SubTitlesOf(character);
+            var choice = choose(character, subs);
+            if (choice != TitleChoice.Done) return choice;
+            character.SubTitleIds = subs;
+            await db.SaveChangesAsync();
+            ApplySelection(client, character.MainTitleId, subs);
+            return TitleChoice.Done;
+        });
+    }
+
+    private static int[] SubTitlesOf(CharacterEntity character)
+    {
+        var subs = new int[TitleCatalog.SubTitleCount];
+        if (character.SubTitleIds is { } stored) Array.Copy(stored, subs, Math.Min(stored.Length, subs.Length));
+        return subs;
+    }
+
+    private static uint Deadline(uint now)
+    {
+        var at = unchecked(now + TitleCatalog.MainTitleCoolTicks);
+        return at == 0 ? 1 : at;
+    }
+
+    private void ApplySelection(GameClient client, int id, int[] subs)
     {
         var info = client.ConnectionInfo;
-        if (info.MainTitleId == id) return;
+        if (info.MainTitleId == id && info.SubTitleIds.AsSpan().SequenceEqual(subs)) return;
         info.MainTitleId = id;
-        info.TitleEffects = _catalog.GetEffects(id);
+        info.SubTitleIds = subs.ToArray();
+        info.TitleEffects = _catalog.GetEffects(id, info.SubTitleIds);
         var result = _stats.Compute(info);
         client.Connection.Send(GameStatPackets.BuildStatInfo(info.CharacterHandle, result.Total,
             StatInfoType.Total));

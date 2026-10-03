@@ -104,9 +104,9 @@ public class GmCommandCatalogTests
     public void UnprivilegedCommands_AreTheNgemityPlayerOnes()
     {
         GmCommandCatalog.All.Where(definition => !definition.Privileged).Select(definition => definition.Name)
-            .Should().BeEquivalentTo(new[] { "help", "titles", "title", "position", "sitdown", "standup", "battle", "walk", "rates",
+            .Should().BeEquivalentTo(new[] { "help", "titles", "title", "subtitle", "position", "sitdown", "standup", "battle", "walk", "rates",
                     "ride", "unride" },
-                "title selection is available to every player, alongside the existing player commands, and riding is a "
+                "title selection, main and secondary, is available to every player, alongside the existing player commands, and riding is a "
                 + "player command of the official table (GameMessage.cpp NORMAL2 \"ride\"/\"unride\")");
     }
 

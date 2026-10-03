@@ -170,7 +170,7 @@ public class CraftingEngineTests
         plan.ResultHandles.Should().Equal(Target);
     }
 
-    [TestCase(601)]
+    [TestCase(602)]
     [TestCase(202)]
     public void AnotherType_IsRefusedAsBefore(int mixType)
     {

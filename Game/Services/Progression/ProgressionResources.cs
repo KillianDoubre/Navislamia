@@ -6,8 +6,8 @@ using System.Text.Json;
 namespace Navislamia.Game.Services.Progression;
 
 public sealed record TitleResource(int Id, int NameId, short[] Types, decimal[] Var1, decimal[] Var2,
-    bool Periodic, string Begin, string End);
-public sealed record TitleConditionType(int Id, int Category, int[] Values, bool Set);
+    bool Periodic, string Begin, string End, int Rate = 0);
+public sealed record TitleConditionType(int Id, int Category, int[] Values, bool Set, bool SkipDbUpdate = false);
 public sealed record TitleCondition(int TitleId, int Group, int TypeId, long Count, bool Achieve);
 public sealed record DungeonCell(int Id, int X, int Y);
 

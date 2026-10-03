@@ -26,9 +26,13 @@ public class ItemUseService : IItemUseService
     private readonly ISkillCastService _states;
     private readonly IStatService _stats;
 
+    private readonly Progression.ITitleService _titles;
+
     public ItemUseService(ICharacterService characterService, IItemUseCatalog catalog,
-        IPetSummonService petSummon, ISkillCastService states, IStatService stats)
+        IPetSummonService petSummon, ISkillCastService states, IStatService stats,
+        Progression.ITitleService titles = null)
     {
+        _titles = titles;
         _characterService = characterService;
         _catalog = catalog;
         _petSummon = petSummon;
@@ -174,6 +178,8 @@ public class ItemUseService : IItemUseService
         }
         _logger.Debug("{clientTag} used item {resourceId} (handle {itemHandle}, target {targetHandle})",
             client.ClientTag, item.ItemResourceId, request.ItemHandle, request.TargetHandle);
+        // UpdateTitleConditionByItemUse (StructPlayer::UseItem).
+        _ = _titles?.RecordAsync(client, Progression.TitleEvents.ItemUsed((int)item.ItemResourceId));
 
         // A cage is a reusable item (type Use): the use is acknowledged like any other, then the pet comes
         // out, goes away or is swapped. The pet frames follow the acknowledgement.

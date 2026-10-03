@@ -17,6 +17,12 @@ public class ConnectionInfo
     public IReadOnlyList<StatEffect> BuffEffects { get; set; } = Array.Empty<StatEffect>();
     public int MainTitleId { get; set; }
     public IReadOnlyList<StatEffect> TitleEffects { get; set; } = Array.Empty<StatEffect>();
+
+    /// <summary>The five secondary titles (<c>m_pSubTitle</c>), 0 for an empty slot.</summary>
+    public int[] SubTitleIds { get; set; } = new int[Navislamia.Game.Services.Progression.TitleCatalog.SubTitleCount];
+
+    /// <summary>The tick before which the main title may not change again (<c>m_tRemainTitleTime</c>). Session only.</summary>
+    public uint MainTitleLockedUntil { get; set; }
     public ItemType? EquippedWeapon { get; set; }
 
     /// <summary>
@@ -682,6 +688,8 @@ public class ConnectionInfo
         BuffEffects = Array.Empty<StatEffect>();
         MainTitleId = 0;
         TitleEffects = Array.Empty<StatEffect>();
+        SubTitleIds = new int[Navislamia.Game.Services.Progression.TitleCatalog.SubTitleCount];
+        MainTitleLockedUntil = 0;
         EquippedWeapon = null;
         LeftHand = null;
         RightWeaponEffects = Array.Empty<Navislamia.Game.Services.Stats.StatEffect>();

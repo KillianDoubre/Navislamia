@@ -28,6 +28,9 @@ public readonly record struct CraftTargetChange(
     public long MinimumAmount { get; init; } = 1;
 }
 
+/// <summary>An item a craft creates (<c>MIX_CREATE_ITEM</c>): its code, how many, and the level it is made at.</summary>
+public readonly record struct CraftCreation(int ItemCode, long Count, int Level);
+
 /// <summary>
 /// A decided craft: the stacks to consume, what happens to the target, and the handles
 /// <c>TM_SC_MIX_RESULT</c> (257) reports — the target on success, none on failure (NGemity
@@ -40,6 +43,9 @@ public sealed record CraftPlan(
     CraftTargetChange? Change,
     IReadOnlyList<uint> ResultHandles)
 {
+    /// <summary>The items <c>MIX_CREATE_ITEM</c> makes, one entry per code (an empty list is a failed draw).</summary>
+    public IReadOnlyList<CraftCreation> Created { get; init; } = Array.Empty<CraftCreation>();
+
     public static CraftPlan Refused(ResultCode code) =>
         new(code, Array.Empty<CraftConsumption>(), null, Array.Empty<uint>());
 }
@@ -62,6 +68,7 @@ public sealed record CraftPlan(
 /// bit <c>mix_value_01</c> is cleared — 3, <c>FAILED</c>, the bit every rule requires on: the repair.</description></item>
 /// </list>
 /// Type 102 follows retail EnhanceSkillCard: two equal skill cards and a cube produce a separate card.
+/// Type 601 follows retail CreateItem (<see cref="PlanCreate"/>).
 /// Every other type answers <see cref="ResultCode.InvalidArgument"/>.
 /// </summary>
 public static class CraftingEngine
@@ -71,6 +78,10 @@ public static class CraftingEngine
     public const int MixEnhanceWithoutFail = 103;
     public const int MixAddLevelSetFlag = 311;
     public const int MixRestoreEnhanceSetFlag = 501;
+    public const int MixCreateItem = 601;
+
+    /// <summary>A drop group nests at most this deep before its draw is given up (the monster drops' bound).</summary>
+    private const int MaxGroupDepth = 16;
 
     /// <summary>The card flag, bit 0 of the stored bitset (NGemity <c>ITEM_FLAG_CARD</c>, tested as <c>flag % 2</c>).</summary>
     public const int CardFlagMask = 1;
@@ -87,11 +98,14 @@ public static class CraftingEngine
     /// otherwise), <paramref name="roll"/> returns an integer in <c>[min, max]</c> inclusive.
     /// </summary>
     public static CraftPlan Plan(MixResolution resolution, MixMaterial? target, EnhanceResourceEntity enhance,
-        Func<int, int, int> roll)
+        Func<int, int, int> roll, Func<int, (int ItemId, long Count)?> pickFromGroup = null)
     {
         var rule = resolution.Rule;
         switch (rule.MixType)
         {
+            case MixCreateItem:
+                return PlanCreate(resolution, target, roll, pickFromGroup);
+
             case MixEnhanceSkillCard:
                 return PlanSkillCard(resolution, target, enhance, roll);
 
@@ -124,6 +138,80 @@ public static class CraftingEngine
             default:
                 return CraftPlan.Refused(ResultCode.InvalidArgument);
         }
+    }
+
+    /// <summary>
+    /// <c>MixManager::CreateItem</c> for <c>MIX_CREATE_ITEM</c> (601): the main material goes whole, every sub
+    /// material at its count; then <c>mix_value_03</c>% of the time a count is drawn in
+    /// <c>[mix_value_04, mix_value_05]</c> and <c>mix_value_01</c> is made — that many of an item, or that many
+    /// draws of a drop group when the id is negative (<c>SelectItemIDFromDropGroup</c>, each draw with its own
+    /// member count) — at level <c>mix_value_02</c>. A failed draw still consumes everything.
+    /// </summary>
+    private static CraftPlan PlanCreate(MixResolution resolution, MixMaterial? target, Func<int, int, int> roll,
+        Func<int, (int ItemId, long Count)?> pickFromGroup)
+    {
+        var rule = resolution.Rule;
+        var consumed = new List<CraftConsumption>();
+        if (target is { } main)
+        {
+            var whole = main.AvailableCount ?? main.Count;
+            if (main.Handle == 0 || whole <= 0)
+            {
+                return CraftPlan.Refused(ResultCode.InvalidArgument);
+            }
+
+            consumed.Add(new CraftConsumption(main.Handle, whole) { ExpectedMaterial = main });
+        }
+
+        for (var group = 0; group < resolution.Arranged.Count; group++)
+        {
+            var material = resolution.Arranged[group];
+            if (material.Handle == 0 || resolution.ConsumedCounts[group] <= 0)
+            {
+                return CraftPlan.Refused(ResultCode.InvalidArgument);
+            }
+
+            consumed.Add(new CraftConsumption(material.Handle, resolution.ConsumedCounts[group]) { ExpectedMaterial = material });
+        }
+
+        var created = new List<CraftCreation>();
+        if (rule.MixValue03 > roll(0, 99))
+        {
+            var count = roll(Math.Min(rule.MixValue04, rule.MixValue05), Math.Max(rule.MixValue04, rule.MixValue05));
+            var draws = rule.MixValue01 >= 0 ? 1 : count;
+            for (var draw = 0; draw < draws; draw++)
+            {
+                var itemId = rule.MixValue01;
+                long itemCount = count;
+                for (var depth = 0; itemId < 0 && depth < MaxGroupDepth; depth++)
+                {
+                    if (pickFromGroup?.Invoke(itemId) is not { } picked)
+                    {
+                        itemId = 0;
+                        break;
+                    }
+
+                    (itemId, itemCount) = picked;
+                }
+
+                if (itemId <= 0 || itemCount <= 0)
+                {
+                    continue;
+                }
+
+                var index = created.FindIndex(entry => entry.ItemCode == itemId);
+                if (index >= 0)
+                {
+                    created[index] = created[index] with { Count = created[index].Count + itemCount };
+                }
+                else
+                {
+                    created.Add(new CraftCreation(itemId, itemCount, Math.Max(0, rule.MixValue02)));
+                }
+            }
+        }
+
+        return new CraftPlan(ResultCode.Success, consumed, null, Array.Empty<uint>()) { Created = created };
     }
 
     private static CraftPlan PlanSkillCard(MixResolution resolution, MixMaterial? target,

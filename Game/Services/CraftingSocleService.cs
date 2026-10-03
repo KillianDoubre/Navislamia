@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
@@ -29,11 +30,16 @@ public class CraftingSocleService : ICraftingSocleService
     private readonly IEnhanceResourceCatalog _enhanceCatalog;
     private readonly IEtherealSacrificeCatalog _etherealSacrifices;
     private readonly int _localFlag;
+    private readonly IMonsterDropCatalog _drops;
+    private readonly Progression.ITitleService _titles;
 
     public CraftingSocleService(ICharacterService characterService, IMixResourceCatalog mixCatalog,
         IItemMatchCatalog itemCatalog, IEnhanceResourceCatalog enhanceCatalog = null,
-        IOptions<CraftingOptions> craftingOptions = null, IEtherealSacrificeCatalog etherealSacrifices = null)
+        IOptions<CraftingOptions> craftingOptions = null, IEtherealSacrificeCatalog etherealSacrifices = null,
+        IMonsterDropCatalog drops = null, Progression.ITitleService titles = null)
     {
+        _drops = drops;
+        _titles = titles;
         _characterService = characterService;
         _mixCatalog = mixCatalog;
         _itemCatalog = itemCatalog;
@@ -204,7 +210,7 @@ public class CraftingSocleService : ICraftingSocleService
             _enhanceCatalog?.TryGetForServer(resolution.Rule.MixValue01, _localFlag, out enhance);
         }
 
-        var plan = CraftingEngine.Plan(resolution, target, enhance, Roll);
+        var plan = CraftingEngine.Plan(resolution, target, enhance, Roll, PickFromGroup);
         if (plan.Refusal != ResultCode.Success)
         {
             _logger.Warning(
@@ -217,8 +223,11 @@ public class CraftingSocleService : ICraftingSocleService
         CraftCommitResult commit;
         try
         {
-            commit = await _characterService.ApplyCraftAsync(client.ConnectionInfo.CharacterName, plan.Consumed,
-                plan.Change);
+            commit = resolution.Rule.MixType == CraftingEngine.MixCreateItem
+                ? await _characterService.ApplyCraftWithCreationAsync(client.ConnectionInfo.CharacterName,
+                    plan.Consumed, plan.Created)
+                : await _characterService.ApplyCraftAsync(client.ConnectionInfo.CharacterName, plan.Consumed,
+                    plan.Change);
         }
         catch (Exception exception)
         {
@@ -258,11 +267,57 @@ public class CraftingSocleService : ICraftingSocleService
             }
         }
 
-        var resultHandles = plan.Change is { SplitOne: true } && plan.ResultHandles.Count > 0
-            ? new[] { (uint)commit.Target.Id } : plan.ResultHandles;
+        if (commit.Created.Count > 0)
+        {
+            foreach (var frame in GameCharacterPackets.BuildInventory(commit.Created.ToArray()))
+            {
+                client.Connection.Send(frame);
+            }
+        }
+
+        // CreateItem reports one handle, the last item made, or none when the draw failed.
+        var resultHandles = commit.Created.Count > 0 ? new[] { (uint)commit.Created[^1].Id }
+            : plan.Change is { SplitOne: true } && plan.ResultHandles.Count > 0
+                ? new[] { (uint)commit.Target.Id } : plan.ResultHandles;
         client.Connection.Send(GameCraftingPackets.BuildMixResult(resultHandles));
         _logger.Information("Mix rule {ruleId} (type {mixType}) for {clientTag}: {outcome}", resolution.Rule.Id,
-            resolution.Rule.MixType, client.ClientTag, plan.ResultHandles.Count > 0 ? "success" : "failure");
+            resolution.Rule.MixType, client.ClientTag, resultHandles.Count > 0 ? "success" : "failure");
+
+        // UpdateTitleConditionByItemCreateByMixing: what the mix made counts for the titles.
+        if (commit.Created.Count > 0 && _titles is not null)
+        {
+            _ = _titles.RecordAsync(client, Progression.TitleEvents.ItemsMixed(
+                commit.Created.Select(item => ((int)item.ItemResourceId, item.Amount)).ToArray()));
+        }
+    }
+
+    /// <summary><c>GameContent::SelectItemIDFromDropGroup</c>: one member by weight, with its own drawn count.</summary>
+    private (int ItemId, long Count)? PickFromGroup(int groupId)
+    {
+        if (_drops?.Groups is not { } groups || !groups.TryGetValue(groupId, out var members) || members.Length == 0)
+        {
+            return null;
+        }
+
+        var total = members.Sum(member => member.Weight);
+        if (total <= 0)
+        {
+            return null;
+        }
+
+        var key = Roll(1, 100_000_000) / 100_000_000.0 * total;
+        var cumulated = 0.0;
+        foreach (var member in members)
+        {
+            cumulated += member.Weight;
+            if (key <= cumulated)
+            {
+                return member.ItemId == 0 ? null
+                    : (member.ItemId, Roll(Math.Min(member.MinCount, member.MaxCount), Math.Max(member.MinCount, member.MaxCount)));
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

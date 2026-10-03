@@ -27,6 +27,9 @@ public sealed record CraftCommitResult(
     IReadOnlyList<(uint Handle, long Remaining)> Consumed,
     ItemEntity Target)
 {
+    /// <summary>The rows a <c>MIX_CREATE_ITEM</c> added to the bag.</summary>
+    public IReadOnlyList<ItemEntity> Created { get; init; } = Array.Empty<ItemEntity>();
+
     public static CraftCommitResult Failed(CraftCommitOutcome outcome) =>
         new(outcome, Array.Empty<(uint, long)>(), null);
 }

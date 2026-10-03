@@ -655,8 +655,15 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task<CraftCommitResult> ApplyCraftWithCreationAsync(string characterName,
+        IReadOnlyList<CraftConsumption> consumed, IReadOnlyList<CraftCreation> created) =>
+        ApplyCraftAsync(characterName, consumed, null, created);
+
     public Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
-        CraftTargetChange? change)
+        CraftTargetChange? change) => ApplyCraftAsync(characterName, consumed, change, null);
+
+    private Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
+        CraftTargetChange? change, IReadOnlyList<CraftCreation> created)
     {
         return RunInventoryAsync(characterName, async repository =>
         {
@@ -748,9 +755,29 @@ public class CharacterService : ICharacterService
                 }
             }
 
+            // MIX_CREATE_ITEM: every made item is a new row of the bag, like any item the server adds.
+            var made = new List<ItemEntity>();
+            foreach (var creation in created ?? Array.Empty<CraftCreation>())
+            {
+                var item = new ItemEntity
+                {
+                    Character = character,
+                    CharacterId = character.Id,
+                    ItemResourceId = creation.ItemCode,
+                    Amount = creation.Count,
+                    Level = (uint)Math.Max(0, creation.Level),
+                    GenerateBySource = ItemGenerateSource.Mix,
+                    WearInfo = ItemWearType.None,
+                    Idx = character.Items.Count == 0
+                        ? InventoryArrange.FirstIndex : character.Items.Max(entry => entry.Idx) + 1
+                };
+                character.Items.Add(item);
+                made.Add(item);
+            }
+
             InventoryArrange.EnsureContiguousIndices(character.Items.ToArray());
             await repository.SaveChangesAsync();
-            return new CraftCommitResult(CraftCommitOutcome.Success, remaining, target);
+            return new CraftCommitResult(CraftCommitOutcome.Success, remaining, target) { Created = made };
         });
     }
 

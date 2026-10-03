@@ -129,12 +129,16 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private readonly Dictionary<uint, (GameClient Master, uint Since)> _deadSince = new();
     private readonly CancellationTokenSource _stop = new();
 
+    private readonly Progression.ITitleService _titles;
+
     public CreatureService(ICreatureCatalog catalog, ICharacterService characters, MonsterWorldState world,
         ICombatService combat, SummonWorldService summons, IPlayerVisibilityService players = null,
         IPartyService parties = null, IBuffCatalog skills = null, CreatureEvents events = null,
         ICombatRandom random = null, bool runTicks = true, SkillCatalog skillTrees = null,
-        ISkillPassiveCatalog passives = null, Rates.IRateService rates = null, IPkFieldService pkFields = null)
+        ISkillPassiveCatalog passives = null, Rates.IRateService rates = null, IPkFieldService pkFields = null,
+        Progression.ITitleService titles = null)
     {
+        _titles = titles;
         _pkFields = pkFields;
         _skillTrees = skillTrees;
         _passives = passives;
@@ -248,6 +252,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         {
             EnterWorld(client, main, SummonWorldService.LoginNoiseRange);
         }
+
+        // DB_Login: the formation and the cards held count for the titles once they are loaded.
+        _ = _titles?.RefreshAsync(client);
     }
 
     public void OnWorldExit(GameClient client)
@@ -1074,6 +1081,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         var frame = GameSummonPackets.BuildMountSummon(info.CharacterHandle, summonHandle, x, y, true);
         client.Connection.Send(frame);
         _players?.SendToObservers(client, frame);
+        // UpdateTitleConditionBySummonMount.
+        _ = _titles?.RefreshAsync(client);
         return true;
     }
 
@@ -1094,6 +1103,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         var frame = GameSummonPackets.BuildUnmountSummon(info.CharacterHandle, summonHandle, flag);
         client.Connection.Send(frame);
         _players?.SendToObservers(client, frame);
+        _ = _titles?.RefreshAsync(client);
         if (flag == UnmountFall && info.CharacterHp > 0)
         {
             _combat.DamagePlayer(client, (int)(Math.Max(0, info.CharacterMaxHp) * UnmountPenalty));
@@ -1465,6 +1475,13 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
             Broadcast(tamer, instanceId, monster.MonsterId,
                 success ? GameSummonPackets.TamingModeSuccess : GameSummonPackets.TamingModeFailed);
+
+            // UpdateTitleConditionBySummonTame, after the draw; the new card counts for the card conditions too.
+            if (monster.TamingId != 0 && _titles is not null)
+            {
+                var rate = _catalog.TryGetSummon(monster.TamingId, out var tamed) ? tamed.Rate : 0;
+                _ = _titles.RecordAsync(tamer, Progression.TitleEvents.SummonTame(monster.TamingId, rate, success));
+            }
         }
         catch (Exception exception)
         {
@@ -1606,6 +1623,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
         await _characters.SaveCreatureFormationAsync(info.CharacterName, resolved, MainSummonId(info));
         client.Connection.Send(GameCharacterPackets.BuildEquipSummon(resolved, openDialog));
+
+        // UpdateTitleConditionBySummonEquip: the formation conditions follow the new formation.
+        _ = _titles?.RefreshAsync(client);
     }
 
     private bool CanBind(ConnectionInfo info, long cardId)

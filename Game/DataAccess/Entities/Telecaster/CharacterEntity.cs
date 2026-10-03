@@ -84,6 +84,8 @@ public class CharacterEntity : Entity
 	public DateTime? GuildBlockTime { get; set; }
 	public bool PkMode { get; set; }
     public int MainTitleId { get; set; }
+    /// <summary>The five secondary titles, 0 for an empty slot.</summary>
+    public int[] SubTitleIds { get; set; } = System.Array.Empty<int>();
 	public int OtpValue { get; set; } // otp = one time password
 	public DateTime? OtpVerifiedAt { get; set; }
 	public string[] FlagList { get; set; } // Lua stuff e.g.ry:49481...

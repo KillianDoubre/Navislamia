@@ -34,7 +34,7 @@ public class StatService : IStatService
             character.Lv,
             ResolveItemEffects(character),
             ResolvePassiveEffects(character, ResolveEquippedWeapon(character)),
-            TitleEffects: _titles.GetEffects(character.MainTitleId)));
+            TitleEffects: _titles.GetEffects(character.MainTitleId, character.SubTitleIds)));
     }
 
     public CharacterStatResult Compute(ConnectionInfo info)
@@ -46,7 +46,7 @@ public class StatService : IStatService
             info.ItemEffects,
             info.PassiveEffects,
             info.BuffEffects,
-            _titles.GetEffects(info.MainTitleId)));
+            _titles.GetEffects(info.MainTitleId, info.SubTitleIds)));
 
         // applyItemEffect: the worn weapon's range sets the attack range (50 bare-handed, the calculator's default).
         if (info.WeaponAttackRange > 0f && result.Total is not null)
@@ -80,10 +80,22 @@ public class StatService : IStatService
         info.EquippedWeapon = ResolveEquippedWeapon(character);
         info.ItemEffects = ResolveItemEffects(character);
         info.MainTitleId = character.MainTitleId;
-        info.TitleEffects = _titles.GetEffects(character.MainTitleId);
+        info.SubTitleIds = SubTitlesOf(character);
+        info.TitleEffects = _titles.GetEffects(character.MainTitleId, info.SubTitleIds);
         SeedHands(info, character);
         info.PassiveEffects = ResolvePassiveEffects(character, info.EquippedWeapon);
         RefreshBuffs(info);
+    }
+
+    private static int[] SubTitlesOf(CharacterEntity character)
+    {
+        var subs = new int[Progression.TitleCatalog.SubTitleCount];
+        if (character.SubTitleIds is { } stored)
+        {
+            Array.Copy(stored, subs, Math.Min(stored.Length, subs.Length));
+        }
+
+        return subs;
     }
 
     public void RefreshPassives(ConnectionInfo info)

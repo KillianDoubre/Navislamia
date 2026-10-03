@@ -150,6 +150,13 @@ public interface ICharacterService
     /// taken, and the target — still in the state the craft was decided on — gets its new enhance and flag
     /// or is destroyed. Nothing applies unless everything does.
     /// </summary>
+    /// <summary>
+    /// <see cref="ApplyCraftAsync(string, IReadOnlyList{CraftConsumption}, CraftTargetChange?)"/> that also adds the
+    /// items a <c>MIX_CREATE_ITEM</c> makes, in the same save.
+    /// </summary>
+    Task<CraftCommitResult> ApplyCraftWithCreationAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
+        IReadOnlyList<CraftCreation> created) => ApplyCraftAsync(characterName, consumed, null);
+
     Task<CraftCommitResult> ApplyCraftAsync(string characterName, IReadOnlyList<CraftConsumption> consumed,
         CraftTargetChange? change);
 

@@ -11,14 +11,15 @@ def main():
         with (ROOT / 'data/sqlserver/Arcadia' / f'{name}.csv').open(encoding='utf-8-sig') as stream:
             return list(csv.DictReader(stream))
     document = {
-        'Titles': [{'Id': int(r['id']), 'NameId': int(r['name_id']),
+        'Titles': [{'Id': int(r['id']), 'NameId': int(r['name_id']), 'Rate': int(r['rate']),
                     'Types': [int(r[f'opt_type_{i}']) for i in range(8)],
                     'Var1': [float(r[f'opt_var1_{i}']) for i in range(8)],
                     'Var2': [float(r[f'opt_var2_{i}']) for i in range(8)],
                     'Periodic': r['is_periodic'] == '1', 'Begin': r['begin_of_period'], 'End': r['end_of_period']}
                    for r in rows('TitleResource')],
         'ConditionTypes': [{'Id': int(r['id']), 'Category': int(r['category']),
-                            'Values': [int(r[f'value{i}']) for i in range(3)], 'Set': r['is_set'] == '1'}
+                            'Values': [int(r[f'value{i}']) for i in range(3)], 'Set': r['is_set'] == '1',
+                            'SkipDbUpdate': r['skip_db_update'] == '1'}
                            for r in rows('TitleConditionTypeResource')],
         'Conditions': [{'TitleId': int(r['title_id']), 'Group': int(r['group_id']),
                         'TypeId': int(r['condition_type_id']), 'Count': int(r['count']),
