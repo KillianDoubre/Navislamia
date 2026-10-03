@@ -12,6 +12,10 @@ public sealed record SummonPresence(uint Handle, SummonWorldEntry Entry, float X
     public ushort NextStateHandle { get; set; }
     public int Hp { get; set; } = Entry.Hp;
     public int Mp { get; set; } = Entry.Mp;
+    public bool Held { get; set; }
+    public Dictionary<int, int> ActiveAuras { get; } = new();
+    public System.Func<uint, (float X, float Y)> PositionProvider { get; set; }
+    public (float X, float Y) PositionAt(uint tick) => PositionProvider?.Invoke(tick) ?? (X, Y);
     public Stats.StatBlock Stats { get; set; } = Entry.BaseStats?.Copy()
         ?? new Stats.StatBlock { MaxHp = Entry.MaxHp, MaxMp = Entry.MaxMp };
 }
@@ -45,7 +49,7 @@ public static class CompanionFrames
 
         foreach (var summon in master.Summons)
         {
-            frames.Add(SummonEnter(master.CharacterHandle, summon, false));
+            frames.Add(SummonEnter(master.CharacterHandle, summon, false, now));
         }
 
         return frames;
@@ -105,10 +109,11 @@ public static class CompanionFrames
         return frames;
     }
 
-    public static byte[] SummonEnter(uint masterHandle, SummonPresence summon, bool isFirstEnter)
+    public static byte[] SummonEnter(uint masterHandle, SummonPresence summon, bool isFirstEnter, uint? now = null)
     {
         var entry = summon.Entry;
-        return GameSpawnPackets.BuildEnterSummon(summon.Handle, summon.X, summon.Y, entry.Z, summon.Layer,
+        var position = summon.PositionAt(now ?? ServerClock.Now);
+        return GameSpawnPackets.BuildEnterSummon(summon.Handle, position.X, position.Y, entry.Z, summon.Layer,
             summon.Hp, (int)summon.Stats.MaxHp, summon.Mp, (int)summon.Stats.MaxMp, entry.Level, entry.FaceDirection, isFirstEnter,
             masterHandle, (uint)entry.Code, entry.Name, entry.Enhance);
     }
@@ -116,6 +121,9 @@ public static class CompanionFrames
     public static List<byte[]> SummonStates(SummonPresence summon)
     {
         var frames = new List<byte[]>();
+        lock (summon.BuffLock)
+            foreach (var skill in summon.ActiveAuras.Values)
+                frames.Add(GameSkillPackets.BuildAura(summon.Handle, (ushort)skill, true));
         lock (summon.BuffLock)
             foreach (var state in summon.ActiveBuffs)
                 frames.Add(GameSkillPackets.BuildState(summon.Handle, state.StateHandle, (uint)state.StateId,

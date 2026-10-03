@@ -9,7 +9,11 @@ public interface ICombatService
     void OnPkEnabled(GameClient client) { }
     HitResult RollPlayerHit(GameClient attacker, GameClient target, float damage, DamageKind kind,
         int accuracy, int critical, int element = 0);
+    HitResult RollSummonHitOnPlayer(GameClient master, GameClient target, Stats.StatBlock stats, int level,
+        float damage, DamageKind kind, int accuracy, int critical, int element = 0) => new(0, HitFlags.Miss);
     int DamagePlayerByPlayer(GameClient attacker, GameClient target, int damage, bool magical = false);
+    int DamagePlayerBySummon(GameClient master, GameClient target, uint summonHandle, int damage, bool magical = false) =>
+        DamagePlayerByPlayer(master, target, damage, magical);
     void StartAttack(GameClient client, uint targetHandle);
     void StopAttack(GameClient client);
 

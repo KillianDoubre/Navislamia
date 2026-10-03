@@ -74,7 +74,9 @@ public class BuffCatalog : IBuffCatalog
         (int)SkillTarget.Summon,
         (int)SkillTarget.PartySummon,
         (int)SkillTarget.SelfWithSummon,
-        (int)SkillTarget.PartyWithSummon
+        (int)SkillTarget.PartyWithSummon,
+        (int)SkillTarget.Master,
+        (int)SkillTarget.SelfWithMaster
     };
 
     private readonly ILogger _logger = Log.ForContext<BuffCatalog>();

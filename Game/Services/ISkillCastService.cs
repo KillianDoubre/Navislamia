@@ -41,6 +41,9 @@ public interface ISkillCastService
     /// to the caster and the players who see them. False when there is none or it cannot be.
     /// </summary>
     bool CancelCast(GameClient client) => false;
+    bool CancelSummonCast(GameClient client, uint handle, bool force = false) => false;
+    void ForgetSummonCaster(GameClient client, uint handle) { }
+    void OnSummonCasterDamaged(GameClient client, uint handle, int damage) { }
 
     /// <summary>A hit taken while casting pushes the fire back or may break the cast (<c>casting_type</c>).</summary>
     void OnCasterDamaged(GameClient client, int damage) { }

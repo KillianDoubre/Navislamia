@@ -172,9 +172,16 @@ public class MonsterWorldState
                     var x = p.X + Random.Shared.NextSingle() * 120 - 60;
                     var y = p.Y + Random.Shared.NextSingle() * 120 - 60;
                     if (!HasLineOfSight(p.X, p.Y, x, y)) { x = p.X; y = p.Y; }
-                    var instance = templates[0] with { InstanceId = _nextInstanceId++, X = p.X, Y = p.Y,
-                        Z = source.Z, Layer = source.Layer, IsDungeonRaidMonster = source.IsDungeonRaidMonster,
-                        Combat = source.IsDungeonRaidMonster ? templates[0].Combat?.AsRaid() : templates[0].Combat };
+                    var instance = templates[0] with
+                    {
+                        InstanceId = _nextInstanceId++,
+                        X = p.X,
+                        Y = p.Y,
+                        Z = source.Z,
+                        Layer = source.Layer,
+                        IsDungeonRaidMonster = source.IsDungeonRaidMonster,
+                        Combat = source.IsDungeonRaidMonster ? templates[0].Combat?.AsRaid() : templates[0].Combat
+                    };
                     _scriptSpawns.Add(instance.InstanceId, instance);
                     if (_aggro.TryGetValue(sourceId, out var aggro)) SetAggro(instance.InstanceId, aggro.Enemy);
                     var move = BeginMoveLocked(instance.InstanceId, x, y,
@@ -1087,7 +1094,7 @@ public class MonsterWorldState
     /// <paramref name="helper"/> <paramref name="amount"/> more — a heal draws the attention of the healed
     /// player's enemies.
     /// </summary>
-    public void AddHateFromHelp(GameClient helped, GameClient helper, int amount)
+    public void AddHateFromHelp(GameClient helped, GameClient helper, int amount, uint helperSummon = 0)
     {
         if (amount == 0 || helped is null)
         {
@@ -1112,7 +1119,8 @@ public class MonsterWorldState
 
             foreach (var instanceId in monsters)
             {
-                AddHate(instanceId, helper, amount);
+                if (helperSummon == 0) AddHate(instanceId, helper, amount);
+                else AddSummonHate(instanceId, helper, helperSummon, amount);
             }
         }
     }

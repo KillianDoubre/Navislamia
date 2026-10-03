@@ -40,6 +40,7 @@ public class PvpTests
         public readonly ILevelingService Leveling = A.Fake<ILevelingService>();
         public readonly IDeathDropService DeathDrops = A.Fake<IDeathDropService>();
         public readonly IPartyService Parties = A.Fake<IPartyService>();
+        public readonly Navislamia.Game.Services.Creatures.ICreatureEvents Creatures = A.Fake<Navislamia.Game.Services.Creatures.ICreatureEvents>();
         public readonly CastInterrupts Interrupts = new();
         public readonly ISkillCastService CastListener = A.Fake<ISkillCastService>();
         public readonly SkillEffectScheduler Effects = new(false);
@@ -77,6 +78,8 @@ public class PvpTests
             var random = A.Fake<ICombatRandom>();
             A.CallTo(() => random.Next(A<int>._)).ReturnsLazily((int max) => max == 10001 ? 5000 : 0);
             A.CallTo(() => Parties.MemberCount(A<GameClient>._)).Returns(2);
+            A.CallTo(() => Creatures.LimitPlayerExperience(A<GameClient>._, A<long>._))
+                .ReturnsLazily((GameClient player, long exp) => exp);
             A.CallTo(() => Parties.RewardMembers(A<GameClient>._, A<float>._, A<float>._, A<byte>._))
                 .ReturnsLazily((GameClient c, float x, float y, byte l) => new[] { c });
             var rates = A.Fake<IRateService>();
@@ -85,7 +88,7 @@ public class PvpTests
             Combat = new CombatService(World, A.Fake<IMonsterSpawnService>(), Leveling, A.Fake<IGroundItemService>(),
                 rates, Stats, States, Parties, random: random, players: Players, casts: Interrupts,
                 deathDrops: DeathDrops, compete: Compete, rules: options, runTicks: false,
-                pkFields: new PkFieldService(Map, locations, options));
+                pkFields: new PkFieldService(Map, locations, options), creatures: Creatures);
         }
         public GameClient Client(uint handle, float x = 100, byte layer = 0)
         {
@@ -388,5 +391,38 @@ public class PvpTests
         Info(victim).CharacterMp.Should().Be(1000 - damage / 2);
         Info(victim).CharacterHp.Should().Be(5000 - damage + damage / 2);
         A.CallTo(() => h.CastListener.OnCasterDamaged(victim, damage - damage / 2)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public void Summon_skill_damage_uses_its_level_and_stats_resistance_and_pvp_factor_once()
+    {
+        using var h = new Harness(); var master = h.Client(100); var victim = h.Client(101);
+        Info(master).PkMode = true;
+        var stats = new StatBlock { MagicPoint = 120, Critical = -1 };
+        var random = A.Fake<ICombatRandom>();
+        A.CallTo(() => random.Next(A<int>._)).ReturnsLazily((int max) => max == 10001 ? 5000 : 0);
+        var defender = h.Stats.Compute(Info(victim)).Total;
+        var expected = CombatFormulas.Resolve(Combatant.From(stats, 8), Combatant.From(defender, 10),
+            120, DamageKind.Magical, 0, 0, random, 1).Damage;
+        h.Combat.RollSummonHitOnPlayer(master, victim, stats, 8, 120, DamageKind.Magical, 0, 0, 1)
+            .Damage.Should().Be((int)(expected * h.Rules.PvpDamageRate));
+        Info(master).PkMode = false;
+        h.Combat.RollSummonHitOnPlayer(master, victim, stats, 8, 120, DamageKind.Magical, 0, 0, 1)
+            .Flags.Should().Be(HitFlags.Miss);
+    }
+
+    [Test]
+    public void Player_reflection_hits_the_attacking_summon_and_keeps_the_masters_vitals()
+    {
+        using var h = new Harness(); var master = h.Client(100); var victim = h.Client(101);
+        Info(master).PkMode = true;
+        Info(master).Summons = new[] { new SummonPresence(300, new SummonWorldEntry { Hp = 500, MaxHp = 500,
+            BaseStats = new StatBlock { FireResistance = 150 } }, 100, 100, 0) };
+        var values = new decimal[20]; values[0] = 1000; values[6] = 100; values[8] = 1;
+        A.CallTo(() => h.States.GetRule(77)).Returns(new StateRule(77, Array.Empty<int>(), 0, 0, 44, values));
+        Info(victim).ActiveBuffs.Add(new ActiveBuff(1, 77, 0, 1, 0, uint.MaxValue));
+        h.Combat.DamagePlayerBySummon(master, victim, 300, 100, true);
+        A.CallTo(() => h.Creatures.SummonReflected(master, 300, 25)).MustHaveHappenedOnceExactly();
+        Info(master).CharacterHp.Should().Be(5000); Info(victim).CharacterHp.Should().Be(4900);
     }
 }

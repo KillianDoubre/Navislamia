@@ -39,6 +39,7 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/walk [on\|off]` | non | NGemity | marche au lieu de course ; sans argument, bascule |
 | `/ride <handle>` | non | officiel | monte l'invocation (Creature Riding) ; déjà monté, descend |
 | `/unride` | non | officiel | descend de la monture |
+| `/hold [handle] [on\|off]` | non | Navislamia | arrête l'invocation et bloque son suivi ; `off` réactive le suivi ; sans handle, toutes les invocations disponibles |
 | `/titles` | non | Navislamia | titres obtenus, titre principal et titres secondaires |
 | `/title <id\|0>` | non | Navislamia | titre principal (5 minutes entre deux changements) |
 | `/subtitle <1-5> <id\|0>` | non | officiel | titre secondaire, rang 5 au plus, 10 % de ses options |

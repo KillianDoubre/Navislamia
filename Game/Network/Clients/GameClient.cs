@@ -883,8 +883,16 @@ public class GameClient : Client
 
     private void HandleCancelAction(byte[] buffer)
     {
+        if (buffer.Length != 11) return;
         var handle = GameActionPackets.ReadCancelActionHandle(buffer);
         _logger.Verbose("{clientTag} cancelled action for handle {handle}", ClientTag, handle);
+        if (handle != ConnectionInfo.CharacterHandle)
+        {
+            if (_networkService.CreatureService?.OwnsSummon(this, handle) != true) return;
+            _networkService.CreatureService.SummonAttack(this, handle, 0);
+            _networkService.SkillCastService?.CancelSummonCast(this, handle);
+            return;
+        }
         _networkService.CombatService.StopAttack(this);
 
         // onCancelAction also cancels the cast in progress (StructCreature::CancelSkill).

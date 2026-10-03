@@ -18,7 +18,7 @@ public partial class SkillCastService
         public uint Handle => Summon?.Handle ?? Owner.ConnectionInfo.CharacterHandle;
         public byte Layer => Summon?.Layer ?? Owner.ConnectionInfo.Layer;
         public int Hp => Summon?.Hp ?? Owner.ConnectionInfo.CharacterHp;
-        public (float X, float Y) Position(uint now) => Summon is { } s ? (s.X, s.Y) : Owner.ConnectionInfo.PositionAt(now);
+        public (float X, float Y) Position(uint now) => Summon is { } s ? s.PositionAt(now) : Owner.ConnectionInfo.PositionAt(now);
     }
 
     private static bool IsSupport(CastableBuffFields fields) => fields.Kind is SkillCastKind.Buff or SkillCastKind.Heal;
@@ -69,6 +69,7 @@ public partial class SkillCastService
     private bool ValidateSupport(GameClient caster, GameActionPackets.SkillRequest request, CastableBuffFields fields,
         uint now, out ResultCode error)
     {
+        if (fields.Target is 101 or 102) { error = ResultCode.NotActable; return false; }
         if (caster.ConnectionInfo.CharacterHp <= 0) { error = ResultCode.NotActable; return false; }
         var anchor = SupportAnchor(caster, request.Target);
         if (anchor is null) { error = ResultCode.NotExist; return false; }
@@ -166,9 +167,10 @@ public partial class SkillCastService
         return true;
     }
 
-    private SkillHit HealSupport(GameClient caster, SupportTarget target, CastableBuffFields fields, int level)
+    private SkillHit HealSupport(GameClient caster, SupportTarget target, CastableBuffFields fields, int level,
+        float? casterMagic = null, uint casterSummon = 0)
     {
-        var magic = _statService.Compute(caster.ConnectionInfo).Total.MagicPoint;
+        var magic = casterMagic ?? _statService.Compute(caster.ConnectionInfo).Total.MagicPoint;
         var stats = target.Summon?.Stats ?? _statService.Compute(target.Owner.ConnectionInfo).Total;
         var hpAmount = fields.EffectType is 505 or 508
             ? magic * (SupportVar(fields, 0) + SupportVar(fields, 1) * level) + SupportVar(fields, 2) * level
@@ -194,7 +196,14 @@ public partial class SkillCastService
         SendSupportProperty(target, "hp", hp);
         if (fields.EffectType is 505 or 508) SendSupportProperty(target, "mp", mp);
         _monsterState.AddHateFromHelp(target.Owner, caster,
-            HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, level, addedHp));
+            HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, level, addedHp), casterSummon);
+        if (target.Summon is not null && _creatures is not null)
+        {
+            Creatures.CreatureCard card;
+            lock (target.Owner.ConnectionInfo.SummonLock) card = target.Owner.ConnectionInfo.CreatureCards.Values
+                .FirstOrDefault(c => c.SummonHandle == target.Handle);
+            if (card is not null) _creatures.SetSummonVitals(target.Owner, card, hp, mp);
+        }
         return new SkillHit(fields.EffectType is 505 or 508 ? SkillHitType.AddHpMpSp : SkillHitType.AddHp,
             target.Handle, hp, addedHp, IncMp: addedMp, TargetMp: mp);
     }
@@ -236,6 +245,8 @@ public partial class SkillCastService
             GameSkillPackets.BuildStateRemoval(target.Handle, state.StateHandle, (uint)state.StateId));
         SendToSelfAndWatchers(target.Owner, GameSkillPackets.BuildState(target.Handle, applied.StateHandle,
             (uint)stateId, (ushort)applied.StateLevel, end, now));
+        if (Casting.CastRules.InterruptsCasting(stateId, rule.EffectType, rule.Values))
+            CancelSummonCast(target.Owner, summon.Handle, true);
         return true;
     }
 
@@ -243,8 +254,11 @@ public partial class SkillCastService
         IReadOnlyList<SupportTarget> targets, float radius)
     {
         var recipients = new HashSet<GameClient> { caster };
-        foreach (var target in targets) { recipients.Add(target.Owner); if (_players is not null)
-            foreach (var peer in _players.Observers(target.Owner)) recipients.Add(peer); }
+        foreach (var target in targets)
+        {
+            recipients.Add(target.Owner); if (_players is not null)
+                foreach (var peer in _players.Observers(target.Owner)) recipients.Add(peer);
+        }
         if (_players is not null) foreach (var peer in _players.Observers(caster)) recipients.Add(peer);
         foreach (var recipient in recipients)
         {
@@ -259,6 +273,8 @@ public partial class SkillCastService
     }
 
     private static bool SeesPlayer(GameClient viewer, GameClient target)
-    { lock (viewer.ConnectionInfo.PlayerVisibilityLock)
-        return viewer.ConnectionInfo.SpawnedPlayers.ContainsKey(target.ConnectionInfo.CharacterHandle); }
+    {
+        lock (viewer.ConnectionInfo.PlayerVisibilityLock)
+            return viewer.ConnectionInfo.SpawnedPlayers.ContainsKey(target.ConnectionInfo.CharacterHandle);
+    }
 }

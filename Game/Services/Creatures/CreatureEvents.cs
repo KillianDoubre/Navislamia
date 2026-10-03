@@ -29,6 +29,7 @@ public interface ICreatureEvents
 
     /// <summary>A player took damage (and may have died): a rider can fall.</summary>
     void PlayerDamaged(GameClient player, int damage, bool died);
+    void SummonReflected(GameClient master, uint handle, int damage) { }
 }
 
 public interface ICreatureEventListener
@@ -42,6 +43,7 @@ public interface ICreatureEventListener
     void OnExperienceGained(GameClient player, long exp);
 
     void OnPlayerDamaged(GameClient player, int damage, bool died);
+    void OnSummonReflected(GameClient master, uint handle, int damage) { }
 }
 
 public sealed class CreatureEvents : ICreatureEvents
@@ -61,4 +63,5 @@ public sealed class CreatureEvents : ICreatureEvents
 
     public void PlayerDamaged(GameClient player, int damage, bool died) =>
         _listener?.OnPlayerDamaged(player, damage, died);
+    public void SummonReflected(GameClient master, uint handle, int damage) => _listener?.OnSummonReflected(master, handle, damage);
 }

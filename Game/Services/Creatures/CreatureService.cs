@@ -52,6 +52,7 @@ public interface ICreatureService
 
     /// <summary>An attack request naming a summon (target 0 stops it).</summary>
     void SummonAttack(GameClient client, uint summonHandle, uint targetHandle);
+    bool HoldSummon(GameClient client, uint summonHandle, bool hold) => false;
 
     /// <summary>After a warp the summons in the world follow their master.</summary>
     void FollowWarp(GameClient client);
@@ -142,6 +143,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private readonly Progression.ITitleService _titles;
     private readonly IItemWearCatalog _wearCatalog;
     private readonly IItemMatchCatalog _itemMatch;
+    private readonly Casting.ICastInterrupts _castInterrupts;
     private readonly Stats.IItemStatCatalog _itemStats;
 
     public CreatureService(ICreatureCatalog catalog, ICharacterService characters, MonsterWorldState world,
@@ -150,9 +152,11 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         ICombatRandom random = null, bool runTicks = true, SkillCatalog skillTrees = null,
         ISkillPassiveCatalog passives = null, Rates.IRateService rates = null, IPkFieldService pkFields = null,
         Progression.ITitleService titles = null, IItemWearCatalog wearCatalog = null,
-        IItemMatchCatalog itemMatch = null, Stats.IItemStatCatalog itemStats = null)
+        IItemMatchCatalog itemMatch = null, Stats.IItemStatCatalog itemStats = null,
+        Casting.ICastInterrupts castInterrupts = null)
     {
         _wearCatalog = wearCatalog;
+        _castInterrupts = castInterrupts;
         _itemMatch = itemMatch;
         _itemStats = itemStats;
         _titles = titles;
@@ -319,6 +323,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
         foreach (var summon in client.ConnectionInfo.Summons)
         {
+            _castInterrupts?.ForgetSummon(client, summon.Handle);
             lock (_lock)
             {
                 _moves.Remove(summon.Handle);
@@ -419,7 +424,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(card.SummonHandle, card.Level, card.Level));
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(card.SummonHandle, card.Exp, card.Jp));
         // StructPlayer::AddSummon: SendSkillMessage after the summon's information.
-        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillsOf(client.ConnectionInfo,
+        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillEntriesOf(client.ConnectionInfo,
             card)));
         card.InfoSent = true;
     }
@@ -873,6 +878,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         }
 
         var frame = GameStatPackets.BuildHpMp(summonHandle, -Math.Max(0, damage), hp, maxHp, 0, mp, maxMp);
+        if (died) _castInterrupts?.ForgetSummon(master, summonHandle);
+        else if (damage > 0) _castInterrupts?.SummonDamaged(master, summonHandle, damage);
         master.Connection.Send(frame);
         _players?.SendToObservers(master, frame);
 
@@ -1234,7 +1241,17 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             return;
         }
 
-        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillsOf(info, card)));
+        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillEntriesOf(info, card)));
+    }
+
+    private static SkillListEntry[] SkillEntriesOf(ConnectionInfo info, CreatureCard card)
+    {
+        var now = ServerClock.Now;
+        lock (info.SummonLock)
+            return card.Skills.Select(s => new SkillListEntry(s.Key, s.Value,
+                card.SkillCooldownDurations.GetValueOrDefault(s.Key),
+                card.SkillCooldowns.TryGetValue(s.Key, out var ready)
+                    ? (uint)Math.Max(0, unchecked((int)(ready - now))) : 0)).ToArray();
     }
 
     private static KeyValuePair<int, byte>[] SkillsOf(ConnectionInfo info, CreatureCard card)
@@ -1363,6 +1380,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         var modifier = Math.Min(1m, 0.9m + var0 + var1 * level);
         return (byte)Math.Clamp((int)(resource.RidingSpeed / 7m * modifier), 0, byte.MaxValue);
     }
+
+    public void OnSummonReflected(GameClient master, uint handle, int damage) => DamageSummon(master, handle, damage, byMonster: false);
 
     public void OnPlayerDamaged(GameClient player, int damage, bool died)
     {
@@ -1983,6 +2002,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             _deadSince.Remove(card.SummonHandle);
         }
 
+        _castInterrupts?.ForgetSummon(client, card.SummonHandle);
         _world.ForgetSummon(client, card.SummonHandle);
         if (info.RideHandle == card.SummonHandle)
         {
@@ -2060,7 +2080,10 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         }
 
         card.SummonHandle = handle;
+        if (card.SkillCooldowns.Count > 0)
+            client.Connection.Send(GameCharacterPackets.BuildSkillList(handle, SkillEntriesOf(info, card)));
         var presence = info.Summons.FirstOrDefault(s => s.Handle == handle);
+        if (presence is not null) presence.PositionProvider = tick => SummonPosition(handle, tick);
         lock (_lock)
         {
             // StructPlayer::Summon: a dead summon summoned again is still dead, and is sent back after its hold.
@@ -2088,6 +2111,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         var info = client.ConnectionInfo;
         foreach (var presence in info.Summons.ToArray())
         {
+            _castInterrupts?.ForgetSummon(client, presence.Handle);
             CreatureCard card;
             lock (info.SummonLock)
             {
@@ -2118,6 +2142,26 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     public bool OwnsSummon(GameClient client, uint handle) =>
         handle != 0 && client.ConnectionInfo.Summons.Any(summon => summon.Handle == handle);
 
+    public bool HoldSummon(GameClient client, uint summonHandle, bool hold)
+    {
+        var presence = Array.Find(client.ConnectionInfo.Summons, s => s.Handle == summonHandle);
+        if (presence is null || presence.Hp <= 0 || client.ConnectionInfo.RideHandle == summonHandle) return false;
+        if (!hold) { presence.Held = false; return true; }
+        _castInterrupts?.InterruptSummon(client, summonHandle);
+        StopSwing(summonHandle, client);
+        lock (_lock)
+        {
+            var p = SummonPosition(summonHandle, ServerClock.Now);
+            if (_moves.TryGetValue(summonHandle, out var move))
+            { move.X = move.DestX = p.X; move.Y = move.DestY = p.Y; move.StartTick = ServerClock.Now; }
+            presence.Held = true;
+        }
+        var frame = GameMovePackets.BuildStopMove(summonHandle,
+            unchecked(ServerClock.Now + client.ConnectionInfo.ClientClockOffset), presence.Layer);
+        client.Connection.Send(frame); _players?.SendToObservers(client, frame);
+        return true;
+    }
+
     public void MoveSummon(GameClient client, uint summonHandle, float x, float y, uint clientTime, byte speedSync,
         ReadOnlySpan<byte> waypoints)
     {
@@ -2126,6 +2170,8 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         {
             return;
         }
+
+        if (speedSync != 0 && Array.Find(info.Summons, s => s.Handle == summonHandle)?.Held == true) return;
 
         SummonMove move;
         lock (_lock)

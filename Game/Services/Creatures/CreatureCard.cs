@@ -49,6 +49,9 @@ public sealed class CreatureCard
 
     /// <summary>The skills the summon learned, by id (<c>SummonSkills</c>), guarded by the session's summon lock.</summary>
     public System.Collections.Generic.Dictionary<int, byte> Skills { get; } = new();
+    public System.Collections.Generic.Dictionary<int, uint> SkillCooldowns { get; } = new();
+    public System.Collections.Generic.Dictionary<int, uint> SkillCooldownDurations { get; } = new();
+    public uint CommonSkillReady { get; set; }
 
     public SummonProgress Progress() => new(SummonId, SummonCode, Level, Exp, Jp, MaxReachedLevel, Hp, Mp,
         LastDecreasedExp, PreviousSummonIds, PreviousLevels, SummonName);

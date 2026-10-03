@@ -7,6 +7,7 @@ namespace Navislamia.Game.Services.GmCommands;
 public enum GmCommand
 {
     Help,
+    Hold,
     Titles,
     Title,
     Position,
@@ -66,6 +67,7 @@ public static class GmCommandCatalog
     public static IReadOnlyList<GmCommandDefinition> All { get; } = new[]
     {
         new GmCommandDefinition(GmCommand.Help, "help", false, "/help", FromRepository),
+        new GmCommandDefinition(GmCommand.Hold, "hold", false, "/hold [summon handle] [on|off]", FromRepository),
         new GmCommandDefinition(GmCommand.Titles, "titles", false, "/titles", FromRepository),
         new GmCommandDefinition(GmCommand.Title, "title", false, "/title <id|0>", FromRepository),
         new GmCommandDefinition(GmCommand.SubTitle, "subtitle", false, "/subtitle <slot 1-5> <id|0>", FromOfficial),
