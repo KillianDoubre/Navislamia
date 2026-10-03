@@ -54,6 +54,12 @@ public interface ICharacterService
     Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position);
 
     /// <summary>
+    /// The items of <paramref name="itemIds"/> worn by the character go back to the bag (<c>DB_Login</c>: a worn
+    /// item that no longer passes its requirements is not worn), in one save.
+    /// </summary>
+    Task UnwearItemsAsync(string characterName, IReadOnlyCollection<long> itemIds) => Task.CompletedTask;
+
+    /// <summary>
     /// <c>onSwapEquip</c> (223): the weapon, shield and their decorations change places with the spare set. Every
     /// spare item that would come to a main slot is judged by <paramref name="mayWearMain"/> first, and one refusal
     /// leaves everything as it was (null). Returns the character and the items that moved.

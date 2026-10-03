@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
@@ -258,13 +259,72 @@ public class EquipmentService : IEquipmentService
         }
     }
 
-    private bool IsWearAllowed(ItemWearFields fields, ConnectionInfo info)
+    private bool IsWearAllowed(ItemWearFields fields, ConnectionInfo info) =>
+        IsWearAllowed(fields, info.CharacterLevel, info.CharacterRace, info.CharacterJob);
+
+    private bool IsWearAllowed(ItemWearFields fields, int level, int race, int currentJob)
     {
-        var jobId = info.CharacterJob == 0 ? info.CharacterRace switch { 3 => 100, 4 => 200, 5 => 300, _ => 0 }
-            : info.CharacterJob;
+        var jobId = currentJob == 0 ? race switch { 3 => 100, 4 => 200, 5 => 300, _ => 0 } : currentJob;
         return _jobs.TryGetValue(jobId, out var job)
-            && ItemWearRules.IsWearAllowed(fields, info.CharacterLevel, info.CharacterRace, job.JobClass,
+            && ItemWearRules.IsWearAllowed(fields, level, race, job.JobClass,
                 JobDepths.ToIndex(job.JobDepth, _depthFlags));
+    }
+
+    /// <summary>
+    /// The items the character wears that <c>DB_Login::readEquipItemList</c> would refuse to wear again: a main slot
+    /// (0..23) already taken by an earlier item, or an item that no longer passes its requirements (level, race,
+    /// class, job depth). The spare set (24..27) is not judged — <c>StructPlayer::TranslateWearPosition</c> leaves it
+    /// to the swap — and an item a summon wears is the summon's.
+    /// </summary>
+    public IReadOnlyList<ItemEntity> FindUnwearableItems(CharacterEntity character)
+    {
+        if (character.Items is null)
+        {
+            return Array.Empty<ItemEntity>();
+        }
+
+        var level = character.Lv > 0 ? character.Lv : 1;
+        var taken = new HashSet<ItemWearType>();
+        List<ItemEntity> refused = null;
+        foreach (var item in character.Items.Where(item => item.EquippedBySummonId is null).OrderBy(item => item.Id))
+        {
+            if (!ItemWearRules.IsWearableSlot(item.WearInfo))
+            {
+                continue;
+            }
+
+            var wearable = taken.Add(item.WearInfo)
+                           && _wearCatalog.TryGetWearFields(item.ItemResourceId, out var fields)
+                           && IsWearAllowed(fields, level, character.Race, (int)character.CurrentJob);
+            if (!wearable)
+            {
+                (refused ??= new List<ItemEntity>()).Add(item);
+            }
+        }
+
+        return (IReadOnlyList<ItemEntity>)refused ?? Array.Empty<ItemEntity>();
+    }
+
+    /// <summary>
+    /// World entry: the refused items of <see cref="FindUnwearableItems"/> go back to the bag, in the loaded character
+    /// (so the stats, the wear frame and the inventory sent next see them unworn) and in the database.
+    /// </summary>
+    public async Task RevalidateWornItemsAsync(CharacterEntity character)
+    {
+        var refused = FindUnwearableItems(character);
+        if (refused.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var item in refused)
+        {
+            _logger.Information("{name} no longer meets the requirements of item {item} ({resource}) at {slot}: unworn",
+                character.CharacterName, item.Id, item.ItemResourceId, item.WearInfo);
+            item.WearInfo = ItemWearType.None;
+        }
+
+        await _characterService.UnwearItemsAsync(character.CharacterName, refused.Select(item => item.Id).ToList());
     }
 
     /// <summary>

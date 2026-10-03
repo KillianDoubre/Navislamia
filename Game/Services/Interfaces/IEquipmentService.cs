@@ -18,4 +18,8 @@ public interface IEquipmentService
 
     /// <summary><c>TM_CS_SWAP_EQUIP</c> (223): the main and spare weapon sets change places.</summary>
     Task SwapAsync(GameClient client) => Task.CompletedTask;
+
+    /// <summary>World entry (<c>DB_Login::readEquipItemList</c>): worn items that no longer qualify go back to the bag.</summary>
+    Task RevalidateWornItemsAsync(Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity character) =>
+        Task.CompletedTask;
 }

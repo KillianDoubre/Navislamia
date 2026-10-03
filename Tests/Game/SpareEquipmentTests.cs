@@ -31,6 +31,7 @@ public class SpareEquipmentTests
     private const long Sword = 101100;
     private const long Bow = 101200;
     private const long Armor = 100201;
+    private const long HighArmor = 100299;
 
     private static (CharacterService Service, ICharacterRepository Repository) Characters(params ItemEntity[] items)
     {
@@ -139,7 +140,8 @@ public class SpareEquipmentTests
         A.CallTo(() => resources.GetWearFields()).Returns(new[]
         {
             new ItemWearFields((int)Sword, ItemWearType.Weapon, 0, 0, 0, everyone, classes, 15),
-            new ItemWearFields((int)Armor, ItemWearType.Armor, 0, 0, 0, everyone, classes, 15)
+            new ItemWearFields((int)Armor, ItemWearType.Armor, 0, 0, 0, everyone, classes, 15),
+            new ItemWearFields((int)HighArmor, ItemWearType.Armor, 0, 50, 0, everyone, classes, 15)
         });
         var jobs = A.Fake<IJobResourceRepository>();
         A.CallTo(() => jobs.GetWearFields()).Returns(new[] { new JobWearFields(100, 1, 1), new JobWearFields(200, 3, 1),
@@ -212,5 +214,64 @@ public class SpareEquipmentTests
 
         connection.Sent.Count(frame => Id(frame) == (ushort)GamePackets.TM_SC_ITEM_WEAR_INFO).Should().Be(2);
         connection.Sent.Should().NotContain(frame => Id(frame) == (ushort)GamePackets.TM_SC_RESULT);
+    }
+
+    [Test]
+    public async Task At_world_entry_an_item_that_no_longer_qualifies_goes_back_to_the_bag()
+    {
+        var (service, characters, _, _) = Equipment();
+        var sword = new ItemEntity { Id = 1, ItemResourceId = Sword, WearInfo = ItemWearType.Weapon };
+        var high = new ItemEntity { Id = 2, ItemResourceId = HighArmor, WearInfo = ItemWearType.Armor };
+        var twice = new ItemEntity { Id = 3, ItemResourceId = Sword, WearInfo = ItemWearType.Weapon };
+        var spare = new ItemEntity { Id = 4, ItemResourceId = HighArmor, WearInfo = ItemWearType.SpareWeapon };
+        var summons = new ItemEntity { Id = 5, ItemResourceId = HighArmor, WearInfo = ItemWearType.Armor, EquippedBySummonId = 9 };
+        var bag = new ItemEntity { Id = 6, ItemResourceId = HighArmor, WearInfo = ItemWearType.None };
+        var character = new CharacterEntity
+        {
+            CharacterName = Name, Lv = 10, Race = (int)Race.Gaia, CurrentJob = 0,
+            Items = new List<ItemEntity> { twice, spare, summons, bag, high, sword }
+        };
+
+        service.FindUnwearableItems(character).Should().BeEquivalentTo(new[] { high, twice },
+            "level 50 armour at level 10, and a second item in the weapon slot");
+
+        await service.RevalidateWornItemsAsync(character);
+
+        sword.WearInfo.Should().Be(ItemWearType.Weapon);
+        high.WearInfo.Should().Be(ItemWearType.None);
+        twice.WearInfo.Should().Be(ItemWearType.None);
+        spare.WearInfo.Should().Be(ItemWearType.SpareWeapon, "the swap judges a spare item, not the login");
+        summons.WearInfo.Should().Be(ItemWearType.Armor, "the summon's item is the summon's");
+        A.CallTo(() => characters.UnwearItemsAsync(Name, A<IReadOnlyCollection<long>>.That.Matches(ids =>
+            ids.Count == 2 && ids.Contains(2) && ids.Contains(3)))).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public async Task At_world_entry_nothing_is_saved_when_everything_qualifies()
+    {
+        var (service, characters, _, _) = Equipment();
+        var character = new CharacterEntity
+        {
+            CharacterName = Name, Lv = 60, Race = (int)Race.Gaia,
+            Items = new List<ItemEntity> { new() { Id = 2, ItemResourceId = HighArmor, WearInfo = ItemWearType.Armor } }
+        };
+
+        await service.RevalidateWornItemsAsync(character);
+
+        A.CallTo(() => characters.UnwearItemsAsync(A<string>._, A<IReadOnlyCollection<long>>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task UnwearItems_takes_the_items_off_in_one_save()
+    {
+        var worn = new ItemEntity { Id = 2, ItemResourceId = HighArmor, WearInfo = ItemWearType.Armor };
+        var kept = new ItemEntity { Id = 3, ItemResourceId = Sword, WearInfo = ItemWearType.Weapon };
+        var (service, repository) = Characters(worn, kept);
+
+        await service.UnwearItemsAsync(Name, new long[] { 2 });
+
+        worn.WearInfo.Should().Be(ItemWearType.None);
+        kept.WearInfo.Should().Be(ItemWearType.Weapon);
+        A.CallTo(() => repository.SaveChangesAsync()).MustHaveHappenedOnceExactly();
     }
 }

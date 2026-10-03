@@ -97,6 +97,13 @@ public class GameActions : IActions
             return;
         }
 
+        // DB_Login::readEquipItemList: every worn item is judged again, and one that no longer qualifies (a lost
+        // level, a changed rule, a slot taken twice) is not worn — before anything reads the equipment.
+        if (_networkService.EquipmentService is { } equipment)
+        {
+            await equipment.RevalidateWornItemsAsync(character);
+        }
+
         var position = character.Position ?? new[] { 0, 0, 0 };
         if (position.Length < 3 || (position[0] == 0 && position[1] == 0 && position[2] == 0))
         {

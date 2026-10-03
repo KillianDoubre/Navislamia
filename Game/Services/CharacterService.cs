@@ -320,6 +320,35 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task UnwearItemsAsync(string characterName, IReadOnlyCollection<long> itemIds)
+    {
+        if (itemIds.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        return RunExclusiveAsync<bool>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var changed = false;
+            foreach (var item in character?.Items ?? Enumerable.Empty<ItemEntity>())
+            {
+                if (itemIds.Contains(item.Id) && item.WearInfo != ItemWearType.None)
+                {
+                    item.WearInfo = ItemWearType.None;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                await repository.SaveChangesAsync();
+            }
+
+            return changed;
+        });
+    }
+
     public Task<EquipItemResult> EquipItemAsync(string characterName, uint itemHandle, ItemWearType position)
     {
         return RunInventoryAsync(characterName, async repository =>
