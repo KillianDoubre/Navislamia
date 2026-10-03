@@ -9,6 +9,8 @@ public class TelecasterContext : SoftDeletionContext
 
     public DbSet<AllianceEntity> Alliances { get; set; }
     public DbSet<AuctionEntity> Auctions { get; set; }
+    public DbSet<AuctionListingEntity> AuctionListings { get; set; }
+    public DbSet<AuctionKeepingEntity> AuctionKeepings { get; set; }
     public DbSet<CharacterEntity> Characters { get; set; }
     public DbSet<CharacterSkillEntity> CharacterSkills { get; set; }
     public DbSet<SummonSkillEntity> SummonSkills { get; set; }
@@ -34,6 +36,8 @@ public class TelecasterContext : SoftDeletionContext
         base.OnModelCreating(modelBuilder);
 
         ConfigureAuctions(modelBuilder);
+        modelBuilder.Entity<AuctionListingEntity>().HasIndex(a => a.SellerId);
+        modelBuilder.Entity<AuctionKeepingEntity>().HasIndex(k => k.OwnerId);
         modelBuilder.Entity<CharacterTitleStateEntity>().HasKey(s => s.CharacterId);
         modelBuilder.Entity<CharacterTitleStateEntity>().HasOne<CharacterEntity>().WithOne()
             .HasForeignKey<CharacterTitleStateEntity>(s => s.CharacterId).OnDelete(DeleteBehavior.Cascade);

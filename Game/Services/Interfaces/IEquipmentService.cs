@@ -22,4 +22,10 @@ public interface IEquipmentService
     /// <summary>World entry (<c>DB_Login::readEquipItemList</c>): worn items that no longer qualify go back to the bag.</summary>
     Task RevalidateWornItemsAsync(Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity character) =>
         Task.CompletedTask;
+
+    /// <summary>
+    /// The auction search's <c>is_equipable</c> filter (<c>SearchAndSendAuctionList</c>): an equipment the player
+    /// could wear (levels, rank, class, race, job depth); anything that is not worn passes.
+    /// </summary>
+    bool CanWear(Navislamia.Game.Network.Clients.ConnectionInfo info, long itemResourceId) => true;
 }

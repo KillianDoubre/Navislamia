@@ -259,6 +259,10 @@ public class EquipmentService : IEquipmentService
         }
     }
 
+    public bool CanWear(ConnectionInfo info, long itemResourceId) =>
+        !_wearCatalog.TryGetWearFields(itemResourceId, out var fields) || fields.WearType == ItemWearType.None
+        || IsWearAllowed(fields, info);
+
     private bool IsWearAllowed(ItemWearFields fields, ConnectionInfo info) =>
         IsWearAllowed(fields, info.CharacterLevel, info.CharacterRace, info.CharacterJob);
 

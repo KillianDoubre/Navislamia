@@ -1422,8 +1422,13 @@ Les trois identifiants serveur → client (`1301`, `1303`, `1305`) sont dans `Ga
 bras `log + continue` dans `GameClient`, comme `TM_SC_REGION_ACK` : le client ne les envoie jamais,
 mais un membre d'enum sans branche atteindrait le `throw "Unknown Packet Type"`. Les sept paquets
 client → serveur de la famille (`1300`, `1302`, `1304`, `1306`, `1308`, `1309`, `1310`) sont déclarés,
-lus et bornés (une fiche chacun) : 1300/1302/1304 répondent une page vide (rien n'écrit d'enchère),
-1306/1308/1309/1310 sont journalisés sans réponse. Aucune mécanique d'enchère n'existe.
+lus et bornés (une fiche chacun). **La mécanique est celle du serveur officiel** (`AuctionService`,
+`docs/packet-specs/socle-encheres-mecanique.md`) : tables `AuctionListings`/`AuctionKeepings`
+(`Version0017_AuctionHouse`), objet en vente = ligne `Items` sans personnage ni compte, taxe 3/4/5 % pour 6/24/72 h,
+mise prélevée tout de suite (×1,01), achat immédiat, annulation, échéance, **tout l'or entre joueurs passe par le
+coffre** (`TM_CS/SC_ITEM_KEEPING_LIST` 1350/1351 de 3 859 octets, `TM_CS_ITEM_KEEPING_TAKE` 1352, 15 jours), seul l'or
+de l'acteur change, écrit dans la même transaction. Recherche par catégorie, nom anglais et « équipable »
+(`auction-catalog.73.json`, `tools/export_auction_catalog.py`).
 
 L'hôtel des ventes n'est **pas** porté depuis NGemity : il n'y implémente aucun handler, aucune
 ressource, aucune mécanique (`SecRouteAuction = 130107` y est une constante orpheline). La
@@ -2496,6 +2501,15 @@ par `Tests/Game/InstanceGamePacketsTests.cs`. La 4253 répond à la 4252 **seule
 (placeholder, §9.4 de la fiche). De la famille HuntaHolic, 4000, 4003, 4004, 4005, 4008 (fiche seule)
 et 4011 sont lus, bornés et journalisés sans réponse (`GameHuntaholicPackets`) ; le lobby (4001/4002) reste à faire.
 
+**HuntaHolic est livré** (`docs/packet-specs/socle-huntaholic.md`, `Game/Services/Huntaholic/`, portage de
+`HuntaholicManager`) : salles d'un groupe de type 3 (`nom<N_h>`, commandes `/p*` ignorées), chasse sur la couche du
+numéro de salle (`MonsterWorldState.SpawnInstanceMonster`), score 1/5/10/150, maximum, fin, récompenses (points
+`ceil(avantage × score)`, EXP/JP, objets), pénalité d'abandon (entrée et état 313205), sortie par warp, déconnexion et
+résurrection officielles, 4250/4251 par les sorts **lancés par le serveur** 64818/64827 (`SkillCastKind.InstanceGame`),
+PNJ `go_to_huntaholic` (1 000 or) et boîtes de JP. Points et 12 entrées/jour (06:00) en session, sauvés avec
+`Characters.LogoutTime`. `WarpService.Warp(client, x, y, layer)` change de couche ; `IHuntaholicEvents` relie combat,
+warp, sorts et résurrection sans cycle d'injection. 4008 est déclaré (bras propre).
+
 ### Paquets 240 / 250 — marché NPC (`TM_SC_NPC_TRADE_INFO` / `TM_SC_MARKET`)
 
 - 7.3 : **240** est l'écho d'**une seule** transaction — `is_sell` (`int8` à 7), `code` (`int32` à
@@ -2521,8 +2535,9 @@ et 4011 sont lus, bornés et journalisés sans réponse (`GameHuntaholicPackets`
   90 marchés) via `MarketCatalogOptions` / `MarketCatalog` : regroupement par `name`, tri par
   `sort_id` (égalité = ordre du fichier), comparaison ordinale, lignes de `code` nul écartées.
   `price` est le prix **absolu**, pas le `price_ratio` de la base (multiplié par le prix de base à
-  l'ouverture, `ObjectMgr.cpp:851`) ; `huntaholic_point` est émis, attendu `0`
-  (`ObjectMgr.cpp:852`).
+  l'ouverture, `ObjectMgr.cpp:851`) ; `huntaholic_point` = `trunc(huntaholic_ratio × ItemResource.huntaholic_point)`
+  (`onMarketInfo` officiel) : les boutiques `bearload_*` se paient en points, débités avec l'or
+  (`NotEnoughHuntaholicPoint` 58).
 - **Données : `tools/export_market_catalog.py`**, depuis le dépôt SVN Epic 7 Part 4 (voir *Source data*).
   Les lignes viennent de `MarketResource.rdu`, prix = `floor(price_ratio × ItemResource.price)` de la même
   époque, lignes dont l'objet est absent du `db_item.rdb` du client 7.3 écartées (104). Le nom de marché de

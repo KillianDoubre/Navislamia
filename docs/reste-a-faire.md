@@ -107,7 +107,9 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Guildes : création (`show_guild_create`), alliance, taxe, donjon de guilde et siège (`warp_to_siege_dungeon`).
 - Donjons d'instance et donjons secrets (20 dialogues `warp_to_instance_dungeon`, `question_secret_dungeon_*`) :
   `enter_dungeon` ne fait que téléporter.
-- HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes (pages vides, aucune mécanique).
+- ~~HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes~~ : livrés (`socle-huntaholic.md`,
+  `socle-encheres-mecanique.md`). Restent : props de soin de Bear Road, états `EraseOnQuitHuntaholic`, objets
+  réservés/interdits en HuntaHolic, enchères automatiques, essai PostgreSQL du stockage des enchères.
 - Ferme de créatures : non implémentée par décision (2026-09-30).
 - Dialogues PNJ non exécutés : timbres et quêtes d'événement (`question_stamp_*`, `valentine_*`, `event_*`),
   durabilité des objets (`max_item_durability`), `tp_skill`, cadeaux (`second_present_*`,

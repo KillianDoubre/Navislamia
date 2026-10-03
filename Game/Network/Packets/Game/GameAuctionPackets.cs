@@ -35,6 +35,10 @@ public readonly record struct RegisteredAuctionInfo(AuctionInfo Auction, byte St
 /// </summary>
 public readonly record struct BiddedAuctionInfo(AuctionInfo Auction, byte Status);
 
+/// <summary>An entry of <c>TM_SC_ITEM_KEEPING_LIST</c> (1351), rzu's <c>TS_ITEM_KEEPING_INFO</c>.</summary>
+public readonly record struct ItemKeepingEntry(int KeepingUid, ItemFixedInfo Item, int DurationSeconds, byte KeepingType,
+    int RelatedItemCode, int RelatedItemEnhance, int RelatedItemLevel);
+
 /// <summary>
 /// <c>TM_CS_AUCTION_SEARCH</c> (1300): the search the player launched in the auction house. The two
 /// category ids are the first two columns of the client's <c>db_auctioncategoryresource.rdb</c>. The
@@ -280,6 +284,55 @@ public static class GameAuctionPackets
     /// Writes <c>page_num</c> at 7, <c>total_page_count</c> at 11 and the entry count at 15, clamped to
     /// the forty slots the client reads. The rest of the table is already zero.
     /// </summary>
+    /// <summary>One entry of <c>TM_SC_ITEM_KEEPING_LIST</c> (1351): <c>TS_ITEM_KEEPING_INFO</c>, 96 bytes.</summary>
+    public const int ItemKeepingInfoSize = 96;
+
+    /// <summary><c>TM_SC_ITEM_KEEPING_LIST</c> (1351): 7 + 12 + 40 × 96 = 3 859 bytes, all forty slots written.</summary>
+    public const int ItemKeepingListPacketSize = HeaderSize + PageHeaderSize + AuctionSlots * ItemKeepingInfoSize;
+
+    /// <summary><c>TM_CS_ITEM_KEEPING_LIST</c> (1350) and <c>TM_CS_ITEM_KEEPING_TAKE</c> (1352): one int32 at 7, 11 bytes.</summary>
+    public const int ItemKeepingRequestSize = HeaderSize + 4;
+
+    /// <summary>
+    /// <c>TM_SC_ITEM_KEEPING_LIST</c> (1351), rzu <c>TS_SC_ITEM_KEEPING_LIST</c>: page header, then
+    /// <c>keeping_uid</c> @0, the 75-byte item motif @4, <c>duration</c> (seconds left) @79, <c>keeping_type</c> @83,
+    /// <c>related_item_code</c> @84, <c>related_item_enhance</c> @88, <c>related_item_level</c> @92.
+    /// </summary>
+    public static byte[] BuildItemKeepingList(int pageNum, int totalPageCount, IReadOnlyList<ItemKeepingEntry> entries)
+    {
+        var packet = CreatePacket(GamePackets.TM_SC_ITEM_KEEPING_LIST, ItemKeepingListPacketSize);
+        var payload = packet.AsSpan(HeaderSize);
+        var count = WritePageHeader(payload, pageNum, totalPageCount, entries?.Count ?? 0);
+        for (var i = 0; i < count; i++)
+        {
+            var entry = payload.Slice(TableOffset - HeaderSize + i * ItemKeepingInfoSize, ItemKeepingInfoSize);
+            var info = entries[i];
+            BinaryPrimitives.WriteInt32LittleEndian(entry.Slice(0, 4), info.KeepingUid);
+            ItemFixedInfoWriter.Write(entry.Slice(4, ItemFixedInfoWriter.Size), info.Item);
+            BinaryPrimitives.WriteInt32LittleEndian(entry.Slice(79, 4), info.DurationSeconds);
+            entry[83] = info.KeepingType;
+            BinaryPrimitives.WriteInt32LittleEndian(entry.Slice(84, 4), info.RelatedItemCode);
+            BinaryPrimitives.WriteInt32LittleEndian(entry.Slice(88, 4), info.RelatedItemEnhance);
+            BinaryPrimitives.WriteInt32LittleEndian(entry.Slice(92, 4), info.RelatedItemLevel);
+        }
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>Reads 1350 (<c>page_num</c>) or 1352 (<c>keeping_uid</c>): exactly 11 bytes, the int32 at 7.</summary>
+    public static bool TryReadItemKeepingRequest(ReadOnlySpan<byte> packet, out int value)
+    {
+        value = 0;
+        if (packet.Length != ItemKeepingRequestSize)
+        {
+            return false;
+        }
+
+        value = BinaryPrimitives.ReadInt32LittleEndian(packet.Slice(HeaderSize, 4));
+        return true;
+    }
+
     private static int WritePageHeader(Span<byte> payload, int pageNum, int totalPageCount, int entryCount)
     {
         var count = Math.Clamp(entryCount, 0, AuctionSlots);

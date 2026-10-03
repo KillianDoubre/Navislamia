@@ -512,7 +512,10 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_CS_AUCTION_SELLING_LIST, buffer.Length, ClientTag, pageNum);
         }
 
-        Connection.Send(GameAuctionPackets.BuildAuctionSellingList(pageNum, 0));
+        if (_networkService.AuctionService is { } auctions)
+            _ = auctions.SellingListAsync(this, pageNum);
+        else
+            Connection.Send(GameAuctionPackets.BuildAuctionSellingList(pageNum, 0));
     }
 
     /// <summary>
@@ -577,7 +580,10 @@ public class GameClient : Client
         // character is still the highest bidder). The two sets differ and no source settles which one the
         // window displays (spec §5.5, §8 q1), so the query is not written. The empty page is also the only
         // page this repository can serve: nothing writes Auctions.
-        Connection.Send(GameAuctionPackets.BuildAuctionBiddedList(pageNum, 0));
+        if (_networkService.AuctionService is { } auctions)
+            _ = auctions.BiddedListAsync(this, pageNum);
+        else
+            Connection.Send(GameAuctionPackets.BuildAuctionBiddedList(pageNum, 0));
     }
 
     /// <summary>
@@ -634,7 +640,10 @@ public class GameClient : Client
                 request.SubCategoryId, request.Keyword, request.PageNum, request.IsEquipable);
         }
 
-        Connection.Send(GameAuctionPackets.BuildAuctionSearch(request.PageNum, 0));
+        if (_networkService.AuctionService is { } auctions)
+            _ = auctions.SearchAsync(this, request);
+        else
+            Connection.Send(GameAuctionPackets.BuildAuctionSearch(request.PageNum, 0));
     }
 
     /// <summary>
@@ -771,6 +780,8 @@ public class GameClient : Client
                 "TM_CS_AUCTION_CANCEL ({id}) Length: {length} received from {clientTag}: auction_uid={auctionUid}",
                 (ushort)GamePackets.TM_CS_AUCTION_CANCEL, buffer.Length, ClientTag, auctionUid);
         }
+
+        if (_networkService.AuctionService is { } auctions) _ = auctions.CancelAsync(this, unchecked((int)auctionUid));
     }
 
     /// <summary>
@@ -1659,6 +1670,8 @@ public class GameClient : Client
                 "TM_CS_AUCTION_BID ({id}) Length: {length} received from {clientTag}: auction_uid={auctionUid}, price={price}",
                 (ushort)GamePackets.TM_CS_AUCTION_BID, buffer.Length, ClientTag, auctionUid, price);
         }
+
+        if (_networkService.AuctionService is { } auctions) _ = auctions.BidAsync(this, auctionUid, price);
     }
 
     private async Task HandleDropQuestAsync(byte[] packet)
@@ -1752,6 +1765,9 @@ public class GameClient : Client
                 "TM_CS_AUCTION_INSTANT_PURCHASE ({id}) Length: {length} received from {clientTag}: auction_uid={auctionUid}",
                 (ushort)GamePackets.TM_CS_AUCTION_INSTANT_PURCHASE, buffer.Length, ClientTag, auctionUid);
         }
+
+        if (_networkService.AuctionService is { } auctions)
+            _ = auctions.InstantPurchaseAsync(this, unchecked((int)auctionUid));
     }
 
     /// <summary>
@@ -2000,6 +2016,24 @@ public class GameClient : Client
                 "TM_CS_AUCTION_REGISTER from {clientTag}: duration_type={durationType} is outside the " +
                 "measured domain 1..3 of the 7.3 client", ClientTag, durationType);
         }
+
+        // onAuctionRegister: anything but 2 (mid) and 3 (long) runs for the short duration.
+        if (_networkService.AuctionService is { } auctions)
+            _ = auctions.RegisterAsync(this, itemHandle, itemCount, startPrice, instantPurchasePrice, durationType);
+    }
+
+    /// <summary>TM_CS_ITEM_KEEPING_LIST (1350) / TM_CS_ITEM_KEEPING_TAKE (1352): the auction keeping box (11 bytes each).</summary>
+    private void HandleItemKeeping(byte[] buffer, bool take)
+    {
+        var id = take ? GamePackets.TM_CS_ITEM_KEEPING_TAKE : GamePackets.TM_CS_ITEM_KEEPING_LIST;
+        if (!GameAuctionPackets.TryReadItemKeepingRequest(buffer, out var value))
+        {
+            SendResult((ushort)id, (ushort)ResultCode.InvalidArgument);
+            return;
+        }
+
+        if (_networkService.AuctionService is not { } auctions) return;
+        _ = take ? auctions.TakeAsync(this, value) : auctions.KeepingListAsync(this, value);
     }
 
     private async Task HandleBuyItemAsync(byte[] packet)
@@ -3582,6 +3616,19 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_HUNTAHOLIC_LEAVE_INSTANCE)
             {
                 HandleHuntaholicLeaveInstance(msgBuffer);
+                continue;
+            }
+
+            // The auction keeping box (1350/1352); 1351 is the server's answer and never reaches here.
+            if (header.ID is (ushort)GamePackets.TM_CS_ITEM_KEEPING_LIST or (ushort)GamePackets.TM_CS_ITEM_KEEPING_TAKE)
+            {
+                HandleItemKeeping(msgBuffer, header.ID == (ushort)GamePackets.TM_CS_ITEM_KEEPING_TAKE);
+                continue;
+            }
+
+            if (header.ID == (ushort)GamePackets.TM_SC_ITEM_KEEPING_LIST)
+            {
+                _logger.Warning("TM_SC_ITEM_KEEPING_LIST received from {clientTag}: a server packet, dropped", ClientTag);
                 continue;
             }
 

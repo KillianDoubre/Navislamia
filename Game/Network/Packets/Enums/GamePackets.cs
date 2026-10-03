@@ -322,6 +322,12 @@ public enum GamePackets : ushort
     // be declared here — 1310 is even reassigned to TS_SC_TAMING_INFO from 9.6.3 on.
     // See docs/packet-specs/1310-auction-cancel.md.
     TM_CS_AUCTION_CANCEL = 1310,
+    // The auction storage (keeping box) of the 7.3 client (SIMSG_REQ/RES_AUCTION_ITEM_KEEPING_LIST/TAKE): the list
+    // request and its 3 859-byte answer, and the take request, X(<id>, version < EPIC_9_6_3) in rzu
+    // (docs/packet-specs/socle-encheres-mecanique.md §3).
+    TM_CS_ITEM_KEEPING_LIST = 1350,
+    TM_SC_ITEM_KEEPING_LIST = 1351,
+    TM_CS_ITEM_KEEPING_TAKE = 1352,
 
     TM_SC_DIALOG = 3000,
     TM_CS_DIALOG = 3001,

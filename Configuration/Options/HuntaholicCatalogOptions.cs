@@ -81,3 +81,31 @@ public class HuntaholicHealingPropRow
     public int X { get; set; }
     public int Y { get; set; }
 }
+
+/// <summary>
+/// The auction house catalogue (<c>DevConsole/auction-catalog.73.json</c>, <c>tools/export_auction_catalog.py</c>):
+/// the category rows and, for each item the 7.3 client knows, its name id, English name, group and class.
+/// </summary>
+public class AuctionCatalogOptions
+{
+    public List<AuctionCategoryRow> Categories { get; set; } = new();
+    public List<AuctionItemRow> Items { get; set; } = new();
+}
+
+public class AuctionCategoryRow
+{
+    public int CategoryId { get; set; }
+    public int SubCategoryId { get; set; }
+    public int NameId { get; set; }
+    public int ItemGroup { get; set; }
+    public int ItemClass { get; set; }
+}
+
+public class AuctionItemRow
+{
+    public int Code { get; set; }
+    public int NameId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public int Group { get; set; }
+    public int Class { get; set; }
+}

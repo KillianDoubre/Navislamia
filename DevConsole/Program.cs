@@ -109,6 +109,31 @@ public class Program
         ConfigureJobLevelCosts(services, context);
         ConfigureCreatureCatalog(services, context);
         ConfigureHuntaholicCatalog(services, context);
+        ConfigureAuctionCatalog(services, context);
+    }
+
+    /// <summary>
+    /// The auction catalogue (<c>auction-catalog.73.json</c>, <c>tools/export_auction_catalog.py</c>): categories and
+    /// item names for the search. Without it every item is uncategorised and the keyword search finds nothing.
+    /// </summary>
+    private static void ConfigureAuctionCatalog(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "auction-catalog.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<AuctionCatalogOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("AuctionCatalog")
+            .Deserialize<AuctionCatalogOptions>() ?? new AuctionCatalogOptions();
+        services.Configure<AuctionCatalogOptions>(options =>
+        {
+            options.Categories = catalog.Categories;
+            options.Items = catalog.Items;
+        });
     }
 
     /// <summary>
@@ -487,6 +512,9 @@ public class Program
             provider.GetRequiredService<Navislamia.Game.Services.Huntaholic.HuntaholicEvents>());
         services.AddSingleton<Navislamia.Game.Services.Huntaholic.IHuntaholicService,
             Navislamia.Game.Services.Huntaholic.HuntaholicService>();
+        services.AddSingleton<Navislamia.Game.Services.Auction.IAuctionCatalog, Navislamia.Game.Services.Auction.AuctionCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Auction.IAuctionStore, Navislamia.Game.Services.Auction.AuctionStore>();
+        services.AddSingleton<Navislamia.Game.Services.Auction.IAuctionService, Navislamia.Game.Services.Auction.AuctionService>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<SkillEffectScheduler>();

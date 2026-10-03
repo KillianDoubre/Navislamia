@@ -161,6 +161,12 @@ public class ConnectionInfo
     public float HuntaholicReturnY { get; set; }
     public byte HuntaholicReturnLayer { get; set; }
 
+    /// <summary>
+    /// <c>m_tNextAuctionUsableTime</c>: the ar_time before which an auction request answers <c>CoolTime</c> (3 s after
+    /// a search, 1 s after a list).
+    /// </summary>
+    public uint NextAuctionUsableTime { get; set; }
+
     /// <summary>When the entries are refilled next (local time), set at world entry.</summary>
     public DateTime NextHuntaholicRefill { get; set; } = DateTime.MaxValue;
 
