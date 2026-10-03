@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 {
     /// <inheritdoc />
-    public partial class Version0017_AuctionHouse : Migration
+    public partial class Version0018_AuctionHouse : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

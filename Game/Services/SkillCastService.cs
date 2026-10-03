@@ -54,6 +54,7 @@ public partial class SkillCastService : ISkillCastService
     private readonly ICombatService _combatService;
     private readonly IFieldPropCatalog _fieldPropCatalog;
     private readonly IWarpService _warpService;
+    private readonly Dungeons.IDungeonService _dungeons;
     private readonly IPlayerVisibilityService _players;
     private readonly SkillEffectScheduler _effects;
     private readonly HashSet<GameClient> _casting = new();
@@ -73,8 +74,10 @@ public partial class SkillCastService : ISkillCastService
         IPlayerVisibilityService players = null, SkillEffectScheduler effects = null,
         CastInterrupts interrupts = null, ICombatRandom random = null, bool runTicks = true,
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
-        Creatures.ICreatureService creatures = null, Huntaholic.IHuntaholicEvents huntaholic = null)
+        Creatures.ICreatureService creatures = null, Dungeons.IDungeonService dungeons = null,
+        Huntaholic.IHuntaholicEvents huntaholic = null)
     {
+        _dungeons = dungeons;
         _huntaholic = huntaholic;
         _creatures = creatures;
         _leveling = leveling;
@@ -569,6 +572,12 @@ public partial class SkillCastService : ISkillCastService
 
         var action = template.Action;
 
+        if (_dungeons is not null && Dungeons.DungeonService.Handles(action.Kind))
+        {
+            _ = ActivateDungeonAsync(client, action);
+            return;
+        }
+
         switch (action.Kind)
         {
             case PropActionKind.CommonWarpGate:
@@ -598,6 +607,12 @@ public partial class SkillCastService : ISkillCastService
 
                 break;
         }
+    }
+
+    private async Task ActivateDungeonAsync(GameClient client, PropAction action)
+    {
+        var result = await _dungeons.ExecuteAsync(client, action);
+        if (result != ResultCode.Success) client.SendResult(400, (ushort)result);
     }
 
     private bool TryValidate(GameClient client, GameActionPackets.SkillRequest request, uint now,
@@ -646,6 +661,12 @@ public partial class SkillCastService : ISkillCastService
             {
                 return false;
             }
+            if (_dungeons is not null && TryGetPropTemplate(targetInstanceId, out var prop)
+                && Dungeons.DungeonService.Handles(prop.Action.Kind))
+            {
+                error = _dungeons.Check(client, prop.Action);
+                if (error != ResultCode.Success) return false;
+            }
         }
         else
         {
@@ -661,8 +682,6 @@ public partial class SkillCastService : ISkillCastService
                 skillLevel = request.SkillLevel;
             }
 
-            if (IsDamageSequence(fields) && info.Layer != 0)
-            { error = ResultCode.NotActable; return false; }
             if (SkillCastRangeRules.AppliesTo(fields.EffectType) && request.Layer != info.Layer)
             { error = ResultCode.InvalidArgument; return false; }
 
@@ -913,7 +932,8 @@ public partial class SkillCastService : ISkillCastService
 
         if (template.ActivateSkillId != request.SkillId
             || !FieldPropUsage.IsUsable(template, info)
-            || !FieldPropUsage.CanAct(template, _fieldPropCatalog))
+            || (!FieldPropUsage.CanAct(template, _fieldPropCatalog)
+                && !(_dungeons is not null && Dungeons.DungeonService.Handles(template.Action.Kind))))
         {
             error = ResultCode.NotActable;
             return false;

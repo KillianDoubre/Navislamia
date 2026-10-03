@@ -104,9 +104,14 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
   et l'équipement, puis les compétences actives et le maintien `/hold`
   (`socle-invocations-competences-actives.md`), **à vérifier en jeu**. Reste : l'état de chute 9001
   (l'amélioration des cartes de créature est livrée avec l'artisanat).
-- Guildes : création (`show_guild_create`), alliance, taxe, donjon de guilde et siège (`warp_to_siege_dungeon`).
-- Donjons d'instance et donjons secrets (20 dialogues `warp_to_instance_dungeon`, `question_secret_dungeon_*`) :
-  `enter_dungeon` ne fait que téléporter.
+- Guildes : création, alliances, équipes d'attaque, raids, sièges et taxes livrés par Codex
+  (`socle-guildes-alliances-sieges.md`), **à vérifier en jeu** ; restent l'emblème, la publicité et le classement de
+  guilde, et la vérification des formats `@GUILD`/`@ALLIANCE` contre la fenêtre du client 7.3.
+- Donjons : accès aux 20 choix d'instance livré, salles isolées par groupe ou personnage, niveaux/difficultés,
+  clés de Vulcanus, sorties et nettoyage ; accès public, raid et siège distingués, horaires régionaux et guilde
+  contrôlés. Pages d'information des donjons secrets et raccourci de la guilde propriétaire raccordés
+  (`socle-donjons-instances-secrets.md`), **à vérifier en jeu**. Restent les scénarios Lua propres aux instances,
+  les apparitions conditionnelles des portails secrets.
 - ~~HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes~~ : livrés (`socle-huntaholic.md`,
   `socle-encheres-mecanique.md`). Restent : props de soin de Bear Road, états `EraseOnQuitHuntaholic`, objets
   réservés/interdits en HuntaHolic, enchères automatiques, essai PostgreSQL du stockage des enchères.

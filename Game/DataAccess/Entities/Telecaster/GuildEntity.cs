@@ -7,6 +7,8 @@ namespace Navislamia.Game.DataAccess.Entities.Telecaster;
 public class GuildEntity : Entity
 {
     public string Name { get; set; }
+    public string NormalizedName { get; set; }
+    public long? LeaderId { get; set; }
     public string Notice { get; set; }
     public string Url { get; set; }
     public string Icon { get; set; } // "game015_0000005849_100326_111217.jpg" Format - [Category]_[UniqueSID(10 characters)]_[Timestamp]_[Description].jpg
@@ -21,14 +23,14 @@ public class GuildEntity : Entity
     public short MaxRecruitLevel { get; set; }
     public bool NameChanged { get; set; }
     
-    public long DungeonId { get; set; }
+    public long? DungeonId { get; set; }
     public virtual DungeonEntity Dungeon { get; set; }
     
     public long DungeonBlockTime { get; set; }
     public long Gold { get; set; }
     public int Chaos { get; set; }
     
-    public long AllianceId { get; set; }
+    public long? AllianceId { get; set; }
     public virtual AllianceEntity Alliance { get; set; }
     
     public long AllianceBlockTime { get; set; }

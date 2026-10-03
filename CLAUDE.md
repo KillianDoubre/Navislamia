@@ -2762,6 +2762,20 @@ Aucune de ces valeurs n'est devinée.
   `result` inconnu. Ce que l'on sait du système retail (Epic 7.2, sources web) et le tableau décodé de
   `db_creaturefarm.rdb` (rareté, forme, renforcement → nombre de tickets) sont au §8 de la fiche.
 
+## Donjons, guildes, alliances, raids et sièges (lot Codex du 2026-10-03)
+
+- **Donjons** (`docs/packet-specs/socle-donjons-instances-secrets.md`, `Game/Services/Dungeons/`) : catalogue régional
+  embarqué (`tools/export_dungeon_resources.py`), `enter_dungeon`/`exit_dungeon` jugés (niveau, horaires régionaux,
+  fermeture), les 20 choix d'instance, Vulcanus (20 clés), raids et sièges, donjons secrets ; salles privées sur les
+  couches 2-127 (`DungeonRooms`), libérées par la sortie, le warp, la résurrection et la déconnexion. Une couche privée
+  retrouvée en base à la connexion renvoie au point d'apparition public.
+- **Guildes** (`docs/packet-specs/socle-guildes-alliances-sieges.md`, `Game/Services/Guilds/`, migration
+  `Version0017_GuildsAndSieges`) : création chez un officier (fenêtres 650/660, 100 000 or), commandes `/g*`, rangs,
+  alliances (`/ga*`, trois guildes), équipes d'attaque (`/rp*`), inscription et classement des raids, sièges (cœur,
+  titres), taxes du donjon possédé. Lignes `@GUILD`/`@ALLIANCE`/`@RAID`. **À vérifier en jeu.**
+- `WarpService.Warp(…, layer)` passe par `DungeonRooms.OnWarp` puis prend la couche : les salles HuntaHolic (couche = numéro
+  de salle, autre zone) et les salles de donjon cohabitent.
+
 ## Source data (9.4 SQL Server export)
 
 The 9.4 resource database lives in a local SQL Server (`localhost\SQLEXPRESS`, database `Arcadia`) that

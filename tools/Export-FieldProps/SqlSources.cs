@@ -109,9 +109,8 @@ internal static class FieldPropResource
 }
 
 /// <summary>
-/// Reads the raid start position of each dungeon. This is what enter_dungeon warps to, which is an
-/// approximation: the original Lua is not available, and the real entry models opening hours, party
-/// and guild requirements that nothing here reproduces.
+/// Legacy prop destination hints. Runtime dungeon entrances use the regional catalogue produced by
+/// tools/export_dungeon_resources.py and DungeonService for levels, schedules and membership checks.
 /// </summary>
 internal static class DungeonResource
 {

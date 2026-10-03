@@ -3,6 +3,8 @@ namespace Navislamia.Game.DataAccess.Entities.Telecaster;
 public class AllianceEntity : Entity
 {
     public string Name { get; set; }
+    public string NormalizedName { get; set; }
+    public System.Collections.Generic.ICollection<GuildEntity> Guilds { get; set; }
     
     public long LeadGuildId { get; set; }
     public virtual GuildEntity LeadGuild { get; set; }

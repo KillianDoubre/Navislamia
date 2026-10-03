@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 {
     [DbContext(typeof(TelecasterContext))]
-    [Migration("20261003151226_Version0017_AuctionHouse")]
-    partial class Version0017_AuctionHouse
+    [Migration("20261003152807_Version0018_AuctionHouse")]
+    partial class Version0018_AuctionHouse
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -86,7 +86,16 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.Property<int>("NameChanged")
                         .HasColumnType("integer");
 
+                    b.Property<string>("NormalizedName")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("LeadGuildId");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasFilter("\"DeletedOn\" IS NULL");
 
                     b.ToTable("Alliances");
                 });
@@ -329,6 +338,12 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
                     b.Property<long?>("GuildId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("GuildMemo")
+                        .HasColumnType("text");
+
+                    b.Property<byte>("GuildPermission")
+                        .HasColumnType("smallint");
 
                     b.Property<int>("HairColorIndex")
                         .HasColumnType("integer");
@@ -761,6 +776,8 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OwnerGuildId");
+
                     b.HasIndex("RaidGuildId");
 
                     b.ToTable("Dungeons");
@@ -814,7 +831,7 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.Property<long>("AllianceBlockTime")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("AllianceId")
+                    b.Property<long?>("AllianceId")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Banner")
@@ -838,7 +855,7 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.Property<long>("DungeonBlockTime")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("DungeonId")
+                    b.Property<long?>("DungeonId")
                         .HasColumnType("bigint");
 
                     b.Property<long>("Gold")
@@ -849,6 +866,9 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
                     b.Property<int>("IconSize")
                         .HasColumnType("integer");
+
+                    b.Property<long?>("LeaderId")
+                        .HasColumnType("bigint");
 
                     b.Property<short>("MaxRecruitLevel")
                         .HasColumnType("smallint");
@@ -864,6 +884,9 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
                     b.Property<bool>("NameChanged")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("NormalizedName")
+                        .HasColumnType("text");
 
                     b.Property<string>("Notice")
                         .HasColumnType("text");
@@ -884,13 +907,161 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AllianceId")
-                        .IsUnique();
+                    b.HasIndex("AllianceId");
 
-                    b.HasIndex("DungeonId")
-                        .IsUnique();
+                    b.HasIndex("DungeonId");
+
+                    b.HasIndex("LeaderId");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasFilter("\"DeletedOn\" IS NULL");
 
                     b.ToTable("Guilds");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildRaidEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("BestTime")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Boss1Dead")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("Boss2Dead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DungeonId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("GuildId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("LastCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("Week")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("WrappedUp")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DungeonId");
+
+                    b.HasIndex("GuildId", "Week")
+                        .IsUnique()
+                        .HasFilter("\"DeletedOn\" IS NULL");
+
+                    b.ToTable("GuildRaids");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildSiegeEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("AttackerId")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("CoreDestroyed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("DefenderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("DeletedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DungeonId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("Week")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("WinnerId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DungeonId", "Week")
+                        .IsUnique()
+                        .HasFilter("\"DeletedOn\" IS NULL");
+
+                    b.ToTable("GuildSieges");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildSiegeParticipantEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("Attacker")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("EndCredited")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("SiegeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("StartCredited")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId");
+
+                    b.HasIndex("SiegeId", "CharacterId")
+                        .IsUnique();
+
+                    b.ToTable("GuildSiegeParticipants");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity", b =>
@@ -1367,6 +1538,17 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.ToTable("SummonSkills");
                 });
 
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AllianceEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", "LeadGuild")
+                        .WithMany()
+                        .HasForeignKey("LeadGuildId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("LeadGuild");
+                });
+
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AuctionEntity", b =>
                 {
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", "HighestBidder")
@@ -1493,9 +1675,17 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", b =>
                 {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", "OwnerGuild")
+                        .WithMany()
+                        .HasForeignKey("OwnerGuildId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", "RaidGuild")
                         .WithMany()
-                        .HasForeignKey("RaidGuildId");
+                        .HasForeignKey("RaidGuildId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("OwnerGuild");
 
                     b.Navigation("RaidGuild");
                 });
@@ -1503,20 +1693,62 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", b =>
                 {
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.AllianceEntity", "Alliance")
-                        .WithOne("LeadGuild")
-                        .HasForeignKey("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", "AllianceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .WithMany("Guilds")
+                        .HasForeignKey("AllianceId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", "Dungeon")
-                        .WithOne("OwnerGuild")
-                        .HasForeignKey("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", "DungeonId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .WithMany()
+                        .HasForeignKey("DungeonId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", null)
+                        .WithMany()
+                        .HasForeignKey("LeaderId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Alliance");
 
                     b.Navigation("Dungeon");
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildRaidEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", null)
+                        .WithMany()
+                        .HasForeignKey("DungeonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", null)
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildSiegeEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", null)
+                        .WithMany()
+                        .HasForeignKey("DungeonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildSiegeParticipantEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", null)
+                        .WithMany()
+                        .HasForeignKey("CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.GuildSiegeEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SiegeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity", b =>
@@ -1624,7 +1856,7 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AllianceEntity", b =>
                 {
-                    b.Navigation("LeadGuild");
+                    b.Navigation("Guilds");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AuctionEntity", b =>
@@ -1647,11 +1879,6 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.Navigation("Sellers");
 
                     b.Navigation("Skills");
-                });
-
-            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", b =>
-                {
-                    b.Navigation("OwnerGuild");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.GuildEntity", b =>

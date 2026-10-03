@@ -12,6 +12,8 @@ public class MonsterSpawnOptions
 
 public class MonsterSpawnPoint
 {
+    /// <summary>Instance respawn period in seconds; null uses the public world's respawn rules.</summary>
+    public int? RespawnSeconds { get; set; }
     public byte Layer { get; set; }
     public bool IsDungeonRaidMonster { get; set; }
     public int MonsterId { get; set; }

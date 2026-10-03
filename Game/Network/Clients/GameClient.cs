@@ -108,6 +108,7 @@ public class GameClient : Client
             info.CharacterHandle, 0, info.CharacterHp, Math.Max(maxHp, info.CharacterHp), 0, info.CharacterMp,
             Math.Max(maxMp, info.CharacterMp)));
         _networkService.PartyService?.OnVitalsChanged(this);
+        _networkService.GuildService?.OnVitalsChanged(this);
     }
 
     public void SendGameTime()
@@ -1191,6 +1192,8 @@ public class GameClient : Client
         }
 
         var message = Encoding.ASCII.GetString(input.Slice(24, count)).TrimEnd('\0');
+        if (type != (byte)ChatType.Whisper && message.StartsWith('/')
+            && _networkService.GuildService?.TryHandleCommand(this, message) == true) return;
 
         // The party window has no opcode: it sends /pcreate, /pinvite, /pjoin... as chat lines and parses
         // the @PARTY answers (docs/packet-specs/socle-groupe.md). They are player commands, not GM ones.
@@ -1263,7 +1266,8 @@ public class GameClient : Client
             {
                 (byte)ChatType.Global => true,
                 (byte)ChatType.Party => info.PartyId is not null && info.PartyId == other.PartyId,
-                (byte)ChatType.Guild => info.GuildId is not null && info.GuildId == other.GuildId,
+                (byte)ChatType.Guild => info.GuildId is > 0 && info.GuildId == other.GuildId,
+                (byte)ChatType.AttackTeam => _networkService.GuildService?.SameAttackTeam(this, recipient) == true,
                 _ => ReferenceEquals(recipient, this)
             };
             if (deliver) recipient.Connection.Send(chat);
@@ -1367,6 +1371,8 @@ public class GameClient : Client
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
+            if (_networkService.GuildService is { } guilds) await guilds.OnWorldExitAsync(this);
+            _networkService.DungeonRooms?.OnWorldExit(this);
 
             if (_networkService.QuestService is not null) await _networkService.QuestService.LeaveWorldAsync(this);
             await SaveProgressSafelyAsync("while disconnecting");
@@ -1401,6 +1407,8 @@ public class GameClient : Client
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
+            if (_networkService.GuildService is { } guilds) await guilds.OnWorldExitAsync(this);
+            _networkService.DungeonRooms?.OnWorldExit(this);
             if (_networkService.QuestService is not null) await _networkService.QuestService.LeaveWorldAsync(this);
             await SaveProgressSafelyAsync("before returning to character selection");
             info.ClearCharacterSession();

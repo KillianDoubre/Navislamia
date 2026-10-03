@@ -105,6 +105,13 @@ public class GameActions : IActions
         }
 
         var position = character.Position ?? new[] { 0, 0, 0 };
+        // Private layers belong to this process's live rooms. A saved layer after a crash cannot
+        // recreate its ownership or monsters; recover at the public spawn instead.
+        if (character.Layer != 0)
+        {
+            character.Layer = 0;
+            position = DefaultSpawn;
+        }
         if (position.Length < 3 || (position[0] == 0 && position[1] == 0 && position[2] == 0))
         {
             position = DefaultSpawn;
@@ -202,7 +209,7 @@ public class GameActions : IActions
             FaceTextureId = character.TextureId,
             Name = character.CharacterName,
             CellSize = 0,
-            GuildId = 0
+            GuildId = (int)(character.GuildId ?? 0)
         };
 
         client.Connection.Send(new Packet<TS_SC_LOGIN_RESULT>((ushort)GamePackets.TM_SC_LOGIN_RESULT, result).Data);
@@ -254,7 +261,7 @@ public class GameActions : IActions
             Name = character.CharacterName,
             JobId = (ushort)character.CurrentJob,
             RideHandle = 0,
-            GuildId = 0
+            GuildId = (uint)(character.GuildId ?? 0)
         };
         client.Connection.Send(new Packet<TS_SC_ENTER_PLAYER>((ushort)GamePackets.TM_SC_ENTER, enter).Data);
 
@@ -368,6 +375,7 @@ public class GameActions : IActions
         // Parties live in memory (docs/packet-specs/socle-groupe.md): the member comes back online in the
         // party they left, and ConnectionInfo.PartyId is set from it, never from Characters.PartyId.
         _networkService.PartyService?.OnWorldEntry(client);
+        if (_networkService.GuildService is { } guilds) await guilds.OnWorldEntryAsync(client);
 
         // The creatures (docs/packet-specs/socle-apprivoisement-invocation.md §15): the 301 of each formed summon,
         // the formation 303, and the main summon back beside its master, once the master is in the world.

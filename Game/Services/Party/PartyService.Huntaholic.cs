@@ -84,7 +84,7 @@ public sealed partial class PartyService
                 return 0;
             }
 
-            var created = new PartyState(++_nextPartyId, name, NewPassword(), info.CharacterHandle) { Huntaholic = true };
+            var created = new PartyState(++_nextPartyId, name, NewPassword(), info.CharacterHandle) { Type = HuntaholicPartyType };
             var member = new PartyMember(info.CharacterHandle, info.CharacterName);
             Remember(member, info);
             created.Members.Add(member);

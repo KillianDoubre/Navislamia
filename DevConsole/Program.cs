@@ -93,6 +93,7 @@ public class Program
         services.Configure<AuthOptions>(context.Configuration.GetSection("Network:Auth"));
         services.Configure<GameOptions>(context.Configuration.GetSection("Network:Game"));
         services.Configure<GameRuleOptions>(context.Configuration.GetSection("GameRules"));
+        services.Configure<DungeonOptions>(context.Configuration.GetSection("Dungeons"));
         services.Configure<UploadOptions>(context.Configuration.GetSection("Network:Upload"));
         services.Configure<ScriptOptions>(context.Configuration.GetSection("Script"));
         services.Configure<MapOptions>(context.Configuration.GetSection("Map"));
@@ -502,6 +503,14 @@ public class Program
         services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
+        services.AddSingleton<Navislamia.Game.Services.Dungeons.DungeonCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Guilds.GuildRuntime>();
+        services.AddSingleton<Navislamia.Game.Services.Guilds.GuildCombatEvents>();
+        services.AddSingleton<Navislamia.Game.Services.Guilds.IGuildService, Navislamia.Game.Services.Guilds.GuildService>();
+        services.AddSingleton<Navislamia.Game.Services.Dungeons.DungeonRooms>();
+        services.AddSingleton<Navislamia.Game.Services.Dungeons.IDungeonGuildRepository, Navislamia.Game.Services.Dungeons.DungeonGuildRepository>();
+        services.AddSingleton<Navislamia.Game.Services.Dungeons.IDungeonService, Navislamia.Game.Services.Dungeons.DungeonService>();
+        services.AddHostedService<DungeonMaintenanceService>();
         services.AddSingleton<IEventAreaService, EventAreaService>();
         services.AddSingleton<IResurrectionItemCatalog, ResurrectionItemCatalog>();
         services.AddSingleton<IResurrectionService, ResurrectionService>();

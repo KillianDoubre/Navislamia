@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Navislamia.Game.Services;
 
@@ -90,6 +92,19 @@ public sealed class CharacterGate
         {
             stripe.Release();
         }
+    }
+
+    /// <summary>One durable event affects several characters; acquire each stripe once, in order.</summary>
+    public async Task RunManyAsync(IEnumerable<string> keys, Func<Task> operation)
+    {
+        var stripes = keys.Select(StripeIndexOf).Distinct().OrderBy(i => i).ToArray();
+        var acquired = 0;
+        try
+        {
+            foreach (var stripe in stripes) { await _stripes[stripe].WaitAsync(); acquired++; }
+            await operation();
+        }
+        finally { for (var i = acquired - 1; i >= 0; i--) _stripes[stripes[i]].Release(); }
     }
 
     private static uint StripeIndexOf(string key) =>

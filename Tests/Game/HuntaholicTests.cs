@@ -176,7 +176,7 @@ public class HuntaholicTests
     {
         _visibility = new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>());
         var catalog = Catalog();
-        _parties = new PartyService(_visibility, A.Fake<IStatService>(), A.Fake<IBannedWordsRepository>(), catalog);
+        _parties = new PartyService(_visibility, A.Fake<IStatService>(), A.Fake<IBannedWordsRepository>(), huntaholics: catalog);
         _warp = new FakeWarp();
         var repository = A.Fake<IMonsterResourceRepository>();
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._)).ReturnsLazily(call =>

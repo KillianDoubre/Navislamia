@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Navislamia.Game.DataAccess.Contexts;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 {
     [DbContext(typeof(TelecasterContext))]
-    partial class TelecasterContextModelSnapshot : ModelSnapshot
+    [Migration("20261003141842_Version0017_GuildsAndSieges")]
+    partial class Version0017_GuildsAndSieges
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -157,114 +160,6 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.HasIndex("SellerId");
 
                     b.ToTable("Auctions");
-                });
-
-            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AuctionKeepingEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedOn")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DeletedOn")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("ExpireTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("Gold")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("ItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("KeepingType")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("ModifiedOn")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("OwnerId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("RelatedAuctionId")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("RelatedItemCode")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("RelatedItemEnhance")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("RelatedItemLevel")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerId");
-
-                    b.ToTable("AuctionKeepings");
-                });
-
-            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AuctionListingEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<long[]>("BidderIds")
-                        .HasColumnType("bigint[]");
-
-                    b.Property<DateTime>("CreatedOn")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DeletedOn")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("EndTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("HighestBidderId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("HighestBidderName")
-                        .HasColumnType("text");
-
-                    b.Property<long>("HighestBiddingPrice")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("InstantPurchasePrice")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("ItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("ModifiedOn")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("RegistrationTax")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("SellerId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SellerName")
-                        .HasColumnType("text");
-
-                    b.Property<long>("StartPrice")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SellerId");
-
-                    b.ToTable("AuctionListings");
                 });
 
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", b =>

@@ -15,7 +15,7 @@ public static class PartyMessages
     public const string Sender = "@PARTY";
 
     /// <summary><c>onPartyCreate</c>: <c>CREATE|%s|%s|%d|</c> — party, leader, then 0.</summary>
-    public static string Create(string party, string leader) => $"CREATE|{party}|{leader}|0|";
+    public static string Create(string party, string leader, int type = 0) => $"CREATE|{party}|{leader}|{type}|";
 
     /// <summary><c>onPartyInvite</c>: <c>INVITE|%s|%s|%d|%d|</c> — inviter, party, id, password.</summary>
     public static string Invite(string inviter, string party, int partyId, int password) =>

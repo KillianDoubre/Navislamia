@@ -46,7 +46,6 @@ public class PropScriptTests
     [TestCase("warp_gate(60101)")]
     [TestCase("show_dungeon_stone(123000)")]
     [TestCase("supply_event_item()")]
-    [TestCase("enter_vulcanus()")]
     [TestCase("1")]
     [TestCase("")]
     [TestCase(null)]

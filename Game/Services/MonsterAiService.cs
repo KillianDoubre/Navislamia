@@ -39,15 +39,17 @@ public class MonsterAiService
     private readonly ICombatService _combat;
     private readonly IMonsterSkillService _skills;
     private readonly Creatures.ICreatureService _creatures;
+    private readonly Guilds.GuildRuntime _guilds;
 
     public MonsterAiService(MonsterWorldState worldState, NetworkService networkService, ICombatService combat,
-        IMonsterSkillService skills, Creatures.ICreatureService creatures = null)
+        IMonsterSkillService skills, Creatures.ICreatureService creatures = null, Guilds.GuildRuntime guilds = null)
     {
         _worldState = worldState;
         _networkService = networkService;
         _combat = combat;
         _skills = skills;
         _creatures = creatures;
+        _guilds = guilds;
         _ = RunAsync();
     }
 
@@ -117,6 +119,7 @@ public class MonsterAiService
             foreach (var (instance, mx, my) in _candidates)
             {
                 if (instance.Layer != info.Layer) continue;
+                if (_guilds?.CanDamage(client, instance.InstanceId) == false) continue;
                 var instanceId = instance.InstanceId;
                 var action = MonsterAiRules.Decide(false, true, true, false,
                     mx, my, instance.X, instance.Y, info.X, info.Y,
@@ -146,6 +149,7 @@ public class MonsterAiService
             }
 
             var info = enemy.ConnectionInfo;
+            if (_guilds?.CanDamage(enemy, instanceId) == false) { _worldState.ClearAggro(instanceId); continue; }
 
             uint handle;
             bool streamed;

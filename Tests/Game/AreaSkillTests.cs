@@ -783,6 +783,26 @@ public class AreaSkillTests
             .Should().Be((ushort)ResultCode.InvalidArgument);
     }
 
+    [TestCase(30011)]
+    [TestCase(232)]
+    public void Player_area_and_multi_hit_skills_work_in_private_layers_without_hitting_public_monsters(int effect)
+    {
+        using var h = new Harness();
+        var caster = h.Client(layer: 2);
+        var info = StorageTestHarness.Session(caster);
+        var id = h.World.SpawnDungeonMonsters(new[]
+        {
+            new MonsterSpawnPoint { MonsterId = 2101, Count = 1, X = 100, Y = 100, Layer = 2 }
+        }).Single();
+        info.SpawnedMonsters.Clear();
+        info.SpawnedMonsters[id] = MonsterHandle;
+        h.Cast(h.PlayerService(Row(effect, Vars(effect == 30011 ? 4 : 6))), caster);
+        h.Effects.Tick(uint.MaxValue / 2);
+        h.World.GetHp(id).Should().BeLessThan(1000);
+        h.World.GetHp(0).Should().Be(1000);
+        h.Frames(caster, SkillPacketType.Fire).Should().NotBeEmpty();
+    }
+
     [Test]
     public void Self_ground_area_starts_at_the_casters_interpolated_position()
     {

@@ -23,14 +23,17 @@ public class WarpService : IWarpService
     private readonly Creatures.ICreatureService _creatures;
     private readonly IPlayerVisibilityService _playerVisibility;
     private readonly IGroundItemService _groundItems;
+    private readonly Dungeons.DungeonRooms _dungeons;
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
         IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
         IPlayerVisibilityService playerVisibility, IGroundItemService groundItems,
         Casting.ICastInterrupts casts = null, Compete.ICompeteService compete = null,
-        Creatures.ICreatureService creatures = null, Huntaholic.IHuntaholicEvents huntaholic = null)
+        Creatures.ICreatureService creatures = null, Dungeons.DungeonRooms dungeons = null,
+        Huntaholic.IHuntaholicEvents huntaholic = null)
     {
         _huntaholic = huntaholic;
+        _dungeons = dungeons;
         _creatures = creatures;
         _compete = compete;
         _casts = casts;
@@ -74,7 +77,7 @@ public class WarpService : IWarpService
 
             LeaveEverything(client);
 
-            info.Layer = layer;
+            info.Layer = _dungeons?.OnWarp(client, x, y, layer) ?? layer;
             info.X = x;
             info.Y = y;
             info.DestinationX = x;

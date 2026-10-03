@@ -20,6 +20,9 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<CharacterQuestCompletionEntity> CharacterQuestCompletions { get; set; }
     public DbSet<DungeonEntity> Dungeons { get; set; }
     public DbSet<GuildEntity> Guilds { get; set; }
+    public DbSet<GuildRaidEntity> GuildRaids { get; set; }
+    public DbSet<GuildSiegeEntity> GuildSieges { get; set; }
+    public DbSet<GuildSiegeParticipantEntity> GuildSiegeParticipants { get; set; }
     public DbSet<ItemEntity> Items { get; set; }
     public DbSet<ItemStorageEntity> ItemStorages { get; set; }
     public DbSet<PartyEntity> Parties { get; set; }
@@ -269,18 +272,32 @@ public class TelecasterContext : SoftDeletionContext
     {
         modelBuilder.Entity<GuildEntity>()
             .HasOne(s => s.Alliance)
-            .WithOne(a => a.LeadGuild)
-            .HasForeignKey<GuildEntity>(g => g.AllianceId);
+            .WithMany(a => a.Guilds)
+            .HasForeignKey(g => g.AllianceId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<AllianceEntity>().HasOne(a => a.LeadGuild).WithMany()
+            .HasForeignKey(a => a.LeadGuildId).OnDelete(DeleteBehavior.Restrict);
         
         modelBuilder.Entity<GuildEntity>()
             .HasOne(s => s.Dungeon)
-            .WithOne(a => a.OwnerGuild)
-            .HasForeignKey<GuildEntity>(g => g.DungeonId);
+            .WithMany()
+            .HasForeignKey(g => g.DungeonId).OnDelete(DeleteBehavior.Restrict);
         
-        modelBuilder.Entity<GuildEntity>()
-            .HasOne(s => s.Dungeon)
-            .WithOne(a => a.OwnerGuild)
-            .HasForeignKey<GuildEntity>(g => g.DungeonId);
+        modelBuilder.Entity<DungeonEntity>().HasOne(d => d.OwnerGuild).WithMany()
+            .HasForeignKey(d => d.OwnerGuildId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<DungeonEntity>().HasOne(d => d.RaidGuild).WithMany()
+            .HasForeignKey(d => d.RaidGuildId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GuildEntity>().HasOne<CharacterEntity>().WithMany()
+            .HasForeignKey(g => g.LeaderId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GuildEntity>().HasIndex(g => g.NormalizedName).IsUnique().HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<AllianceEntity>().HasIndex(g => g.NormalizedName).IsUnique().HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<GuildRaidEntity>().HasIndex(r => new { r.GuildId, r.Week }).IsUnique().HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<GuildSiegeEntity>().HasIndex(r => new { r.DungeonId, r.Week }).IsUnique().HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<GuildSiegeParticipantEntity>().HasIndex(r => new { r.SiegeId, r.CharacterId }).IsUnique();
+        modelBuilder.Entity<GuildRaidEntity>().HasOne<GuildEntity>().WithMany().HasForeignKey(r => r.GuildId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GuildRaidEntity>().HasOne<DungeonEntity>().WithMany().HasForeignKey(r => r.DungeonId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GuildSiegeEntity>().HasOne<DungeonEntity>().WithMany().HasForeignKey(r => r.DungeonId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GuildSiegeParticipantEntity>().HasOne<GuildSiegeEntity>().WithMany().HasForeignKey(r => r.SiegeId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<GuildSiegeParticipantEntity>().HasOne<CharacterEntity>().WithMany().HasForeignKey(r => r.CharacterId).OnDelete(DeleteBehavior.Cascade);
         
         modelBuilder.Entity<GuildEntity>().Property(g => g.PermissionNames).HasMaxLength(6);
         modelBuilder.Entity<GuildEntity>().Property(g => g.PermissionSets).HasMaxLength(6);

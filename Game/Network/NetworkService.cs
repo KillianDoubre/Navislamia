@@ -66,6 +66,8 @@ public class NetworkService : INetworkService
     public readonly ISoulstoneCraftService SoulstoneCraftService;
     public readonly NetworkOptions NetworkOptions;
     public readonly ServerOptions ServerOptions;
+    public readonly Navislamia.Game.Services.Dungeons.DungeonRooms DungeonRooms;
+    public readonly Navislamia.Game.Services.Guilds.IGuildService GuildService;
 
     public AuthClient AuthClient { get; set; }
 
@@ -108,9 +110,13 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Compete.ICompeteService competeService = null,
         Navislamia.Game.Services.Creatures.ICreatureService creatureService = null,
         Navislamia.Game.Services.IPkModeService pkModeService = null,
+        Navislamia.Game.Services.Dungeons.DungeonRooms dungeonRooms = null,
+        Navislamia.Game.Services.Guilds.IGuildService guildService = null,
         Navislamia.Game.Services.Huntaholic.IHuntaholicService huntaholicService = null,
         Navislamia.Game.Services.Auction.IAuctionService auctionService = null)
     {
+        GuildService = guildService;
+        DungeonRooms = dungeonRooms;
         HuntaholicService = huntaholicService;
         AuctionService = auctionService;
         PkModeService = pkModeService;

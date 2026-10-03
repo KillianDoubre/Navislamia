@@ -44,6 +44,7 @@ public partial class MonsterWorldState
 
     private readonly Dictionary<long, int> _currentHp = new();
     private readonly Dictionary<long, DateTime> _respawnAt = new();
+    private readonly Dictionary<long, int> _dungeonRegen = new();
 
     // A monster's active move, interpolated over time exactly as the client does, so the server's
     // notion of where a monster is matches the animation the client is playing. Replaces the old
@@ -145,6 +146,71 @@ public partial class MonsterWorldState
             }
             return result;
         }
+    }
+
+    /// <summary>Each room owns its monsters; public spawn templates are never moved to a private layer.</summary>
+    public IReadOnlyList<long> SpawnDungeonMonsters(IEnumerable<MonsterSpawnPoint> points)
+    {
+        lock (_loadLock)
+        {
+            var sources = points.ToArray();
+            var resources = _repository.GetByIds(sources.Select(p => p.MonsterId).Distinct().ToArray());
+            var stats = LoadBaseStats(resources);
+            lock (_stateLock)
+            {
+                var ids = new List<long>();
+                foreach (var source in sources)
+                {
+                    var monsters = MonsterInstanceFactory.Build(new[] { source }, resources,
+                        id => stats.TryGetValue(id, out var value) ? value : null,
+                        isBlocked: (x, y) => _collision.IsBlocked(x, y), useSecondaryRewards: _options.UseSecondaryRewards);
+                    foreach (var template in monsters)
+                    {
+                        var monster = template with { InstanceId = _nextInstanceId++ };
+                        _scriptSpawns.Add(monster.InstanceId, monster);
+                        _dungeonRegen[monster.InstanceId] = Math.Max(0, source.RespawnSeconds ?? 0);
+                        ids.Add(monster.InstanceId);
+                    }
+                }
+                return ids;
+            }
+        }
+    }
+
+    public void RemoveDungeonMonsters(IEnumerable<long> ids)
+    {
+        lock (_stateLock)
+        {
+            foreach (var id in ids)
+            {
+                _scriptSpawns.Remove(id);
+                _respawnAt.Remove(id);
+                _dungeonRegen.Remove(id);
+                _currentHp.Remove(id);
+                _damageContributions.Remove(id);
+                _firstDamage.Remove(id);
+                _movement.Remove(id);
+                _nextMoveAt.Remove(id);
+                _returningHome.Remove(id);
+                _states.Remove(id);
+                _lifeVersions.Remove(id);
+                _skillReady.Remove(id);
+                _skillOpportunity.Remove(id);
+                _aggro.Remove(id);
+                _hate.Remove(id);
+                _targetHate.Remove(id);
+                _combatStarted.Remove(id);
+                _triggerFlags.Remove(id);
+            }
+        }
+    }
+
+    public void RemoveDungeonLayer(byte layer, int cellX, int cellY)
+    {
+        lock (_stateLock)
+            RemoveDungeonMonsters(_scriptSpawns.Values.Where(m => m.Layer == layer
+                && (layer != 1 || (int)(m.X / 16128) == cellX && (int)(m.Y / 16128) == cellY))
+                .Select(m => m.InstanceId).ToArray());
     }
 
     /// <summary>Script reinforcements start at the caster, spread out, and inherit its enemy.</summary>
@@ -759,7 +825,8 @@ public partial class MonsterWorldState
         {
             if (_respawnAt.ContainsKey(instanceId)) return false;
             _currentHp[instanceId] = 0;
-            _respawnAt[instanceId] = respawnAt;
+            _respawnAt[instanceId] = _dungeonRegen.TryGetValue(instanceId, out var period) && period > 0
+                ? DateTime.UtcNow.AddSeconds(period) : respawnAt;
             // A corpse chases nothing and a respawn inherits no target, the same rule as its states.
             _aggro.Remove(instanceId);
             _hate.Remove(instanceId);
@@ -1262,8 +1329,13 @@ public partial class MonsterWorldState
                 _movement.Remove(id);
                 _nextMoveAt.Remove(id);
                 _returningHome.Remove(id);
-                if (_scriptSpawns.Remove(id))
+                if (_dungeonRegen.TryGetValue(id, out var period) && period > 0)
                 {
+                    _states.Remove(id);
+                }
+                else if (_scriptSpawns.Remove(id))
+                {
+                    _dungeonRegen.Remove(id);
                     _states.Remove(id);
                     _lifeVersions.Remove(id);
                 }

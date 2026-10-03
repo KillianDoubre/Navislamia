@@ -79,6 +79,7 @@ public static class FieldPropUsage
         {
             PropActionKind.CommonWarpGate or PropActionKind.RunTeleport => true,
             PropActionKind.HuntaholicLobby => true,
+            PropActionKind.EnterSecretDungeon or PropActionKind.EnterInstanceDungeon or PropActionKind.ExitInstanceDungeon => true,
             PropActionKind.EnterDungeon or PropActionKind.ExitDungeon =>
                 catalog.TryGetDungeonStart(template.Action.DungeonId, out _, out _),
             _ => false
