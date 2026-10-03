@@ -1579,7 +1579,21 @@ public class GameClient : Client
                 reward.RewardType, reward.Count, ClientTag);
         }
 
+        // onDonateReward: the moral points buy the reward items (docs/packet-specs/259-donate-reward.md §11).
+        if (_networkService.ItemDonateService is { } donations)
+        {
+            _ = AnswerDonateRewardAsync(donations, rewards);
+            return;
+        }
+
         SendResult(requestId, (ushort)ResultCode.Success);
+    }
+
+    private async Task AnswerDonateRewardAsync(IItemDonateService donations,
+        GameActionPackets.DonateRewardEntry[] rewards)
+    {
+        var result = await donations.RewardAsync(this, rewards);
+        SendResult((ushort)GamePackets.TM_CS_DONATE_REWARD, (ushort)result);
     }
 
     private async Task HandleDropItemAsync(byte[] packet)

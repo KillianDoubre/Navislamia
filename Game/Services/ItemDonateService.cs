@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
@@ -11,9 +13,9 @@ namespace Navislamia.Game.Services;
 /// <summary>
 /// Handles <c>TM_CS_DONATE_ITEM</c> (258). The scope is the one the fiche fixes (§5.3): read the
 /// frame, judge the offer, take the gold / jp / item units out of the character, acknowledge.
-/// <b>Nothing is credited in exchange</b> — the altar's conversion to moral points is not wired
-/// into this service (fiche §5.4, §7.1), and the
-/// sibling packet <c>TM_CS_DONATE_REWARD</c> (259) is out of scope.
+/// The gifts become moral points like the official <c>onDonateItem</c> (gold / 10 000, an item's base price /
+/// 10 000 per unit), and <c>TM_CS_DONATE_REWARD</c> (259) spends them on the official reward items
+/// (<see cref="RewardAsync"/>).
 /// </summary>
 public class ItemDonateService : IItemDonateService
 {
@@ -21,10 +23,86 @@ public class ItemDonateService : IItemDonateService
 
     private readonly ILogger _logger = Log.ForContext<ItemDonateService>();
     private readonly ICharacterService _characterService;
+    private readonly IItemSellCatalog _catalog;
 
-    public ItemDonateService(ICharacterService characterService)
+    public ItemDonateService(ICharacterService characterService, IItemSellCatalog catalog = null)
     {
         _characterService = characterService;
+        _catalog = catalog;
+    }
+
+    /// <summary><c>GameRule::DONATE_GOLD_UNIT_COUNT</c>: 10 000 gold (or 10 000 of an item's price) for one moral point.</summary>
+    public const decimal DonateGoldUnitCount = 10000m;
+
+    /// <summary><c>GameRule::DONATION_POINT_FOR_REWARD_ITEM</c>, the moral points each reward grade costs.</summary>
+    public static readonly decimal[] RewardCost = { 1000m, 5000m, 10000m, 30000m };
+
+    /// <summary><c>GameRule::DONATION_REWARD_ITEM_CODE</c>, the item each reward grade gives.</summary>
+    public static readonly int[] RewardItem = { 3620026, 3620025, 3620024, 3620023 };
+
+    /// <summary>
+    /// <c>GameRule::GetDonationRewardMoralPoint</c>: the moral points an amount of gold (or an item's base price times
+    /// its count) is worth, kept to the four decimals of <c>c_fixed10</c>.
+    /// </summary>
+    public static decimal MoralPoints(long goldValue) =>
+        decimal.Truncate(Math.Max(0, goldValue) / DonateGoldUnitCount * 10000m) / 10000m;
+
+    /// <summary>
+    /// <c>onDonateReward</c>: the moral points (the negative of the immorality) buy reward items, the grades' costs
+    /// summed first and refused as a whole (<c>NotOwn</c>) when they are not covered. The caller sends the result.
+    /// </summary>
+    public async Task<ResultCode> RewardAsync(GameClient client,
+        IReadOnlyList<GameActionPackets.DonateRewardEntry> rewards)
+    {
+        var info = client.ConnectionInfo;
+        if (rewards is null || rewards.Count == 0)
+        {
+            return ResultCode.Success;
+        }
+
+        if (rewards.Any(r => r.RewardType < 0 || r.RewardType >= RewardCost.Length))
+        {
+            return ResultCode.InvalidArgument;
+        }
+
+        var cost = rewards.Sum(r => RewardCost[r.RewardType] * r.Count);
+        var moral = -info.ImmoralPoint;
+        if (cost > moral)
+        {
+            // The official answer when the moral points do not cover the selection (string 223).
+            return ResultCode.NotOwn;
+        }
+
+        var spent = 0m;
+        try
+        {
+            foreach (var reward in rewards.Where(r => r.Count > 0))
+            {
+                var added = await _characterService.AddItemAsync(info.CharacterName, RewardItem[reward.RewardType],
+                    reward.Count);
+                if (added is null)
+                {
+                    continue;
+                }
+
+                spent += RewardCost[reward.RewardType] * reward.Count;
+                foreach (var frame in GameCharacterPackets.BuildInventory(new[] { added }))
+                {
+                    client.Connection.Send(frame);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not give the donation rewards of {clientTag}", client.ClientTag);
+        }
+
+        if (spent > 0)
+        {
+            MoralityRules.Set(client, -(moral - spent));
+        }
+
+        return ResultCode.Success;
     }
 
     public async Task DonateAsync(GameClient client, GameActionPackets.DonateItemRequest request)
@@ -59,6 +137,7 @@ public class ItemDonateService : IItemDonateService
 
         var items = request.Items ?? Array.Empty<GameActionPackets.DonateItemEntry>();
         var remaining = new long[items.Length];
+        var prices = new long[items.Length];
 
         try
         {
@@ -74,6 +153,11 @@ public class ItemDonateService : IItemDonateService
                     client.SendResult(DonateRequestId, (ushort)ResultCode.NotExist, value);
                     return;
                 }
+
+                // The base price (ItemBase::nPrice) is what the altar weighs.
+                prices[i] = _catalog is not null && _catalog.TryGetTemplate((int)item.ItemResourceId, out var template)
+                    ? (long)template.Price
+                    : 0;
             }
 
             for (var i = 0; i < items.Length; i++)
@@ -118,6 +202,19 @@ public class ItemDonateService : IItemDonateService
         {
             client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp,
                 info.CharacterJp));
+        }
+
+        // onDonateItem: every gift lowers the immorality (raises the moral points) by its worth, a Bloody status
+        // that clears is broadcast (MoralityRules.Set sends the property and the status).
+        var reward = MoralPoints(request.Gold);
+        for (var i = 0; i < items.Length; i++)
+        {
+            reward += MoralPoints(prices[i]) * items[i].Count;
+        }
+
+        if (reward > 0)
+        {
+            MoralityRules.Set(client, info.ImmoralPoint - reward);
         }
 
         client.SendResult(DonateRequestId, (ushort)ResultCode.Success, value);
