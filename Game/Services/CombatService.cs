@@ -424,6 +424,21 @@ public class CombatService : ICombatService
         return RollMonsterHit(instance, monster, target, monster.AttackPointRight, DamageKind.Physical, 0, 0);
     }
 
+    public HitResult RollMonsterHitOn(long instanceId, StatBlock defender, int defenderLevel, out uint intervalTicks)
+    {
+        intervalTicks = CombatFormulas.AttackIntervalTicks(100f);
+        if (defender is null || !_worldState.TryGetInstance(instanceId, out var instance))
+        {
+            return new HitResult(0, HitFlags.Miss);
+        }
+
+        var monster = MonsterStats(instanceId, instance);
+        intervalTicks = CombatFormulas.AttackIntervalTicks(monster.AttackSpeed);
+        return CombatFormulas.Resolve(Combatant.From(monster, instance.Level),
+            Combatant.From(defender, Math.Max(1, defenderLevel)), monster.AttackPointRight, DamageKind.Physical, 0, 0,
+            _random);
+    }
+
     public HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
         int accuracyBonus, int criticalBonus) => RollMonsterHit(instanceId, target, baseDamage, kind, accuracyBonus, criticalBonus, 0);
 

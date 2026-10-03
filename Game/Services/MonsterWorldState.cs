@@ -110,6 +110,12 @@ public class MonsterWorldState
     private readonly Dictionary<long, Dictionary<GameClient, int>> _hate = new();
     private readonly Dictionary<long, int> _targetHate = new();
 
+    /// <summary>
+    /// The part of a master's hate a monster owes to the master's summon (<c>StructMonster::addHate</c> on the
+    /// summon): the hate list stays keyed by the player, and this says which summon earned how much of it.
+    /// </summary>
+    private readonly Dictionary<long, Dictionary<GameClient, (uint Handle, int Hate)>> _summonHate = new();
+
     private SpatialIndex<MonsterInstance> _index;
     private Dictionary<long, MonsterInstance> _byId;
     private readonly Dictionary<long, MonsterInstance> _scriptSpawns = new();
@@ -911,8 +917,120 @@ public class MonsterWorldState
             _triggerFlags.Remove(instanceId);
             _hate.Remove(instanceId);
             _targetHate.Remove(instanceId);
+            _summonHate.Remove(instanceId);
         }
     }
+
+    /// <summary>
+    /// A summon hit the monster: the hate goes to its master's entry (the monster's target is a player's side), and
+    /// the summon's share of it is remembered, so the monster turns on the summon while the summon earned more of
+    /// that hate than its master did.
+    /// </summary>
+    public void AddSummonHate(long instanceId, GameClient master, uint summonHandle, int amount)
+    {
+        if (master is null || summonHandle == 0)
+        {
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            if (_respawnAt.ContainsKey(instanceId))
+            {
+                return;
+            }
+
+            AddHate(instanceId, master, amount);
+            if (!_summonHate.TryGetValue(instanceId, out var shares))
+            {
+                shares = new Dictionary<GameClient, (uint, int)>();
+                _summonHate[instanceId] = shares;
+            }
+
+            shares.TryGetValue(master, out var share);
+            var hate = share.Handle == summonHandle
+                ? (int)Math.Clamp((long)share.Hate + amount, 0L, int.MaxValue)
+                : Math.Max(0, amount);
+            shares[master] = (summonHandle, hate);
+        }
+    }
+
+    /// <summary>
+    /// Whether the monster's hate toward <paramref name="master"/> is mostly its summon's: the monster then fights the
+    /// summon (<paramref name="summonHandle"/>) rather than the player.
+    /// </summary>
+    public bool TryGetSummonFocus(long instanceId, GameClient master, out uint summonHandle)
+    {
+        lock (_stateLock)
+        {
+            summonHandle = 0;
+            if (master is null || !_summonHate.TryGetValue(instanceId, out var shares)
+                || !shares.TryGetValue(master, out var share) || share.Hate <= 0)
+            {
+                return false;
+            }
+
+            var total = _hate.TryGetValue(instanceId, out var list) ? list.GetValueOrDefault(master) : 0;
+            if (share.Hate <= total - share.Hate)
+            {
+                return false;
+            }
+
+            summonHandle = share.Handle;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// A summon left the fight (dead, sent back): its share of the hate is struck off. A master left with no hate of
+    /// their own is no one's enemy any more, and a monster that was fighting them moves to its next enemy or home.
+    /// </summary>
+    public IReadOnlyList<long> ForgetSummon(GameClient master, uint summonHandle)
+    {
+        lock (_stateLock)
+        {
+            var dropped = new List<long>();
+            foreach (var (instanceId, shares) in _summonHate.ToList())
+            {
+                if (!shares.TryGetValue(master, out var share) || share.Handle != summonHandle)
+                {
+                    continue;
+                }
+
+                shares.Remove(master);
+                if (!_hate.TryGetValue(instanceId, out var list) || !list.TryGetValue(master, out var held))
+                {
+                    continue;
+                }
+
+                var own = held - share.Hate;
+                var targeted = _aggro.TryGetValue(instanceId, out var current) && current.Enemy == master;
+                if (own > 0)
+                {
+                    list[master] = own;
+                    if (targeted)
+                    {
+                        _targetHate[instanceId] = own;
+                    }
+
+                    continue;
+                }
+
+                if (targeted)
+                {
+                    DropTarget(instanceId);
+                    dropped.Add(instanceId);
+                }
+                else
+                {
+                    list.Remove(master);
+                }
+            }
+
+            return dropped;
+        }
+    }
+
 
     /// <summary>
     /// <c>StructMonster::addHate</c> (2012-11 <c>0x1400b6710</c>): <paramref name="amount"/> more hate toward
@@ -1066,10 +1184,15 @@ public class MonsterWorldState
                 }
             }
 
-            // The leaving player is no one's enemy any more.
+            // The leaving player is no one's enemy any more, nor are their summons.
             foreach (var list in _hate.Values)
             {
                 list.Remove(enemy);
+            }
+
+            foreach (var shares in _summonHate.Values)
+            {
+                shares.Remove(enemy);
             }
 
             if (cleared == null)

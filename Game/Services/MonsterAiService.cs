@@ -38,14 +38,16 @@ public class MonsterAiService
     private readonly NetworkService _networkService;
     private readonly ICombatService _combat;
     private readonly IMonsterSkillService _skills;
+    private readonly Creatures.ICreatureService _creatures;
 
     public MonsterAiService(MonsterWorldState worldState, NetworkService networkService, ICombatService combat,
-        IMonsterSkillService skills)
+        IMonsterSkillService skills, Creatures.ICreatureService creatures = null)
     {
         _worldState = worldState;
         _networkService = networkService;
         _combat = combat;
         _skills = skills;
+        _creatures = creatures;
         _ = RunAsync();
     }
 
@@ -161,6 +163,20 @@ public class MonsterAiService
                 continue;
             }
 
+            // The hate toward this player is mostly their summon's: the monster fights the summon.
+            if (_creatures is not null && _worldState.TryGetSummonFocus(instanceId, enemy, out var summonHandle))
+            {
+                if (!_creatures.TryGetSummonTarget(enemy, summonHandle, out var summon) || summon.Hp <= 0
+                    || summon.Layer != instance.Layer)
+                {
+                    _worldState.ForgetSummon(enemy, summonHandle);
+                    continue;
+                }
+
+                ActOnSummon(enemy, instanceId, instance, handle, streamed, nextAttackTick, info, summon);
+                continue;
+            }
+
             var (mx, my) = _worldState.GetPosition(instanceId);
             var now = ServerClock.Now;
             var reach = Reach(instance);
@@ -194,10 +210,53 @@ public class MonsterAiService
     private static float Reach(MonsterInstance instance) =>
         CombatRange.MeleeReach(instance.AttackRange, instance.Size, instance.Scale);
 
-    private void Chase(GameClient client, long instanceId, uint handle, float mx, float my,
-        ConnectionInfo info, float reach)
+    /// <summary>
+    /// The monster against a summon: the same decision, chase and swing as against a player, at the summon's
+    /// position and with the summon's body, rolled on its stats (<c>RollMonsterHitOn</c>) and landed through
+    /// <see cref="Creatures.ICreatureService.DamageSummon"/>. A monster skill is not tried on a summon.
+    /// </summary>
+    private void ActOnSummon(GameClient master, long instanceId, MonsterInstance instance, uint handle, bool streamed,
+        uint nextAttackTick, ConnectionInfo info, Creatures.SummonTarget summon)
     {
-        var (x, y) = MonsterAiRules.ChaseStep(mx, my, info.X, info.Y, reach);
+        var (mx, my) = _worldState.GetPosition(instanceId);
+        var now = ServerClock.Now;
+        var reach = CombatRange.InterUnitReach(instance.AttackRange, instance.Size, instance.Scale, summon.Size,
+            summon.Scale);
+        var action = MonsterAiRules.Decide(true, instance.FirstAttack, streamed,
+            unchecked((int)(now - nextAttackTick)) >= 0,
+            mx, my, instance.X, instance.Y, summon.X, summon.Y,
+            instance.VisibleRange, instance.ChaseRange, reach);
+        switch (action)
+        {
+            case MonsterAiAction.Chase:
+                ChaseTo(master, instanceId, handle, mx, my, info, summon.X, summon.Y, reach);
+                break;
+            case MonsterAiAction.Attack:
+                StopToAttack(master, instanceId, handle, info, now);
+                var hit = _combat.RollMonsterHitOn(instanceId, summon.Stats, summon.Level, out var intervalTicks);
+                var summonHp = _creatures.DamageSummon(master, summon.Handle, hit.Damage);
+                var intervalMs = CombatService.IntervalMs(intervalTicks);
+                var monsterHp = _worldState.GetHp(instanceId);
+                master.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, summon.Handle, intervalMs, intervalMs,
+                    GameAttackPackets.ActionAttack, hit.Damage, summonHp, monsterHp, (byte)hit.Flags));
+                ToOtherWatchers(master, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
+                    otherHandle, summon.Handle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
+                    summonHp, monsterHp, (byte)hit.Flags));
+                _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
+                break;
+            case MonsterAiAction.Drop:
+                _worldState.ForgetSummon(master, summon.Handle);
+                break;
+        }
+    }
+
+    private void Chase(GameClient client, long instanceId, uint handle, float mx, float my,
+        ConnectionInfo info, float reach) => ChaseTo(client, instanceId, handle, mx, my, info, info.X, info.Y, reach);
+
+    private void ChaseTo(GameClient client, long instanceId, uint handle, float mx, float my,
+        ConnectionInfo info, float targetX, float targetY, float reach)
+    {
+        var (x, y) = MonsterAiRules.ChaseStep(mx, my, targetX, targetY, reach);
 
         // Let a move already heading to about the same spot play out rather than restarting the
         // client animation every tick.

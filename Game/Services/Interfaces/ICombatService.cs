@@ -42,6 +42,16 @@ public interface ICombatService
     HitResult RollMonsterHit(long instanceId, GameClient target, out uint intervalTicks);
 
     /// <summary>
+    /// Rolls one swing of a monster on a creature that is not a player — a summon —, from that creature's stats and
+    /// level, by the same rule as a swing on a player.
+    /// </summary>
+    HitResult RollMonsterHitOn(long instanceId, Stats.StatBlock defender, int defenderLevel, out uint intervalTicks)
+    {
+        intervalTicks = CombatFormulas.AttackIntervalTicks(100f);
+        return new HitResult(0, HitFlags.Miss);
+    }
+
+    /// <summary>
     /// Rolls one hit of a monster's skill on a player: <paramref name="baseDamage"/> and the skill's bonuses
     /// through the same rule as a swing. A player under <c>/immortal</c> takes 0.
     /// </summary>

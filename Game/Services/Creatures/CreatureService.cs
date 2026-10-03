@@ -54,7 +54,17 @@ public interface ICreatureService
 
     /// <summary>After a warp the summons in the world follow their master.</summary>
     void FollowWarp(GameClient client);
+
+    /// <summary>A summon of <paramref name="master"/> in the world, as a monster sees it to fight it.</summary>
+    bool TryGetSummonTarget(GameClient master, uint summonHandle, out SummonTarget target);
+
+    /// <summary>A monster's (or a player's) hit on a summon; the HP left.</summary>
+    int DamageSummon(GameClient master, uint summonHandle, int damage, bool byMonster = true);
 }
+
+/// <summary>A summon in the world as a monster fights it: where it is, how alive it is, and its body and stats.</summary>
+public readonly record struct SummonTarget(uint Handle, float X, float Y, byte Layer, int Hp, int Level,
+    StatBlock Stats, float Size, float Scale);
 
 /// <summary>
 /// Taming, formation and summoning (docs/packet-specs/socle-apprivoisement-invocation.md §15), ported from the
@@ -81,6 +91,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private readonly Dictionary<long, Taming> _tamings = new();
     private readonly Dictionary<uint, SummonMove> _moves = new();
     private readonly Dictionary<uint, SummonSwing> _swings = new();
+
+    /// <summary>Dead summons still in the world, by handle, with their master and the tick they died at.</summary>
+    private readonly Dictionary<uint, (GameClient Master, uint Since)> _deadSince = new();
     private readonly CancellationTokenSource _stop = new();
 
     public CreatureService(ICreatureCatalog catalog, ICharacterService characters, MonsterWorldState world,
@@ -201,6 +214,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             lock (_lock)
             {
                 _moves.Remove(summon.Handle);
+                _deadSince.Remove(summon.Handle);
             }
         }
 
@@ -488,6 +502,292 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         catch (Exception exception)
         {
             _logger.Error(exception, "Could not save the summons of {name}", info.CharacterName);
+        }
+    }
+
+    // ---- a summon in a fight ---------------------------------------------------------------------------------
+
+    /// <summary><c>GameRule::GetDeadSummonHoldTime</c>: a dead summon stays 60 s in the world, then is sent back.</summary>
+    public const uint DeadHoldTicks = 6000;
+
+    public bool TryGetSummonTarget(GameClient master, uint summonHandle, out SummonTarget target)
+    {
+        target = default;
+        var info = master.ConnectionInfo;
+        var presence = Array.Find(info.Summons, s => s.Handle == summonHandle);
+        if (presence is null)
+        {
+            return false;
+        }
+
+        CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == summonHandle);
+        }
+
+        if (card is null || !_catalog.TryGetSummon(card.SummonCode, out var resource))
+        {
+            return false;
+        }
+
+        var (x, y) = SummonPosition(summonHandle, ServerClock.Now);
+        target = new SummonTarget(summonHandle, x, y, presence.Layer, presence.Hp, card.Level, presence.Stats,
+            resource.Size, resource.Scale);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>StructSummon::onDamage</c>: the summon loses HP, its master's creature window and whoever sees it get the
+    /// vitals (509), and at 0 HP it dies (<see cref="OnSummonDeath"/>). Returns the HP left.
+    /// </summary>
+    public int DamageSummon(GameClient master, uint summonHandle, int damage, bool byMonster = true)
+    {
+        var info = master.ConnectionInfo;
+        var presence = Array.Find(info.Summons, s => s.Handle == summonHandle);
+        if (presence is null)
+        {
+            return 0;
+        }
+
+        int hp, mp, maxHp, maxMp;
+        bool died;
+        lock (info.SummonLock)
+        {
+            if (presence.Hp <= 0)
+            {
+                return 0;
+            }
+
+            presence.Hp = Math.Max(0, presence.Hp - Math.Max(0, damage));
+            hp = presence.Hp;
+            mp = presence.Mp;
+            maxHp = (int)presence.Stats.MaxHp;
+            maxMp = (int)presence.Stats.MaxMp;
+            died = hp == 0;
+        }
+
+        var frame = GameStatPackets.BuildHpMp(summonHandle, -Math.Max(0, damage), hp, maxHp, 0, mp, maxMp);
+        master.Connection.Send(frame);
+        _players?.SendToObservers(master, frame);
+        if (died)
+        {
+            OnSummonDeath(master, summonHandle, byMonster);
+        }
+
+        return hp;
+    }
+
+    /// <summary>
+    /// <c>StructSummon::onDead</c>: the summon stops fighting, the monsters forget it, a death by a monster above
+    /// level 5 costs <c>GetDeadEXPPenalty</c> (a level can be lost, no JP is given back), and it is sent back after
+    /// <see cref="DeadHoldTicks"/>. It stays dead — 0 HP on its card — until revived.
+    /// </summary>
+    private void OnSummonDeath(GameClient master, uint summonHandle, bool byMonster)
+    {
+        var info = master.ConnectionInfo;
+        CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == summonHandle);
+            if (card is not null)
+            {
+                card.Hp = 0;
+                card.HpKnown = true;
+            }
+        }
+
+        var now = ServerClock.Now;
+        var (x, y) = SummonPosition(summonHandle, now);
+        lock (_lock)
+        {
+            _swings.Remove(summonHandle);
+            _deadSince[summonHandle] = (master, now);
+            if (_moves.TryGetValue(summonHandle, out var move))
+            {
+                move.X = move.DestX = x;
+                move.Y = move.DestY = y;
+                move.StartTick = now;
+            }
+        }
+
+        _world.ForgetSummon(master, summonHandle);
+        if (card is null)
+        {
+            return;
+        }
+
+        if (byMonster && _catalog.TryGetSummon(card.SummonCode, out var resource))
+        {
+            var penalty = SummonProgression.DeathPenalty(card.Level, _catalog.NeedExp);
+            if (penalty > 0)
+            {
+                int previous;
+                SummonLevelChange change;
+                lock (info.SummonLock)
+                {
+                    penalty = Math.Min(penalty, card.Exp);
+                    card.Exp -= penalty;
+                    card.LastDecreasedExp = penalty;
+                    previous = card.Level;
+                    change = SummonProgression.ResolveLevel(card.Exp, Math.Max(1, resource.Form), card.MaxReachedLevel,
+                        card.Level, _catalog.NeedExp);
+                    card.Level = change.Level;
+                }
+
+                master.Connection.Send(GameCharacterPackets.BuildExpUpdate(summonHandle, card.Exp, card.Jp));
+                if (change.LevelChanged(previous))
+                {
+                    OnLevelChanged(master, card, resource, previous);
+                    return;
+                }
+            }
+        }
+
+        _ = SaveProgressAsync(info, new[] { card });
+    }
+
+    /// <summary>
+    /// A summon's vitals set from outside the fight (the creature keeper's care, a revival): alive again when its HP
+    /// rises above 0, which takes it off the dead hold.
+    /// </summary>
+    public void SetSummonVitals(GameClient master, CreatureCard card, int hp, int mp)
+    {
+        var info = master.ConnectionInfo;
+        var presence = Array.Find(info.Summons, s => s.Handle == card.SummonHandle);
+        int maxHp, maxMp;
+        lock (info.SummonLock)
+        {
+            if (presence is not null)
+            {
+                maxHp = (int)presence.Stats.MaxHp;
+                maxMp = (int)presence.Stats.MaxMp;
+                presence.Hp = Math.Clamp(hp, 0, maxHp);
+                presence.Mp = Math.Clamp(mp, 0, maxMp);
+                hp = presence.Hp;
+                mp = presence.Mp;
+            }
+            else
+            {
+                maxHp = Math.Max(hp, 1);
+                maxMp = Math.Max(mp, 0);
+            }
+
+            card.Hp = hp;
+            card.Mp = mp;
+            card.HpKnown = true;
+        }
+
+        if (hp > 0)
+        {
+            lock (_lock)
+            {
+                _deadSince.Remove(card.SummonHandle);
+            }
+        }
+
+        if (card.SummonHandle != 0)
+        {
+            var frame = GameStatPackets.BuildHpMp(card.SummonHandle, 0, hp, maxHp, 0, mp, maxMp);
+            master.Connection.Send(frame);
+            if (presence is not null)
+            {
+                _players?.SendToObservers(master, frame);
+            }
+        }
+
+        _ = SaveProgressAsync(info, new[] { card });
+    }
+
+    /// <summary>A dead summon is sent back once its hold is over (<c>SummonAI.cpp</c>, <c>PendUnSummon</c>).</summary>
+    public void ProcessDeadSummons(uint now)
+    {
+        List<(uint Handle, GameClient Master)> due = null;
+        lock (_lock)
+        {
+            foreach (var (handle, (master, since)) in _deadSince)
+            {
+                if (unchecked((int)(now - since)) >= (int)DeadHoldTicks)
+                {
+                    (due ??= new List<(uint, GameClient)>()).Add((handle, master));
+                }
+            }
+
+            if (due is not null)
+            {
+                foreach (var (handle, _) in due)
+                {
+                    _deadSince.Remove(handle);
+                }
+            }
+        }
+
+        if (due is null)
+        {
+            return;
+        }
+
+        foreach (var (handle, master) in due)
+        {
+            CreatureCard card;
+            lock (master.ConnectionInfo.SummonLock)
+            {
+                card = master.ConnectionInfo.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == handle);
+            }
+
+            if (card is not null && IsCardInWorld(master.ConnectionInfo, card.ItemId))
+            {
+                Unsummon(master, card.Handle);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <c>StructCreature::regenHPMP</c> for the summons out in the world: every 3 s, the regeneration of their stats,
+    /// nothing for a dead one (516 to the master and to whoever sees it).
+    /// </summary>
+    public void ProcessRegeneration()
+    {
+        var clients = _players?.Registry?.Clients;
+        if (clients is null)
+        {
+            return;
+        }
+
+        foreach (var master in clients)
+        {
+            foreach (var (_, presence) in OutCards(master.ConnectionInfo))
+            {
+                int hpGain, mpGain, hp, mp;
+                lock (master.ConnectionInfo.SummonLock)
+                {
+                    if (presence.Hp <= 0)
+                    {
+                        continue;
+                    }
+
+                    var stats = presence.Stats;
+                    var maxHp = (int)stats.MaxHp;
+                    var maxMp = (int)stats.MaxMp;
+                    hp = Math.Min(maxHp, presence.Hp + PlayerRegenerationService.Gain(maxHp, stats.HpRegenPoint,
+                        stats.HpRegenPercentage, 1));
+                    mp = Math.Min(maxMp, presence.Mp + PlayerRegenerationService.Gain(maxMp, stats.MpRegenPoint,
+                        stats.MpRegenPercentage, 1));
+                    hpGain = hp - presence.Hp;
+                    mpGain = mp - presence.Mp;
+                    if (hpGain == 0 && mpGain == 0)
+                    {
+                        continue;
+                    }
+
+                    presence.Hp = hp;
+                    presence.Mp = mp;
+                }
+
+                var frame = GameStatPackets.BuildRegenHpMp(presence.Handle, hpGain, mpGain, hp, mp);
+                master.Connection.Send(frame);
+                _players.SendToObservers(master, frame);
+            }
         }
     }
 
@@ -962,7 +1262,10 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         {
             _moves.Remove(card.SummonHandle);
             _swings.Remove(card.SummonHandle);
+            _deadSince.Remove(card.SummonHandle);
         }
+
+        _world.ForgetSummon(client, card.SummonHandle);
 
         // The card keeps the vitals its summon leaves with.
         if (Array.Find(info.Summons, s => s.Handle == card.SummonHandle) is { } presence)
@@ -1038,6 +1341,12 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         var presence = info.Summons.FirstOrDefault(s => s.Handle == handle);
         lock (_lock)
         {
+            // StructPlayer::Summon: a dead summon summoned again is still dead, and is sent back after its hold.
+            if (hp <= 0)
+            {
+                _deadSince[handle] = (client, ServerClock.Now);
+            }
+
             _moves[handle] = new SummonMove
             {
                 X = presence?.X ?? info.X,
@@ -1081,6 +1390,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
     // ---- movement and attack ---------------------------------------------------------------------------------
 
+    private static bool IsDeadSummon(ConnectionInfo info, uint handle) =>
+        Array.Find(info.Summons, s => s.Handle == handle) is { Hp: <= 0 };
+
     public bool OwnsSummon(GameClient client, uint handle) =>
         handle != 0 && client.ConnectionInfo.Summons.Any(summon => summon.Handle == handle);
 
@@ -1088,7 +1400,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         ReadOnlySpan<byte> waypoints)
     {
         var info = client.ConnectionInfo;
-        if (!OwnsSummon(client, summonHandle))
+        if (!OwnsSummon(client, summonHandle) || IsDeadSummon(info, summonHandle))
         {
             return;
         }
@@ -1123,7 +1435,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     public void SummonAttack(GameClient client, uint summonHandle, uint targetHandle)
     {
         var info = client.ConnectionInfo;
-        if (!OwnsSummon(client, summonHandle))
+        if (!OwnsSummon(client, summonHandle) || IsDeadSummon(info, summonHandle))
         {
             return;
         }
@@ -1211,7 +1523,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             }
 
             var monsterHandle = info.GetMonsterHandle(swing.TargetInstanceId);
-            if (card is null || !OwnsSummon(client, handle) || monsterHandle == 0
+            if (card is null || !OwnsSummon(client, handle) || monsterHandle == 0 || IsDeadSummon(info, handle)
                 || !_world.IsAlive(swing.TargetInstanceId)
                 || !_world.TryGetInstance(swing.TargetInstanceId, out var monster)
                 || !_catalog.TryGetSummon(card.SummonCode, out var resource))
@@ -1236,7 +1548,13 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             var hit = CombatFormulas.Resolve(Combatant.From(stats, card.Level), Combatant.From(defender, monster.Level),
                 stats.AttackPointRight, DamageKind.Physical, 0, 0, _random);
             var intervalMs = CombatService.IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
-            var targetHp = _combat.ApplyDamage(client, swing.TargetInstanceId, monsterHandle, hit.Damage, hit.Damage);
+            // StructMonster::onDamage: the hate goes to the summon that hit, the kill and the reward to its master.
+            var targetHp = _combat.ApplyDamage(client, swing.TargetInstanceId, monsterHandle, hit.Damage, 0);
+            if (targetHp > 0)
+            {
+                _world.AddSummonHate(swing.TargetInstanceId, client, handle, hit.Damage);
+            }
+
             var summonHp = presence?.Hp ?? Vitals(card, stats).Hp;
 
             client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, monsterHandle, intervalMs, intervalMs,
@@ -1294,6 +1612,12 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
                     if (++ticks % 10 == 0)
                     {
                         ProcessTamings(ServerClock.Now);
+                        ProcessDeadSummons(ServerClock.Now);
+                    }
+
+                    if (ticks % 30 == 0)
+                    {
+                        ProcessRegeneration();
                     }
                 }
                 catch (Exception exception)

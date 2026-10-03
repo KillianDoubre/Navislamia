@@ -42,6 +42,18 @@ public static class CombatRange
         return MathF.Max(weapon + bodies, PlayerUnitSize);
     }
 
+    /// <summary>
+    /// The reach between a monster and a creature with its own body (a summon): the monster's weapon range plus both
+    /// body radii, the rule <see cref="MeleeReach"/> applies with the player's default body.
+    /// </summary>
+    public static float InterUnitReach(float monsterAttackRange, float monsterSize, float monsterScale,
+        float targetSize, float targetScale)
+    {
+        var weapon = monsterAttackRange * WeaponRangeScale;
+        var bodies = (UnitSize(monsterSize, monsterScale) + UnitSize(targetSize, targetScale)) * 0.5f;
+        return MathF.Max(weapon + bodies, PlayerUnitSize);
+    }
+
     public static float Distance(float ax, float ay, float bx, float by)
     {
         var dx = ax - bx;
