@@ -274,6 +274,16 @@ public class ConnectionInfo
     public object PetLock { get; } = new();
 
     /// <summary>
+    /// The pet handle of each cage, given with its <c>TS_SC_ADD_PET_INFO</c> (351) at world entry or on the first call:
+    /// the client registers the pet under it, and the <c>TS_SC_ENTER</c> of a call must carry the same one. Under
+    /// <see cref="PetLock"/>.
+    /// </summary>
+    public Dictionary<long, uint> PetHandles { get; } = new();
+
+    /// <summary>The pets a 353 offered to name, by pet handle, with their cage: only those may be named (354). Under <see cref="PetLock"/>.</summary>
+    public Dictionary<uint, uint> PetNameOffers { get; } = new();
+
+    /// <summary>
     /// The summons this character has in the world (<c>SummonWorldService</c>), replaced whole on every change
     /// under <see cref="SummonLock"/> so that a reader — the player visibility, under an observer's lock —
     /// takes a consistent snapshot without it.
@@ -754,6 +764,8 @@ public class ConnectionInfo
         TurnOnPkAt = 0;
         TurnOffPkAt = 0;
         ActivePet = null;
+        PetHandles.Clear();
+        PetNameOffers.Clear();
         Summons = Array.Empty<Navislamia.Game.Services.SummonPresence>();
         PetPickupFilter = 0;
         DestinationX = 0;

@@ -295,6 +295,13 @@ public class GameActions : IActions
             client.Connection.Send(inventoryPacket);
         }
 
+        // StructPlayer::Login sends the pet info of every cage: the client registers each pet, and a call only puts it
+        // in the world under the same handle (docs/packet-specs/socle-familier-pet.md §18).
+        if (_networkService.PetSummonService is { } pets)
+        {
+            await pets.SendPetInfoAsync(client, character.Items);
+        }
+
         // The formation 303 follows the 301 of every formed summon (SendCharacterInfo), so CreatureService sends it
         // once the cards are loaded: Characters.SummonSlotItemIds holds summon sids, the 303 card handles.
         client.ConnectionInfo.SummonSlots = Array.Empty<long>();

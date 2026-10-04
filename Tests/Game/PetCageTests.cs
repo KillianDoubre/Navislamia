@@ -5,8 +5,10 @@ using FakeItEasy;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Services;
 using Navislamia.Game.Services.Pets;
@@ -122,22 +124,25 @@ public class PetCageTests
     public void IsValidName_FollowsTheCharacterNameRule(string name, bool expected) =>
         PetSummonRules.IsValidName(name).Should().Be(expected);
 
+    private static uint InfoHandle(byte[] addInfo) => BinaryPrimitives.ReadUInt32LittleEndian(addInfo.AsSpan(11, 4));
+
     [Test]
-    public async Task UsingACage_CallsItsPetWithTheObjectThenTheCreatureWindow()
+    public async Task UsingACageNotYetRegistered_AnnouncesThePetThenPutsItInTheWorldUnderTheSameHandle()
     {
         var (service, client, connection) = NewSession();
 
         (await service.TryUseCageAsync(client, Crab, CrabCage)).Should().BeTrue();
 
         connection.Sent.Select(Id).Should().Equal(
-            new[] { (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO },
-            "351 before the object crashes the 7.3 client; a named pet opens no name box");
-        var enter = connection.Sent[0];
-        var addInfo = connection.Sent[1];
+            new[] { (ushort)GamePackets.TM_SC_ADD_PET_INFO, (ushort)GamePackets.TM_SC_ENTER },
+            "StructPlayer::AddPet registers the pet (351), SummonPet only adds it to the world");
+        var addInfo = connection.Sent[0];
+        var enter = connection.Sent[1];
         addInfo.Should().HaveCount(42);
         enter.Should().HaveCount(95);
         BinaryPrimitives.ReadUInt32LittleEndian(addInfo.AsSpan(7, 4)).Should().Be(CrabCage);
-        BinaryPrimitives.ReadUInt32LittleEndian(addInfo.AsSpan(11, 4)).Should().Be(EnterHandle(enter));
+        InfoHandle(addInfo).Should().Be(EnterHandle(enter), "the client links the ENTER to the pet it registered");
+        BinaryPrimitives.ReadInt32LittleEndian(addInfo.AsSpan(34, 4)).Should().Be(1, "code = GetPetCode()");
         EnterX(enter).Should().Be(1000f);
 
         var active = StorageTestHarness.Session(client).ActivePet!;
@@ -146,7 +151,30 @@ public class PetCageTests
     }
 
     [Test]
-    public async Task AFirstCall_OpensTheNameBoxOnThePet()
+    public async Task ThePetsOfTheBag_AreAnnouncedAtLoginAndCalledWithoutASecond351()
+    {
+        var (service, client, connection) = NewSession();
+        var items = new[]
+        {
+            new ItemEntity { Id = CrabCage, ItemResourceId = Crab, Amount = 1 },
+            new ItemEntity { Id = 70, ItemResourceId = 603002, Amount = 1 }
+        };
+
+        await service.SendPetInfoAsync(client, items);
+
+        connection.Sent.Select(Id).Should().Equal(new[] { (ushort)GamePackets.TM_SC_ADD_PET_INFO },
+            "one 351 per cage, nothing for another item");
+        var registered = InfoHandle(connection.Sent[0]);
+        connection.Sent.Clear();
+
+        await service.TryUseCageAsync(client, Crab, CrabCage);
+
+        connection.Sent.Select(Id).Should().Equal((ushort)GamePackets.TM_SC_ENTER);
+        EnterHandle(connection.Sent[0]).Should().Be(registered);
+    }
+
+    [Test]
+    public async Task AnUnnamedPet_OpensTheNameBoxInsteadOfComingOut()
     {
         Named(false);
         var (service, client, connection) = NewSession();
@@ -154,13 +182,12 @@ public class PetCageTests
         await service.TryUseCageAsync(client, Crab, CrabCage);
 
         connection.Sent.Select(Id).Should().Equal(
-            (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO,
-            (ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME);
-        var show = connection.Sent[2];
+            (ushort)GamePackets.TM_SC_ADD_PET_INFO, (ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME);
+        var show = connection.Sent[1];
         show.Should().HaveCount(11);
-        BinaryPrimitives.ReadUInt32LittleEndian(show.AsSpan(7, 4)).Should().Be(EnterHandle(connection.Sent[0]),
+        BinaryPrimitives.ReadUInt32LittleEndian(show.AsSpan(7, 4)).Should().Be(InfoHandle(connection.Sent[0]),
             "354 echoes the handle 353 carried, so it must be the pet's");
-        StorageTestHarness.Session(client).ActivePet!.RenameOffered.Should().BeTrue();
+        StorageTestHarness.Session(client).ActivePet.Should().BeNull("ITEM_EFFECT_INSTANT SUMMON_PET names, it does not call");
         A.CallTo(() => _characters.GetOrCreatePetAsync("Tester", 0x80000001, A<int>._, CrabCage, 1, "Helmet Crab"))
             .MustHaveHappenedOnceExactly();
     }
@@ -191,8 +218,8 @@ public class PetCageTests
         (await service.TryUseCageAsync(client, Rabbit, RabbitCage)).Should().BeTrue();
 
         connection.Sent.Select(Id).Should().Equal(
-            (ushort)GamePackets.TM_SC_UNSUMMON_PET, (ushort)GamePackets.TM_SC_LEAVE,
-            (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO);
+            (ushort)GamePackets.TM_SC_ADD_PET_INFO, (ushort)GamePackets.TM_SC_UNSUMMON_PET,
+            (ushort)GamePackets.TM_SC_LEAVE, (ushort)GamePackets.TM_SC_ENTER);
         StorageTestHarness.Session(client).ActivePet!.CageHandle.Should().Be(RabbitCage);
     }
 
@@ -207,55 +234,72 @@ public class PetCageTests
         StorageTestHarness.Session(client).ActivePet.Should().BeNull();
     }
 
-    [Test]
-    public async Task AValidName_IsStoredAndThePetComesBackUnderIt()
+    /// <summary>Uses the cage of an unnamed pet, which offers its name; returns the pet's handle.</summary>
+    private async Task<uint> OfferedName(PetSummonService service, GameClient client,
+        StorageTestHarness.FrameConnection connection)
     {
         Named(false);
-        var (service, client, connection) = NewSession();
         await service.TryUseCageAsync(client, Crab, CrabCage);
-        var handle = StorageTestHarness.Session(client).ActivePet!.Handle;
+        var handle = InfoHandle(connection.Sent[0]);
         connection.Sent.Clear();
+        return handle;
+    }
+
+    [Test]
+    public async Task AValidName_IsStoredAndAnnouncedByAChangeOfName()
+    {
+        var (service, client, connection) = NewSession();
+        var handle = await OfferedName(service, client, connection);
 
         await service.RenameAsync(client, handle, "Crabby");
 
         A.CallTo(() => _characters.RenamePetAsync("Tester", CrabCage, "Crabby")).MustHaveHappenedOnceExactly();
         connection.Sent.Select(Id).Should().Equal(
-            (ushort)GamePackets.TM_SC_UNSUMMON_PET, (ushort)GamePackets.TM_SC_LEAVE,
-            (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO);
-        EnterName(connection.Sent[2]).Should().Be("Crabby");
-        StorageTestHarness.Session(client).ActivePet!.RenameOffered.Should().BeFalse();
+            (ushort)GamePackets.TM_SC_CHANGE_NAME, (ushort)GamePackets.TM_SC_RESULT);
+        var change = connection.Sent[0];
+        change.Should().HaveCount(30, "TS_SC_CHANGE_NAME: handle @7, name[19] @11");
+        BinaryPrimitives.ReadUInt32LittleEndian(change.AsSpan(7, 4)).Should().Be(handle);
+        Encoding.ASCII.GetString(change, 11, 19).TrimEnd('\0').Should().Be("Crabby");
+        ResultOf(connection.Sent[1]).Should().Be(((ushort)GamePackets.TM_CS_SET_PET_NAME, (ushort)ResultCode.Success));
+
+        connection.Sent.Clear();
+        await service.RenameAsync(client, handle, "Again");
+        connection.Sent.Should().BeEmpty("the offer is spent");
     }
 
     [Test]
-    public async Task AnInvalidName_ReopensTheBoxAndStoresNothing()
+    public async Task ATooShortName_AnswersTheOfficialLineAndStoresNothing()
     {
-        Named(false);
         var (service, client, connection) = NewSession();
-        await service.TryUseCageAsync(client, Crab, CrabCage);
-        var handle = StorageTestHarness.Session(client).ActivePet!.Handle;
-        connection.Sent.Clear();
+        var handle = await OfferedName(service, client, connection);
 
-        await service.RenameAsync(client, handle, "No!");
+        await service.RenameAsync(client, handle, "No");
 
         A.CallTo(() => _characters.RenamePetAsync(A<string>._, A<long>._, A<string>._)).MustNotHaveHappened();
-        connection.Sent.Select(Id).Should().Equal((ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME);
+        connection.Sent.Select(Id).Should().Equal((ushort)GamePackets.TM_SC_CHAT, (ushort)GamePackets.TM_SC_RESULT);
+        ResultOf(connection.Sent[1]).Should().Be(((ushort)GamePackets.TM_CS_SET_PET_NAME, (ushort)ResultCode.LimitMin));
     }
 
     [Test]
-    public async Task ABannedName_ReopensTheBox()
+    public async Task AnInvalidOrBannedName_IsRefusedAsAccessDenied()
     {
-        Named(false);
         A.CallTo(() => _bannedWords.ContainsBannedWord("Rudeword")).Returns(true);
         var (service, client, connection) = NewSession();
-        await service.TryUseCageAsync(client, Crab, CrabCage);
-        var handle = StorageTestHarness.Session(client).ActivePet!.Handle;
-        connection.Sent.Clear();
+        var handle = await OfferedName(service, client, connection);
 
+        await service.RenameAsync(client, handle, "Crab!");
         await service.RenameAsync(client, handle, "Rudeword");
 
         A.CallTo(() => _characters.RenamePetAsync(A<string>._, A<long>._, A<string>._)).MustNotHaveHappened();
-        connection.Sent.Select(Id).Should().Equal((ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME);
+        connection.Sent.Select(Id).Should().Equal(
+            (ushort)GamePackets.TM_SC_CHAT, (ushort)GamePackets.TM_SC_RESULT,
+            (ushort)GamePackets.TM_SC_CHAT, (ushort)GamePackets.TM_SC_RESULT);
+        ResultOf(connection.Sent[3]).Should().Be(((ushort)GamePackets.TM_CS_SET_PET_NAME, (ushort)ResultCode.AccessDenied));
     }
+
+    private static (ushort Request, ushort Result) ResultOf(byte[] result) => (
+        BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(7, 2)),
+        BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(9, 2)));
 
     [Test]
     public async Task ANameNobodyOffered_IsIgnored()
@@ -311,9 +355,9 @@ public class PetCageTests
         service.FollowWarp(client);
 
         connection.Sent.Select(Id).Should().Equal(
-            (ushort)GamePackets.TM_SC_UNSUMMON_PET, (ushort)GamePackets.TM_SC_LEAVE,
-            (ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO);
+            (ushort)GamePackets.TM_SC_UNSUMMON_PET, (ushort)GamePackets.TM_SC_LEAVE, (ushort)GamePackets.TM_SC_ENTER);
         BinaryPrimitives.ReadUInt32LittleEndian(connection.Sent[0].AsSpan(7, 4)).Should().Be(before);
+        EnterHandle(connection.Sent[2]).Should().Be(before, "the registered pet keeps its handle");
         EnterX(connection.Sent[2]).Should().Be(5000f);
         info.ActivePet!.CollectRange.Should().Be(60f, "the pet keeps collecting after a warp");
         info.ActivePet.Entry.IsFirstEnter.Should().BeFalse("the pet re-enters, it is not called again");

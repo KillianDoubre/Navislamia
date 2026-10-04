@@ -3284,7 +3284,8 @@ public class GameClient : Client
             if (header.ID is (ushort)GamePackets.TM_SC_UNSUMMON_PET
                 or (ushort)GamePackets.TM_SC_ADD_PET_INFO
                 or (ushort)GamePackets.TM_SC_REMOVE_PET_INFO
-                or (ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME)
+                or (ushort)GamePackets.TM_SC_SHOW_SET_PET_NAME
+                or (ushort)GamePackets.TM_SC_CHANGE_NAME)
             {
                 _logger.Warning("Server to client packet {id} received from {clientTag}", header.ID, ClientTag);
                 continue;

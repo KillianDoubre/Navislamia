@@ -91,6 +91,21 @@ public static class GamePetPackets
     public static byte[] BuildShowSetPetName(uint handle) =>
         BuildHandlePacket(GamePackets.TM_SC_SHOW_SET_PET_NAME, handle);
 
+    /// <summary><c>TS_SC_CHANGE_NAME</c> (30): 30 bytes, <c>handle</c> @7, the name on 19 bytes @11 (18 + nul).</summary>
+    public const int ChangeNamePacketSize = HeaderSize + 4 + NameSize;
+
+    public static byte[] BuildChangeName(uint handle, string name)
+    {
+        var packet = new byte[ChangeNamePacketSize];
+        var span = packet.AsSpan();
+        BinaryPrimitives.WriteUInt32LittleEndian(span, (uint)ChangeNamePacketSize);
+        BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(4, 2), (ushort)GamePackets.TM_SC_CHANGE_NAME);
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(HeaderSize, 4), handle);
+        WriteName(span.Slice(HeaderSize + 4, NameSize), name);
+        WriteChecksum(packet);
+        return packet;
+    }
+
     /// <summary><c>TM_CS_SET_PET_FILTER</c> (355): exactly 15 bytes, <c>handle</c> @7 and the filter value @11.</summary>
     public const int SetPetFilterPacketSize = HeaderSize + 8;
 

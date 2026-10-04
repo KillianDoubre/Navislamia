@@ -47,22 +47,29 @@ public sealed class PetWorldService
     /// Returns 0 on a null session, connection or entry.
     /// </summary>
     public uint Enter(ConnectionInfo session, string clientTag, Connection connection, PetWorldEntry entry,
-        GameClient master = null)
+        GameClient master = null, uint handle = 0, bool sendInfo = true)
     {
         if (session is null || connection is null || entry is null)
         {
             return 0;
         }
 
-        var handle = WorldObjectHandle.Next();
+        if (handle == 0)
+        {
+            handle = WorldObjectHandle.Next();
+        }
+
+        // The official order (StructPlayer::Login, SummonPet): the pet is registered by its 351 — at world entry for
+        // every cage — and a call only puts it in the world, under the same handle.
+        if (sendInfo)
+        {
+            connection.Send(BuildInfo(entry.CageHandle, handle, entry.Name, entry.Code, entry.Unknown));
+        }
 
         var enter = GameSpawnPackets.BuildEnterPet(handle, entry.X, entry.Y, entry.Z, entry.Layer,
             entry.Hp, entry.MaxHp, entry.Mp, entry.MaxMp, entry.Level, entry.Race, entry.FaceDirection,
             entry.IsFirstEnter, session.CharacterHandle, entry.PetCode, entry.Name);
         connection.Send(enter);
-
-        connection.Send(GamePetPackets.BuildAddPetInfo(entry.CageHandle, handle, entry.Name, entry.Code,
-            entry.Unknown));
 
         if (master is not null)
         {
@@ -76,6 +83,13 @@ public sealed class PetWorldService
 
         return handle;
     }
+
+    /// <summary>A pet's frame to the players who see its master (the name change of a pet out).</summary>
+    public void Broadcast(GameClient master, byte[] frame) => _players?.SendToObservers(master, frame);
+
+    /// <summary><c>SendAddPetMessage</c>: cage, pet handle, name, the pet's code and the 7.3 fifth field.</summary>
+    public static byte[] BuildInfo(uint cageHandle, uint petHandle, string name, int code, int unknown) =>
+        GamePetPackets.BuildAddPetInfo(cageHandle, petHandle, name, code, unknown);
 
     /// <summary>
     /// Takes one pet out of the world: <c>TS_SC_UNSUMMON_PET</c> (350) then <c>TS_SC_LEAVE</c> (9), both to

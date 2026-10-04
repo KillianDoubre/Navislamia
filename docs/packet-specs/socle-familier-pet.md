@@ -808,3 +808,62 @@ sac n'est vérifié au ramassage (comme pour le ramassage manuel) ; les compéte
 activer le ramassage ; la sémantique du filtre 355.
 
 Tests : `Tests/Game/PetCageTests.cs`, `PetBehaviorTests.cs`, `PetPickupTests.cs`.
+
+## 18. Lot 4 — le flux officiel du familier (2026-10-04)
+
+Source : le serveur officiel 2015 (`StructPlayer::Login`, `AddPet`, `SummonPet`, `onSetPetName`,
+`StructPet::ChangeName`, `ITEM_EFFECT_INSTANT SUMMON_PET`) et le désassemblage de `SFrame.exe`.
+
+### 18.1 Ce que fait le client de la 351
+
+Le gestionnaire de la 351 (@`0x66f600`) poste le message interne `0x7B`. Son consommateur (@`0x4be8d0`)
+construit un enregistrement `{handle du familier, cage, code, nom, 5ᵉ int32, 0}` et l'insère dans le registre
+des familiers du joueur (@`0x495db0`). La 351 **déclare** donc un familier possédé ; elle n'est pas la
+fenêtre d'un familier déjà dehors. Une `TS_SC_ENTER` d'`objType` 7 dont le handle est dans ce registre est
+le familier de ce registre.
+
+Nos lots 2 et 3 envoyaient la 3 **puis** la 351, avec `code = 0` : le client voyait d'abord un objet inconnu
+du registre, et ne le liait jamais à son familier. C'est l'explication retenue du §17.4 (objet 920010 refusé,
+bouton « Decorative Pet » vide). L'essai `code = id` du §17.4 gardait l'ordre 3 → 351.
+
+### 18.2 Le flux officiel, désormais suivi
+
+- **Connexion** (`StructPlayer::Login` → `SendAddPetMessage`) : une 351 par cage du sac
+  (`IPetSummonService.SendPetInfoAsync`, appelé par `GameActions.OnLogin` après l'inventaire). Chaque familier
+  reçoit **son handle** à ce moment, gardé dans `ConnectionInfo.PetHandles` (cage → handle) pour toute la
+  session. `code` = `GetPetCode()`, l'id du familier (`PetSummonRules.BuildEntry`).
+- **Cage obtenue en jeu** (`AddPet`) : la première utilisation l'enregistre (351) avant toute autre trame.
+- **Utilisation de la cage** (`ITEM_EFFECT_INSTANT SUMMON_PET`) :
+  - un familier **jamais nommé** (tous les familiers 7.3 sont rares, `attribute_flag` bit 0) reçoit la 353
+    sur son handle **au lieu d'être appelé** — rien n'entre dans le monde ;
+  - sinon `SummonPet` : la 3 seule, sous le handle déjà enregistré. Rangement (350/9) et échange inchangés.
+- **Téléportation, rappel** : 350/9 puis 3, même handle, sans nouvelle 351.
+- **354** (`onSetPetName`) : seulement pour un handle qu'une 353 a proposé (`ConnectionInfo.PetNameOffers`).
+  Moins de 4 caractères → ligne `@1105` et `TS_SC_RESULT(354, LimitMin)` ; nom invalide ou interdit →
+  `@1106` et `TS_SC_RESULT(354, AccessDenied)`. **La boîte n'est plus rouverte.** Succès : nom écrit, puis
+  `TS_SC_CHANGE_NAME` (**30**, 30 octets : `handle` @7, `name[19]` @11) au maître et, si le familier est
+  dehors, à ceux qui le voient, puis `TS_SC_RESULT(354, Success)`. Le familier n'est plus retiré et remis.
+
+`PetWorldService.Enter` garde `sendInfo` (351 puis 3, l'ordre officiel) pour un appelant qui n'a rien
+enregistré ; `PetSummonService` passe toujours `sendInfo: false`.
+
+### 18.3 Le plantage du §16
+
+Le §16 a mesuré un plantage avec 351 → 3 **immédiatement enchaînées**, `code = 0`. Le flux officiel envoie
+la même suite (à la connexion puis à l'appel, ou les deux à la suite pour une cage neuve), mais avec le
+vrai `code`. Hypothèse, **non établie** : le client résout le familier par `code` en liant l'objet, et un
+`code` 0 ne résout rien. **À vérifier en jeu en premier.** Si le plantage revient, revenir au §16 et chercher
+ce que le client lit à partir de l'enregistrement lors de l'entrée.
+
+### 18.4 À vérifier en jeu
+
+1. Connexion avec une cage dans le sac : pas de plantage.
+2. Première utilisation d'une cage jamais nommée : la boîte de nom s'ouvre, le familier ne sort pas. Un nom
+   trop court ou interdit donne la ligne système et rien d'autre ; un nom valide est accepté.
+3. Utilisation suivante : le familier sort sous son nom ; le bouton « Decorative Pet » ouvre sa fenêtre ;
+   l'objet 920010 n'est plus refusé par le client.
+4. Une cage achetée ou ramassée pendant la session se comporte de même (351 à la première utilisation).
+
+Tests : `PetCageTests` (`ThePetsOfTheBag_AreAnnouncedAtLoginAndCalledWithoutASecond351`,
+`AnUnnamedPet_OpensTheNameBoxInsteadOfComingOut`, les refus et le changement de nom), `PetWorldTests`,
+`BroadcastTests`.

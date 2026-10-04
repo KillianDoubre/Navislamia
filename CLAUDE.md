@@ -2222,11 +2222,14 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   fois : la même cage le range, une autre cage l'échange. Il apparaît aux pieds de son maître, `cage_handle`
   = handle de la cage utilisée, `pet_code` = `id` du client ; il suit une téléportation (`FollowWarp`), pas la
   marche.
-- **L'ordre d'entrée est 3 puis 351, jamais l'inverse** : 351 puis 3 **plante le client 7.3**, mesuré en jeu
-  par élimination (chaque trame seule passe, 3 puis 351 passe ; fiche §16). L'ordre d'origine, présenté comme
-  celui de la référence, venait du socle des invocations : `SummonWorldService.Enter` envoie encore 301 puis
-  3 et n'a jamais été essayé en jeu — à vérifier au premier appelant. Les valeurs sans source (niveau 1, PV 100, PM 0, `code`/`unknown` à 0) sont dans
-  `PetSummonDefaults`. Rien n'est persisté.
+- **Le flux est l'officiel** (fiche §18, `StructPlayer::Login`/`AddPet`/`SummonPet`/`onSetPetName`) : la 351
+  **enregistre** un familier possédé dans le registre du client (@`0x4be8d0`), qui liera la `TS_SC_ENTER` de ce
+  handle. Une 351 par cage du sac à la connexion (`SendPetInfoAsync`), le handle gardé pour la session
+  (`ConnectionInfo.PetHandles`), `code` = id du familier ; une cage neuve est enregistrée à sa première
+  utilisation. L'appel n'envoie plus que la 3 sous ce handle. Les lots précédents envoyaient 3 puis 351 avec
+  `code = 0`, ce qui expliquerait le familier « non invoqué » du §17.4. **Le plantage mesuré au §16 (351 puis 3,
+  `code = 0`) reste le risque à vérifier en jeu en premier.** Les valeurs sans source (niveau 1, PV 100, PM 0,
+  `unknown` à 0) sont dans `PetSummonDefaults`. `SummonWorldService.Enter` envoie 301 puis 3.
 - `ActorStatus.ForPet()` vaut 0, comme les invocations.
 - **Il suit, ramasse et se nomme** (fiche §17). `PetBehaviorService` (250 ms, `NetworkService` pour la
   seule liste des clients) fait marcher le familier vers **la destination** de son maître
@@ -2236,14 +2239,11 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   **× 12 unités par mètre** (règle de NGemity pour toute portée de compétence) ; le familier prend le butin
   de son maître par le ramassage manuel, **`item_taker` = le familier et aucun `TS_SC_RESULT`**. Le filtre
   355 est déclaré, lu, gardé (`PetPickupFilter`) et **jamais appliqué**. Le nom vit dans `Pets` (une ligne
-  par cage) ; un familier jamais nommé reçoit la **353 sur son handle** à chaque appel, l'objet 920010
+  par cage) ; un familier jamais nommé reçoit la **353 sur son handle** **au lieu de sortir**, l'objet 920010
   (`RenamePet`, 120) la rouvre, refusé **avant consommation** sans familier dehors ; la 354 n'est acceptée que
-  pour le handle proposé, avec **la règle des noms de personnage** (4-18 lettres/chiffres, mots interdits),
-  un refus rouvrant la boîte.
-- **Le client 7.3 ne reconnaît pas le familier comme « invoqué »** (fiche §17.4) : l'objet 920010 est refusé
-  **côté client** (« Please summon your decorative pet… », id 797) et le bouton « Decorative Pet » ouvre une
-  fenêtre vide, donc aucune 355 ne part. `code` = id du familier dans la 351 a été **essayé et réfuté** en jeu ;
-  le champ reste à 0. Piste non établie : la fenêtre 0x8a, destinataire de la 351, créée après elle.
+  pour un handle proposé (`PetNameOffers`), avec **la règle des noms de personnage** (4-18 lettres/chiffres,
+  mots interdits) ; refus = `@1105`/`@1106` + `TS_SC_RESULT(354)`, succès = `TS_SC_CHANGE_NAME` (30, 30 octets,
+  `handle` @7, `name[19]` @11) au maître et aux observateurs, puis le résultat.
 - `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options
   (`PET_PICKUP_FILTER`), mais n'est **pas déclaré** : sa valeur n'est pas établie et le ramassage par
   familier n'existe pas. Il tombe dans `Undefined packet ID`, sans erreur.

@@ -344,6 +344,12 @@ public enum GamePackets : ushort
     TM_CS_LOGOUT = 27,
     TM_SC_DISCONNECT_DESC = 28,
 
+    /// <summary>
+    /// Server to client only: <c>TS_SC_CHANGE_NAME</c>, 30 bytes, <c>handle</c> @7 and the 19-byte name @11 — a pet's new
+    /// name (<c>StructPet::ChangeName</c>, socle-familier-pet.md §18). The client dispatches it; it never sends it.
+    /// </summary>
+    TM_SC_CHANGE_NAME = 30,
+
     TM_CS_VERSION = 50,
 
     TM_CS_ANTI_HACK = 54,

@@ -111,7 +111,8 @@ public static class PetSummonRules
     {
         CageHandle = cageHandle,
         PetCode = (uint)pet.PetId,
-        Code = PetSummonDefaults.Code,
+        // SendAddPetMessage: msg.code = pPet->GetPetCode(), the pet's own code like the ENTER's pet_code.
+        Code = pet.PetId,
         Unknown = PetSummonDefaults.Unknown,
         Name = name ?? pet.Name ?? string.Empty,
         Level = PetSummonDefaults.Level,

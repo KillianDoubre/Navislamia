@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
+using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Network.Packets;
+using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Serilog;
 
@@ -32,6 +36,12 @@ public interface IPetSummonService
 
     /// <summary>Takes the pet out and brings it back beside its master, keeping its state; under the pet lock.</summary>
     void Recall(GameClient client);
+
+    /// <summary>
+    /// <c>StructPlayer::Login</c>: the 351 of every pet the bag's cages hold, each under the handle its calls will use.
+    /// </summary>
+    Task SendPetInfoAsync(GameClient client, IEnumerable<Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity> items) =>
+        Task.CompletedTask;
 }
 
 /// <summary>
@@ -39,9 +49,9 @@ public interface IPetSummonService
 /// <c>SummonPet</c> (90) with no pet in its values: the pet is the client table's row whose <c>cage_id</c> is
 /// the item (<see cref="IPetCatalog"/>). One pet at a time, toggled by its cage
 /// (<see cref="PetSummonRules.Decide"/>). Its name is stored per cage (<c>Pets</c>); an unnamed pet opens the
-/// client's name box (353) every time it is called until the master names it (354). NGemity has no pet
-/// logic, so trigger, toggle, placement and naming policy are this repository's; see
-/// docs/packet-specs/socle-familier-pet.md §15-17.
+/// client's name box (353) instead of coming out until the master names it (354). The frames follow the official
+/// server: every pet is registered once (351) under the handle its calls use, a call only puts it in the world;
+/// see docs/packet-specs/socle-familier-pet.md §15-18.
 /// </summary>
 public class PetSummonService : IPetSummonService
 {
@@ -67,28 +77,8 @@ public class PetSummonService : IPetSummonService
             return false;
         }
 
+        // The cage handle is the item's id: its pet row carries the name, created with the pet.
         var info = client.ConnectionInfo;
-        bool summon;
-        lock (info.PetLock)
-        {
-            var action = PetSummonRules.Decide(info.ActivePet, itemHandle);
-            if (action is PetCageAction.Dismiss or PetCageAction.Swap)
-            {
-                _world.Leave(info, client.ClientTag, client.Connection, info.ActivePet!.Handle, client);
-                info.ActivePet = null;
-            }
-
-            summon = action is PetCageAction.Summon or PetCageAction.Swap;
-            _logger.Debug("{clientTag} used cage {cageHandle} (pet {petId}): {action}", client.ClientTag,
-                itemHandle, pet.PetId, action);
-        }
-
-        if (!summon)
-        {
-            return true;
-        }
-
-        // The cage handle is the item's id: its pet row carries the name, created on the first call.
         PetRecord record;
         try
         {
@@ -104,29 +94,90 @@ public class PetSummonService : IPetSummonService
 
         lock (info.PetLock)
         {
-            // Another cage may have been used while the row was read: the last call wins, one pet at a time.
-            if (info.ActivePet is { } other)
+            // A cage got since the world entry is registered now (351), like StructPlayer::AddPet.
+            if (!info.PetHandles.TryGetValue(itemHandle, out var petHandle))
             {
-                _world.Leave(info, client.ClientTag, client.Connection, other.Handle, client);
+                petHandle = WorldObjectHandle.Next();
+                info.PetHandles[itemHandle] = petHandle;
+                client.Connection.Send(PetWorldService.BuildInfo(itemHandle, petHandle, record.Name, pet.PetId,
+                    PetSummonDefaults.Unknown));
+            }
+
+            // ITEM_EFFECT_INSTANT SUMMON_PET: a rare pet whose name was never set is named first (353), not called.
+            if (!record.WasNameChanged)
+            {
+                info.PetNameOffers[petHandle] = itemHandle;
+                client.Connection.Send(GamePetPackets.BuildShowSetPetName(petHandle));
+                _logger.Debug("{clientTag} was offered a name for pet {handle} of cage {cageHandle} (353)",
+                    client.ClientTag, petHandle, itemHandle);
+                return true;
+            }
+
+            var action = PetSummonRules.Decide(info.ActivePet, itemHandle);
+            _logger.Debug("{clientTag} used cage {cageHandle} (pet {petId}): {action}", client.ClientTag,
+                itemHandle, pet.PetId, action);
+            if (action is PetCageAction.Dismiss or PetCageAction.Swap)
+            {
+                _world.Leave(info, client.ClientTag, client.Connection, info.ActivePet!.Handle, client);
                 info.ActivePet = null;
             }
 
-            var entry = PetSummonRules.BuildEntry(pet, itemHandle, info.X, info.Y, info.Z, info.Layer,
-                isFirstEnter: true, name: record.Name);
-            var handle = _world.Enter(info, client.ClientTag, client.Connection, entry, client);
-            if (handle == 0)
+            if (action is not (PetCageAction.Summon or PetCageAction.Swap))
             {
                 return true;
             }
 
-            info.ActivePet = new ActivePet(handle, itemHandle, entry, pet.CollectRange);
-            if (!record.WasNameChanged)
+            // SummonPet: the registered pet enters the world under its handle; its 351 already went.
+            var entry = PetSummonRules.BuildEntry(pet, itemHandle, info.X, info.Y, info.Z, info.Layer,
+                isFirstEnter: true, name: record.Name);
+            var handle = _world.Enter(info, client.ClientTag, client.Connection, entry, client, handle: petHandle,
+                sendInfo: false);
+            if (handle != 0)
             {
-                OfferRenameLocked(client, info.ActivePet);
+                info.ActivePet = new ActivePet(handle, itemHandle, entry, pet.CollectRange);
             }
         }
 
         return true;
+    }
+
+    public async Task SendPetInfoAsync(GameClient client, IEnumerable<Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity> items)
+    {
+        var info = client.ConnectionInfo;
+        foreach (var cage in items ?? Array.Empty<Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity>())
+        {
+            if (cage.Amount <= 0 || !_catalog.TryGetByCage(cage.ItemResourceId, out var pet))
+            {
+                continue;
+            }
+
+            var cageHandle = (uint)cage.Id;
+            PetRecord record;
+            try
+            {
+                record = await _characterService.GetOrCreatePetAsync(info.CharacterName, info.CharacterHandle,
+                    info.AccountId, cageHandle, pet.PetId, pet.Name);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Could not read the pet of cage {cageHandle} for {clientTag}", cageHandle,
+                    client.ClientTag);
+                record = new PetRecord(pet.Name, true);
+            }
+
+            lock (info.PetLock)
+            {
+                if (info.PetHandles.ContainsKey(cageHandle))
+                {
+                    continue;
+                }
+
+                var handle = WorldObjectHandle.Next();
+                info.PetHandles[cageHandle] = handle;
+                client.Connection.Send(PetWorldService.BuildInfo(cageHandle, handle, record.Name, pet.PetId,
+                    PetSummonDefaults.Unknown));
+            }
+        }
     }
 
     public bool HasPetOut(GameClient client)
@@ -148,14 +199,18 @@ public class PetSummonService : IPetSummonService
         }
     }
 
+    /// <summary>
+    /// <c>onSetPetName</c> and <c>StructPet::ChangeName</c>: only a pet a 353 offered, a name of 4 to 18 letters and
+    /// digits without banned words; the refusals answer the official lines and result, the change goes out as
+    /// <c>TS_SC_CHANGE_NAME</c> (30) to the master and, for a pet out, to the players who see it.
+    /// </summary>
     public async Task RenameAsync(GameClient client, uint handle, string name)
     {
         var info = client.ConnectionInfo;
-        ActivePet active;
+        uint cageHandle;
         lock (info.PetLock)
         {
-            active = info.ActivePet;
-            if (active is null || active.Handle != handle || !active.RenameOffered)
+            if (!info.PetNameOffers.TryGetValue(handle, out cageHandle))
             {
                 _logger.Warning("{clientTag} sent a pet name for handle {handle} that no 353 offered",
                     client.ClientTag, handle);
@@ -164,46 +219,50 @@ public class PetSummonService : IPetSummonService
         }
 
         var trimmed = name?.Trim() ?? string.Empty;
-        if (!PetSummonRules.IsValidName(trimmed) || _bannedWords.ContainsBannedWord(trimmed))
+        var refusal = trimmed.Length < 4 ? ResultCode.LimitMin
+            : !PetSummonRules.IsValidName(trimmed) || _bannedWords.ContainsBannedWord(trimmed) ? ResultCode.AccessDenied
+            : ResultCode.Success;
+        if (refusal != ResultCode.Success)
         {
-            // No reference holds a refusal frame for a pet name: the box is simply offered again.
-            _logger.Debug("{clientTag} refused pet name \"{name}\"", client.ClientTag, trimmed);
-            OfferRename(client);
+            client.Connection.Send(GameChatPackets.BuildChat("@SYSTEM", (byte)ChatType.Notice,
+                refusal == ResultCode.LimitMin ? "@1105" : "@1106"));
+            client.SendResult(SetPetNameRequestId, (ushort)refusal, unchecked((int)handle));
             return;
         }
 
         try
         {
-            if (!await _characterService.RenamePetAsync(info.CharacterName, active.CageHandle, trimmed))
+            if (!await _characterService.RenamePetAsync(info.CharacterName, cageHandle, trimmed))
             {
-                _logger.Warning("{clientTag} renamed cage {cageHandle}, which has no pet row", client.ClientTag,
-                    active.CageHandle);
+                _logger.Warning("{clientTag} renamed cage {cageHandle}, which has no pet row", client.ClientTag, cageHandle);
+                client.SendResult(SetPetNameRequestId, (ushort)ResultCode.NotExist, unchecked((int)handle));
                 return;
             }
         }
         catch (Exception exception)
         {
-            _logger.Error(exception, "Could not rename the pet of cage {cageHandle} for {clientTag}",
-                active.CageHandle, client.ClientTag);
+            _logger.Error(exception, "Could not rename the pet of cage {cageHandle} for {clientTag}", cageHandle,
+                client.ClientTag);
+            client.SendResult(SetPetNameRequestId, (ushort)ResultCode.DBError, unchecked((int)handle));
             return;
         }
 
+        var change = GamePetPackets.BuildChangeName(handle, trimmed);
         lock (info.PetLock)
         {
-            // The pet may have been put away or swapped while the row was written.
-            if (!ReferenceEquals(info.ActivePet, active))
+            info.PetNameOffers.Remove(handle);
+            client.Connection.Send(change);
+            if (info.ActivePet is { } active && active.Handle == handle)
             {
-                return;
+                active.Entry.Name = trimmed;
+                _world.Broadcast(client, change);
             }
-
-            // The name travels in the entry frame: the pet is brought back in place under its new name.
-            var (x, y) = active.PositionAt(ServerClock.Now);
-            Replace(client, active, x, y, trimmed);
         }
 
-        _logger.Debug("{clientTag} named the pet of cage {cageHandle} \"{name}\"", client.ClientTag,
-            active.CageHandle, trimmed);
+        client.SendResult(SetPetNameRequestId, (ushort)ResultCode.Success, unchecked((int)handle));
     }
+
+    private const ushort SetPetNameRequestId = (ushort)GamePackets.TM_CS_SET_PET_NAME;
 
     public void SetPickupFilter(GameClient client, uint handle, uint filter)
     {
@@ -247,13 +306,16 @@ public class PetSummonService : IPetSummonService
         var entry = PetSummonRules.BuildEntry(
             new PetDefinition((int)active.Entry.PetCode, 0, name), active.CageHandle,
             x, y, info.Z, info.Layer, isFirstEnter: false, name: name);
-        var handle = _world.Enter(info, client.ClientTag, client.Connection, entry, client);
+        // The same pet, already registered: back in the world under its handle, no new 351.
+        var handle = _world.Enter(info, client.ClientTag, client.Connection, entry, client, handle: active.Handle,
+            sendInfo: false);
         info.ActivePet = handle == 0 ? null : new ActivePet(handle, active.CageHandle, entry, active.CollectRange);
     }
 
     private void OfferRenameLocked(GameClient client, ActivePet active)
     {
         active.RenameOffered = true;
+        client.ConnectionInfo.PetNameOffers[active.Handle] = active.CageHandle;
         client.Connection.Send(GamePetPackets.BuildShowSetPetName(active.Handle));
         _logger.Debug("{clientTag} was offered a name for pet {handle} (353)", client.ClientTag, active.Handle);
     }

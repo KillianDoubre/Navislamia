@@ -273,18 +273,19 @@ public class PetWorldTests
     // ------------------------------------------------------------------- entering, then leaving
 
     [Test]
-    public void Enter_PutsTheObjectInTheWorldBeforeAnnouncingTheCreatureWindow()
+    public void Enter_AnnouncesThePetThenPutsTheObjectInTheWorld()
     {
         var connection = new RecordingConnection();
         var service = new PetWorldService();
 
         var handle = service.Enter(Session(), "test", connection, Entry());
 
-        // Measured in game on 2026-09-23: 351 then 3 crashes the 7.3 client, 3 then 351 does not, and
-        // either frame alone does not either (fiche §16).
-        connection.Sent.Should().HaveCount(2, "3 adds the object, then 351 fills the creature window");
-        var entry = connection.Sent[0];
-        var info = connection.Sent[1];
+        // The official order (StructPlayer::AddPet, then SummonPet): the client registers the pet from its 351 and
+        // links the ENTER of a known handle to it. The crash measured on 2026-09-23 with 351 then 3 carried code = 0
+        // (fiche §16 and §18).
+        connection.Sent.Should().HaveCount(2, "351 registers the pet, then 3 adds the object");
+        var info = connection.Sent[0];
+        var entry = connection.Sent[1];
 
         BinaryPrimitives.ReadUInt16LittleEndian(info.AsSpan(4, 2)).Should()
             .Be((ushort)GamePackets.TM_SC_ADD_PET_INFO);
@@ -306,7 +307,7 @@ public class PetWorldTests
 
         new PetWorldService().Enter(Session(), "test", connection, Entry());
 
-        // Picked by id: the order has its own test (Enter_PutsTheObjectInTheWorldBeforeAnnouncingTheCreatureWindow).
+        // Picked by id: the order has its own test (Enter_AnnouncesThePetThenPutsTheObjectInTheWorld).
         var info = connection.Sent.Single(packet =>
             BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2)) == (ushort)GamePackets.TM_SC_ADD_PET_INFO);
         var entry = connection.Sent.Single(packet =>

@@ -52,7 +52,7 @@ public sealed class PetWorldEntry
     /// The pet's display name — <c>PetEntity.Name</c>, 18 usable characters. It is written in both frames
     /// of the entry (351 @15 and 3 @76), from this one value.
     /// </summary>
-    public string Name { get; init; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
 
     /// <summary>
     /// <c>level</c> of the entry (3, offset 50). <b>Caller-supplied</b>: neither <c>PetEntity</c> nor

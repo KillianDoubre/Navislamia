@@ -113,7 +113,7 @@ public class BroadcastTests
 
         var handle = world.Enter(infoA, "a", a.Connection, PetEntry(), a);
 
-        SentOf(a).Select(Id).Should().Equal((ushort)GamePackets.TM_SC_ENTER, (ushort)GamePackets.TM_SC_ADD_PET_INFO);
+        SentOf(a).Select(Id).Should().Equal((ushort)GamePackets.TM_SC_ADD_PET_INFO, (ushort)GamePackets.TM_SC_ENTER);
         SentOf(b).Select(Id).Should().Equal((ushort)GamePackets.TM_SC_ENTER);
 
         Clear(a, b);
