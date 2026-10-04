@@ -339,6 +339,7 @@ public partial class SkillCastService
                     : _combatService.ApplyDamage(cast.Master, target.Id, cast.Master.ConnectionInfo.GetMonsterHandle(target.Id), hit.Damage, 0);
                 if (target.Monster is not null && hp > 0) _monsterState.AddSummonHate(target.Id, cast.Master, cast.Actor.Handle,
                     HateRules.SkillHate(f.HateMod, f.HateBasic, f.HatePerSkl, cast.Cast.SkillLevel, hit.Damage));
+                _ethereal?.Hit(cast.Master, true, hit.Damage, EtherealHit.Skill, cast.Card);
                 hits.Add((target.Id, new SkillHit(kind == DamageKind.Magical ? SkillHitType.MagicDamage : SkillHitType.Damage,
                     DamageHandle(cast.Master, target.Id), hp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)f.ElementalType)));
                 if (hp <= 0) break;

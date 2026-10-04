@@ -242,6 +242,7 @@ public class GameClient : Client
         // onMoveRequest echoes GetRealMoveSpeed(): the stat move speed, slowed by the load
         // (StructPlayer::GetMoveSpeed), divided by 7. The echo, the peers' copy and the position estimate all
         // use it (docs/packet-specs/socle-vitesse-echo.md, socle-poids.md).
+        if (Navislamia.Game.Services.Creatures.SummonFall.IsActive(ConnectionInfo, ServerClock.Now)) return;
         var speed = _networkService.CarriedWeightService?.RealMoveSpeed(ConnectionInfo)
                     ?? ConnectionInfo.EchoedMoveSpeed;
         // A rider moves at its mount's speed when that is faster (StructSummon::GetRidingMoveSpeed).
@@ -1428,6 +1429,7 @@ public class GameClient : Client
     private async Task SaveProgressSafelyAsync(string operation)
     {
         var info = ConnectionInfo;
+        if (_networkService.EtherealWear is { } wear) await wear.FlushAsync(this);
         try
         {
             await _networkService.SkillCastService.SaveBuffsAsync(this);

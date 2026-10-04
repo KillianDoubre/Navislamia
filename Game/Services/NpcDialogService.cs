@@ -34,13 +34,16 @@ public class NpcDialogService : INpcDialogService
     private readonly Dungeons.DungeonCatalog _dungeonCatalog;
     private readonly Guilds.IGuildService _guilds;
     private readonly ReturnPoints.IReturnPointService _returnPoints;
+    private readonly INpcScriptService _npcScripts;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
         IStorageService storageService, IMarketService marketService, IQuestService quests = null,
         Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null,
         Dungeons.IDungeonService dungeons = null, Dungeons.DungeonCatalog dungeonCatalog = null, Guilds.IGuildService guilds = null,
-        Huntaholic.IHuntaholicService huntaholic = null, ReturnPoints.IReturnPointService returnPoints = null)
+        Huntaholic.IHuntaholicService huntaholic = null, ReturnPoints.IReturnPointService returnPoints = null,
+        INpcScriptService npcScripts = null)
     {
+        _npcScripts = npcScripts;
         _returnPoints = returnPoints;
         _huntaholic = huntaholic;
         _guilds = guilds;
@@ -93,6 +96,19 @@ public class NpcDialogService : INpcDialogService
             }
 
             _ = SelectJobChangeAsync(client, handle, revision, Jobs.JobChangeRules.MasterContact, string.Empty);
+            return;
+        }
+
+        if (_contacts.TryGetValue((int)npcId, out var scriptContact) && _npcScripts?.Handles(scriptContact) == true)
+        {
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+                info.NpcDialogHandle = handle;
+                revision = info.NpcDialogRevision;
+            }
+            _ = RunNpcScriptAsync(client, handle, revision, scriptContact + "()");
             return;
         }
 
@@ -268,6 +284,19 @@ public class NpcDialogService : INpcDialogService
             }
 
             _ = SelectJobChangeAsync(client, npcHandle, revision, function, trigger);
+            return;
+        }
+
+        if (_npcScripts?.Handles(function) == true)
+        {
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                // Claim this exact action once. The fresh page advertises any repeatable action again.
+                if (info.NpcDialogHandle != npcHandle || !info.NpcDialogTriggers.Remove(trigger)) return;
+                revision = info.NpcDialogRevision;
+            }
+            _ = RunNpcScriptAsync(client, npcHandle, revision, trigger);
             return;
         }
 
@@ -453,7 +482,7 @@ public class NpcDialogService : INpcDialogService
         return compiled.ToFrozenDictionary(StringComparer.Ordinal);
     }
 
-    private static string ReadFunctionName(string expression)
+    internal static string ReadFunctionName(string expression)
     {
         var value = expression.AsSpan().Trim();
         if (value.Length == 0 || (!char.IsAsciiLetter(value[0]) && value[0] != '_'))
@@ -607,6 +636,27 @@ public class NpcDialogService : INpcDialogService
         {
             _logger.Error(exception, "Could not handle job change dialog {function}", function);
         }
+    }
+
+    private async Task RunNpcScriptAsync(GameClient client, uint handle, long revision, string trigger)
+    {
+        try
+        {
+            var result = await _npcScripts.RunAsync(client, handle, revision, trigger);
+            if (result is null) return;
+            if (result.IncludeQuests && _quests is not null)
+            {
+                int npcId;
+                lock (client.ConnectionInfo.NpcVisibilityLock)
+                {
+                    if (!client.ConnectionInfo.SpawnedNpcIdsByHandle.TryGetValue(handle, out var id)) return;
+                    npcId = (int)id;
+                }
+                result.Dialog.Menu.InsertRange(0, await _quests.GetNpcOffersAsync(client, npcId));
+            }
+            ShowDynamic(client, handle, revision, result.Dialog, 0, 0);
+        }
+        catch (Exception exception) { _logger.Error(exception, "NPC script dialogue failed for {Client}", client.ClientTag); }
     }
 
     private static void ShowDynamic(GameClient client, uint handle, long revision, NpcDialogDefinition dialog, int type, int code)

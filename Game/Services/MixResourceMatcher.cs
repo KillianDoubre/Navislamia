@@ -38,13 +38,11 @@ public readonly record struct MixMaterial(
     public ItemMixFields Resource => Mix ?? ItemMixFields.Empty;
 
     /// <summary>
-    /// The current ethereal durability. Nothing in this server consumes it and no creation path sets it, so a
-    /// stored 0 on an item that has a maximum is an item never initialised, read as full — what the official
-    /// <c>AllocItem</c> would have given it (socle-artisanat-objets-officiel.md §2).
+    /// The current ethereal durability. A new item starts at its maximum and the wear brings it down
+    /// (<see cref="EtherealWear"/>); the items made before either were filled once (<see cref="EtherealDurabilityBackfill"/>),
+    /// so a stored 0 is an exhausted item, the one <c>RecoverExhaustedEtherealDurability</c> repairs.
     /// </summary>
-    public int CurrentEthereal => Instance is { } instance
-        ? instance.EtherealDurability == 0 ? Resource.MaxEtherealDurability : instance.EtherealDurability
-        : Resource.MaxEtherealDurability;
+    public int CurrentEthereal => Instance?.EtherealDurability ?? Resource.MaxEtherealDurability;
 
     public long Socket(int index) =>
         Instance?.Sockets is { } sockets && index < sockets.Length ? sockets[index] : 0;

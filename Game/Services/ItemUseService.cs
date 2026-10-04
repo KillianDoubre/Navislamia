@@ -64,6 +64,13 @@ public class ItemUseService : IItemUseService
         var info = client.ConnectionInfo;
         var value = unchecked((int)request.ItemHandle);
 
+        // A fall from a mount takes STATUS_ITEM_USABLE away like a stun (CalculateStat.cpp, FALL_FROM_SUMMON).
+        if (Creatures.SummonFall.IsActive(info, ServerClock.Now))
+        {
+            client.SendResult(UseItemRequestId, (ushort)ResultCode.NotActable, value);
+            return;
+        }
+
         ItemEntity item;
         try
         {

@@ -9,6 +9,7 @@ namespace Navislamia.Game.Services.Creatures;
 /// </summary>
 public interface ICreatureEvents
 {
+    void EquipmentDurabilityChanged(GameClient player, System.Collections.Generic.IReadOnlyList<Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity> items) { }
     /// <summary>A player (or its summon) hit a monster: a tamer's hit renews the taming window.</summary>
     void MonsterDamaged(GameClient attacker, long instanceId);
 
@@ -34,6 +35,7 @@ public interface ICreatureEvents
 
 public interface ICreatureEventListener
 {
+    void OnEquipmentDurabilityChanged(GameClient player, System.Collections.Generic.IReadOnlyList<Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity> items) { }
     void OnMonsterDamaged(GameClient attacker, long instanceId);
 
     bool OnMonsterKilled(long instanceId);
@@ -48,6 +50,8 @@ public interface ICreatureEventListener
 
 public sealed class CreatureEvents : ICreatureEvents
 {
+    public void EquipmentDurabilityChanged(GameClient player, System.Collections.Generic.IReadOnlyList<Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity> items) =>
+        _listener?.OnEquipmentDurabilityChanged(player, items);
     private volatile ICreatureEventListener _listener;
 
     public void Attach(ICreatureEventListener listener) => _listener = listener;

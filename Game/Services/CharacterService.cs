@@ -18,6 +18,7 @@ public class CharacterService : ICharacterService
 {
     private readonly ILogger<CharacterService> _logger;
     private readonly ICharacterRepositoryFactory _repositories;
+    private readonly IItemMatchCatalog _itemTemplates;
     private readonly IStarterItemsRepository _starterItemsRepository;
     private readonly CharacterGate _gate;
     private readonly Weight.IInventoryChangeFeed _inventoryFeed;
@@ -33,14 +34,32 @@ public class CharacterService : ICharacterService
     /// character it touches (<see cref="CharacterGate"/>): two players no longer wait on each other.
     /// </summary>
     public CharacterService(IStarterItemsRepository starterItemsRepository, ICharacterRepositoryFactory repositories,
-        CharacterGate gate, ILogger<CharacterService> logger, Weight.IInventoryChangeFeed inventoryFeed = null)
+        CharacterGate gate, ILogger<CharacterService> logger, Weight.IInventoryChangeFeed inventoryFeed = null,
+        IItemMatchCatalog itemTemplates = null)
     {
+        _itemTemplates = itemTemplates;
         _inventoryFeed = inventoryFeed;
         _starterItemsRepository = starterItemsRepository;
         _repositories = repositories;
         _gate = gate;
         _logger = logger;
     }
+
+    public Task<IReadOnlyList<ItemEntity>> ConsumeEtherealAsync(string characterName, Func<ItemEntity, int> amount) =>
+        RunInventoryAsync<IReadOnlyList<ItemEntity>>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var changed = new List<ItemEntity>();
+            foreach (var item in character?.Items ?? Array.Empty<ItemEntity>())
+            {
+                var loss = amount(item);
+                if (loss <= 0 || item.EtherealDurability <= 0) continue;
+                item.EtherealDurability = Math.Max(0, item.EtherealDurability - loss);
+                changed.Add(item);
+            }
+            if (changed.Count > 0) await repository.SaveChangesAsync();
+            return changed;
+        });
 
     public Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false)
     {
@@ -103,6 +122,7 @@ public class CharacterService : ICharacterService
                 }
             }
 
+            foreach (var item in character.Items ?? Array.Empty<ItemEntity>()) EtherealWearRules.Initialize(item, _itemTemplates);
             var result = await repository.CreateCharacterAsync(character);
             await repository.SaveChangesAsync();
 
@@ -883,6 +903,7 @@ public class CharacterService : ICharacterService
                         ? InventoryArrange.FirstIndex : character.Items.Max(entry => entry.Idx) + 1
                 };
                 character.Items.Add(item);
+                EtherealWearRules.Initialize(item, _itemTemplates);
                 made.Add(item);
             }
 
@@ -923,6 +944,9 @@ public class CharacterService : ICharacterService
         WearInfo = ItemWearType.None,
         Idx = character.Items.Max(item => item.Idx) + 1,
         SocketItemIds = source.SocketItemIds?.ToArray(),
+        RandomOptionTypes = source.RandomOptionTypes?.ToArray(),
+        RandomOptionVars = source.RandomOptionVars?.ToArray(),
+        RandomOptionValues = source.RandomOptionValues?.ToArray(),
         Endurance = source.Endurance,
         EtherealDurability = source.EtherealDurability,
         RemainingTime = source.RemainingTime,
@@ -1001,6 +1025,9 @@ public class CharacterService : ICharacterService
                 Idx = nextIndex
             };
 
+            added.Level = 1;
+            added.SocketItemIds = new long[4];
+            EtherealWearRules.Initialize(added, _itemTemplates);
             character.Items.Add(added);
             await repository.SaveChangesAsync();
             return added;
@@ -1210,6 +1237,9 @@ public class CharacterService : ICharacterService
             GenerateBySource = source.GenerateBySource,
             WearInfo = ItemWearType.None,
             SocketItemIds = source.SocketItemIds?.ToArray(),
+            RandomOptionTypes = source.RandomOptionTypes?.ToArray(),
+            RandomOptionVars = source.RandomOptionVars?.ToArray(),
+            RandomOptionValues = source.RandomOptionValues?.ToArray(),
             RemainingTime = source.RemainingTime,
             ElementalEffectType = source.ElementalEffectType,
             ElementalEffectExpireTime = source.ElementalEffectExpireTime,

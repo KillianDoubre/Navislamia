@@ -100,7 +100,7 @@ public static class CastRules
     /// </summary>
     public static bool InterruptsCasting(int stateId, int effectType, ReadOnlySpan<decimal> values)
     {
-        if (stateId is 6005 or 6006 or 6008 or 13601 or 1000006 or 1000007 || effectType == 104)
+        if (stateId is 9001 or 6005 or 6006 or 6008 or 13601 or 1000006 or 1000007 || effectType == 104)
         {
             return true;
         }

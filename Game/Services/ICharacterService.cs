@@ -9,6 +9,8 @@ namespace Navislamia.Game.Services;
 
 public interface ICharacterService
 {
+    Task<IReadOnlyList<ItemEntity>> ConsumeEtherealAsync(string characterName, Func<ItemEntity, int> amount) =>
+        Task.FromResult<IReadOnlyList<ItemEntity>>(Array.Empty<ItemEntity>());
     Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false);
 
     /// <summary>

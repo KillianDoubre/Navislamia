@@ -65,4 +65,4 @@ public sealed class CreatureCard
 }
 
 /// <summary>One item a summon wears: the item row, its resource and its summon slot.</summary>
-public readonly record struct SummonWornItem(long ItemId, int ResourceId, int Slot, uint Enhance);
+public readonly record struct SummonWornItem(long ItemId, int ResourceId, int Slot, uint Enhance, bool Exhausted = false);

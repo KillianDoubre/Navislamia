@@ -34,13 +34,22 @@ public class CraftingSocleService : ICraftingSocleService
     private readonly Progression.ITitleService _titles;
     private readonly Creatures.ICreatureCatalog _creatures;
     private readonly Buffs.IBuffCatalog _skills;
+    private readonly Auction.IAuctionCatalog _names;
+    private readonly IItemUseCatalog _useFlags;
+    private readonly IStatService _stats;
+    private readonly Creatures.ICreatureEvents _creatureEvents;
 
     public CraftingSocleService(ICharacterService characterService, IMixResourceCatalog mixCatalog,
         IItemMatchCatalog itemCatalog, IEnhanceResourceCatalog enhanceCatalog = null,
         IOptions<CraftingOptions> craftingOptions = null, IEtherealSacrificeCatalog etherealSacrifices = null,
         IMonsterDropCatalog drops = null, Progression.ITitleService titles = null,
-        Creatures.ICreatureCatalog creatures = null, Buffs.IBuffCatalog skills = null)
+        Creatures.ICreatureCatalog creatures = null, Buffs.IBuffCatalog skills = null, Auction.IAuctionCatalog names = null,
+        IItemUseCatalog useFlags = null, IStatService stats = null, Creatures.ICreatureEvents creatureEvents = null)
     {
+        _names = names;
+        _useFlags = useFlags;
+        _stats = stats;
+        _creatureEvents = creatureEvents;
         _creatures = creatures;
         _skills = skills;
         _drops = drops;
@@ -282,10 +291,45 @@ public class CraftingSocleService : ICraftingSocleService
             }
         }
 
+        // A worn item repaired, worn down or changed by the mix changes what the character or its summon wears
+        // (MixManager ends with CalculateStat): an exhausted item gets its stats back, the wear its target.
+        var worn = commit.Mutated.Where(item => item.WearInfo != DataAccess.Entities.Enums.ItemWearType.None).ToArray();
+        if (commit.Target is { WearInfo: not DataAccess.Entities.Enums.ItemWearType.None } wornTarget) worn = worn.Append(wornTarget).ToArray();
+        if (worn.Length > 0)
+        {
+            _creatureEvents?.EquipmentDurabilityChanged(client, worn);
+            try
+            {
+                EquipmentStatRefresh.Send(client, _stats, await _characterService.GetCarriedItemsAsync(info.CharacterName));
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Could not refresh the stats of {clientTag} after a mix", client.ClientTag);
+            }
+        }
+
         if (commit.EtherealStone is { } stone)
         {
             info.EtherealStone = stone;
             client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "ethereal_stone", (int)stone));
+        }
+
+        // The items a mix allocates are announced (MixManager); the copies a failure or a split leaves are not
+        // (procEnhanceFail, EnhanceSkillCard). They come first in Created, in the plan's order.
+        var copies = plan.Created.Count(creation => creation.CopyOf != 0);
+        foreach (var item in commit.Created.Skip(copies))
+        {
+            if (resolution.Rule.MixType == CraftingEngine.MixCreateItem)
+            {
+                // CreateItem always names the count, joinable or not.
+                if (_names?.TryGetItem((int)item.ItemResourceId, out var row) == true && row.NameId > 0)
+                    client.Connection.Send(GameChatPackets.BuildChat("@SYSTEM", (byte)ChatType.Item,
+                        ItemObtainedNotice.Message(row.NameId, item.Amount, joinable: true)));
+            }
+            else
+            {
+                ItemObtainedNotice.Send(client, _names, _useFlags, item, item.Amount);
+            }
         }
 
         foreach (var line in plan.ChatLines)

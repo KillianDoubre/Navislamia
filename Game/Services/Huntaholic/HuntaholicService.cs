@@ -70,6 +70,8 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
     private readonly Func<uint> _clock;
     private readonly Func<DateTime> _localNow;
     private readonly Random _random;
+    private readonly Auction.IAuctionCatalog _names;
+    private readonly IItemUseCatalog _useFlags;
     private readonly object _lock = new();
     private readonly List<Room> _rooms = new();
     private readonly Dictionary<long, Room> _roomOfMonster = new();
@@ -79,8 +81,10 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         ICharacterService characters, IPlayerVisibilityService players, HuntaholicEvents events = null,
         ILevelingService leveling = null, Func<uint> clock = null, Func<DateTime> localNow = null,
         Random random = null, bool runTicks = true, Props.IDynamicFieldProps dynamicProps = null,
-        IFieldPropService fieldProps = null)
+        IFieldPropService fieldProps = null, Auction.IAuctionCatalog names = null, IItemUseCatalog useFlags = null)
     {
+        _names = names;
+        _useFlags = useFlags;
         _dynamicProps = dynamicProps;
         _fieldProps = fieldProps;
         _catalog = catalog;
@@ -1077,6 +1081,8 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
             var item = await _characters.AddItemAsync(client.ConnectionInfo.CharacterName, itemId, count);
             if (item is null) return;
             foreach (var packet in GameCharacterPackets.BuildInventory(new[] { item })) client.Connection.Send(packet);
+            // HuntaholicManager's reward: the official "item obtained" line.
+            ItemObtainedNotice.Send(client, _names, _useFlags, item, count);
         }
         catch (Exception exception)
         {

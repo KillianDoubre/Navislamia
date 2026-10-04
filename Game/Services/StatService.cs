@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Clients;
@@ -15,15 +16,27 @@ public class StatService : IStatService
     private readonly ISkillPassiveCatalog _passives;
     private readonly IStateCatalog _states;
     private readonly Progression.TitleCatalog _titles;
+    private readonly IItemMatchCatalog _itemTemplates;
 
     public StatService(IStatCatalog catalog, IItemStatCatalog itemStats, ISkillPassiveCatalog passives,
-        IStateCatalog states, Progression.TitleCatalog titles = null)
+        IStateCatalog states, Progression.TitleCatalog titles = null, IItemMatchCatalog itemTemplates = null)
     {
+        _itemTemplates = itemTemplates;
         _calculator = new StatCalculator(catalog);
         _itemStats = itemStats;
         _passives = passives;
         _states = states;
         _titles = titles ?? new Progression.TitleCatalog();
+    }
+
+    public void RefreshEquipment(ConnectionInfo info, IReadOnlyList<ItemEntity> items)
+    {
+        var character = new CharacterEntity { Items = items?.ToArray() ?? Array.Empty<ItemEntity>() };
+        info.ItemEffects = ResolveItemEffects(character);
+        info.EquippedWeapon = ResolveEquippedWeapon(character);
+        SeedHands(info, character);
+        RefreshPassives(info);
+        info.EtherealGear = EtherealWearRules.PlayerCandidates(character.Items, info.BeltItemIds, _itemTemplates);
     }
 
     public CharacterStatResult Compute(CharacterEntity character)
@@ -75,6 +88,8 @@ public class StatService : IStatService
 
     public void Seed(ConnectionInfo info, CharacterEntity character)
     {
+        info.BeltItemIds = character.BeltItemIds?.ToArray() ?? Array.Empty<long>();
+        info.EtherealGear = EtherealWearRules.PlayerCandidates(character.Items, info.BeltItemIds, _itemTemplates);
         info.PreviousJobs.Clear();
         info.PreviousJobs.AddRange(PreviousJobsOf(character));
         info.EquippedWeapon = ResolveEquippedWeapon(character);
@@ -140,14 +155,14 @@ public class StatService : IStatService
 
         foreach (var item in character.Items)
         {
-            if (item.EquippedBySummonId is not null)
+            if (item.EquippedBySummonId is not null || EtherealWearRules.Exhausted(item, _itemTemplates))
             {
                 continue;
             }
 
             if (item.WearInfo == ItemWearType.Weapon)
             {
-                info.RightWeaponEffects = _itemStats.GetEffects((int)item.ItemResourceId);
+                info.RightWeaponEffects = _itemStats.GetEffects((int)item.ItemResourceId).Concat(ItemStatCatalog.RandomEffects(item)).ToArray();
                 info.WeaponAttackRange = _itemStats.GetAttackRange((int)item.ItemResourceId);
             }
             else if (item.WearInfo == ItemWearType.Shield)
@@ -156,7 +171,7 @@ public class StatService : IStatService
                 if (weapon is not null || Combat.AttackMechanics.IsRanged(info.EquippedWeapon))
                 {
                     info.LeftHand = new Combat.LeftHandItem((uint)item.Id, (int)item.ItemResourceId, weapon,
-                        item.Amount, _itemStats.GetEffects((int)item.ItemResourceId));
+                        item.Amount, _itemStats.GetEffects((int)item.ItemResourceId).Concat(ItemStatCatalog.RandomEffects(item)).ToArray());
                 }
             }
         }
@@ -171,7 +186,7 @@ public class StatService : IStatService
 
         foreach (var item in character.Items)
         {
-            if (ItemWearRules.IsWornByPlayerAt(item, ItemWearType.Weapon))
+            if (!EtherealWearRules.Exhausted(item, _itemTemplates) && ItemWearRules.IsWornByPlayerAt(item, ItemWearType.Weapon))
             {
                 return _itemStats.GetWeaponType((int)item.ItemResourceId);
             }
@@ -262,14 +277,14 @@ public class StatService : IStatService
         {
             // A spare-set item (24..27) is worn but gives nothing until the swap brings it to its main slot
             // (StructPlayer::TranslateWearPosition: "spare items do not apply their performance").
-            if (!ItemWearRules.IsWornByPlayer(item) || item.WearInfo >= ItemWearType.SpareWeapon
+            if (EtherealWearRules.Exhausted(item, _itemTemplates) || !ItemWearRules.IsWornByPlayer(item) || item.WearInfo >= ItemWearType.SpareWeapon
                 && item.WearInfo <= ItemWearType.SpareDecoShield)
             {
                 continue;
             }
 
-            var itemEffects = _itemStats.GetEffects((int)item.ItemResourceId);
-            if (itemEffects.Count == 0)
+            var itemEffects = _itemStats.GetEffects((int)item.ItemResourceId).Concat(ItemStatCatalog.RandomEffects(item)).ToArray();
+            if (itemEffects.Length == 0)
             {
                 continue;
             }

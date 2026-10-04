@@ -62,7 +62,8 @@ public sealed partial class GuildService : IGuildService
         MonsterWorldState world = null, IStatService stats = null, TitleCatalog titleCatalog = null,
         ITitleService titles = null, IBannedWordsRepository banned = null, TimeProvider time = null, Party.IPartyService parties = null)
     {
-        _options = options; _characters = characters; _players = players.Registry; _runtime = runtime;
+        // The guild units open their own transactions around session effects: no retrying strategy (TelecasterOptions).
+        _options = TelecasterOptions.WithoutRetry(options); _characters = characters; _players = players.Registry; _runtime = runtime;
         _parties = parties;
         _catalog = catalog; _rooms = rooms; _world = world; _stats = stats; _titleCatalog = titleCatalog ?? new TitleCatalog();
         _titles = titles; _banned = banned; _time = time ?? TimeProvider.System; _dungeonOptions = dungeonOptions.Value;

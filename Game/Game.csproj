@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Scripting/Scripts/npc_dialogs.json" LogicalName="Navislamia.NpcDialogs.json" />
     <EmbeddedResource Include="Services/Dungeons/dungeon-resources.json" LogicalName="Navislamia.DungeonResources.json" />
     <ProjectReference Include="..\Configuration\Configuration.csproj" />
   </ItemGroup>

@@ -2068,8 +2068,9 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   éthérée 801-806 (pierre éthérée du personnage comprise). Il **remplace** les choix NGemity du 2026-09-29 : matériaux
   **arrangés** et non appariés par position, conditions 11-38 jugées, tous les matériaux de 101/103 consommés,
   `procEnhanceFail` officiel (1 vide les châsses sauf ceinture, 0 et 4 ne font rien). Un plan porte des mutations,
-  copies, créations et la pierre, appliquées en une sauvegarde (`ApplyMixAsync`). Une durabilité éthérée stockée à 0
-  sur un objet qui a un maximum est lue pleine (rien ne l'initialise ni ne l'use). L'application applique tout en une
+  copies, créations et la pierre, appliquées en une sauvegarde (`ApplyMixAsync`). Un objet naît à sa durabilité éthérée
+  maximale et **s'use au combat** (`EtherealWear`, `socle-usure-chute-scripts-pnj.md`) ; les 0 hérités ont été remplis
+  une fois (`Version0021_EtherealDurabilityBackfill`), donc **0 veut dire épuisé** (plus de stats). L'application applique tout en une
   sauvegarde, **seulement si la cible est encore dans l'état où le craft a été décidé**. Réponse : 255/254 par pile,
   207 pour la cible, puis 257 (cible si réussite, vide si échec). Appariement **par position**.
   `Crafting:LocalFlag` = 1 ; données par `tools/Import-CraftingResources.ps1` (CSV 9.4), `Percentage` jusqu'à 25.
@@ -2793,6 +2794,16 @@ Aucune de ces valeurs n'est devinée.
   sans fenêtre, le client n'émet ni 6002 ni 6004 ni 6006 ni 6008, et on n'a pas à répondre 6003/6005/6007 avec un
   `result` inconnu. Ce que l'on sait du système retail (Epic 7.2, sources web) et le tableau décodé de
   `db_creaturefarm.rdb` (rareté, forme, renforcement → nombre de tickets) sont au §8 de la fiche.
+
+## Usure éthérée, chute 9001, « objet obtenu », scripts PNJ (2026-10-04)
+
+`docs/packet-specs/socle-usure-chute-scripts-pnj.md`. L'usure est jugée **en mémoire** (`ConnectionInfo.EtherealGear`,
+posé par `StatService`) et écrite par lots, une écriture en vol par joueur : **ne jamais lire la base à chaque coup**.
+La chute (9001, 3 s) interdit attaque, sort, objet et marche. La ligne @253/@254 suit `IsJoinable` et seuls les sites
+officiels l'envoient. Les dialogues timbres/événements/cadeaux/`max_item_durability`/`tp_skill`/`random_item_change_menu`
+exécutent le **Lua officiel embarqué** dans un bac à sable (MoonSharp), sur déclencheur annoncé seulement.
+**`EnableRetryOnFailure` refuse les transactions ouvertes à la main** : un service qui en ouvre prend
+`TelecasterOptions.WithoutRetry` (enchères, guildes), sinon il échoue sur la vraie base alors que les tests passent.
 
 ## Donjons, guildes, alliances, raids et sièges (lot Codex du 2026-10-03)
 

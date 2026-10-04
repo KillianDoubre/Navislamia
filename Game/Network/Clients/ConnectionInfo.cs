@@ -12,6 +12,10 @@ namespace Navislamia.Game.Network.Clients;
 public class ConnectionInfo
 {
     public List<(int Job, int JobLevel)> PreviousJobs { get; } = new();
+    public long[] BeltItemIds { get; set; } = Array.Empty<long>();
+
+    /// <summary>The worn items the ethereal wear can reach (<see cref="Navislamia.Game.Services.EtherealWear"/>), set with the stats.</summary>
+    public IReadOnlyList<Navislamia.Game.Services.EtherealCandidate> EtherealGear { get; set; } = Array.Empty<Navislamia.Game.Services.EtherealCandidate>();
     public IReadOnlyList<StatEffect> ItemEffects { get; set; } = Array.Empty<StatEffect>();
     public IReadOnlyList<StatEffect> PassiveEffects { get; set; } = Array.Empty<StatEffect>();
     public IReadOnlyList<StatEffect> BuffEffects { get; set; } = Array.Empty<StatEffect>();
@@ -722,6 +726,8 @@ public class ConnectionInfo
         CharacterRace = 0;
         CharacterJob = 0;
         CharacterJobLevel = 0;
+        BeltItemIds = Array.Empty<long>();
+        EtherealGear = Array.Empty<Navislamia.Game.Services.EtherealCandidate>();
         CharacterExp = 0;
         CharacterJp = 0;
         CharacterGold = 0;

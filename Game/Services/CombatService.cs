@@ -59,6 +59,7 @@ public class CombatService : ICombatService
     private readonly List<PendingLeave> _pendingLeaves = new();
     private readonly Huntaholic.IHuntaholicEvents _huntaholic;
     private readonly Dungeons.DungeonEvents _dungeons;
+    private readonly IEtherealWear _ethereal;
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
@@ -69,8 +70,9 @@ public class CombatService : ICombatService
         Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
         bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null,
         Creatures.ICreatureEvents creatures = null, Guilds.GuildRuntime guilds = null, Guilds.GuildCombatEvents guildEvents = null,
-        Huntaholic.IHuntaholicEvents huntaholic = null, Dungeons.DungeonEvents dungeons = null)
+        Huntaholic.IHuntaholicEvents huntaholic = null, Dungeons.DungeonEvents dungeons = null, IEtherealWear ethereal = null)
     {
+        _ethereal = ethereal;
         _dungeons = dungeons;
         _huntaholic = huntaholic;
         _guilds = guilds; _guildEvents = guildEvents;
@@ -102,7 +104,7 @@ public class CombatService : ICombatService
 
         // A character at 0 HP is dead (this version has no death packet, the hp value is the whole state):
         // it must not start swinging, exactly as SkillCastService refuses a cast at 0 HP.
-        if (!MonsterAiRules.IsAlive(info.CharacterHp))
+        if (!MonsterAiRules.IsAlive(info.CharacterHp) || Creatures.SummonFall.IsActive(info, ServerClock.Now))
         {
             return;
         }
@@ -219,7 +221,7 @@ public class CombatService : ICombatService
 
         // The attack session outlives the player's death, so a swing already scheduled when the killing
         // blow landed would keep hitting from a corpse: dead attackers stop here.
-        if (!visible || !MonsterAiRules.IsAlive(info.CharacterHp)
+        if (!visible || !MonsterAiRules.IsAlive(info.CharacterHp) || Creatures.SummonFall.IsActive(info, ServerClock.Now)
             || !_worldState.IsAlive(session.TargetInstanceId)
             || !_worldState.TryGetInstance(session.TargetInstanceId, out var instance))
         {
@@ -319,6 +321,7 @@ public class CombatService : ICombatService
 
             // A miss still lands as an attack: the monster turns on the player either way.
             targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, damage);
+            _ethereal?.Hit(client, true, hit.Damage, left ? EtherealHit.LeftHand : EtherealHit.Normal);
             hits.Add(new AttackHit(damage, (byte)hit.Flags, targetHp, elemental));
         }
 
@@ -466,6 +469,7 @@ public class CombatService : ICombatService
     {
         var info = target.ConnectionInfo;
         var wasAlive = MonsterAiRules.IsAlive(info.CharacterHp);
+        if (wasAlive) _ethereal?.Hit(target, false, damage);
         info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
         target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
         if (wasAlive)
@@ -695,6 +699,7 @@ public class CombatService : ICombatService
                     (elemental ??= new int[Combat.AttackMechanics.Elements])[extra.Element] += amount;
                 }
         var targetHp = DamagePlayerByPlayer(client, target, damage);
+        _ethereal?.Hit(client, true, hit.Damage, competing: _compete?.AreCompeting(client, target) == true);
 
         var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
         var frame = GameAttackPackets.BuildAttackEvent(info.CharacterHandle, targetInfo.CharacterHandle, intervalMs,
@@ -753,6 +758,7 @@ public class CombatService : ICombatService
         target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
 
         var competing = _compete?.AreCompeting(attacker, target) == true;
+        _ethereal?.Hit(target, false, damage, competing: competing);
         if (!competing && damage > 0)
         {
             _compete?.OnDamagedByOther(target, attacker);

@@ -145,6 +145,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private readonly IItemMatchCatalog _itemMatch;
     private readonly Casting.ICastInterrupts _castInterrupts;
     private readonly Stats.IItemStatCatalog _itemStats;
+    private readonly IEtherealWear _ethereal;
 
     public CreatureService(ICreatureCatalog catalog, ICharacterService characters, MonsterWorldState world,
         ICombatService combat, SummonWorldService summons, IPlayerVisibilityService players = null,
@@ -153,8 +154,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         ISkillPassiveCatalog passives = null, Rates.IRateService rates = null, IPkFieldService pkFields = null,
         Progression.ITitleService titles = null, IItemWearCatalog wearCatalog = null,
         IItemMatchCatalog itemMatch = null, Stats.IItemStatCatalog itemStats = null,
-        Casting.ICastInterrupts castInterrupts = null)
+        Casting.ICastInterrupts castInterrupts = null, IEtherealWear ethereal = null)
     {
+        _ethereal = ethereal;
         _wearCatalog = wearCatalog;
         _castInterrupts = castInterrupts;
         _itemMatch = itemMatch;
@@ -256,7 +258,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
                 foreach (var worn in equipment.Where(item => card.HasSummon && SummonWearRules.IsWornBy(item, card.SummonId)))
                 {
                     card.Equipment.Add(new SummonWornItem(worn.Id, (int)worn.ItemResourceId, (int)worn.WearInfo,
-                        worn.Enhance));
+                        worn.Enhance, EtherealWearRules.Exhausted(worn, _itemMatch)));
                 }
             }
 
@@ -483,8 +485,25 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
         lock (info.SummonLock)
         {
-            return card.Equipment.SelectMany(item => _itemStats.GetEffects(item.ResourceId)).ToArray();
+            return card.Equipment.Where(item => !item.Exhausted).SelectMany(item => _itemStats.GetEffects(item.ResourceId)).ToArray();
         }
+    }
+
+    public void OnEquipmentDurabilityChanged(GameClient client, IReadOnlyList<ItemEntity> items)
+    {
+        var info = client.ConnectionInfo;
+        var affected = new List<CreatureCard>();
+        lock (info.SummonLock)
+            foreach (var card in info.CreatureCards.Values)
+                for (var index = 0; index < card.Equipment.Count; index++)
+                {
+                    var worn = card.Equipment[index];
+                    var item = items.FirstOrDefault(i => i.Id == worn.ItemId);
+                    if (item is null) continue;
+                    card.Equipment[index] = worn with { Exhausted = EtherealWearRules.Exhausted(item, _itemMatch) };
+                    if (!affected.Contains(card)) affected.Add(card);
+                }
+        foreach (var card in affected) RefreshEquippedSummon(client, card);
     }
 
     // ---- equipment ----------------------------------------------------------------------------------------------
@@ -563,7 +582,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             }
 
             card.Equipment.Add(new SummonWornItem(result.Equipped.Id, (int)result.Equipped.ItemResourceId,
-                (int)result.Equipped.WearInfo, result.Equipped.Enhance));
+                (int)result.Equipped.WearInfo, result.Equipped.Enhance, EtherealWearRules.Exhausted(result.Equipped, _itemMatch)));
         }
 
         // putoffItem then putonItem: the 287 of each item, on the summon's handle.
@@ -868,6 +887,9 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             {
                 return 0;
             }
+
+            var card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == summonHandle);
+            if (card is not null) _ethereal?.Hit(master, false, damage, summon: card);
 
             presence.Hp = Math.Max(0, presence.Hp - Math.Max(0, damage));
             hp = presence.Hp;
@@ -1298,6 +1320,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
 
         var (x, y) = info.PositionAt(ServerClock.Now);
         var mountable = info.RideHandle == 0 && info.CharacterHp > 0 && !info.IsSitting
+                        && !SummonFall.IsActive(info, ServerClock.Now)
                         && presence is { Hp: > 0 } && card is not null && IsRidable(card)
                         && !Progression.MonsterRewardBonuses.InDungeon(x, y)
                         && Array.IndexOf(UnmountableLocations, _pkFields?.LocationType(info) ?? (short)0) < 0;
@@ -1342,6 +1365,15 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         _ = _titles?.RefreshAsync(client);
         if (flag == UnmountFall && info.CharacterHp > 0)
         {
+            _combat.StopAttack(client);
+            var now = ServerClock.Now;
+            var (x, y) = info.PositionAt(now);
+            info.X = info.DestinationX = x;
+            info.Y = info.DestinationY = y;
+            var stop = GameMovePackets.BuildStopMove(info.CharacterHandle, unchecked(now + info.ClientClockOffset), info.Layer);
+            client.Connection.Send(stop);
+            _players?.SendToObservers(client, stop);
+            _castInterrupts?.ApplyState(client, SummonFall.StateId, 1, SummonFall.Duration);
             _combat.DamagePlayer(client, (int)(Math.Max(0, info.CharacterMaxHp) * UnmountPenalty));
         }
     }
@@ -2318,6 +2350,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             var intervalMs = CombatService.IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
             // StructMonster::onDamage: the hate goes to the summon that hit, the kill and the reward to its master.
             var targetHp = _combat.ApplyDamage(client, swing.TargetInstanceId, monsterHandle, hit.Damage, 0);
+            _ethereal?.Hit(client, true, hit.Damage, summon: card);
             if (targetHp > 0)
             {
                 _world.AddSummonHate(swing.TargetInstanceId, client, handle, hit.Damage);

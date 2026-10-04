@@ -6,6 +6,7 @@ namespace Navislamia.Game.Services;
 
 public interface IStatService
 {
+    void RefreshEquipment(ConnectionInfo info, System.Collections.Generic.IReadOnlyList<Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity> items) { }
     CharacterStatResult Compute(CharacterEntity character);
 
     CharacterStatResult Compute(ConnectionInfo info);

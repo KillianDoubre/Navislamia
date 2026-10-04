@@ -68,6 +68,8 @@ public partial class SkillCastService : ISkillCastService
 
     /// <summary>The props created on a layer at run time: the HuntaHolic healing props (<see cref="SkillCastKind.PropHeal"/>).</summary>
     private readonly IDynamicFieldProps _dynamicProps;
+    private readonly IEtherealWear _ethereal;
+    private readonly Compete.ICompeteService _compete;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
@@ -78,8 +80,11 @@ public partial class SkillCastService : ISkillCastService
         CastInterrupts interrupts = null, ICombatRandom random = null, bool runTicks = true,
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
         Creatures.ICreatureService creatures = null, Dungeons.IDungeonService dungeons = null,
-        Huntaholic.IHuntaholicEvents huntaholic = null, IDynamicFieldProps dynamicProps = null)
+        Huntaholic.IHuntaholicEvents huntaholic = null, IDynamicFieldProps dynamicProps = null, IEtherealWear ethereal = null,
+        Compete.ICompeteService compete = null)
     {
+        _compete = compete;
+        _ethereal = ethereal;
         _dynamicProps = dynamicProps;
         _dungeons = dungeons;
         _huntaholic = huntaholic;
@@ -347,7 +352,7 @@ public partial class SkillCastService : ISkillCastService
         var targetInstanceId = cast.TargetInstanceId;
         var now = ServerClock.Now;
 
-        if (info.CharacterHp <= 0)
+        if (info.CharacterHp <= 0 || Creatures.SummonFall.IsActive(info, now))
         {
             return;
         }
@@ -660,7 +665,7 @@ public partial class SkillCastService : ISkillCastService
             return false;
         }
 
-        if (info.CharacterHp <= 0)
+        if (info.CharacterHp <= 0 || Creatures.SummonFall.IsActive(info, now))
         {
             error = ResultCode.NotActable;
             return false;
@@ -1194,6 +1199,8 @@ public partial class SkillCastService : ISkillCastService
                 magical ? DamageKind.Magical : DamageKind.Physical,
                 SkillDamageCurve.HitBonus(fields, info.CharacterLevel, player.ConnectionInfo.CharacterLevel),
                 SkillDamageCurve.CriticalBonus(fields, skillLevel), fields.ElementalType);
+            var competing = _compete?.AreCompeting(client, player) == true;
+            _ethereal?.Hit(client, true, playerHit.Damage, EtherealHit.Skill, competing: competing);
             var hp = _combatService.DamagePlayerByPlayer(client, player, playerHit.Damage, magical);
             return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, targetHandle, hp,
                 playerHit.Damage, (byte)playerHit.Flags, ElementalType: (byte)fields.ElementalType);
@@ -1205,6 +1212,7 @@ public partial class SkillCastService : ISkillCastService
 
         var hate = HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, hit.Damage);
         var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage, hate);
+        _ethereal?.Hit(client, true, hit.Damage, EtherealHit.Skill);
         var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
 
         return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType);
@@ -1299,6 +1307,8 @@ public partial class SkillCastService : ISkillCastService
                     var hit = target.Player is { } player
                         ? _combatService.RollPlayerHit(client, player, damage, kind, accuracy, critical, fields.ElementalType)
                         : _combatService.RollElementalHit(client, target.Id, damage, kind, accuracy, critical, fields.ElementalType);
+                    _ethereal?.Hit(client, true, hit.Damage, EtherealHit.Skill,
+                        competing: target.Player is { } opponent && _compete?.AreCompeting(client, opponent) == true);
                     var hp = target.Player is { } victim
                         ? _combatService.DamagePlayerByPlayer(client, victim, hit.Damage, magical)
                         : _combatService.ApplyDamage(client, target.Id, handle, hit.Damage,

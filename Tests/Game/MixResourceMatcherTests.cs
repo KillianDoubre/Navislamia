@@ -415,8 +415,8 @@ public class MixResourceMatcherTests
 
         Accepts(MixResourceMatcher.CheckItemEtherealDurabilityE, 5, spent).Should().BeTrue();
         Accepts(MixResourceMatcher.CheckItemEtherealDurabilityNe, 1_370_000, spent).Should().BeTrue();
-        Accepts(MixResourceMatcher.CheckItemEtherealDurabilityE, 1_370_000, never).Should().BeTrue(
-            "a stored 0 is an item never initialised, read as full");
+        Accepts(MixResourceMatcher.CheckItemEtherealDurabilityE, 0, never).Should().BeTrue(
+            "a stored 0 is an exhausted item since the wear and the backfill");
         Accepts(MixResourceMatcher.CheckItemGrade, 3, spent).Should().BeTrue();
         Accepts(MixResourceMatcher.CheckItemGrade, 2, spent).Should().BeFalse();
         Accepts(MixResourceMatcher.CheckFirstSocketCodeMatch, 4, spent).Should().BeTrue();

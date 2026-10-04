@@ -233,6 +233,18 @@ public class CastMechanicsTests
     private static ushort ErrorOf(byte[] packet) => BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(52, 2));
 
     [Test]
+    public void Fall_blocks_a_new_cast_before_spending_mana_or_starting_a_cooldown()
+    {
+        var h = Build(Attack()); var now = ServerClock.Now;
+        h.Info.ActiveBuffs.Add(new ActiveBuff(1, 9001, 0, 1, now, unchecked(now + 300)));
+        var mana = h.Info.CharacterMp;
+        h.Service.Cast(h.Client, Request());
+        ErrorOf(h.Connection.Sent.Single()).Should().Be((ushort)ResultCode.NotActable);
+        h.Info.CharacterMp.Should().Be(mana);
+        h.Info.SkillCooldowns.Should().BeEmpty(); h.Info.PendingCast.Should().BeNull();
+    }
+
+    [Test]
     public void A_cast_with_a_delay_fires_when_its_time_comes()
     {
         var harness = Build(Attack(delayCast: 1m));

@@ -28,6 +28,9 @@ public class ItemEntity : Entity
     public uint Level { get; set; }
     public uint Enhance { get; set; }
     public int EtherealDurability { get; set; }
+    public int[] RandomOptionTypes { get; set; } = Array.Empty<int>();
+    public int[] RandomOptionVars { get; set; } = Array.Empty<int>();
+    public decimal[] RandomOptionValues { get; set; } = Array.Empty<decimal>();
     public int Endurance { get; set; }
     public ItemFlag Flag { get; set; }
     public ItemGenerateSource GenerateBySource { get; set; }

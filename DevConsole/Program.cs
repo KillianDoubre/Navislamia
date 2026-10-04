@@ -1,4 +1,5 @@
 ﻿using System.Threading.Tasks;
+using System.Linq;
 using System.IO;
 using System.Text.Json;
 using DevConsole.Properties;
@@ -45,7 +46,15 @@ public class Program
             var arcadia = scope.ServiceProvider.GetRequiredService<ArcadiaContext>();
             var telecaster = scope.ServiceProvider.GetRequiredService<TelecasterContext>();
             await arcadia.Database.MigrateAsync();
+            var backfillEthereal = (await telecaster.Database.GetPendingMigrationsAsync())
+                .Contains(EtherealDurabilityBackfill.Migration);
             await telecaster.Database.MigrateAsync();
+            if (backfillEthereal)
+            {
+                var filled = await EtherealDurabilityBackfill.RunAsync(telecaster,
+                    host.Services.GetRequiredService<IItemMatchCatalog>());
+                Log.Logger.Information("Filled the ethereal durability of {Count} items made before the wear", filled);
+            }
 
             Log.Logger.Verbose("Applied Arcadia migrations: {Migrations}\n", await arcadia.Database.GetAppliedMigrationsAsync());
             Log.Logger.Verbose("Applied Telecaster migrations: {Migrations}\n", await telecaster.Database.GetAppliedMigrationsAsync());
@@ -96,6 +105,7 @@ public class Program
         services.Configure<DungeonOptions>(context.Configuration.GetSection("Dungeons"));
         services.Configure<UploadOptions>(context.Configuration.GetSection("Network:Upload"));
         services.Configure<ScriptOptions>(context.Configuration.GetSection("Script"));
+        services.Configure<NpcScriptOptions>(context.Configuration.GetSection("NpcScripts"));
         services.Configure<MapOptions>(context.Configuration.GetSection("Map"));
         services.Configure<ServerOptions>(context.Configuration.GetSection("Server"));
         ConfigureRates(services, context);
@@ -427,6 +437,8 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureDialogService,
             Navislamia.Game.Services.Creatures.CreatureDialogService>();
         services.AddSingleton<INpcDialogService, NpcDialogService>();
+        services.AddSingleton<NpcScriptCatalog>();
+        services.AddSingleton<INpcScriptService, NpcScriptService>();
         services.AddSingleton<IPkModeService, PkModeService>();
         services.AddSingleton<IMarketCatalog, MarketCatalog>();
         services.AddSingleton<IMarketService, MarketService>();
@@ -531,6 +543,7 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Auction.IAuctionCatalog, Navislamia.Game.Services.Auction.AuctionCatalog>();
         services.AddSingleton<Navislamia.Game.Services.Auction.IAuctionStore, Navislamia.Game.Services.Auction.AuctionStore>();
         services.AddSingleton<Navislamia.Game.Services.Auction.IAuctionService, Navislamia.Game.Services.Auction.AuctionService>();
+        services.AddSingleton<IEtherealWear, EtherealWear>();
 
         services.AddSingleton<IScriptService, ScriptService>();
         services.AddSingleton<SkillEffectScheduler>();

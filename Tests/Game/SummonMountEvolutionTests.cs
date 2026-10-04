@@ -38,6 +38,7 @@ public class SummonMountEvolutionTests
     {
         public readonly ICharacterService Characters = A.Fake<ICharacterService>();
         public readonly ICombatService Combat = A.Fake<ICombatService>();
+        public readonly Navislamia.Game.Services.Casting.ICastInterrupts Casts = A.Fake<Navislamia.Game.Services.Casting.ICastInterrupts>();
         public readonly FixedRandom Random = new() { Value = 99 };
         public readonly CreatureService Service;
         public readonly CreatureDialogService Dialogs;
@@ -66,7 +67,7 @@ public class SummonMountEvolutionTests
             }));
             Service = new CreatureService(catalog, Characters,
                 new MonsterWorldState(repository, Options.Create(new MonsterSpawnOptions())), Combat,
-                new SummonWorldService(players), players, random: Random, runTicks: false);
+                new SummonWorldService(players), players, random: Random, runTicks: false, castInterrupts: Casts);
             Dialogs = new CreatureDialogService(Service);
             Client = StorageTestHarness.NewGameClient(new StorageTestHarness.FrameConnection(Array.Empty<byte>()));
             Info = StorageTestHarness.Session(Client);
@@ -134,6 +135,7 @@ public class SummonMountEvolutionTests
         h.Service.Summon(h.Client, 60);
         h.Service.Mount(h.Client, h.Card.SummonHandle);
 
+        Fake.ClearRecordedCalls(h.Combat);
         h.Random.Value = 50;
         h.Service.OnPlayerDamaged(h.Client, 10, false);
         h.Info.RideHandle.Should().NotBe(0, "50 is above the 30 % chance");
@@ -143,6 +145,23 @@ public class SummonMountEvolutionTests
         h.Info.RideHandle.Should().Be(0);
         h.Last(GamePackets.TM_SC_UNMOUNT_SUMMON)[15].Should().Be((byte)CreatureService.UnmountFall);
         A.CallTo(() => h.Combat.DamagePlayer(h.Client, 50)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => h.Casts.ApplyState(h.Client, 9001, 1, 300)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => h.Combat.StopAttack(h.Client)).MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public void Fall_prevents_remounting_until_expiry_and_handles_clock_wrap()
+    {
+        var h = new Harness(); h.Service.Summon(h.Client, 60);
+        var now = ServerClock.Now;
+        h.Info.ActiveBuffs.Add(new Navislamia.Game.Services.Buffs.ActiveBuff(1, 9001, 0, 1, now, now + 300));
+        h.Service.Mount(h.Client, h.Card.SummonHandle).Should().BeFalse();
+        SummonFall.IsActive(h.Info, now + 299).Should().BeTrue();
+        SummonFall.IsActive(h.Info, now + 300).Should().BeFalse();
+        h.Info.ActiveBuffs.Clear(); h.Service.Mount(h.Client, h.Card.SummonHandle).Should().BeTrue();
+        h.Info.ActiveBuffs.Add(new Navislamia.Game.Services.Buffs.ActiveBuff(1, 9001, 0, 1, uint.MaxValue - 99, 200));
+        SummonFall.IsActive(h.Info, uint.MaxValue - 50).Should().BeTrue();
+        SummonFall.IsActive(h.Info, 200).Should().BeFalse();
     }
 
     [Test]

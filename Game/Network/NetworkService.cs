@@ -61,6 +61,7 @@ public class NetworkService : INetworkService
     public readonly Navislamia.Game.Services.Party.IPartyService PartyService;
     public readonly Navislamia.Game.Services.Huntaholic.IHuntaholicService HuntaholicService;
     public readonly Navislamia.Game.Services.Auction.IAuctionService AuctionService;
+    public readonly IEtherealWear EtherealWear;
     public readonly Navislamia.Game.Services.Trade.IPlayerTradeService PlayerTradeService;
     public readonly Navislamia.Game.Services.Weight.ICarriedWeightService CarriedWeightService;
     public readonly ISoulstoneCraftService SoulstoneCraftService;
@@ -113,8 +114,9 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Dungeons.DungeonRooms dungeonRooms = null,
         Navislamia.Game.Services.Guilds.IGuildService guildService = null,
         Navislamia.Game.Services.Huntaholic.IHuntaholicService huntaholicService = null,
-        Navislamia.Game.Services.Auction.IAuctionService auctionService = null)
+        Navislamia.Game.Services.Auction.IAuctionService auctionService = null, IEtherealWear etherealWear = null)
     {
+        EtherealWear = etherealWear;
         GuildService = guildService;
         DungeonRooms = dungeonRooms;
         HuntaholicService = huntaholicService;

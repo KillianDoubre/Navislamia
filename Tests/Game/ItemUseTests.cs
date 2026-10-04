@@ -186,6 +186,28 @@ public class ItemUseTests
     }
 
     [Test]
+    public async Task AFallFromAMountRefusesItemsBeforeAnythingIsRead()
+    {
+        // FALL_FROM_SUMMON takes STATUS_ITEM_USABLE away for its 3 s, like a stun.
+        var character = A.Fake<ICharacterService>();
+        var connection = new StorageTestHarness.FrameConnection(Array.Empty<byte>());
+        var client = StorageTestHarness.NewGameClient(connection);
+        var info = StorageTestHarness.Session(client);
+        info.CharacterHandle = 1;
+        info.CharacterName = "Tester";
+        var now = ServerClock.Now;
+        info.ActiveBuffs.Add(new Navislamia.Game.Services.Buffs.ActiveBuff(1, Navislamia.Game.Services.Creatures.SummonFall.StateId,
+            0, 1, now, unchecked(now + Navislamia.Game.Services.Creatures.SummonFall.Duration)));
+
+        await new ItemUseService(character, Catalog(), A.Fake<IPetSummonService>(), A.Fake<ISkillCastService>(),
+            A.Fake<IStatService>()).UseAsync(client, new GameActionPackets.UseItemRequest(124, 1));
+
+        A.CallTo(() => character.GetItemByHandleAsync(A<string>._, A<uint>._)).MustNotHaveHappened();
+        connection.Sent.Should().ContainSingle().Which.AsSpan(9, 2).ToArray()
+            .Should().Equal(BitConverter.GetBytes((ushort)ResultCode.NotActable));
+    }
+
+    [Test]
     public async Task ScrollUsesItsSkillAndLevel()
     {
         var character = A.Fake<ICharacterService>();

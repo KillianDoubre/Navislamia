@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Linq;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Serilog;
@@ -75,6 +76,12 @@ public class ItemStatCatalog : IItemStatCatalog
         AppendSlots(resource.OptTypes, resource.OptVar1, resource.OptVar2, ref effects, slotCount);
         return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
     }
+
+    public static IReadOnlyList<StatEffect> RandomEffects(Navislamia.Game.DataAccess.Entities.Telecaster.ItemEntity item) =>
+        BuildEffects(new ItemEffectFields((int)item.ItemResourceId, default,
+            item.RandomOptionTypes?.Select(t => checked((short)t)).ToArray(),
+            item.RandomOptionVars?.Select(v => (decimal)v).ToArray(), item.RandomOptionValues,
+            null, null, null), 2);
 
     private static void AppendSlots(short[] types, decimal[] var1, decimal[] var2,
         ref List<StatEffect> effects, int slotCount)

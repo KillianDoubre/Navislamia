@@ -64,7 +64,8 @@ public sealed class AuctionStore : IAuctionStore
 
     public AuctionStore(DbContextOptions<TelecasterContext> options, CharacterGate gate, IInventoryChangeFeed feed = null)
     {
-        _options = options;
+        // Every write here is a transaction begun by hand: no retrying strategy (TelecasterOptions).
+        _options = TelecasterOptions.WithoutRetry(options);
         _gate = gate;
         _feed = feed;
     }
@@ -263,6 +264,9 @@ public sealed class AuctionStore : IAuctionStore
         GenerateBySource = item.GenerateBySource,
         WearInfo = ItemWearType.None,
         SocketItemIds = (long[])(item.SocketItemIds ?? new long[4]).Clone(),
+        RandomOptionTypes = item.RandomOptionTypes?.ToArray(),
+        RandomOptionVars = item.RandomOptionVars?.ToArray(),
+        RandomOptionValues = item.RandomOptionValues?.ToArray(),
         RemainingTime = item.RemainingTime,
         AppearanceCode = item.AppearanceCode,
         ElementalEffectType = item.ElementalEffectType,
