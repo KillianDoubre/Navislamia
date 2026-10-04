@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Navislamia.Game.Network.Clients;
 
 namespace Navislamia.Game.Services.Props;
@@ -22,7 +23,7 @@ public static class FieldPropUsage
     private const int ConditionSkill = 3;
     private const int ConditionWorn = 4;
 
-    public static bool IsUsable(FieldPropTemplate template, ConnectionInfo info)
+    public static bool IsUsable(FieldPropTemplate template, ConnectionInfo info, bool conditionsJudgedElsewhere = false)
     {
         if (template.MinLevel > 0 && info.CharacterLevel < template.MinLevel)
         {
@@ -46,21 +47,16 @@ public static class FieldPropUsage
 
         foreach (var activation in template.Activations)
         {
-            // Quests, item counts, learned skill levels and worn items gate the props that need
-            // them. Only the skill condition is checkable today, so anything else refuses rather
-            // than silently letting a gated prop through.
-            if (activation.Condition == ConditionSkill)
+            // CHECK_TYPE_SKILL: the base level of the skill at least the value.
+            if (activation.Condition == ConditionSkill
+                && info.LearnedSkills.GetValueOrDefault(activation.Value1) < activation.Value2)
             {
-                if (!info.LearnedSkills.TryGetValue(activation.Value1, out var level)
-                    || level != activation.Value2)
-                {
-                    return false;
-                }
-
-                continue;
+                return false;
             }
 
-            if (activation.Condition is ConditionItem or ConditionQuest or ConditionWorn)
+            // Items, quests and worn items need the database: FieldPropUse judges them before the cast starts. Without
+            // it they refuse, rather than let a gated prop through.
+            if (!conditionsJudgedElsewhere && activation.Condition is ConditionItem or ConditionQuest or ConditionWorn)
             {
                 return false;
             }

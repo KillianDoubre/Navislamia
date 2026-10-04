@@ -69,6 +69,10 @@ public partial class SkillCastService : ISkillCastService
     /// <summary>The props created on a layer at run time: the HuntaHolic healing props (<see cref="SkillCastKind.PropHeal"/>).</summary>
     private readonly IDynamicFieldProps _dynamicProps;
     private readonly IEtherealWear _ethereal;
+    private readonly IFieldPropUse _propUse;
+
+    /// <summary>How long past its casting time a prop stays held by a cast that never ended.</summary>
+    private const uint PropCastGrace = 200;
     private readonly Compete.ICompeteService _compete;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
@@ -81,8 +85,9 @@ public partial class SkillCastService : ISkillCastService
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
         Creatures.ICreatureService creatures = null, Dungeons.IDungeonService dungeons = null,
         Huntaholic.IHuntaholicEvents huntaholic = null, IDynamicFieldProps dynamicProps = null, IEtherealWear ethereal = null,
-        Compete.ICompeteService compete = null)
+        Compete.ICompeteService compete = null, IFieldPropUse propUse = null)
     {
+        _propUse = propUse;
         _compete = compete;
         _ethereal = ethereal;
         _dynamicProps = dynamicProps;
@@ -142,7 +147,38 @@ public partial class SkillCastService : ISkillCastService
         }
     }
 
-    public void Cast(GameClient client, GameActionPackets.SkillRequest request) => TryCast(client, request, false);
+    public void Cast(GameClient client, GameActionPackets.SkillRequest request)
+    {
+        // A prop whose conditions need the bag or the quests (IsUsable) is judged before the cast starts.
+        if (_propUse is not null && _catalog.TryGet(request.SkillId, out var asked) && asked.Kind == SkillCastKind.ActivateProp
+            && client.ConnectionInfo.TryResolveProp(request.Target, out var propId) && TryGetPropTemplate(propId, out var prop)
+            && _propUse.NeedsConditions(prop))
+        {
+            _ = CastAfterPropConditionsAsync(client, request, prop);
+            return;
+        }
+
+        TryCast(client, request, false);
+    }
+
+    private async Task CastAfterPropConditionsAsync(GameClient client, GameActionPackets.SkillRequest request,
+        FieldPropTemplate prop)
+    {
+        try
+        {
+            if (await _propUse.CheckConditionsAsync(client, prop))
+            {
+                TryCast(client, request, false);
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "{clientTag} prop conditions could not be read", client.ClientTag);
+        }
+
+        SendCastFailed(client, request, ResultCode.NotActable);
+    }
 
     public ResultCode CastInstanceGameSkill(GameClient client, int skillId)
     {
@@ -185,6 +221,20 @@ public partial class SkillCastService : ISkillCastService
         }
 
         var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
+        var holdsProp = false;
+        if (fields.Kind == SkillCastKind.ActivateProp && _propUse is not null && TryGetPropTemplate(targetInstanceId, out var castProp))
+        {
+            // StructSkill: a prop's cast lasts its own casting time, and one player at a time casts at it.
+            castDelay = (uint)Math.Max(0, castProp.CastingTime);
+            if (!_propUse.TryBeginCast(targetInstanceId, client, unchecked(now + castDelay + PropCastGrace)))
+            {
+                SendCastFailed(client, request, ResultCode.NotActable);
+                return false;
+            }
+
+            holdsProp = true;
+        }
+
         request = request with { SkillLevel = skillLevel };
         var pending = new PendingCast(request, fields, skillLevel, targetInstanceId, now, unchecked(now + castDelay))
         { PlayerTarget = ResolvePlayerTarget(targetInstanceId) };
@@ -194,6 +244,7 @@ public partial class SkillCastService : ISkillCastService
         {
             if (info.PendingCast is not null)
             {
+                if (holdsProp) _propUse.EndCast(targetInstanceId, client);
                 SendCastFailed(client, request, ResultCode.NotActable);
                 return false;
             }
@@ -280,6 +331,11 @@ public partial class SkillCastService : ISkillCastService
             }
 
             info.PendingCast = null;
+        }
+
+        if (cancelled.Fields.Kind == SkillCastKind.ActivateProp)
+        {
+            _propUse?.EndCast(cancelled.TargetInstanceId, client);
         }
 
         SendSkill(client, cancelled.Request, cancelled.Fields.Kind, cancelled.TargetInstanceId,
@@ -589,6 +645,13 @@ public partial class SkillCastService : ISkillCastService
     private void ActivateProp(GameClient client, long instanceId)
     {
         if (!TryGetPropTemplate(instanceId, out var template))
+        {
+            return;
+        }
+
+        // UseProp: a use taken first (a prop gone or used up meanwhile does nothing), the drops and the script.
+        if (_propUse is not null && _fieldPropCatalog.TryGetInstance(instanceId, out _)
+            && !_propUse.Use(client, instanceId, template))
         {
             return;
         }
@@ -975,9 +1038,11 @@ public partial class SkillCastService : ISkillCastService
         }
 
         if (template.ActivateSkillId != request.SkillId
-            || !FieldPropUsage.IsUsable(template, info)
+            || !FieldPropUsage.IsUsable(template, info, conditionsJudgedElsewhere: _propUse is not null)
+            || _propUse is not null && !_propUse.IsPresent(instanceId)
             || (kind != SkillCastKind.PropHeal && !FieldPropUsage.CanAct(template, _fieldPropCatalog)
-                && !(_dungeons is not null && Dungeons.DungeonService.Handles(template.Action.Kind))))
+                && !(_dungeons is not null && Dungeons.DungeonService.Handles(template.Action.Kind))
+                && _propUse?.HasEffects(template) != true))
         {
             error = ResultCode.NotActable;
             return false;

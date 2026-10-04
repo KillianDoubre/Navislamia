@@ -37,6 +37,31 @@ while True:
     if previous == selected:
         break
 
+# The field props' scripts (script_text, run by UseProp: docs/packet-specs/socle-props.md), from the files that define
+# them. Read after the NPC files and without overriding them; no contact menu is pulled in for these roots, so a prop
+# script never takes an NPC's dialogue over.
+for filename in ('NPC_Dungeon.lua', 'ETC_dungeon_prop.lua', 'NPC_Adventure_Guide.lua', 'NPC_TeleportTown.lua',
+                 'ETC_huntaholicprop.lua'):
+    text = (source / filename).read_text(encoding='cp949', errors='replace')
+    text = re.sub(r'--\[\[.*?\]\]', '', text, flags=re.S)
+    starts = list(re.finditer(r'^function\s+(\w+)\s*\(', text, re.M))
+    for index, match in enumerate(starts):
+        block = text[match.start():starts[index + 1].start() if index + 1 < len(starts) else len(text)]
+        ends = list(re.finditer(r'^\s*end\s*(?:--[^\n]*)?$', block, re.M))
+        if ends:
+            functions.setdefault(match[1], '\n'.join(line.split('--', 1)[0].rstrip()
+                                                     for line in block[:ends[-1].end()].splitlines()))
+
+props = json.loads((Path(__file__).resolve().parents[1] / 'DevConsole/field-props.73.json').read_text(encoding='utf-8'))
+prop_roots = {re.match(r'\s*(\w+)', template['LuaScript'])[1]
+              for template in props['FieldPropCatalog']['Templates'] if template.get('LuaScript')} & set(functions)
+pending = set(prop_roots)
+while pending:
+    name = pending.pop()
+    if name not in selected:
+        selected.add(name)
+        pending.update(call for call in re.findall(r'\b(\w+)\s*\(', functions[name]) if call in functions)
+
 resource = Path(__file__).resolve().parents[1] / 'Game/Scripting/Scripts/npc_dialogs.json'
 resource.write_text(json.dumps({name: functions[name] for name in sorted(selected)}, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
 print(f'Exported {len(selected)} official functions to {resource.name}')

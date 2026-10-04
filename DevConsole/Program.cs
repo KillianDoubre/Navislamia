@@ -519,6 +519,8 @@ public class Program
         services.AddSingleton<IPkFieldService, PkFieldService>();
         services.AddSingleton<IFieldPropCatalog, FieldPropCatalog>();
         services.AddSingleton<Navislamia.Game.Services.Props.IDynamicFieldProps, Navislamia.Game.Services.Props.DynamicFieldProps>();
+        services.AddSingleton<IFieldPropStates, FieldPropStates>();
+        services.AddSingleton<IFieldPropUse, FieldPropUse>();
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
         services.AddSingleton<Navislamia.Game.Services.Dungeons.DungeonCatalog>();

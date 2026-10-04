@@ -1152,9 +1152,9 @@ Trainees at its race's official point, see *Point de retour*), so a double-click
 6904**. `BuffCatalog` classifies it as `SkillCastKind.ActivateProp`, so the cast path stays one
 dispatch. **A prop's activate skill is never learned** — the client casts it because the prop
 advertises it — so the learned-skill gate is skipped for this kind and the level is 1; the prop itself
-is the authorisation. `FieldPropUsage` ports `FieldProp::IsUsable` (level, race, job); of the four
-`activation_condition` kinds only the learned-skill one is checkable, and the others (quest, item
-count, worn item) **refuse** rather than let a gated prop through.
+is the authorisation. `FieldPropUsage` ports `FieldProp::IsUsable` (level, race, job, skill level); the item, quest, worn item and
+nearby monster conditions need the database or the world and are awaited by `FieldPropUse` before the cast
+starts (`socle-props.md`: use count, regen and life time, drops, one caster at a time, Lua scripts).
 
 **The `limit_*` race bits are an allow-list, and the reference server reads them backwards.** It tests
 one exclusion per race (`race != GAIA && (limit & LIMIT_GAIA)` refuses), but **all 454 spawned props
@@ -1687,10 +1687,9 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 - NPC dialogs render their original text and static follow-up pages, and **`RunTeleport` triggers now
   warp**; shops, the quest lifecycle and advertised Lua objective/title callbacks also execute.
   Other static dialogue actions still require their corresponding gameplay systems.
-- **Field props stream and warp gates work**: 203 of 3 189 props teleport. Not modelled: `use_count`,
-  `regen_time`, `life_time`, prop drop tables, `casting_time` interruption, and the quest/item/worn
-  activation conditions (those props refuse). **`enter_dungeon` warps to `raid_start_pos` while
-  ignoring the raid schedule and the party/guild requirements** — instance dungeons do not exist
+- **Field props live the official way** (`docs/packet-specs/socle-props.md`): use count, regen and life
+  times, one caster at a time with the prop's own casting time, drops into the bag, item/quest/skill/worn/
+  nearby-monster conditions, and the Epic 7 Lua script through the NPC script sandbox
 - Skill learning, persistence and the **passive stat effects** work, including the 21 `WeaponMastery`
   skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot
 - **Casting works for buffs, toggle auras, heals, monster debuffs and single-target offensive skills**

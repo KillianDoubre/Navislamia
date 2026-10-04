@@ -20,6 +20,32 @@ public class FieldPropTemplateOptions
     public int LimitJobId { get; set; }
     public string Script { get; set; } = string.Empty;
     public List<FieldPropActivationOptions> Activations { get; set; } = new();
+
+    /// <summary>Uses before the prop leaves the world; 0 is unlimited (<c>StructFieldProp::m_nUseCount</c>).</summary>
+    public int UseCount { get; set; }
+
+    /// <summary>Ticks before it comes back, or first appears after the start (<c>FieldPropManager</c>).</summary>
+    public int RegenTime { get; set; }
+
+    /// <summary>Ticks it stays in the world once there; 0 is forever.</summary>
+    public int LifeTime { get; set; }
+
+    public List<FieldPropDropOptions> Drops { get; set; } = new();
+
+    /// <summary>The Epic 7 script of a prop whose 9.4 script has no action (<c>quest_prop_*</c>).</summary>
+    public string LuaScript { get; set; } = string.Empty;
+}
+
+public class FieldPropDropOptions
+{
+    public int ItemId { get; set; }
+
+    /// <summary>The chance out of 100 000 000 (<c>XRandom(1, 100000000) &lt;= ratio</c>).</summary>
+    public int Ratio { get; set; }
+    public int CountMin { get; set; }
+    public int CountMax { get; set; }
+    public int LevelMin { get; set; }
+    public int LevelMax { get; set; }
 }
 
 public class FieldPropSpawnOptions

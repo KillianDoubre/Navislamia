@@ -27,6 +27,9 @@ public interface INpcScriptService
 {
     bool Handles(string function);
     Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger);
+
+    /// <summary>A field prop's <c>script_text</c>, run by <c>UseProp</c> with no dialogue around it.</summary>
+    Task RunPropScriptAsync(GameClient client, string script) => Task.CompletedTask;
 }
 
 /// <summary>Only the exact server-advertised trigger may reach this interpreter (NpcDialogService).</summary>
@@ -61,7 +64,19 @@ public sealed class NpcScriptService : INpcScriptService
         || function.StartsWith("NPC_all_2012_EnchantEvent_b_", StringComparison.Ordinal)
         || function == "set_flag";
 
-    public async Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger)
+    public Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger) =>
+        RunAsync(client, npcHandle, revision, trigger, dialog: true);
+
+    public Task RunPropScriptAsync(GameClient client, string script) =>
+        Handles(NpcDialogService.ReadFunctionName(script) ?? string.Empty)
+            ? RunAsync(client, 0, 0, script, dialog: false)
+            : Task.CompletedTask;
+
+    /// <summary>
+    /// <paramref name="dialog"/>: the script answers an NPC page, which must still be the one shown when it starts and
+    /// when it commits. A prop's script has no page: the NPC id is 0 and nothing is shown.
+    /// </summary>
+    private async Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger, bool dialog)
     {
         var info = client.ConnectionInfo;
         // set_quest_status takes the character gate itself: it runs once the script's own gate is released.
@@ -71,10 +86,11 @@ public sealed class NpcScriptService : INpcScriptService
         {
             var result = await _gate.RunAsync(info.CharacterName, async () =>
             {
-                long npcId;
-                lock (info.NpcVisibilityLock)
-                    if (info.NpcDialogHandle != npcHandle || info.NpcDialogRevision != revision
-                        || !info.SpawnedNpcIdsByHandle.TryGetValue(npcHandle, out npcId)) return null;
+                long npcId = 0;
+                if (dialog)
+                    lock (info.NpcVisibilityLock)
+                        if (info.NpcDialogHandle != npcHandle || info.NpcDialogRevision != revision
+                            || !info.SpawnedNpcIdsByHandle.TryGetValue(npcHandle, out npcId)) return null;
                 using var repository = _repositories.Create();
                 var character = await repository.GetCharacterByNameWithItemsAsync(info.CharacterName);
                 if (character is null) return null;
@@ -137,6 +153,7 @@ public sealed class NpcScriptService : INpcScriptService
                     return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? Numeric(n) : DynValue.NewString(value);
                 });
                 Bind("set_flag", a => { flags[Text(a, 0)] = Text(a, 1); dirty = true; return Nil(); });
+                Bind("del_flag", a => { dirty |= flags.Remove(Text(a, 0)); return Nil(); });
                 DynValue Value(CallbackArguments a) => Text(a, 0) switch {
                     "name" => DynValue.NewString(info.CharacterName), "level" => Numeric(info.CharacterLevel),
                     "job" => Numeric(info.CharacterJob), "job_level" => Numeric(info.CharacterJobLevel),
@@ -155,6 +172,7 @@ public sealed class NpcScriptService : INpcScriptService
                     }
                     dirty = true; return Nil(); });
                 Bind("set_quest_status", a => { questStatuses.Add(((int)Number(a, 0), (int)Number(a, 1), (int)Number(a, 2))); return Nil(); });
+                Bind("get_quest_status", a => Numeric(_quests?.GetQuestStatusAsync(client, (int)Number(a, 0), (int)Number(a, 1)).GetAwaiter().GetResult() ?? 0));
                 Bind("get_quest_progress", a => Numeric(_quests?.GetQuestProgressAsync(client, (int)Number(a, 0)).GetAwaiter().GetResult() ?? -1));
                 Bind("is_able_to_jobchange", _ => DynValue.NewBoolean(info.CharacterJobLevel >= 10));
                 Bind("find_item", a => Numeric(inventory.Where(i => i.ItemResourceId == Number(a, 0)).Sum(i => i.Amount)));
@@ -245,9 +263,10 @@ public sealed class NpcScriptService : INpcScriptService
                 if (coroutine.State != CoroutineState.Dead) throw new InvalidOperationException("NPC script instruction budget exceeded");
 
                 character.FlagList = flags.Select(f => $"{f.Key}:{f.Value}").ToArray();
-                lock (info.NpcVisibilityLock)
-                    if (info.NpcDialogHandle != npcHandle || info.NpcDialogRevision != revision
-                        || !info.SpawnedNpcIdsByHandle.ContainsKey(npcHandle)) return null;
+                if (dialog)
+                    lock (info.NpcVisibilityLock)
+                        if (info.NpcDialogHandle != npcHandle || info.NpcDialogRevision != revision
+                            || !info.SpawnedNpcIdsByHandle.ContainsKey(npcHandle)) return null;
                 var debit = goldBefore - gold;
                 var expGain = checked(exp - expBefore); var jpGain = checked(jp - jpBefore);
                 if (expGain < 0 || jpGain < 0) throw new InvalidOperationException("NPC experience must be a reward");
@@ -289,7 +308,7 @@ public sealed class NpcScriptService : INpcScriptService
                     _feed?.Publish(info.CharacterName);
                 }
                 if (destination is { } point) _warp.Warp(client, point.X, point.Y);
-                return show ? new NpcScriptPage(page, includeQuests) : null;
+                return show && dialog ? new NpcScriptPage(page, includeQuests) : null;
             });
 
             foreach (var (code, index, value) in committed ? questStatuses : new())
@@ -300,8 +319,10 @@ public sealed class NpcScriptService : INpcScriptService
         catch (Exception exception)
         {
             Log.Warning(exception, "NPC script {Function} rejected for {Character}", NpcDialogService.ReadFunctionName(trigger), info.CharacterName);
-            client.Connection.Send(GameChatPackets.BuildChat("@SCRIPT", TownTeleportRules.ChatNpc,
-                "Cette opération n’est pas disponible pour votre personnage ou vos objets."));
+            // A prop's script fails silently, like a Lua error under UseProp.
+            if (dialog)
+                client.Connection.Send(GameChatPackets.BuildChat("@SCRIPT", TownTeleportRules.ChatNpc,
+                    "Cette opération n’est pas disponible pour votre personnage ou vos objets."));
             return null;
         }
     }

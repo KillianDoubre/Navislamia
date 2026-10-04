@@ -40,7 +40,7 @@ public static class SkillResetRules
     public const string ChangeRace = "NPC_JobChange_change_race";
     public const string SetRace = "NPC_JobChange_set_race";
 
-    /// <summary>The races and their base job (<c>JobInfo::*_BASIC_JOB</c>): Deva 3, Asura 4, Gaia 5.</summary>
+    /// <summary>The races and their base job (<c>JobInfo::*_BASIC_JOB</c>, <c>ContentStruct.h</c>): Gaia 3, Deva 4, Asura 5.</summary>
     public static int BaseJob(int race) => race switch { 3 => 100, 4 => 200, 5 => 300, _ => 0 };
 
     /// <summary><c>NPC_JobChange_get_resetcount</c>: an unset flag is 0.</summary>

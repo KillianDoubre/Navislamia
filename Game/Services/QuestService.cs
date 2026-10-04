@@ -96,6 +96,16 @@ public sealed class QuestService : IQuestService, IDisposable
             return true;
         });
     }
+    public async Task<int> GetQuestStatusAsync(GameClient client, int code, int index)
+    {
+        if (_options is null || index is < 1 or > 6) return 0;
+        await using var db = new TelecasterContext(_options);
+        var status = await db.CharacterQuests.AsNoTracking()
+            .Where(q => q.Code == code && q.Character.CharacterName == client.ConnectionInfo.CharacterName)
+            .Select(q => q.Status).FirstOrDefaultAsync();
+        return QuestRules.Slots(status)[index - 1];
+    }
+
     public Task<int> RunScriptAsync(GameClient client, string script) => Task.FromResult(
         _scripts?.RunQuestScript(script, CreateScriptContext(client)) ?? 0);
     public Navislamia.Game.Scripting.QuestScriptContext CreateScriptContext(GameClient client) =>

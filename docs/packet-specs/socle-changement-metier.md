@@ -125,7 +125,7 @@ Sources : Lua Epic 7 du trunk (`NPC_JobChange_change_job` en profondeur 3, `gold
 - **Effet** :
   1. `ResetSkill(0)` : toutes les compétences, JP et TP rendus, puis les JLv du métier courant.
   2. `ResetJob(0)` : les JLv de chaque métier quitté sont rendus en JP, et les 2 TP de la classe maître retirés.
-  3. Le métier de base de la nouvelle race : Déva 3 → 100, Asura 4 → 200, Gaïa 5 → 300.
+  3. Le métier de base de la nouvelle race : Gaïa 3 → 100, Déva 4 → 200, Asura 5 → 300 (`ContentStruct.h`).
   4. La race elle-même. Une pierre est consommée, le tout en une sauvegarde (`ApplySkillResetAsync`).
 - **Envois** : `race` et `job` à la région, `job_0..2`/`jlv_0..2` à 0, `job_depth` 0, la pile de pierres (255/254), puis la
   remise à zéro ci-dessus.

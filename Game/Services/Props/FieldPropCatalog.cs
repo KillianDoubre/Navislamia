@@ -10,6 +10,21 @@ namespace Navislamia.Game.Services.Props;
 
 public readonly record struct PropActivation(int Condition, int Value1, int Value2);
 
+/// <summary>A drop slot of a prop (<c>drop_info</c>): a negative item is a drop group.</summary>
+public readonly record struct PropDrop(int ItemId, int Ratio, int CountMin, int CountMax, int LevelMin, int LevelMax);
+
+/// <summary>
+/// What the official <c>StructFieldProp</c> and <c>FieldPropManager</c> do with a prop beyond its activation: how many
+/// uses, how long until it returns, how long it stays, what it gives and the Lua it runs.
+/// </summary>
+public sealed record PropRules(int UseCount, uint RegenTicks, uint LifeTicks, PropDrop[] Drops, string LuaScript)
+{
+    public static readonly PropRules None = new(0, 0, 0, Array.Empty<PropDrop>(), string.Empty);
+
+    /// <summary>Whether the prop comes and goes, which only a tracked state can tell.</summary>
+    public bool IsTracked => UseCount > 0 || RegenTicks > 0 || LifeTicks > 0;
+}
+
 public readonly record struct FieldPropTemplate(
     int Id,
     int ActivateSkillId,
@@ -19,7 +34,11 @@ public readonly record struct FieldPropTemplate(
     int Limit,
     int LimitJobId,
     PropAction Action,
-    PropActivation[] Activations);
+    PropActivation[] Activations,
+    PropRules Rules = null)
+{
+    public PropRules RulesOrNone => Rules ?? PropRules.None;
+}
 
 public readonly record struct FieldPropInstance(
     long InstanceId,
@@ -68,7 +87,35 @@ public class FieldPropCatalog : IFieldPropCatalog
     {
         _templates = options.Templates.ToFrozenDictionary(
             template => template.Id,
-            template => new FieldPropTemplate(
+            template => Resolve(template));
+
+        _dungeons = options.Dungeons.ToFrozenDictionary(
+            dungeon => dungeon.Id,
+            dungeon => (dungeon.X, dungeon.Y));
+
+        Instances = BuildInstances(options);
+        var usable = Instances.Count(instance =>
+            _templates[instance.PropId].Action.Kind != PropActionKind.None);
+
+        _logger.Debug("Loaded {props} field props over {templates} templates, {usable} teleporting",
+            Instances.Count, _templates.Count, usable);
+    }
+
+    /// <summary>
+    /// The template, with its action from the 9.4 script — or from the Epic 7 one when only that one names an action
+    /// this server carries out (<c>enter_vulcanus()</c>); any other Epic 7 script is Lua, run by <c>UseProp</c>.
+    /// </summary>
+    private static FieldPropTemplate Resolve(FieldPropTemplateOptions template)
+    {
+        var action = PropScript.Parse(template.Script);
+        var lua = template.LuaScript ?? string.Empty;
+        if (action.Kind == PropActionKind.None && lua.Length > 0 && PropScript.Parse(lua) is { Kind: not PropActionKind.None } epic)
+        {
+            action = epic;
+            lua = string.Empty;
+        }
+
+        return new FieldPropTemplate(
                 template.Id,
                 template.ActivateSkillId,
                 template.CastingTime,
@@ -76,40 +123,34 @@ public class FieldPropCatalog : IFieldPropCatalog
                 template.MaxLevel,
                 template.Limit,
                 template.LimitJobId,
-                PropScript.Parse(template.Script),
+                action,
                 template.Activations.Count == 0
                     ? NoActivations
                     : template.Activations
                         .Select(activation => new PropActivation(
                             activation.Condition, activation.Value1, activation.Value2))
-                        .ToArray()));
-
-        _dungeons = options.Dungeons.ToFrozenDictionary(
-            dungeon => dungeon.Id,
-            dungeon => (dungeon.X, dungeon.Y));
-
-        Instances = options.Spawns
-            .Where(spawn => _templates.ContainsKey(spawn.PropId))
-            .Select((spawn, index) => new FieldPropInstance(
-                index,
-                spawn.PropId,
-                spawn.X,
-                spawn.Y,
-                spawn.ZOffset,
-                spawn.RotateX,
-                spawn.RotateY,
-                spawn.RotateZ,
-                spawn.ScaleX,
-                spawn.ScaleY,
-                spawn.ScaleZ))
-            .ToArray();
-
-        var usable = Instances.Count(instance =>
-            _templates[instance.PropId].Action.Kind != PropActionKind.None);
-
-        _logger.Debug("Loaded {props} field props over {templates} templates, {usable} teleporting",
-            Instances.Count, _templates.Count, usable);
+                        .ToArray(),
+                new PropRules(template.UseCount, (uint)Math.Max(0, template.RegenTime), (uint)Math.Max(0, template.LifeTime),
+                    template.Drops.Select(drop => new PropDrop(drop.ItemId, drop.Ratio, drop.CountMin, drop.CountMax,
+                        drop.LevelMin, drop.LevelMax)).ToArray(),
+                    lua));
     }
+
+    private FieldPropInstance[] BuildInstances(FieldPropOptions options) => options.Spawns
+        .Where(spawn => _templates.ContainsKey(spawn.PropId))
+        .Select((spawn, index) => new FieldPropInstance(
+            index,
+            spawn.PropId,
+            spawn.X,
+            spawn.Y,
+            spawn.ZOffset,
+            spawn.RotateX,
+            spawn.RotateY,
+            spawn.RotateZ,
+            spawn.ScaleX,
+            spawn.ScaleY,
+            spawn.ScaleZ))
+        .ToArray();
 
     public bool TryGetInstance(long instanceId, out FieldPropInstance instance)
     {

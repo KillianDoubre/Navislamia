@@ -37,6 +37,9 @@ public interface IQuestService
     Task LeaveWorldAsync(GameClient client);
     Task RefreshAsync(GameClient client);
     Task<bool> SetQuestStatusAsync(GameClient client, int code, int index, int value) => Task.FromResult(false);
+
+    /// <summary>Official get_quest_status: a 1-based objective's value, 0 when the quest is not held.</summary>
+    Task<int> GetQuestStatusAsync(GameClient client, int code, int index) => Task.FromResult(0);
     Task<int> RunScriptAsync(GameClient client, string script) => Task.FromResult(0);
     Navislamia.Game.Scripting.QuestScriptContext CreateScriptContext(GameClient client) => null;
 

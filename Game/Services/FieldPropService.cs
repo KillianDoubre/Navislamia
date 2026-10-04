@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Navislamia.Game.Network;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
@@ -19,15 +22,62 @@ public class FieldPropService : IFieldPropService
     private readonly IFieldPropCatalog _catalog;
     private readonly SpatialIndex<FieldPropInstance> _index;
     private readonly IDynamicFieldProps _dynamic;
+    private readonly IFieldPropStates _states;
+    private readonly IPlayerVisibilityService _players;
 
-    public FieldPropService(IFieldPropCatalog catalog, IDynamicFieldProps dynamic = null)
+    public FieldPropService(IFieldPropCatalog catalog, IDynamicFieldProps dynamic = null, IFieldPropStates states = null,
+        IPlayerVisibilityService players = null, bool runTicks = true)
     {
         _catalog = catalog;
         _dynamic = dynamic;
+        _states = states;
+        _players = players;
         _index = new SpatialIndex<FieldPropInstance>(catalog.Instances,
             prop => prop.X, prop => prop.Y, WorldVisibility.ViewRange);
 
         _logger.Information("Indexed {count} field props", _index.Count);
+        if (runTicks && _states is not null)
+        {
+            _ = RunAsync();
+        }
+    }
+
+    /// <summary>FieldPropManager::onProcess, once a second: the props that came back or expired, streamed again.</summary>
+    public void Tick(uint now)
+    {
+        foreach (var prop in _states?.Tick(now) ?? Array.Empty<FieldPropInstance>())
+        {
+            Refresh(prop.X, prop.Y);
+        }
+    }
+
+    /// <summary>The players who see a spot get what changed there (a used-up prop leaves, a returning one enters).</summary>
+    public void Refresh(float x, float y)
+    {
+        foreach (var client in _players?.Registry.Clients ?? Array.Empty<GameClient>())
+        {
+            var info = client.ConnectionInfo;
+            if (info.CharacterHandle != 0 && CombatRange.Distance(x, y, info.X, info.Y) <= WorldVisibility.ViewRange)
+            {
+                Sync(client);
+            }
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        while (await timer.WaitForNextTickAsync())
+        {
+            try
+            {
+                Tick(ServerClock.Now);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Field prop tick failed");
+            }
+        }
     }
 
     public void Sync(GameClient client)
@@ -35,7 +85,12 @@ public class FieldPropService : IFieldPropService
         try
         {
             var info = client.ConnectionInfo;
-            var inRange = _index.WithinRange(info.X, info.Y, WorldVisibility.ViewRange);
+            IReadOnlyList<FieldPropInstance> inRange = _index.WithinRange(info.X, info.Y, WorldVisibility.ViewRange);
+            if (_states is not null)
+            {
+                // A prop used up or expired is out of the world until it returns: the streamer sends its LEAVE.
+                inRange = inRange.Where(prop => _states.IsPresent(prop.InstanceId)).ToArray();
+            }
 
             // The props created on this layer (HuntaHolic healing props) come and go: a prop that was used is no
             // longer here, so the streamer sends its LEAVE.

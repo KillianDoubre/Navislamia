@@ -22,11 +22,11 @@ namespace Tests.Game;
 [TestFixture]
 public class JobResetTests
 {
-    private const int AsuraJobNpc = 2004;
+    private const int DevaJobNpc = 2004;
     private const int BaseSkill = 1004, MasterSkill = 50000, TalentSkill = 41101, CreatureControl = 1801;
 
     /// <summary>
-    /// Asura 200 → 201 → 210 → master 220. 1004 is learnable to 3 in the base tree and to 5 in the master's; 50000 is a
+    /// Deva (race 4) 200 → 201 → 210 → master 220. 1004 is learnable to 3 in the base tree and to 5 in the master's; 50000 is a
     /// master skill (100 + 200 JP); 41101 a talent skill (1 TP a level).
     /// </summary>
     private static SkillCatalog Catalog() => new(new SkillCatalogOptions
@@ -163,7 +163,7 @@ public class JobResetTests
     {
         var h = new Harness(resetCount: 2);
 
-        var page = await h.Service.SelectAsync(h.Client, AsuraJobNpc, JobChangeRules.ChangeJob, "NPC_JobChange_change_job()");
+        var page = await h.Service.SelectAsync(h.Client, DevaJobNpc, JobChangeRules.ChangeJob, "NPC_JobChange_change_job()");
 
         page.Page.Text.Should().Be("@90604795");
         page.Page.Menu.Select(m => m.Trigger).Should().StartWith(new[] { "gold_skill_reset_check(npc_id)", "jp_skill_reset_check(npc_id)" });
@@ -174,7 +174,7 @@ public class JobResetTests
     {
         var h = new Harness(resetCount: 2);
 
-        var page = await h.Service.SelectAsync(h.Client, AsuraJobNpc, SkillResetRules.GoldReset, "gold_skill_reset_check(npc_id)");
+        var page = await h.Service.SelectAsync(h.Client, DevaJobNpc, SkillResetRules.GoldReset, "gold_skill_reset_check(npc_id)");
 
         page.Page.Text.Should().Be("@90604805");
         h.Info.CharacterGold.Should().Be(1_000_000, "the third reset costs 5 000 000");
@@ -195,7 +195,7 @@ public class JobResetTests
         var h = new Harness(resetCount: 2);
         h.Info.CharacterJp = 100;
 
-        var page = await h.Service.SelectAsync(h.Client, AsuraJobNpc, SkillResetRules.JpReset, "jp_skill_reset_check(npc_id)");
+        var page = await h.Service.SelectAsync(h.Client, DevaJobNpc, SkillResetRules.JpReset, "jp_skill_reset_check(npc_id)");
 
         page.Page.Text.Should().Be("@90604806");
         h.Info.LearnedSkills.Should().HaveCount(3);
@@ -208,10 +208,10 @@ public class JobResetTests
         var h = new Harness();
         h.Info.CharacterTalentPoint = 0;
 
-        var offer = await h.Service.SelectAsync(h.Client, AsuraJobNpc, SkillResetRules.ChangeRace, "NPC_JobChange_change_race()");
+        var offer = await h.Service.SelectAsync(h.Client, DevaJobNpc, SkillResetRules.ChangeRace, "NPC_JobChange_change_race()");
         offer.Page.Menu.Select(m => m.Trigger).Should().Equal("NPC_JobChange_set_race(5)", "NPC_JobChange_set_race(3)");
 
-        var page = await h.Service.SelectAsync(h.Client, AsuraJobNpc, SkillResetRules.SetRace, "NPC_JobChange_set_race(5)");
+        var page = await h.Service.SelectAsync(h.Client, DevaJobNpc, SkillResetRules.SetRace, "NPC_JobChange_set_race(5)");
 
         page.Page.Text.Should().Be("@90010258");
         h.Info.CharacterRace.Should().Be(5);
@@ -230,12 +230,12 @@ public class JobResetTests
     public async Task The_race_change_needs_the_stone_and_another_race()
     {
         var h = new Harness(stones: 0);
-        (await h.Service.SelectAsync(h.Client, AsuraJobNpc, SkillResetRules.SetRace, "NPC_JobChange_set_race(5)"))
+        (await h.Service.SelectAsync(h.Client, DevaJobNpc, SkillResetRules.SetRace, "NPC_JobChange_set_race(5)"))
             .Page.Text.Should().Be("@90010257");
 
         h = new Harness();
-        (await h.Service.SelectAsync(h.Client, AsuraJobNpc, SkillResetRules.SetRace, "NPC_JobChange_set_race(4)"))
-            .Page.Text.Should().Be("@90010259", "already an Asura");
+        (await h.Service.SelectAsync(h.Client, DevaJobNpc, SkillResetRules.SetRace, "NPC_JobChange_set_race(4)"))
+            .Page.Text.Should().Be("@90010259", "already a Deva");
         A.CallTo(() => h.Characters.ApplySkillResetAsync(A<string>._, A<SkillResetWrite>._)).MustNotHaveHappened();
     }
 }
