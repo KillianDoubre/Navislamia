@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 
 namespace Navislamia.Game.DataAccess.Contexts;
@@ -6,6 +6,7 @@ namespace Navislamia.Game.DataAccess.Contexts;
 public class TelecasterContext : SoftDeletionContext
 {
     public DbSet<DonationScoreEntity> DonationScores { get; set; }
+    public DbSet<CharacterFriendEntity> CharacterFriends { get; set; }
     public TelecasterContext(DbContextOptions<TelecasterContext> options) : base(options) { }
 
     public DbSet<AllianceEntity> Alliances { get; set; }
@@ -43,6 +44,13 @@ public class TelecasterContext : SoftDeletionContext
         modelBuilder.Entity<DonationScoreEntity>().Property(s => s.Score).HasPrecision(18, 4);
         modelBuilder.Entity<DonationScoreEntity>().HasOne<CharacterEntity>().WithMany()
             .HasForeignKey(s => s.CharacterId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<CharacterFriendEntity>().HasIndex(f => new { f.OwnerId, f.TargetId, f.IsDenial }).IsUnique()
+            .HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<CharacterFriendEntity>().HasIndex(f => f.TargetId);
+        modelBuilder.Entity<CharacterFriendEntity>().HasOne<CharacterEntity>().WithMany()
+            .HasForeignKey(f => f.OwnerId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<CharacterFriendEntity>().HasOne<CharacterEntity>().WithMany()
+            .HasForeignKey(f => f.TargetId).OnDelete(DeleteBehavior.Cascade);
         base.OnModelCreating(modelBuilder);
 
         ConfigureAuctions(modelBuilder);

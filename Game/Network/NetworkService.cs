@@ -71,6 +71,7 @@ public class NetworkService : INetworkService
     public readonly ServerOptions ServerOptions;
     public readonly Navislamia.Game.Services.Dungeons.DungeonRooms DungeonRooms;
     public readonly Navislamia.Game.Services.Guilds.IGuildService GuildService;
+    public readonly Navislamia.Game.Services.Friends.IFriendService FriendService;
 
     public AuthClient AuthClient { get; set; }
 
@@ -118,8 +119,10 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Huntaholic.IHuntaholicService huntaholicService = null,
         Navislamia.Game.Services.Auction.IAuctionService auctionService = null, IEtherealWear etherealWear = null,
         Services.Progression.ITitleService titleService = null, IDonationRankingService donationRankingService = null,
-        Navislamia.Game.Services.Guilds.GuildUploadRelay guildUploads = null)
+        Navislamia.Game.Services.Guilds.GuildUploadRelay guildUploads = null,
+        Navislamia.Game.Services.Friends.IFriendService friendService = null)
     {
+        FriendService = friendService;
         TitleService = titleService;
         DonationRankingService = donationRankingService;
         if (guildUploads is not null)

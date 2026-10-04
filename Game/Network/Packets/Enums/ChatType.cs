@@ -9,6 +9,12 @@ public enum ChatType : byte
     Party = 0x0A,
     Guild = 0x0B,
     AttackTeam = 12,
+
+    /// <summary><c>CHAT_FRIEND</c> (13): the friend window's printed lines, sender <c>@FRIEND</c>.</summary>
+    Friend = 13,
+
+    /// <summary><c>CHAT_FRIEND_SYSTEM</c> (140): the lines the friend window parses (<c>FLIST</c>, <c>DLIST</c>, <c>FSTATUS</c>).</summary>
+    FriendSystem = 140,
     GuildSystem = 110,
     RaidSystem = 130,
     AllianceSystem = 150,

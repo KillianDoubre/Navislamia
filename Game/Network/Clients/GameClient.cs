@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -1205,6 +1205,11 @@ public class GameClient : Client
         if (type != (byte)ChatType.Whisper && message.StartsWith('/')
             && _networkService.GuildService?.TryHandleCommand(this, message) == true) return;
 
+        // The messenger window has no opcode either: /add_friend, /del_friend, /add_denial, /del_denial and the
+        // @FRIEND answers (docs/packet-specs/socle-amis.md).
+        if (type != (byte)ChatType.Whisper && message.StartsWith('/')
+            && _networkService.FriendService?.TryHandleCommand(this, message) == true) return;
+
         // The party window has no opcode: it sends /pcreate, /pinvite, /pjoin... as chat lines and parses
         // the @PARTY answers (docs/packet-specs/socle-groupe.md). They are player commands, not GM ones.
         if (type != (byte)ChatType.Whisper && message.StartsWith('/')
@@ -1259,6 +1264,13 @@ public class GameClient : Client
                 if (string.Equals(recipient.ConnectionInfo.CharacterName, target,
                     StringComparison.OrdinalIgnoreCase))
                 {
+                    // CHAT_WHISPER: a target blocking the sender refuses it with RESULT_ACCESS_DENIED.
+                    if (_networkService.FriendService?.Blocks(recipient, this) == true)
+                    {
+                        SendResult((ushort)GamePackets.TM_CS_CHAT_REQUEST, (ushort)ResultCode.AccessDenied);
+                        return;
+                    }
+
                     recipient.Connection.Send(chat);
                     SendResult((ushort)GamePackets.TM_CS_CHAT_REQUEST, (ushort)ResultCode.Success);
                     return;
@@ -1381,6 +1393,7 @@ public class GameClient : Client
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
+            _networkService.FriendService?.OnWorldExit(this);
             if (_networkService.GuildService is { } guilds) await guilds.OnWorldExitAsync(this);
             _networkService.DungeonRooms?.OnWorldExit(this);
 
@@ -1417,6 +1430,7 @@ public class GameClient : Client
             _networkService.PlayerTradeService?.CancelFor(this);
             _networkService.PlayerVisibilityService.LeaveWorld(this);
             _networkService.PartyService?.OnWorldExit(this);
+            _networkService.FriendService?.OnWorldExit(this);
             if (_networkService.GuildService is { } guilds) await guilds.OnWorldExitAsync(this);
             _networkService.DungeonRooms?.OnWorldExit(this);
             if (_networkService.QuestService is not null) await _networkService.QuestService.LeaveWorldAsync(this);

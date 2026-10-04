@@ -511,6 +511,8 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Weight.IItemWeightCatalog, Navislamia.Game.Services.Weight.ItemWeightCatalog>();
         services.AddSingleton<Navislamia.Game.Services.Weight.ICarriedWeightService, Navislamia.Game.Services.Weight.CarriedWeightService>();
         services.AddSingleton<Navislamia.Game.Services.Party.IPartyService, Navislamia.Game.Services.Party.PartyService>();
+        services.AddSingleton<Navislamia.Game.Services.Friends.IFriendStore, Navislamia.Game.Services.Friends.FriendStore>();
+        services.AddSingleton<Navislamia.Game.Services.Friends.IFriendService, Navislamia.Game.Services.Friends.FriendService>();
         services.AddSingleton<Navislamia.Game.Services.Trade.IPlayerTradeService, Navislamia.Game.Services.Trade.PlayerTradeService>();
         services.AddSingleton<IBoothTradeService, BoothTradeService>();
         services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();

@@ -39,11 +39,7 @@ Trois sources ont été croisées.
 
 ## Systèmes absents
 
-- **Amis et liste de blocage.** Le client a la fenêtre `window_messenger_friend.nui` et envoie `/add_friend %s`,
-  `/del_friend %s`, `/add_denial %s` et `/del_denial %s`. Il lit des lignes `@FRIEND` (`CHAT_FRIEND`,
-  `CHAT_FRIEND_SYSTEM`). L'officiel les traite dans `GameMessage.cpp:2100-2210`, `DB_Friends.cpp` et
-  `SendMessage.cpp:1750-1840`, avec la liste à la connexion et les avis de connexion des amis. **Aucune trace chez
-  nous.**
+- **Amis et liste de blocage** : livrés le 2026-10-04 (`socle-amis.md`).
 - **Énergie.** Quinze compétences jouables coûtent de l'énergie (`CostEnergy`, effets 301, 505 et 30001-30016), et
   d'autres en produisent (`StructSkill.cpp:6420`, `7023`). L'officiel refuse le lancement sans énergie
   (`RESULT_NOT_ENOUGH_ENERGY`). Ici, ces compétences partent gratuitement et le compteur n'existe pas.

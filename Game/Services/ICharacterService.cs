@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
@@ -51,7 +51,8 @@ public interface ICharacterService
     /// <summary>Marks this character, or clears every character of its account (Lua set_auto_user).</summary>
     Task<bool> SetAutoUsedAsync(string accountName, string characterName, bool value);
 
-    Task DeleteCharacterByNameAsync(string characterName);
+    /// <summary>Deletes the character; returns its id, 0 when no character has that name.</summary>
+    Task<long> DeleteCharacterByNameAsync(string characterName);
 
     Task<bool> UpdateClientInfoAsync(string characterName, string clientInfo);
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -405,6 +405,8 @@ public class GameActions : IActions
         // party they left, and ConnectionInfo.PartyId is set from it, never from Characters.PartyId.
         _networkService.PartyService?.OnWorldEntry(client);
         if (_networkService.GuildService is { } guilds) await guilds.OnWorldEntryAsync(client);
+        // DB_Login reads the lists and SendCharacterInfo sends FLIST, DLIST and the FSTATUS of the players listing this one.
+        if (_networkService.FriendService is { } friends) await friends.OnWorldEntryAsync(client);
         if (_networkService.TitleService is { } titles) await titles.RefreshAsync(client);
 
         // The creatures (docs/packet-specs/socle-apprivoisement-invocation.md §15): the 301 of each formed summon,
@@ -427,7 +429,23 @@ public class GameActions : IActions
         var message = packet.GetDataStruct<TS_CS_CHARACTER_LIST>();
         try
         {
-            await SendCharacterListForAccountAsync(client, message.Account);
+            // The list is the authenticated account's, never the one the packet names: the field is the client's
+            // word, and the names this list records are what a deletion is allowed to touch.
+            var account = client.ConnectionInfo.AccountName;
+            if (string.IsNullOrEmpty(account))
+            {
+                _logger.Warning("{clientTag} asked for a character list before its account was verified",
+                    client.ClientTag);
+                return;
+            }
+
+            if (!string.Equals(message.Account, account, StringComparison.Ordinal))
+            {
+                _logger.Warning("{clientTag} asked for the characters of {requested} while logged in as {account}",
+                    client.ClientTag, message.Account, account);
+            }
+
+            await SendCharacterListForAccountAsync(client, account);
         }
         catch (Exception exception)
         {
@@ -645,7 +663,18 @@ public class GameActions : IActions
 
         var deleteMsg = packet.GetDataStruct<TS_CS_DELETE_CHARACTER>();
 
-        await _characterService.DeleteCharacterByNameAsync(deleteMsg.Name);
+        // Only a character of this account's lobby list: the name alone used to delete anyone's character.
+        if (!client.ConnectionInfo.CharacterList.Contains(deleteMsg.Name, StringComparer.Ordinal))
+        {
+            _logger.Warning("{clientTag} tried to delete {name}, which is not a character of {account}",
+                client.ClientTag, deleteMsg.Name, client.ConnectionInfo.AccountName);
+            client.SendResult(packet.Id, (ushort)ResultCode.AccessDenied);
+            return;
+        }
+
+        var deletedId = await _characterService.DeleteCharacterByNameAsync(deleteMsg.Name);
+        client.ConnectionInfo.CharacterList.Remove(deleteMsg.Name);
+        if (deletedId != 0) _networkService.FriendService?.OnCharacterDeleted(deletedId);
 
         client.SendResult(packet.Id, (ushort)ResultCode.Success);
     }

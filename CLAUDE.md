@@ -1862,6 +1862,20 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   bénéficiaire proche et `linear` tourne entre les bénéficiaires proches.
 - Fiche, adresses des fonctions officielles, écarts et `NON ÉTABLI` : `docs/packet-specs/socle-groupe.md`.
 
+### Amis et liste de blocage — commandes de chat et lignes `@FRIEND`
+
+- **Aucun opcode**, comme le groupe : `/add_friend`, `/del_friend`, `/add_denial`, `/del_denial`, et des `TS_SC_CHAT`
+  d'émetteur `@FRIEND`, type **140** pour `FLIST|nom|statut|…` (1 en ligne, 0 hors ligne, **2 en ligne mais bloquant
+  le lecteur**), `DLIST|nom|…` et `FSTATUS|nom|1|`/`0|`, type **13** pour les messages (`@467#@friend_name@#Nom`).
+  Règles du serveur officiel (`GameMessage.cpp` `onAddFriend`…, `DB_Friends.cpp`) : 25 entrées, nom 4-18,
+  `@482`/`@481`/`@478`/`@469`/`@473`, entrée en jeu = `FLIST` + `DLIST` + `FSTATUS` aux joueurs qui vous ont en ami
+  (sauf ceux que vous bloquez), sortie = `FSTATUS 0`, chuchotement d'un joueur bloqué = `TS_SC_RESULT(AccessDenied)`.
+- `FriendService` (listes en mémoire des joueurs en jeu), `FriendStore` sur **`CharacterFriends`** (ids de personnage,
+  pas les noms de l'officiel : renommage et suppression suivent seuls ; `Version0023_CharacterFriends`).
+- **Suppression de personnage** : seul un nom de la liste du compte **authentifié** est accepté ; avant, n'importe quel
+  personnage pouvait être supprimé par son nom, et la liste 2001 suivait le compte nommé dans la trame.
+- Fiche : `docs/packet-specs/socle-amis.md`.
+
 ### Poids porté
 
 - **Un objet pèse `weight` × quantité, un objet porté ne pèse rien** ; le max (`10 × (niveau + force)`, sacs,

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -246,7 +246,7 @@ public class CharacterService : ICharacterService
     /// a separate, unawaited <c>SaveChanges</c> call racing it; a context per operation has nothing left
     /// to save later.
     /// </summary>
-    public Task DeleteCharacterByNameAsync(string characterName)
+    public Task<long> DeleteCharacterByNameAsync(string characterName)
     {
         return RunExclusiveAsync(characterName, async repository =>
         {
@@ -254,11 +254,12 @@ public class CharacterService : ICharacterService
             if (entity is null)
             {
                 _logger.LogWarning("Character Delete Failed! Character {name} not found!", characterName);
-                return;
+                return 0L;
             }
 
             repository.Delete(entity);
             await repository.SaveChangesAsync();
+            return entity.Id;
         });
     }
 
