@@ -110,11 +110,12 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Donjons : accès aux 20 choix d'instance livré, salles isolées par groupe ou personnage, niveaux/difficultés,
   clés de Vulcanus, sorties et nettoyage ; accès public, raid et siège distingués, horaires régionaux et guilde
   contrôlés. Pages d'information des donjons secrets et raccourci de la guilde propriétaire raccordés
-  (`socle-donjons-instances-secrets.md`), **à vérifier en jeu**. Restent les scénarios Lua propres aux instances,
-  les apparitions conditionnelles des portails secrets.
+  (`socle-donjons-instances-secrets.md`), **à vérifier en jeu**. Le scénario Vulcanus (salles, récompenses,
+  portes d'étage et clés) est porté (2026-10-04) ; restent les apparitions conditionnelles des portails secrets et
+  Cubric (postérieur au client 7.3).
 - ~~HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes~~ : livrés (`socle-huntaholic.md`,
-  `socle-encheres-mecanique.md`). Restent : props de soin de Bear Road, états `EraseOnQuitHuntaholic`, objets
-  réservés/interdits en HuntaHolic. Enchères automatiques et essai PostgreSQL livrés
+  `socle-encheres-mecanique.md`). Props de soin de Bear Road, états `EraseOnQuitHuntaholic`, objets réservés/interdits
+  et sortie au point de retour livrés (`socle-huntaholic.md` §7-8, 2026-10-04). Enchères automatiques et essai PostgreSQL livrés
   (`socle-encheres-mecanique.md` §5–6), **à vérifier en jeu** : 39 définitions importées, 3 compatibles et actives
   avec le client 7.3 et la région actuelle ; 35 lignes utilisent des objets absents du client, 1 est exclue par région.
 - Ferme de créatures : non implémentée par décision (2026-09-30).
