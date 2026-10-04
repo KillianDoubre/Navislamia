@@ -48,7 +48,14 @@ public enum SkillCastKind
     /// effect 604: never learned, cast by the server on 4250/4251 (<c>CastSkill</c> in <c>onInstanceGameEnter</c>),
     /// carried out by HuntaHolic when they fire (docs/packet-specs/socle-huntaholic.md §6).
     /// </summary>
-    InstanceGame
+    InstanceGame,
+
+    /// <summary>
+    /// <c>EF_REGION_HEAL_BY_FIELD_PROP</c> (9502) and <c>EF_AREA_EFFECT_HEAL_BY_FIELD_PROP</c> (9503): cast at a HuntaHolic
+    /// healing prop, never learned; the prop is used up, then heals around it at once (9502) or leaves a healing area
+    /// (9503). docs/packet-specs/socle-huntaholic.md §8.
+    /// </summary>
+    PropHeal
 }
 
 public readonly record struct CastableBuffFields(

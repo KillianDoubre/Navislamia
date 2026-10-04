@@ -506,6 +506,7 @@ public class Program
         services.AddSingleton<IFieldPropService, FieldPropService>();
         services.AddSingleton<IWarpService, WarpService>();
         services.AddSingleton<Navislamia.Game.Services.Dungeons.DungeonCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Props.IDynamicFieldProps, Navislamia.Game.Services.Props.DynamicFieldProps>();
         services.AddSingleton<Navislamia.Game.Services.Guilds.GuildRuntime>();
         services.AddSingleton<Navislamia.Game.Services.Guilds.GuildCombatEvents>();
         services.AddSingleton<Navislamia.Game.Services.Guilds.IGuildService, Navislamia.Game.Services.Guilds.GuildService>();

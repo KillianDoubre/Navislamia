@@ -65,6 +65,9 @@ public partial class SkillCastService : ISkillCastService
     private readonly Creatures.ICreatureService _creatures;
     private readonly IBuffPersistence _buffPersistence;
     private readonly Huntaholic.IHuntaholicEvents _huntaholic;
+
+    /// <summary>The props created on a layer at run time: the HuntaHolic healing props (<see cref="SkillCastKind.PropHeal"/>).</summary>
+    private readonly IDynamicFieldProps _dynamicProps;
     private readonly object _lock = new();
     private readonly List<GameClient> _clients = new();
 
@@ -75,8 +78,9 @@ public partial class SkillCastService : ISkillCastService
         CastInterrupts interrupts = null, ICombatRandom random = null, bool runTicks = true,
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
         Creatures.ICreatureService creatures = null, Dungeons.IDungeonService dungeons = null,
-        Huntaholic.IHuntaholicEvents huntaholic = null)
+        Huntaholic.IHuntaholicEvents huntaholic = null, IDynamicFieldProps dynamicProps = null)
     {
+        _dynamicProps = dynamicProps;
         _dungeons = dungeons;
         _huntaholic = huntaholic;
         _creatures = creatures;
@@ -374,6 +378,7 @@ public partial class SkillCastService : ISkillCastService
         if (IsSupport(fields)) { FireSupport(client, cast, now); return; }
 
         SkillHit? hit = null;
+        var fireSent = false;
         switch (fields.Kind)
         {
             case SkillCastKind.Buff:
@@ -394,6 +399,16 @@ public partial class SkillCastService : ISkillCastService
                 break;
             case SkillCastKind.ActivateProp:
                 ActivateProp(client, targetInstanceId);
+                break;
+            case SkillCastKind.PropHeal:
+                // It sends its own ST_Fire: a region heal carries one hit per player healed.
+                if (!FirePropHeal(client, request, fields, skillLevel, targetInstanceId, now))
+                {
+                    SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+                    return;
+                }
+
+                fireSent = true;
                 break;
             case SkillCastKind.InstanceGame:
                 // WARP_TO_HUNTAHOLIC_LOBBY judges again when it fires: a refusal is the skill's failed result.
@@ -440,7 +455,10 @@ public partial class SkillCastService : ISkillCastService
                 return;
         }
 
-        SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Fire, 0, 0, hit);
+        if (!fireSent)
+        {
+            SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Fire, 0, 0, hit);
+        }
 
         // Only a buff or an aura moves the caster's stat block. A heal changes HP, which travels as a
         // property; a debuff and an attack land on a monster.
@@ -653,11 +671,11 @@ public partial class SkillCastService : ISkillCastService
                 return false;
             }
         }
-        else if (fields.Kind == SkillCastKind.ActivateProp)
+        else if (fields.Kind is SkillCastKind.ActivateProp or SkillCastKind.PropHeal)
         {
             skillLevel = 1;
 
-            if (!TryValidateProp(info, request, out targetInstanceId, out error))
+            if (!TryValidateProp(info, request, fields.Kind, out targetInstanceId, out error))
             {
                 return false;
             }
@@ -920,7 +938,7 @@ public partial class SkillCastService : ISkillCastService
     /// Resolves the cast target to a prop this client can see, and applies the reference server's
     /// FieldProp::IsUsable checks.
     /// </summary>
-    private bool TryValidateProp(ConnectionInfo info, GameActionPackets.SkillRequest request,
+    private bool TryValidateProp(ConnectionInfo info, GameActionPackets.SkillRequest request, SkillCastKind kind,
         out long instanceId, out ResultCode error)
     {
         if (!info.TryResolveProp(request.Target, out instanceId)
@@ -930,9 +948,17 @@ public partial class SkillCastService : ISkillCastService
             return false;
         }
 
+        // A healing prop has no script: its skill is the effect (REGION_HEAL_BY_FIELD_PROP and friends), so only a
+        // prop created on this layer qualifies, and the script check is the warp props'.
+        if (kind == SkillCastKind.PropHeal && (_dynamicProps is null || !_dynamicProps.TryGet(instanceId, out _)))
+        {
+            error = ResultCode.NotActable;
+            return false;
+        }
+
         if (template.ActivateSkillId != request.SkillId
             || !FieldPropUsage.IsUsable(template, info)
-            || (!FieldPropUsage.CanAct(template, _fieldPropCatalog)
+            || (kind != SkillCastKind.PropHeal && !FieldPropUsage.CanAct(template, _fieldPropCatalog)
                 && !(_dungeons is not null && Dungeons.DungeonService.Handles(template.Action.Kind))))
         {
             error = ResultCode.NotActable;
@@ -948,6 +974,12 @@ public partial class SkillCastService : ISkillCastService
         if (_fieldPropCatalog.TryGetInstance(instanceId, out var instance))
         {
             return _fieldPropCatalog.TryGetTemplate(instance.PropId, out template);
+        }
+
+        if (_dynamicProps is not null && _dynamicProps.TryGet(instanceId, out var dynamic))
+        {
+            template = dynamic.Template;
+            return true;
         }
 
         template = default;

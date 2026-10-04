@@ -2537,7 +2537,10 @@ PNJ `go_to_huntaholic` (1 000 or) et boîtes de JP. Points et 12 entrées/jour (
 `Characters.LogoutTime`. `WarpService.Warp(client, x, y, layer)` change de couche ; `IHuntaholicEvents` relie combat,
 warp, sorts et résurrection sans cycle d'injection. 4008 est déclaré (bras propre). **Sortir de HuntaHolic** ramène au
 point de retour `rx`/`ry`, retire les états `EraseOnQuitHuntaholic` et rend les PV/PM d'entrée ; les objets aux bits 22/23
-d'`item_use_flag` sont refusés dedans / dehors (fiche §7).
+d'`item_use_flag` sont refusés dedans / dehors (fiche §7). **Props de soin** (§8) : posés sur la couche de la salle au
+départ (`IDynamicFieldProps`, props de couche que `FieldPropService` diffuse), usage unique, retour après `regen_time`,
+effacés au maximum et à la fin ; leurs sorts 64807 (9502, 30 % des PV aux alliés) et 64806 (9503, zone 5 %/3 s pendant
+30 s) sont `SkillCastKind.PropHeal`.
 
 ### Paquets 240 / 250 — marché NPC (`TM_SC_NPC_TRADE_INFO` / `TM_SC_MARKET`)
 

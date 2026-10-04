@@ -100,7 +100,8 @@ public partial class SkillCastService
         if (card.Level < fields.RequiredLevel) { Fail(ResultCode.NotActable); return; }
         if (request.Layer != actor.Layer || !float.IsFinite(request.X) || !float.IsFinite(request.Y) || !float.IsFinite(request.Z))
         { Fail(ResultCode.InvalidArgument); return; }
-        if (fields.Kind is SkillCastKind.Summon or SkillCastKind.Unsummon or SkillCastKind.Taming or SkillCastKind.ActivateProp)
+        if (fields.Kind is SkillCastKind.Summon or SkillCastKind.Unsummon or SkillCastKind.Taming or SkillCastKind.ActivateProp
+            or SkillCastKind.PropHeal)
         { Fail(ResultCode.AccessDenied); return; }
         if (fields.Target == 101) request = request with { Target = info.CharacterHandle };
         if (fields.Target == 102) request = request with { Target = actor.Handle };

@@ -28,6 +28,7 @@ public class HuntaholicRow
     public int DungeonY { get; set; }
     public HuntaholicArea DungeonArea { get; set; } = new();
     public List<HuntaholicTierRow> Tiers { get; set; } = new();
+    public List<HuntaholicHealingPropTemplateRow> HealingPropTemplates { get; set; } = new();
 }
 
 /// <summary>A channel box in world units, normalised so that Left &lt;= Right and Top &lt;= Bottom.</summary>
@@ -73,13 +74,42 @@ public class HuntaholicRespawnRow
     public bool IsWandering { get; set; }
 }
 
-/// <summary>One <c>HuntaholicHealingpropResource</c> row (exported; not spawned, see socle-huntaholic.md).</summary>
+/// <summary>
+/// One <c>HuntaholicHealingpropResource</c> row, the <c>FIELD_PROP_RESPAWN_INFO</c> the loader builds from it
+/// (<c>offset_z</c>, <c>around_*</c> rotation, <c>scale_*</c>, height lock). Posed on each room's layer when its hunt
+/// begins (socle-huntaholic.md §8).
+/// </summary>
 public class HuntaholicHealingPropRow
 {
     public int Id { get; set; }
     public int PropId { get; set; }
     public int X { get; set; }
     public int Y { get; set; }
+    public float ZOffset { get; set; }
+    public float RotateX { get; set; }
+    public float RotateY { get; set; }
+    public float RotateZ { get; set; }
+    public float ScaleX { get; set; } = 1;
+    public float ScaleY { get; set; } = 1;
+    public float ScaleZ { get; set; } = 1;
+    public bool LockHeight { get; set; }
+    public float LockHeightValue { get; set; }
+}
+
+/// <summary>
+/// The <c>FieldPropResource</c> columns a healing prop needs: the skill a double-click casts, how many uses it takes
+/// (<c>use_count</c>), when it comes back (<c>regen_time</c>, seconds; the loader's × 100 is the server's), its range
+/// and level limits.
+/// </summary>
+public class HuntaholicHealingPropTemplateRow
+{
+    public int Id { get; set; }
+    public int ActivateSkillId { get; set; }
+    public int UseCount { get; set; }
+    public int RegenSeconds { get; set; }
+    public float CastingRange { get; set; }
+    public int MinLevel { get; set; }
+    public int MaxLevel { get; set; }
 }
 
 /// <summary>

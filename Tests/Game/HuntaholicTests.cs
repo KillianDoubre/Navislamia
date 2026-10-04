@@ -19,6 +19,7 @@ using Navislamia.Game.Services;
 using Navislamia.Game.Services.Huntaholic;
 using Navislamia.Game.Services.Interfaces;
 using Navislamia.Game.Services.Party;
+using Navislamia.Game.Services.Props;
 
 namespace Tests.Game;
 
@@ -47,9 +48,15 @@ public class HuntaholicTests
                         MonsterId = MonsterId, Count = 2, PeriodSeconds = 2, IsWandering = true },
                     new HuntaholicRespawnRow { Id = 2, Left = 8800, Top = 1600, Right = 9200, Bottom = 2000,
                         MonsterId = BossId, Count = 1, PeriodSeconds = 2, IsWandering = false }
-                }
+                },
+                HealingProps = { new HuntaholicHealingPropRow { Id = 1, PropId = 300101, X = 9100, Y = 1900, ScaleX = 4 } }
             },
             new HuntaholicTierRow { Id = 10, MinLevel = 0, MaxLevel = 15, PointAdvantage = 0.11 }
+        },
+        HealingPropTemplates =
+        {
+            new HuntaholicHealingPropTemplateRow { Id = 300101, ActivateSkillId = 64807, UseCount = 1, RegenSeconds = 600,
+                CastingRange = 2, MinLevel = 1, MaxLevel = 300 }
         }
     };
 
@@ -180,6 +187,7 @@ public class HuntaholicTests
     private ICharacterService _characters;
     private HuntaholicEvents _events;
     private HuntaholicService _service;
+    private DynamicFieldProps _props;
     private uint _now;
 
     [SetUp]
@@ -200,9 +208,10 @@ public class HuntaholicTests
             .ReturnsLazily(call => Task.FromResult(new ItemEntity { Id = 77, ItemResourceId = call.GetArgument<int>(1), Amount = 1 }));
         _events = new HuntaholicEvents();
         _now = 1_000_000;
+        _props = new DynamicFieldProps();
         _service = new HuntaholicService(catalog, _parties, _warp, _world, A.Fake<IMonsterSpawnService>(), _casts,
             _characters, _visibility, _events, clock: () => _now, localNow: () => new DateTime(2026, 10, 3, 12, 0, 0),
-            random: new Random(7), runTicks: false);
+            random: new Random(7), runTicks: false, dynamicProps: _props);
         _warp.Before = (client, x, y) => _events.BeforeWarp(client, x, y);
     }
 
@@ -370,6 +379,50 @@ public class HuntaholicTests
         _service.Process(_now);
         var boss = _world.WithinRange(9000, 1800, 1000).Single(m => m.MonsterId == BossId);
         return (leader, member, boss);
+    }
+
+    [Test]
+    public void TheHuntPosesItsHealingPropsOnTheRoomsLayerOnly()
+    {
+        Hunting();
+
+        var props = _props.Within(9100, 1900, 1, 10);
+        props.Should().ContainSingle().Which.PropId.Should().Be(300101);
+        props[0].ScaleX.Should().Be(4);
+        _props.Within(9100, 1900, 0, 10).Should().BeEmpty("a room's props exist on its layer alone");
+        _props.TryGet(props[0].InstanceId, out var prop).Should().BeTrue();
+        prop.Template.ActivateSkillId.Should().Be(64807);
+    }
+
+    [Test]
+    public void AUsedHealingPropComesBackAfterItsRegenTime()
+    {
+        Hunting();
+        var id = _props.Within(9100, 1900, 1, 10).Single().InstanceId;
+
+        _props.TryUse(id, out _).Should().BeTrue();
+        _props.TryUse(id, out _).Should().BeFalse("the first one to use it takes it");
+        _props.Within(9100, 1900, 1, 10).Should().BeEmpty();
+
+        _service.Process(_now + 60_000 - 1);
+        _props.Within(9100, 1900, 1, 10).Should().BeEmpty();
+
+        _service.Process(_now + 60_000);
+        _props.Within(9100, 1900, 1, 10).Should().ContainSingle("regen_time 600 s is 60 000 ticks");
+    }
+
+    [Test]
+    public void TheEndOfTheHuntClearsTheHealingPropsAndTheirRespawns()
+    {
+        Hunting();
+        _props.Within(9100, 1900, 1, 10).Should().ContainSingle();
+
+        _now += 1500 * 100 + 1;
+        _service.Process(_now);
+        _props.Within(9100, 1900, 1, 10).Should().BeEmpty();
+
+        _service.Process(_now + 100_000);
+        _props.Within(9100, 1900, 1, 10).Should().BeEmpty("a cleared prop never comes back");
     }
 
     [Test]

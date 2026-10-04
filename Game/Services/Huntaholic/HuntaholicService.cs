@@ -65,6 +65,8 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
     private readonly ICharacterService _characters;
     private readonly ILevelingService _leveling;
     private readonly IPlayerVisibilityService _players;
+    private readonly Props.IDynamicFieldProps _dynamicProps;
+    private readonly IFieldPropService _fieldProps;
     private readonly Func<uint> _clock;
     private readonly Func<DateTime> _localNow;
     private readonly Random _random;
@@ -76,8 +78,11 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         MonsterWorldState monsters, IMonsterSpawnService monsterSpawn, ISkillCastService casts,
         ICharacterService characters, IPlayerVisibilityService players, HuntaholicEvents events = null,
         ILevelingService leveling = null, Func<uint> clock = null, Func<DateTime> localNow = null,
-        Random random = null, bool runTicks = true)
+        Random random = null, bool runTicks = true, Props.IDynamicFieldProps dynamicProps = null,
+        IFieldPropService fieldProps = null)
     {
+        _dynamicProps = dynamicProps;
+        _fieldProps = fieldProps;
         _catalog = catalog;
         _parties = parties;
         _warp = warp;
@@ -520,7 +525,10 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
 
     // ---- the hunt -------------------------------------------------------------------------------------------
 
-    /// <summary><c>beginHunting</c>: every respawn entry spawns on the room's layer, then the members go in.</summary>
+    /// <summary>
+    /// <c>beginHunting</c>: every respawn entry spawns on the room's layer, then the healing props, then the members go
+    /// in (their warp streams both).
+    /// </summary>
     private void StartHunt(Room room)
     {
         room.Begin = true;
@@ -530,6 +538,11 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
             {
                 SpawnFor(room, respawn);
             }
+        }
+
+        foreach (var prop in room.Tier.HealingProps)
+        {
+            SpawnHealingProp(room, prop);
         }
 
         var begin = _clock();
@@ -623,6 +636,7 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         }
     }
 
+    /// <summary><c>clearMonsters</c> then <c>clearHealingProps</c>: the maximum score and the end of the hunt clear both.</summary>
     private void ClearMonsters(Room room, IReadOnlyList<GameClient> members)
     {
         room.PendingRespawns.Clear();
@@ -630,8 +644,56 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         foreach (var id in room.Monsters) _roomOfMonster.Remove(id);
         room.Monsters.Clear();
         room.RespawnOf.Clear();
+
+        // The delete handler is taken off first, so a cleared prop never comes back.
+        room.PendingHealingProps.Clear();
+        foreach (var id in room.HealingProps) _dynamicProps?.Remove(id);
+        room.HealingProps.Clear();
+
         foreach (var member in members)
-            if (member.ConnectionInfo.Layer == room.InstanceNo) _monsterSpawn.Sync(member);
+        {
+            if (member.ConnectionInfo.Layer != room.InstanceNo) continue;
+            _monsterSpawn.Sync(member);
+            _fieldProps?.Sync(member);
+        }
+    }
+
+    /// <summary>
+    /// <c>StructFieldProp::Create(this, info, x, y, nInstanceNo)</c>: a healing prop on the room's layer, whose use pends
+    /// its respawn (<c>onFieldPropDelete</c>, <c>regen_time</c>).
+    /// </summary>
+    private void SpawnHealingProp(Room room, HuntaholicHealingPropRow row)
+    {
+        if (_dynamicProps is null) return;
+        var definition = room.Base.HealingPropTemplates.Find(t => t.Id == row.PropId);
+        if (definition is null)
+        {
+            _logger.Warning("Unknown HuntaHolic healing prop {prop}", row.PropId);
+            return;
+        }
+
+        var template = new Props.FieldPropTemplate(definition.Id, definition.ActivateSkillId, 0, definition.MinLevel,
+            definition.MaxLevel, 0, 0, Props.PropAction.None, Array.Empty<Props.PropActivation>());
+        var prop = _dynamicProps.Add(row.PropId, row.X, row.Y, room.InstanceNo, template,
+            used => OnHealingPropUsed(room, row, definition, used), row.ZOffset, row.RotateX, row.RotateY, row.RotateZ,
+            row.ScaleX, row.ScaleY, row.ScaleZ);
+        room.HealingProps.Add(prop.InstanceId);
+    }
+
+    /// <summary><c>InstanceDungeon::onFieldPropDelete</c>: a used prop comes back <c>regen_time</c> later, the room permitting.</summary>
+    private void OnHealingPropUsed(Room room, HuntaholicHealingPropRow row, HuntaholicHealingPropTemplateRow definition,
+        Props.DynamicFieldProp prop)
+    {
+        IReadOnlyList<GameClient> members;
+        lock (_lock)
+        {
+            if (!room.HealingProps.Remove(prop.InstanceId)) return;
+            room.PendingHealingProps.Add((row, unchecked(_clock() + (uint)(definition.RegenSeconds * 100))));
+            members = _parties.OnlineMembers(room.PartyId);
+        }
+
+        foreach (var member in members)
+            if (member.ConnectionInfo.Layer == room.InstanceNo) _fieldProps?.Sync(member);
     }
 
     /// <summary>
@@ -940,6 +1002,22 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
                     foreach (var member in _parties.OnlineMembers(room.PartyId))
                         if (member.ConnectionInfo.Layer == room.InstanceNo) _monsterSpawn.Sync(member);
                 }
+
+                // procHealingPropRespawn.
+                var propsBack = false;
+                foreach (var pending in room.PendingHealingProps.ToArray())
+                {
+                    if (unchecked((int)(now - pending.Due)) < 0) continue;
+                    room.PendingHealingProps.Remove(pending);
+                    SpawnHealingProp(room, pending.Prop);
+                    propsBack = true;
+                }
+
+                if (propsBack)
+                {
+                    foreach (var member in _parties.OnlineMembers(room.PartyId))
+                        if (member.ConnectionInfo.Layer == room.InstanceNo) _fieldProps?.Sync(member);
+                }
             }
         }
     }
@@ -1077,6 +1155,8 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         public readonly HashSet<long> Monsters = new();
         public readonly Dictionary<long, HuntaholicRespawnRow> RespawnOf = new();
         public readonly List<(HuntaholicRespawnRow Respawn, uint Due)> PendingRespawns = new();
+        public readonly HashSet<long> HealingProps = new();
+        public readonly List<(HuntaholicHealingPropRow Prop, uint Due)> PendingHealingProps = new();
 
         public ScoreTag ScoreOf(uint handle)
         {

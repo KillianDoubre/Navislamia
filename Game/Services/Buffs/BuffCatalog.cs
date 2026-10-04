@@ -39,6 +39,15 @@ public class BuffCatalog : IBuffCatalog
     public const int ActivateFieldProp = 9501;
 
     /// <summary>
+    /// <c>EF_REGION_HEAL_BY_FIELD_PROP</c> (9502) and <c>EF_AREA_EFFECT_HEAL_BY_FIELD_PROP</c> (9503): the HuntaHolic
+    /// healing props' skills, cast at the prop like 9501 (<see cref="SkillCastKind.PropHeal"/>).
+    /// </summary>
+    public const int RegionHealByFieldProp = 9502;
+
+    /// <inheritdoc cref="RegionHealByFieldProp"/>
+    public const int AreaEffectHealByFieldProp = 9503;
+
+    /// <summary>
     /// The three creature spells of Epic 7.3 — summon (4001), unsummon (4002) and taming (4003) — whose
     /// effect types are 601/602/603. The skill id is part of the classification key: effect type 603
     /// alone would also cover 4004, a second taming skill that the 7.3 client's skill table does not
@@ -63,7 +72,7 @@ public class BuffCatalog : IBuffCatalog
     {
         MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, AddRegionHpMp, AddRegionHp, ToggleAura, ToggleDifferentialAura,
         PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming, Resurrection, ResurrectionWithRecover,
-        InstanceGameEffect,
+        InstanceGameEffect, RegionHealByFieldProp, AreaEffectHealByFieldProp,
         30011, 30012, 30013, 30016, 232, 241, 261, 262, 263, 271
     };
 
@@ -138,7 +147,7 @@ public class BuffCatalog : IBuffCatalog
         // A buff, an aura and a debuff ARE a state; a heal, an attack, a prop activation and a creature
         // spell carry their effect themselves.
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
-                or SkillCastKind.ActivateProp or SkillCastKind.Summon or SkillCastKind.Unsummon
+                or SkillCastKind.ActivateProp or SkillCastKind.PropHeal or SkillCastKind.Summon or SkillCastKind.Unsummon
                 or SkillCastKind.Taming or SkillCastKind.Resurrection or SkillCastKind.InstanceGame)
             && (row.StateId is null || row.StateId == 0))
         {
@@ -201,6 +210,12 @@ public class BuffCatalog : IBuffCatalog
         if (row.EffectType == ActivateFieldProp)
         {
             kind = SkillCastKind.ActivateProp;
+            return true;
+        }
+
+        if (row.EffectType is RegionHealByFieldProp or AreaEffectHealByFieldProp)
+        {
+            kind = SkillCastKind.PropHeal;
             return true;
         }
 

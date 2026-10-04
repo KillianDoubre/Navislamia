@@ -328,37 +328,91 @@
         "Id": 1,
         "PropId": 300101,
         "X": 88532,
-        "Y": 11005
+        "Y": 11005,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 2,
         "PropId": 300101,
         "X": 85160,
-        "Y": 8773
+        "Y": 8773,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 3,
         "PropId": 300101,
         "X": 85973,
-        "Y": 5333
+        "Y": 5333,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 4,
         "PropId": 300101,
         "X": 90828,
-        "Y": 5229
+        "Y": 5229,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 5,
         "PropId": 300101,
         "X": 91948,
-        "Y": 9118
+        "Y": 9118,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 6,
         "PropId": 300102,
         "X": 88674,
-        "Y": 8721
+        "Y": 8721,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        }
       ]
      },
@@ -666,37 +720,91 @@
         "Id": 1,
         "PropId": 300101,
         "X": 88532,
-        "Y": 11005
+        "Y": 11005,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 2,
         "PropId": 300101,
         "X": 85160,
-        "Y": 8773
+        "Y": 8773,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 3,
         "PropId": 300101,
         "X": 85973,
-        "Y": 5333
+        "Y": 5333,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 4,
         "PropId": 300101,
         "X": 90828,
-        "Y": 5229
+        "Y": 5229,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 5,
         "PropId": 300101,
         "X": 91948,
-        "Y": 9118
+        "Y": 9118,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 6,
         "PropId": 300102,
         "X": 88674,
-        "Y": 8721
+        "Y": 8721,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        }
       ]
      },
@@ -1004,37 +1112,91 @@
         "Id": 1,
         "PropId": 300101,
         "X": 88532,
-        "Y": 11005
+        "Y": 11005,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 2,
         "PropId": 300101,
         "X": 85160,
-        "Y": 8773
+        "Y": 8773,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 3,
         "PropId": 300101,
         "X": 85973,
-        "Y": 5333
+        "Y": 5333,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 4,
         "PropId": 300101,
         "X": 90828,
-        "Y": 5229
+        "Y": 5229,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 5,
         "PropId": 300101,
         "X": 91948,
-        "Y": 9118
+        "Y": 9118,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 6,
         "PropId": 300102,
         "X": 88674,
-        "Y": 8721
+        "Y": 8721,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        }
       ]
      },
@@ -3449,37 +3611,91 @@
         "Id": 1,
         "PropId": 300101,
         "X": 88532,
-        "Y": 11005
+        "Y": 11005,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 2,
         "PropId": 300101,
         "X": 85160,
-        "Y": 8773
+        "Y": 8773,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 3,
         "PropId": 300101,
         "X": 85973,
-        "Y": 5333
+        "Y": 5333,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 4,
         "PropId": 300101,
         "X": 90828,
-        "Y": 5229
+        "Y": 5229,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 5,
         "PropId": 300101,
         "X": 91948,
-        "Y": 9118
+        "Y": 9118,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 6,
         "PropId": 300102,
         "X": 88674,
-        "Y": 8721
+        "Y": 8721,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        }
       ]
      },
@@ -3787,39 +4003,113 @@
         "Id": 1,
         "PropId": 300101,
         "X": 88532,
-        "Y": 11005
+        "Y": 11005,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 2,
         "PropId": 300101,
         "X": 85160,
-        "Y": 8773
+        "Y": 8773,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 3,
         "PropId": 300101,
         "X": 85973,
-        "Y": 5333
+        "Y": 5333,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 4,
         "PropId": 300101,
         "X": 90828,
-        "Y": 5229
+        "Y": 5229,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 5,
         "PropId": 300101,
         "X": 91948,
-        "Y": 9118
+        "Y": 9118,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        },
        {
         "Id": 6,
         "PropId": 300102,
         "X": 88674,
-        "Y": 8721
+        "Y": 8721,
+        "ZOffset": 0.0,
+        "RotateX": 0.0,
+        "RotateY": 0.0,
+        "RotateZ": 0.0,
+        "ScaleX": 4.0,
+        "ScaleY": 4.0,
+        "ScaleZ": 7.5,
+        "LockHeight": false,
+        "LockHeightValue": 0.0
        }
       ]
+     }
+    ],
+    "HealingPropTemplates": [
+     {
+      "Id": 300101,
+      "ActivateSkillId": 64807,
+      "UseCount": 1,
+      "RegenSeconds": 600,
+      "CastingRange": 2.0,
+      "MinLevel": 1,
+      "MaxLevel": 300
+     },
+     {
+      "Id": 300102,
+      "ActivateSkillId": 64806,
+      "UseCount": 1,
+      "RegenSeconds": 600,
+      "CastingRange": 2.0,
+      "MinLevel": 1,
+      "MaxLevel": 300
      }
     ]
    }

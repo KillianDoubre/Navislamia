@@ -96,7 +96,6 @@ objectif 3 000). Bear Road : lobby (83719, 2544) canal 300011, donjon (88935, 86
 
 ## 6. Écarts et NON ÉTABLI
 
-- **Props de soin** : exportés, non posés (aucun prop dynamique par couche n'existe ici).
 - Les PV/PM d'entrée (`hhp`/`hmp`) ne vivent que dans la session : l'officiel les garde en drapeaux, donc aussi à
   travers une reconnexion (`DB_Login.cpp:2367`).
 
@@ -122,3 +121,33 @@ objectif 3 000). Bear Road : lobby (83719, 2544) canal 300011, donjon (88935, 86
   dans le code 2015) : les codes 2 et 3 (horaire, joueur introuvable) ne sont jamais produits.
 - Les lignes `@253/@254` d'objet obtenu ne sont pas envoyées (même raison que l'artisanat).
 - Le classement 4253 est calculé sur les joueurs en ligne, pas sur un classement persistant.
+
+## 8. Props de soin (2026-10-04)
+
+Source : `HuntaholicManager::InstanceDungeon` (`beginHunting`, `onFieldPropDelete`, `procHealingPropRespawn`,
+`clearHealingProps`), `StructSkill::REGION_HEAL_BY_FIELD_PROP` / `MAKE_AREA_EFFECT_PROP_BY_FIELD_PROP`,
+`StructSkillProp::INIT/FIRE_AREA_EFFECT_HEAL_BY_FIELD_PROP` (sources 2015).
+
+- **Données** : `export_huntaholic_catalog.py` écrit chaque `HuntaholicHealingpropResource` comme le
+  `FIELD_PROP_RESPAWN_INFO` du loader (position, `offset_z`, rotation `around_*`, échelle, verrou de hauteur) et, par
+  HuntaHolic, les `HealingPropTemplates` tirés de `FieldPropResource` (Epic 7) : 300101 → sort 64807, 300102 → sort
+  64806, `use_count` 1, `regen_time` 600 s, niveaux 1-300. 30 props sur les 12 paliers.
+- **Props par couche** : `IDynamicFieldProps` (`Game/Services/Props/DynamicFieldProps.cs`) garde les props créés à
+  l'exécution sur une couche, avec des identifiants d'instance à partir de `1 << 40` (jamais ceux des props du monde).
+  `FieldPropService.Sync` les diffuse en plus des props du monde, à ceux de leur couche seulement.
+- **Cycle** : au départ de la chasse, chaque prop du palier est posé sur la couche de la salle **avant** que les membres
+  n'entrent (leur téléportation les diffuse). Utilisé, il quitte le monde (LEAVE aux membres) et revient
+  `regen_time × 100` ticks plus tard. Le score maximum et la fin de la chasse les effacent, réapparitions comprises.
+- **Usage** : un double-clic lance le sort du prop sur son handle, comme un portail ; `SkillCastKind.PropHeal`
+  (effets 9502/9503) saute la garde d'apprentissage, juge le niveau du prop et exige un prop de couche. Le premier qui
+  l'utilise le prend (`TryUse`) ; un second lancement échoue (`ST_Cancel`).
+  - **9502** (64807) : PV `var0 + var1 × niv` plus `(var2 + var3 × niv) × PV max`, soit **30 %**, à `var4` = 30 m
+    (× 12) du prop, cibles `var5` = 2 (alliés : le lanceur et son groupe). Un `ST_Fire` porte un coup `SHT_ADD_HP` par
+    joueur soigné.
+  - **9503** (64806) : une zone de soin (acteur de sort au sol) de `var7 + var8 × niv` = 30 s, qui tire **tout de suite**
+    puis toutes les `var5` = 3 s (11 tirs, `current_time > end` arrête), **5 %** des PV max (`var0`) et `var2` des PM max
+    à 30 m, cibles `var6` = 2. Chaque tir qui soigne quelqu'un part en `REGION_FIRE` avec des coups `SHT_ADD_HP_MP_SP`.
+    La zone s'arrête si son lanceur quitte le jeu.
+- **Écarts** : les invocations ne sont pas soignées ; « ennemi » n'est jugé pour aucun joueur (ni PK ni duel), donc une
+  cible `ONLY_ENEMY` ne soigne personne et `NOT_ENEMY` soigne tout joueur à portée. La portée de lancement
+  (`casting_range` 2) n'est pas jugée, comme pour les portails.
