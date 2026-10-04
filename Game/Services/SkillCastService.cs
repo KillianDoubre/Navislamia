@@ -590,6 +590,19 @@ public partial class SkillCastService : ISkillCastService
 
         var action = template.Action;
 
+        // A Vulcanus floor gate opens its window on the gate's own handle.
+        if (action.Kind == PropActionKind.EnterOtherInstanceDungeon)
+        {
+            uint gateHandle;
+            lock (client.ConnectionInfo.PropVisibilityLock)
+            {
+                client.ConnectionInfo.SpawnedProps.TryGetValue(instanceId, out gateHandle);
+            }
+
+            _dungeons?.ShowFloorWindow(client, gateHandle, action);
+            return;
+        }
+
         if (_dungeons is not null && Dungeons.DungeonService.Handles(action.Kind))
         {
             _ = ActivateDungeonAsync(client, action);

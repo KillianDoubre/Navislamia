@@ -58,6 +58,7 @@ public class CombatService : ICombatService
     private readonly Dictionary<long, GameClient> _lastAttacker = new();
     private readonly List<PendingLeave> _pendingLeaves = new();
     private readonly Huntaholic.IHuntaholicEvents _huntaholic;
+    private readonly Dungeons.DungeonEvents _dungeons;
 
     public CombatService(MonsterWorldState worldState, IMonsterSpawnService spawnService,
         ILevelingService levelingService, IGroundItemService groundItemService, IRateService rates,
@@ -68,8 +69,9 @@ public class CombatService : ICombatService
         Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
         bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null,
         Creatures.ICreatureEvents creatures = null, Guilds.GuildRuntime guilds = null, Guilds.GuildCombatEvents guildEvents = null,
-        Huntaholic.IHuntaholicEvents huntaholic = null)
+        Huntaholic.IHuntaholicEvents huntaholic = null, Dungeons.DungeonEvents dungeons = null)
     {
+        _dungeons = dungeons;
         _huntaholic = huntaholic;
         _guilds = guilds; _guildEvents = guildEvents;
         _creatures = creatures;
@@ -907,6 +909,9 @@ public class CombatService : ICombatService
 
         // InstanceDungeon::onMonsterDelete: a HuntaHolic monster scores for its max-damage dealer.
         _huntaholic?.MonsterKilled(instanceId, contribution.FirstOrDefault()?.Representative ?? client);
+
+        // vulcanus_check_respawn_group_clear, the on_dead_script of an instance's respawn rows.
+        _dungeons?.MonsterKilled(instanceId);
 
         // An area can kill a monster outside the caster's view. Each viewer receives its own handle.
         var removedStates = _worldState.ClearStates(instanceId);

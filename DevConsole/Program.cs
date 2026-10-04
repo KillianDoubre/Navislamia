@@ -514,6 +514,7 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Dungeons.IDungeonGuildRepository, Navislamia.Game.Services.Dungeons.DungeonGuildRepository>();
         services.AddSingleton<Navislamia.Game.Services.Dungeons.IDungeonService, Navislamia.Game.Services.Dungeons.DungeonService>();
         services.AddHostedService<DungeonMaintenanceService>();
+        services.AddSingleton<Navislamia.Game.Services.Dungeons.DungeonEvents>();
         services.AddSingleton<IEventAreaService, EventAreaService>();
         services.AddSingleton<IResurrectionItemCatalog, ResurrectionItemCatalog>();
         services.AddSingleton<IResurrectionService, ResurrectionService>();

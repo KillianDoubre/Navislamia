@@ -25,7 +25,18 @@ public enum PropActionKind
     RunTeleportBeginToCity,
 
     /// <summary><c>RunTeleport_City_To_Camp(cost, x, y)</c>: paid, and the camp becomes the return point.</summary>
-    RunTeleportCityToCamp
+    RunTeleportCityToCamp,
+
+    /// <summary>
+    /// <c>enter_other_indun(dungeon, current, next, current_count, next_count)</c>, a Vulcanus floor gate: the window
+    /// offering another room of the floor or the next floor. <see cref="PropAction.X"/> is the current floor,
+    /// <see cref="PropAction.Y"/> the next one, <see cref="PropAction.Type"/> and <see cref="PropAction.Cost"/> their key
+    /// counts (docs/packet-specs/socle-donjons-instances-secrets.md).
+    /// </summary>
+    EnterOtherInstanceDungeon,
+
+    /// <summary><c>warp_indun(dungeon, floor)</c>: the window's choice; <see cref="PropAction.X"/> is the floor.</summary>
+    WarpInstanceFloor
 }
 
 /// <summary>
@@ -101,7 +112,9 @@ public static class PropScript
                 => new PropAction(PropActionKind.BeginDungeonRaid, 0, 0, id),
             "warp_to_siege_dungeon" when arguments.Length == 1 && TryInt(arguments[0], out var id)
                 => new PropAction(PropActionKind.EnterSiegeDungeon, 0, 0, id),
+            // The exit gates of an instance pass their own prop id (exit_instance_dungeon(126027)); the NPC's form has none.
             "exit_instance_dungeon" or "leave_instance_dungeon" when arguments.Length == 0
+                || arguments.Length == 1 && TryInt(arguments[0], out _)
                 => new PropAction(PropActionKind.ExitInstanceDungeon, 0, 0, 0),
             "common_warp_gate" when arguments.Length == 2 &&
                                     TryInt(arguments[0], out var x) && TryInt(arguments[1], out var y)
@@ -114,6 +127,14 @@ public static class PropScript
                 => new PropAction(PropActionKind.RunTeleportBeginToCity, x, y, 0, Cost: cost),
             "RunTeleport_City_To_Camp" when TryTeleport(arguments, out var cost, out var x, out var y)
                 => new PropAction(PropActionKind.RunTeleportCityToCamp, x, y, 0, Cost: cost),
+
+            "enter_other_indun" when arguments.Length == 5 && TryInt(arguments[0], out var id)
+                && TryInt(arguments[1], out var current) && TryInt(arguments[2], out var next)
+                && TryInt(arguments[3], out var currentCount) && TryInt(arguments[4], out var nextCount)
+                => new PropAction(PropActionKind.EnterOtherInstanceDungeon, current, next, id, Type: currentCount,
+                    Cost: nextCount),
+            "warp_indun" when arguments.Length == 2 && TryInt(arguments[0], out var id) && TryInt(arguments[1], out var floor)
+                => new PropAction(PropActionKind.WarpInstanceFloor, floor, 0, id),
 
             "enter_dungeon" when arguments.Length == 1 && TryInt(arguments[0], out var id)
                 => new PropAction(PropActionKind.EnterDungeon, 0, 0, id),

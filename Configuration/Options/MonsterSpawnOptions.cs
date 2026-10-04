@@ -22,6 +22,9 @@ public class MonsterSpawnPoint
     public int Y { get; set; }
     public int Count { get; set; }
     public int Radius { get; set; }
+
+    /// <summary>An instance row's <c>respawn_group</c> (a Vulcanus room); 0 when the row has none.</summary>
+    public int Group { get; set; }
 }
 
 public class MonsterSpawnArea

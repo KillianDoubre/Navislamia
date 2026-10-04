@@ -19,6 +19,16 @@ public sealed class DungeonRoom
     public bool Ended { get; set; }
     public HashSet<GameClient> Members { get; } = new();
     public IReadOnlyList<long> Monsters { get; set; } = Array.Empty<long>();
+
+    /// <summary>Each monster's <c>respawn_group</c>: a Vulcanus room is cleared when its group has no living monster.</summary>
+    public Dictionary<long, int> GroupOf { get; } = new();
+
+    /// <summary><c>set_instance_dungeon_flag</c> / <c>get_instance_dungeon_flag</c>: the scenario's state.</summary>
+    public Dictionary<string, int> Flags { get; } = new();
+
+    /// <summary>The props posed on the room's layer (instance gates, the floor gates of a scenario).</summary>
+    public List<long> Props { get; } = new();
+
     public bool Contains(float x, float y) => (int)(x / 16128) == CellX && (int)(y / 16128) == CellY;
 }
 
@@ -30,8 +40,39 @@ public sealed class DungeonRooms
     private readonly Dictionary<GameClient, (DungeonRoom Room, float X, float Y, byte Layer)> _visits = new();
     private readonly MonsterWorldState _monsters;
     private readonly IGroundItemService _items;
-    public DungeonRooms(MonsterWorldState monsters = null, IGroundItemService items = null)
-    { _monsters = monsters; _items = items; }
+    private readonly Props.IDynamicFieldProps _props;
+    public DungeonRooms(MonsterWorldState monsters = null, IGroundItemService items = null, Props.IDynamicFieldProps props = null)
+    { _monsters = monsters; _items = items; _props = props; }
+
+    /// <summary>The instance room a monster belongs to, with its <c>respawn_group</c>.</summary>
+    public DungeonRoom FindByMonster(long instanceId, out int group)
+    {
+        lock (_gate)
+        {
+            foreach (var room in _rooms.Values)
+                if (room.GroupOf.TryGetValue(instanceId, out group)) return room;
+            group = 0;
+            return null;
+        }
+    }
+
+    /// <summary>The room a player is visiting.</summary>
+    public DungeonRoom RoomOf(GameClient client)
+    {
+        lock (_gate) return _visits.TryGetValue(client, out var visit) ? visit.Room : null;
+    }
+
+    /// <summary>The players in a room.</summary>
+    public GameClient[] MembersOf(DungeonRoom room)
+    {
+        lock (_gate) return room.Members.ToArray();
+    }
+
+    /// <summary>Remembers a prop posed on the room's layer, so that it goes away with the room.</summary>
+    public void TrackProp(DungeonRoom room, long instanceId)
+    {
+        lock (_gate) room.Props.Add(instanceId);
+    }
 
     public DungeonRoom Find(DungeonRoomKey key)
     {
@@ -52,11 +93,31 @@ public sealed class DungeonRooms
                 layer = (byte)available;
             }
             var room = new DungeonRoom { Key = key, Type = type, Layer = layer, CellX = x / 16128, CellY = y / 16128 };
-            room.Monsters = _monsters?.SpawnDungeonMonsters(spawns.Select(p => new MonsterSpawnPoint
+            var points = spawns.Select(p => new MonsterSpawnPoint
             {
-                MonsterId = p.MonsterId, Count = p.Count, X = p.X, Y = p.Y, Radius = p.Radius,
+                MonsterId = p.MonsterId, Count = p.Count, X = p.X, Y = p.Y, Radius = p.Radius, Group = p.Group,
                 Layer = layer, IsDungeonRaidMonster = key.Kind == DungeonRoomKind.Raid, RespawnSeconds = p.RespawnSeconds
-            })) ?? Array.Empty<long>();
+            }).ToArray();
+            if (points.All(p => p.Group == 0))
+            {
+                room.Monsters = _monsters?.SpawnDungeonMonsters(points) ?? Array.Empty<long>();
+            }
+            else
+            {
+                // A row of a respawn group spawns alone, so each monster is known to belong to its room.
+                var monsters = new List<long>();
+                foreach (var point in points)
+                {
+                    foreach (var id in _monsters?.SpawnDungeonMonsters(new[] { point }) ?? Array.Empty<long>())
+                    {
+                        monsters.Add(id);
+                        if (point.Group != 0) room.GroupOf[id] = point.Group;
+                    }
+                }
+
+                room.Monsters = monsters;
+            }
+
             _rooms.Add(key, room);
             return room;
         }
@@ -80,7 +141,14 @@ public sealed class DungeonRooms
             _rooms.Remove(room.Key);
             _monsters?.RemoveDungeonLayer(room.Layer, room.CellX, room.CellY);
             _items?.RemoveDungeonItems(room.Layer, room.CellX, room.CellY);
+            RemoveProps(room);
         }
+    }
+
+    private void RemoveProps(DungeonRoom room)
+    {
+        foreach (var id in room.Props) _props?.Remove(id);
+        room.Props.Clear();
     }
 
     public bool IsMember(GameClient client, DungeonRoom room)
@@ -146,6 +214,7 @@ public sealed class DungeonRooms
         _rooms.Remove(visit.Room.Key);
         _monsters?.RemoveDungeonLayer(visit.Room.Layer, visit.Room.CellX, visit.Room.CellY);
         _items?.RemoveDungeonItems(visit.Room.Layer, visit.Room.CellX, visit.Room.CellY);
+        RemoveProps(visit.Room);
     }
 
     public void Finish(DungeonRoomKey key)
@@ -156,6 +225,7 @@ public sealed class DungeonRooms
             room.Ended = true; room.KeepAlive = false;
             _monsters?.RemoveDungeonLayer(room.Layer, room.CellX, room.CellY);
             _items?.RemoveDungeonItems(room.Layer, room.CellX, room.CellY);
+            RemoveProps(room);
             if (room.Members.Count == 0) _rooms.Remove(key);
         }
     }

@@ -20,6 +20,9 @@ public interface IDungeonService
     ResultCode Check(GameClient client, PropAction action);
     Task<ResultCode> ExecuteAsync(GameClient client, PropAction action);
     Task SweepAsync() => Task.CompletedTask;
+
+    /// <summary>A Vulcanus floor gate (<c>enter_other_indun</c>): the floor window, on the gate's handle.</summary>
+    void ShowFloorWindow(GameClient client, uint gateHandle, PropAction action) { }
 }
 
 /// <summary>All NPC and prop entrance actions share these server-side rules.</summary>
@@ -37,11 +40,16 @@ public sealed class DungeonService : IDungeonService
     private readonly TimeZoneInfo _zone;
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _entrances = new(1, 1);
+    private readonly VulcanusScenario _vulcanus;
 
     public DungeonService(DungeonCatalog catalog, DungeonRooms rooms, IWarpService warp, IPartyService parties,
         IDungeonGuildRepository guilds, ICharacterService characters, IOptions<DungeonOptions> options,
-        MonsterWorldState monsters = null, TimeProvider time = null, Guilds.IGuildService communities = null)
+        MonsterWorldState monsters = null, TimeProvider time = null, Guilds.IGuildService communities = null,
+        ILevelingService leveling = null, IDynamicFieldProps props = null, IFieldPropService fieldProps = null,
+        DungeonEvents events = null, Random random = null)
     {
+        _vulcanus = new VulcanusScenario(catalog, rooms, monsters, props, fieldProps, leveling, random);
+        events?.Attach(_vulcanus.OnMonsterKilled);
         _communities = communities;
         _catalog = catalog; _rooms = rooms; _warp = warp; _parties = parties; _guilds = guilds;
         _characters = characters; _monsters = monsters; _options = options.Value;
@@ -51,7 +59,11 @@ public sealed class DungeonService : IDungeonService
 
     public static bool Handles(PropActionKind kind) => kind is PropActionKind.EnterDungeon or PropActionKind.ExitDungeon
         or PropActionKind.EnterInstanceDungeon or PropActionKind.EnterSecretDungeon or PropActionKind.EnterOwnedSecretDungeon
-        or PropActionKind.BeginDungeonRaid or PropActionKind.EnterSiegeDungeon or PropActionKind.ExitInstanceDungeon;
+        or PropActionKind.BeginDungeonRaid or PropActionKind.EnterSiegeDungeon or PropActionKind.ExitInstanceDungeon
+        or PropActionKind.EnterOtherInstanceDungeon or PropActionKind.WarpInstanceFloor;
+
+    public void ShowFloorWindow(GameClient client, uint gateHandle, PropAction action) =>
+        _vulcanus.ShowFloorWindow(client, gateHandle, action);
 
     private InstanceType Type(GameClient client, PropAction action) => _catalog.Types.FirstOrDefault(t =>
         t.DungeonId == action.DungeonId && (action.Type < 0 || t.Type == action.Type) && t.Allows(client.ConnectionInfo.CharacterLevel));
@@ -64,6 +76,10 @@ public sealed class DungeonService : IDungeonService
         if (action.Kind is PropActionKind.ExitDungeon)
             return _catalog.Exits.ContainsKey(action.DungeonId) ? ResultCode.Success : ResultCode.NotExist;
         if (action.Kind is PropActionKind.ExitInstanceDungeon) return ResultCode.Success;
+        // The floor gates and their window act inside the instance the player is visiting.
+        if (action.Kind is PropActionKind.EnterOtherInstanceDungeon or PropActionKind.WarpInstanceFloor)
+            return _rooms.RoomOf(client) is { Key.Kind: DungeonRoomKind.Instance } room && room.Key.DungeonId == action.DungeonId
+                ? ResultCode.Success : ResultCode.NotActable;
         if (_options.ClosedDungeons.Contains(action.DungeonId)) return ResultCode.AccessDenied;
         if (action.Kind is PropActionKind.EnterOwnedSecretDungeon)
             return info.GuildId > 0 ? ResultCode.Success : ResultCode.AccessDenied;
@@ -110,6 +126,12 @@ public sealed class DungeonService : IDungeonService
                 _warp.Warp(client, x, y, layer);
                 return ResultCode.Success;
             }
+            if (action.Kind == PropActionKind.WarpInstanceFloor)
+            {
+                return await _vulcanus.WarpFloorAsync(client, action.X,
+                    (itemId, count) => ConsumeAsync(client, itemId, count), _warp);
+            }
+            if (action.Kind == PropActionKind.EnterOtherInstanceDungeon) return ResultCode.NotActable;
             if (action.Kind == PropActionKind.ExitDungeon)
             {
                 var exit = _catalog.Exits[action.DungeonId];
@@ -207,10 +229,12 @@ public sealed class DungeonService : IDungeonService
                 var spawns = _catalog.Respawns.Where(r => r.DungeonId == action.DungeonId && r.Type == type.Type && r.Controlled == 0)
                     .Select(r => new MonsterSpawnPoint { MonsterId = r.MonsterId, Count = r.Count,
                         X = (r.Left + r.Right) / 2, Y = (r.Top + r.Bottom) / 2,
-                        Radius = Math.Max(0, Math.Min(r.Right - r.Left, r.Bottom - r.Top) / 2), RespawnSeconds = r.Period });
+                        Radius = Math.Max(0, Math.Min(r.Right - r.Left, r.Bottom - r.Top) / 2), RespawnSeconds = r.Period,
+                        Group = r.Group });
                 room = _rooms.Create(key, type.Type, destination.X, destination.Y, spawns);
                 if (room is null) return ResultCode.NotActable;
                 created = true;
+                _vulcanus.OnCreate(room);
                 if (type.ItemCount > 0)
                 {
                     var items = await _characters.GetCarriedItemsAsync(info.CharacterName);
@@ -260,6 +284,37 @@ public sealed class DungeonService : IDungeonService
                 if (paid) await _characters.AddItemAsync(entryName, type.ItemId, type.ItemCount);
             }
         }
+    }
+
+    /// <summary>
+    /// <c>find_item</c> then <c>delete_item</c> for a key: <paramref name="count"/> units of <paramref name="itemId"/> from
+    /// the bag, over several stacks if need be, in one save; the stack updates follow. False when the bag holds too few.
+    /// </summary>
+    private async Task<bool> ConsumeAsync(GameClient client, int itemId, int count)
+    {
+        var info = client.ConnectionInfo;
+        var items = await _characters.GetCarriedItemsAsync(info.CharacterName);
+        var needed = (long)count;
+        var consumed = new List<CraftConsumption>();
+        foreach (var item in items.Where(i => i.ItemResourceId == itemId && (int)i.WearInfo == -1).OrderBy(i => i.Id))
+        {
+            var take = Math.Min(needed, item.Amount);
+            if (take <= 0) continue;
+            consumed.Add(new CraftConsumption((uint)item.Id, take)
+            {
+                ExpectedMaterial = new MixMaterial(itemId, 0, 0, 0, -1, item.Level, item.Enhance, (int)item.Flag, take)
+            });
+            needed -= take;
+            if (needed == 0) break;
+        }
+
+        if (needed > 0) return false;
+        var commit = await _characters.ApplyCraftAsync(info.CharacterName, consumed, null);
+        if (commit.Outcome != CraftCommitOutcome.Success) return false;
+        foreach (var item in commit.Consumed)
+            client.Connection.Send(item.Remaining == 0 ? GameCharacterPackets.BuildDestroyItem(item.Handle)
+                : GameCharacterPackets.BuildUpdateItemCount(item.Handle, item.Remaining));
+        return true;
     }
 
     private long Effective(long? guild) => _communities?.EffectiveGuild(guild) ?? guild ?? 0;

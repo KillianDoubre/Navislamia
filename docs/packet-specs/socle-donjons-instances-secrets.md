@@ -79,12 +79,41 @@ de raid/siège. Un joueur qui ne satisfait plus les règles retourne à sa posit
 7. Tester raid/siège pendant et hors des horaires configurés, avec les guildes propriétaire,
    attaquante et une guilde étrangère.
 
+## Scénario Vulcanus (2026-10-04)
+
+Port du Lua Epic 7 `ETC_dungeon_prop.lua` (`on_create_vulcanus_instance`, `vulcanus_check_respawn_group_clear`,
+`vulcanus_clear_reward`, `enter_other_indun`, `warp_indun`, `warp_floor`) dans `VulcanusScenario` / `VulcanusRules`.
+
+- **Données** (`export_dungeon_resources.py`) : `respawn_group` de chaque ligne, les props que l'instance pose sur sa
+  couche (`InstanceDungeonHealingPropResource` : les 12 portes de sortie 126023 de chaque difficulté de Vulcanus), les
+  `FieldPropResource` de ces props et des portes d'étage 126024-126027 (script compris), et les 56 récompenses
+  (14 difficultés × 4 étages) lues dans `vulcanus_clear_reward` (`--lua`).
+- **Création** : les monstres d'un groupe apparaissent groupe par groupe (chaque monstre connaît sa salle), les props
+  de l'instance sont posés sur la couche (`IDynamicFieldProps`, retirés avec la salle), `Vul1`..`Vul3` = 0 et la
+  difficulté = le type de la salle.
+- **Salle vidée** (`on_dead_script`, via `DungeonEvents` depuis `CombatService`) : le bit de la salle (1/2/4/8) dans le
+  drapeau de l'étage, une seule fois ; à chaque joueur de l'instance l'EXP, les JP et l'or de la difficulté et de l'étage,
+  et `@9813`/`@9250` hors salle du boss ; la porte de l'étage (126024/25/26, sortie 126027 après le boss, hauteur 10 ou
+  35) à l'endroit du dernier monstre.
+- **Porte d'étage** (`enter_other_indun(d, étage, suivant, clés, clés suivantes)`) : `@9812`, puis la fenêtre
+  `TYPE_OTHER_INSTANCE_DUNGEON_CONFIRM_WINDOW` (10), titre `InDun`, texte `Warp`, deux entrées étiquetées par le nombre
+  de clés : `warp_indun(d, étage)` (une autre salle, `-1` une fois l'étage fini) et `warp_indun(d, suivant)`.
+- **Trajet** (`warp_indun` → `warp_floor`) : une salle tirée parmi celles dont le bit est libre (le boss : la seule),
+  clés prises dans le sac en une sauvegarde (20 × 1000401, 10 × 1000402, 5 × 1000403, 1 × 1000404 ; `@9810` sans elles),
+  téléport sur la couche de l'instance ; à l'étage du boss, `@90604914` puis `@90604915`.
+- **Portes de sortie** : `exit_instance_dungeon(prop)` était refusé par `PropScript` (il n'acceptait pas l'argument) :
+  les portes de sortie n'avaient jamais fonctionné. Elles ramènent maintenant à la position d'entrée.
+- **Non porté** : l'interface de mission (`send_mission_*`, lignes `MTITLE|…` de `@DUNGEON`, type 170) — le client 7.3
+  n'en connaît aucune ligne ; le Lua `cprint` écrit dans la console du serveur 2015 (aucune sortie branchée), ses
+  lignes `@…` sont pourtant destinées au joueur : elles partent ici comme les `message()` (`@SCRIPT`, type 40), choix
+  du dépôt. Les scénarios Cubric (30000, `cubric_*`) et ses `warp_gate` ne sont pas portés : la branche Cubric est
+  postérieure au client 7.3.
+
 ## Limites conservées
 
-Ce lot implémente les accès et la vie des salles. Les scripts `on_create`, `on_join`, `on_leave`,
-les réapparitions contrôlées par Lua et les objectifs particuliers des instances restent à raccorder.
-Le déclenchement des portails secrets par leurs monstres clés n'est pas encore reproduit ; leur action
-d'entrée est résolue lorsqu'un portail est présent. Le raccourci de guilde est utilisable dès maintenant.
+Ce lot implémente les accès et la vie des salles. Le déclenchement des portails secrets par leurs monstres clés
+n'est pas encore reproduit ; leur action d'entrée est résolue lorsqu'un portail est présent. Le raccourci de guilde
+est utilisable dès maintenant.
 
 La création de guilde, les alliances, les équipes d'attaque intergroupes, l'inscription officielle aux
 raids, leur classement, les taxes et les objectifs du siège restent des lots de guilde. Les contrôles
