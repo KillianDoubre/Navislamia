@@ -26,8 +26,10 @@ public class LevelingService : ILevelingService
 
     public LevelingService(ILevelResourceRepository repository, IStatService statService, IRateService rates,
         Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
-        Microsoft.Extensions.Options.IOptions<Navislamia.Configuration.Options.JobLevelCostOptions> jobLevelCosts = null)
+        Microsoft.Extensions.Options.IOptions<Navislamia.Configuration.Options.JobLevelCostOptions> jobLevelCosts = null,
+        ReturnPoints.IReturnPointService returnPoints = null)
     {
+        _returnPoints = returnPoints;
         _rules = rules;
         var depths = jobLevelCosts?.Value?.Depths;
         _jobJpCostByDepth = depths is { Length: > 0 } ? depths : null;
@@ -69,7 +71,12 @@ public class LevelingService : ILevelingService
         client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "hp", maxHp));
         client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
         client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "mp", maxMp));
+
+        // StructPlayer::onExpChange runs on_player_level_up once, with the level reached.
+        _returnPoints?.OnLevelUp(client, newLevel);
     }
+
+    private readonly ReturnPoints.IReturnPointService _returnPoints;
 
     public long ApplyDeathPenalty(GameClient client)
     {

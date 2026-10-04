@@ -219,6 +219,12 @@ public interface ICharacterService
         Huntaholic.HuntaholicProgress? huntaholic = null);
 
     /// <summary>
+    /// Writes the return point as the script flags <c>rx</c>/<c>ry</c> of <c>Characters.FlagList</c>, keeping every
+    /// other flag (docs/packet-specs/socle-point-de-retour.md). Written when it changes, not with the progress.
+    /// </summary>
+    Task SaveReturnPointAsync(string characterName, ReturnPoints.ReturnPoint point) => Task.CompletedTask;
+
+    /// <summary>
     /// The character's creature cards (items whose resource is a summon card) with the summon row of each, the
     /// main summon and the six formation slots (docs/packet-specs/socle-apprivoisement-invocation.md §15).
     /// </summary>

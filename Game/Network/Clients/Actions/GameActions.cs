@@ -15,6 +15,7 @@ using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Network.Packets.Interfaces;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.ReturnPoints;
 using Serilog;
 
 namespace Navislamia.Game.Network.Clients.Actions;
@@ -62,7 +63,17 @@ public class GameActions : IActions
     {
     }
 
-    private static readonly int[] DefaultSpawn = { 153161, 80223, 0 };
+    private async Task SaveReturnPointAsync(GameClient client, string characterName, ReturnPoint point)
+    {
+        try
+        {
+            await _characterService.SaveReturnPointAsync(characterName, point);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not save the return point of {clientTag}", client.ClientTag);
+        }
+    }
 
     /// <summary>
     /// The action table takes <c>void</c> handlers, so each asynchronous one is an <c>async void</c> shell
@@ -104,17 +115,26 @@ public class GameActions : IActions
             await equipment.RevalidateWornItemsAsync(character);
         }
 
+        // on_login: a character without rx/ry gets its race's town as its return point
+        // (docs/packet-specs/socle-point-de-retour.md). It is written at once, like the script's set_flag.
+        var hasReturnPoint = ReturnPointRules.TryRead(character.FlagList, out var returnPoint);
+        if (!hasReturnPoint)
+        {
+            returnPoint = ReturnPointRules.LoginTown(character.Race, Random.Shared);
+            _ = SaveReturnPointAsync(client, character.CharacterName, returnPoint);
+        }
+
         var position = character.Position ?? new[] { 0, 0, 0 };
         // Private layers belong to this process's live rooms. A saved layer after a crash cannot
-        // recreate its ownership or monsters; recover at the public spawn instead.
+        // recreate its ownership or monsters; recover at the return point instead.
         if (character.Layer != 0)
         {
             character.Layer = 0;
-            position = DefaultSpawn;
+            position = new[] { returnPoint.X, returnPoint.Y, 0 };
         }
         if (position.Length < 3 || (position[0] == 0 && position[1] == 0 && position[2] == 0))
         {
-            position = DefaultSpawn;
+            position = new[] { returnPoint.X, returnPoint.Y, 0 };
         }
 
         // DB_Login: a character saved inside HuntaHolic comes back on its level's lobby layer, and from the dungeon
@@ -166,12 +186,12 @@ public class GameActions : IActions
         info.DestinationY = info.Y;
         info.MoveStartTick = ServerClock.Now;
 
-        // The position the character entered the world at is its return point: where it reappears
-        // after a death (docs/packet-specs/socle-mort-respawn.md §8 option (a)). It cannot drift
-        // during the session, since progress — and with it the position — is only written at logout.
-        info.RespawnX = position[0];
-        info.RespawnY = position[1];
-        info.RespawnLayer = layer;
+        // The return point is the rx/ry flags, where TM_CS_RESURRECTION type 0 brings the character back
+        // (warp_to_revive_position). The reference revives on layer 0 outside its user-limited channels,
+        // which are not modelled.
+        info.RespawnX = returnPoint.X;
+        info.RespawnY = returnPoint.Y;
+        info.RespawnLayer = 0;
         info.LearnedSkills.Clear();
         foreach (var skill in character.Skills ?? Array.Empty<CharacterSkillEntity>())
         {
@@ -532,6 +552,12 @@ public class GameActions : IActions
                 throw new ArgumentOutOfRangeException(nameof(createMsg.Info.Race));
         }
 
+        // on_first_login: each race starts at its own point of the Island of Trainees, and its first return
+        // point is that start ±30 (docs/packet-specs/socle-point-de-retour.md). Layer 0: the island's
+        // user-limited channels (channel 1000) are not modelled.
+        var start = ReturnPointRules.Start(createMsg.Info.Race);
+        var firstReturnPoint = ReturnPointRules.FirstReturnPoint(start, Random.Shared);
+
         var character = new CharacterEntity
         {
             AccountId = client.ConnectionInfo.AccountId,
@@ -547,7 +573,8 @@ public class GameActions : IActions
             Jlv = 1,
             PreviousJobs = new Job[3],
             JobLvs = new int[3],
-            Position = DefaultSpawn.ToArray(),
+            Position = new[] { start.X, start.Y, 0 },
+            FlagList = ReturnPointRules.Write(null, firstReturnPoint),
             Hp = (int)startingStats.MaxHp,
             Mp = (int)startingStats.MaxMp,
             Models = createMsg.Info.ModelId,

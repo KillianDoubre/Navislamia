@@ -19,7 +19,13 @@ public enum PropActionKind
     EnterOwnedSecretDungeon,
     BeginDungeonRaid,
     EnterSiegeDungeon,
-    ExitInstanceDungeon
+    ExitInstanceDungeon,
+
+    /// <summary><c>RunTeleport_Begin_TO_City(cost, x, y)</c> (NPC_TeleportTown.lua): paid, arrival within 100.</summary>
+    RunTeleportBeginToCity,
+
+    /// <summary><c>RunTeleport_City_To_Camp(cost, x, y)</c>: paid, and the camp becomes the return point.</summary>
+    RunTeleportCityToCamp
 }
 
 /// <summary>
@@ -27,7 +33,8 @@ public enum PropActionKind
 /// expression is looked up rather than executed as Lua. <see cref="Name"/> carries the argument of
 /// <see cref="PropActionKind.OpenMarket"/> and is null for every other kind.
 /// </summary>
-public readonly record struct PropAction(PropActionKind Kind, int X, int Y, int DungeonId, string Name = null, int Type = -1)
+public readonly record struct PropAction(PropActionKind Kind, int X, int Y, int DungeonId, string Name = null, int Type = -1,
+    long Cost = 0)
 {
     public static readonly PropAction None = new(PropActionKind.None, 0, 0, 0);
 
@@ -100,11 +107,13 @@ public static class PropScript
                                     TryInt(arguments[0], out var x) && TryInt(arguments[1], out var y)
                 => new PropAction(PropActionKind.CommonWarpGate, x, y, 0),
 
-            // RunTeleport's first argument is a cost, which is 0 for every dialog that uses it and
-            // is not charged.
-            "RunTeleport" when arguments.Length == 3 &&
-                               TryInt(arguments[1], out var x) && TryInt(arguments[2], out var y)
-                => new PropAction(PropActionKind.RunTeleport, x, y, 0),
+            // The three teleports of NPC_TeleportTown.lua take (cost, x, y); the cost is charged in gold.
+            "RunTeleport" when TryTeleport(arguments, out var cost, out var x, out var y)
+                => new PropAction(PropActionKind.RunTeleport, x, y, 0, Cost: cost),
+            "RunTeleport_Begin_TO_City" when TryTeleport(arguments, out var cost, out var x, out var y)
+                => new PropAction(PropActionKind.RunTeleportBeginToCity, x, y, 0, Cost: cost),
+            "RunTeleport_City_To_Camp" when TryTeleport(arguments, out var cost, out var x, out var y)
+                => new PropAction(PropActionKind.RunTeleportCityToCamp, x, y, 0, Cost: cost),
 
             "enter_dungeon" when arguments.Length == 1 && TryInt(arguments[0], out var id)
                 => new PropAction(PropActionKind.EnterDungeon, 0, 0, id),
@@ -129,6 +138,15 @@ public static class PropScript
         // The server scripts quote the name, open_market( 'flat_sum_deva_equip' ), and the catalogue keeps
         // their spelling: the quotes are not part of the market's name.
         return value.Trim().Trim('\'', '"').Trim();
+    }
+
+    private static bool TryTeleport(string[] arguments, out long cost, out int x, out int y)
+    {
+        cost = 0;
+        x = y = 0;
+        return arguments.Length == 3 &&
+               long.TryParse(arguments[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out cost) &&
+               cost >= 0 && TryInt(arguments[1], out x) && TryInt(arguments[2], out y);
     }
 
     private static bool TryInt(string value, out int result) =>

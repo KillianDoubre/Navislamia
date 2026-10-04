@@ -1139,8 +1139,8 @@ miss/block/critical. Enhancement terms are zero.
 ## Teleporters and field props
 
 **The portals in the world are not NPCs.** No teleporter NPC exists within 24 839 units of the spawn
-point (94454, 126040, Lost Island — the former default; a new character now starts at 153161, 80223, a
-town with the adventure guide, a choice without a reference source), so a double-click on a portal is not `TS_CS_CONTACT`. They are
+point (94454, 126040, Lost Island — the former default; a new character now starts on the Island of
+Trainees at its race's official point, see *Point de retour*), so a double-click on a portal is not `TS_CS_CONTACT`. They are
 **field props**: map objects carrying an id, a position and a script.
 
 **A prop is used by casting a skill on it.** Double-click makes the client cast the prop's
@@ -2316,7 +2316,8 @@ La fiche complète (enchaînement côté client, écarts NGemity, découpage, r�
 `docs/packet-specs/socle-mort-respawn.md`.
 
 Le socle est en place : `TM_CS_RESURRECTION` (513) est décodé (trame de 12 octets, toute autre taille
-refusée plutôt que lue), le personnage réapparaît à sa position persistée avec ses PV/MP au maximum,
+refusée plutôt que lue), le personnage réapparaît à son **point de retour** (`rx`/`ry`, voir *Point de
+retour*) sur la couche 0 avec ses PV/MP au maximum,
 et un monstre lâche une cible tombée à 0 PV (les PV d'un joueur n'ont plus de plancher à 1). Le
 serveur n'émet toujours aucun paquet de mort.
 
@@ -2345,6 +2346,30 @@ parchemins. Test en jeu : `/item 603002`, `/die`. **Les voies 3 et 4 ne sont pas
 arènes de bataille (4701+) sont toutes `Since EPIC_8_1` et n'existent pas en 7.3
 (`socle-arenes-bataille.md`) ; `RT_Compete` relève du duel (4500) et `RT_Deathmatch` des instances
 (4250), qui n'existent pas encore — le refus est la réponse exacte.
+
+### Point de retour, départ par race et téléporteurs de ville
+
+Fiche : `docs/packet-specs/socle-point-de-retour.md` (Lua Epic 7 `Live`/`trunk`, `GetLastTownPosition`).
+
+- **Le point de retour est la paire de drapeaux officiels `rx`/`ry`**, rangée dans `Characters.FlagList`
+  (`rx:6650`, colonne existante, aucune migration), tenue en session dans `ConnectionInfo.RespawnX/Y`
+  (`RespawnLayer` = 0) et **écrite dès qu'elle change** (`ICharacterService.SaveReturnPointAsync`). La mort de
+  type 0 y ramène, `/home` aussi. `ReturnPointRules` (pur) porte toutes les coordonnées officielles,
+  `ReturnPointService` les applique.
+- **Création** (`on_first_login`) : départ sur l'île des apprentis selon la race (Déva 164474/52932, Asura
+  168356/55399, Gaïa 164335/49510), retour = départ ±30. **Connexion** (`on_login`) : sans `rx`/`ry`, la ville
+  de la race. **Niveau 5** (`on_player_level_up`, une fois par gain avec le niveau atteint) : le camp de l'île.
+  La branche « niveau 18 » du Lua est du code mort (chaîne comparée à un nombre) et n'est pas portée.
+- **Téléporteurs de ville** : leurs dialogues manquaient au catalogue. `tools/export_town_teleporters.py` les
+  y ajoute depuis le Lua Epic 7 (9 contacts + bavardage de Gaïa, PNJ reliés par le `contact_script` Epic 7) ;
+  le téléporteur de l'île (3005) est construit par `TownTeleportRules.BeginnerTeleporter` (quête 1025, profondeur
+  de métier). `Binding_*` fixe le retour et répond par `message()` (`@SCRIPT`, type 40). `RunTeleport`,
+  `RunTeleport_Begin_TO_City` et `RunTeleport_City_To_Camp` **font payer leur coût** (`PropAction.Cost`,
+  `@90010008` sans assez d'or) et dispersent l'arrivée de 10 ou 100 unités. Le raccourci vers le donjon de
+  guilde est omis (déclencheur non servi), les canaux de l'île ne sont pas modélisés (couche 0).
+- **Aucune cinématique d'entrée en jeu n'est déclenchable** : le lecteur `SGameCutScene` du client 7.3 n'est
+  construit que par l'écran de chargement et le lobby (fiche §4), et ni le serveur officiel ni le protocole
+  n'ont de déclencheur.
 
 ### Paquet 550 — `TM_CS_GET_REGION_INFO` / réponse `TM_SC_REGION_ACK` (11)
 

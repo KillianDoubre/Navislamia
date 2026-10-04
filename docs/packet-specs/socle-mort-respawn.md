@@ -796,3 +796,8 @@ Depuis `/srv/navislamia/Navislamia`, `NUGET_PACKAGES=/srv/navislamia/.nuget-cach
 | `dotnet build Navislamia.sln -c Debug` | **0** | `0 Error(s)` (160 avertissements préexistants) |
 | `dotnet test Tests/Tests.csproj` | **0** | `Passed! - Failed: 0, Passed: 387, Skipped: 0, Total: 387` |
 | `git log --oneline origin/master..master` | **0** | vide (aucun commit sur `master` locale) |
+
+## Mise à jour (2026-10-04)
+
+Le point de retour n'est plus la position d'entrée en jeu : c'est la paire de drapeaux officiels `rx`/`ry`
+(`docs/packet-specs/socle-point-de-retour.md`), et la réapparition de type 0 se fait sur la couche 0.

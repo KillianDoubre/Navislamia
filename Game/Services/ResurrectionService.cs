@@ -18,10 +18,10 @@ namespace Navislamia.Game.Services;
 /// <c>hp</c> property — this version has no server-side death packet (§3.2 of the specification).
 /// </summary>
 /// <remarks>
-/// The return point is the position persisted with the character at world entry, kept in
-/// <see cref="ConnectionInfo"/> by <c>GameActions.OnLogin</c>: the specification's option (a) of §16.1,
-/// which needs neither a new column nor a migration. A character's persisted position is only written
-/// when progress is saved, so the in-memory value is the stored one for the whole session.
+/// The return point is the official one, the script flags <c>rx</c>/<c>ry</c> (<c>revive_in_town</c> →
+/// <c>warp_to_revive_position</c> → <c>StructPlayer::GetLastTownPosition</c>), read at world entry and moved by the
+/// teleporters and the level-5 rule (<see cref="ReturnPoints.ReturnPointService"/>,
+/// docs/packet-specs/socle-point-de-retour.md). The character comes back on layer 0 with full HP.
 /// </remarks>
 public class ResurrectionService : IResurrectionService
 {
@@ -126,9 +126,9 @@ public class ResurrectionService : IResurrectionService
             // The way back to town gives no experience back: the death's loss is final.
             info.DeathExpLoss = 0;
 
-            // The return point carries its own layer: the character may have died on another layer of
-            // the same map. Warp stops the attack, drops the aggro, leaves every visible object and
-            // re-streams the surroundings around the new position.
+            // The return point carries its own layer (0): the character may have died on another layer.
+            // Warp stops the attack, drops the aggro, leaves every visible object and re-streams the
+            // surroundings around the new position.
             info.Layer = info.RespawnLayer;
             _warpService.Warp(client, info.RespawnX, info.RespawnY);
 

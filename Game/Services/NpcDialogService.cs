@@ -33,13 +33,15 @@ public class NpcDialogService : INpcDialogService
     private readonly Dungeons.IDungeonService _dungeons;
     private readonly Dungeons.DungeonCatalog _dungeonCatalog;
     private readonly Guilds.IGuildService _guilds;
+    private readonly ReturnPoints.IReturnPointService _returnPoints;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
         IStorageService storageService, IMarketService marketService, IQuestService quests = null,
         Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null,
         Dungeons.IDungeonService dungeons = null, Dungeons.DungeonCatalog dungeonCatalog = null, Guilds.IGuildService guilds = null,
-        Huntaholic.IHuntaholicService huntaholic = null)
+        Huntaholic.IHuntaholicService huntaholic = null, ReturnPoints.IReturnPointService returnPoints = null)
     {
+        _returnPoints = returnPoints;
         _huntaholic = huntaholic;
         _guilds = guilds;
         _dungeons = dungeons;
@@ -113,6 +115,21 @@ public class NpcDialogService : INpcDialogService
             return;
         }
 
+        // The island teleporter's menu depends on a quest and the job depth: built, not read from the catalogue.
+        if (function == TownTeleportRules.BeginnerContact)
+        {
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+                info.NpcDialogHandle = handle;
+                revision = info.NpcDialogRevision;
+            }
+
+            _ = ShowBeginnerTeleporterAsync(client, handle, revision);
+            return;
+        }
+
         if (!TryShow(client, handle, function))
         {
             _logger.Debug("NPC {npcId} contact {function} has no renderable Epic 7.3 dialog", npcId, function);
@@ -170,14 +187,26 @@ public class NpcDialogService : INpcDialogService
             _ = SelectQuestAsync(client, npcHandle, trigger);
             return;
         }
-        if (action.Kind == PropActionKind.RunTeleport)
+        if (action.Kind is PropActionKind.RunTeleport or PropActionKind.RunTeleportBeginToCity
+            or PropActionKind.RunTeleportCityToCamp)
         {
             lock (info.NpcVisibilityLock)
             {
                 info.ClearNpcDialog();
             }
 
-            _warpService.Warp(client, action.X, action.Y);
+            Teleport(client, action);
+            return;
+        }
+
+        // A teleporter's Binding_* action: the return point it names (docs/packet-specs/socle-point-de-retour.md).
+        if (_returnPoints is not null && _returnPoints.TryBind(client, ReadFunctionName(trigger)))
+        {
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+            }
+
             return;
         }
 
@@ -250,6 +279,55 @@ public class NpcDialogService : INpcDialogService
             }
             _logger.Debug("NPC dialog action {function} is not implemented yet", function);
         }
+    }
+
+    /// <summary>
+    /// NPC_TeleportTown.lua's three teleports: the cost is checked and charged first (<c>@90010008</c> without
+    /// enough gold), <c>RunTeleport_City_To_Camp</c> moves the return point to the camp, then the character is
+    /// warped near the destination.
+    /// </summary>
+    private void Teleport(GameClient client, PropAction action)
+    {
+        var info = client.ConnectionInfo;
+        if (!info.TryDebitGold(action.Cost))
+        {
+            client.Connection.Send(GameChatPackets.BuildChat("@SCRIPT", TownTeleportRules.ChatNpc,
+                TownTeleportRules.NotEnoughGold));
+            return;
+        }
+
+        if (action.Cost > 0)
+        {
+            client.Connection.Send(GameCharacterPackets.BuildGoldUpdate(info.CharacterGold, info.CharacterChaos));
+        }
+
+        if (action.Kind == PropActionKind.RunTeleportCityToCamp)
+        {
+            _returnPoints?.Set(client, TownTeleportRules.CampReturnPoint(action, Random.Shared));
+        }
+
+        var spread = TownTeleportRules.ArrivalSpread(action.Kind);
+        _warpService.Warp(client, action.X + Random.Shared.Next(0, spread + 1),
+            action.Y + Random.Shared.Next(0, spread + 1));
+    }
+
+    private async Task ShowBeginnerTeleporterAsync(GameClient client, uint handle, long revision)
+    {
+        try
+        {
+            ShowDynamic(client, handle, revision, await BuildBeginnerTeleporterAsync(client), 0, 0);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not show the island teleporter to {clientTag}", client.ClientTag);
+        }
+    }
+
+    private async Task<NpcDialogDefinition> BuildBeginnerTeleporterAsync(GameClient client)
+    {
+        var questProgress = _quests is null ? -1 : await _quests.GetQuestProgressAsync(client, TownTeleportRules.EastCoastQuest);
+        var info = client.ConnectionInfo;
+        return TownTeleportRules.BeginnerTeleporter(info.CharacterRace, info.PreviousJobs.Count, questProgress);
     }
 
     private async Task SelectDungeonAsync(GameClient client, PropAction action)
@@ -398,8 +476,10 @@ public class NpcDialogService : INpcDialogService
         try
         {
             var offers = await _quests.GetNpcOffersAsync(client, npcId);
-            var basis = _contacts.TryGetValue(npcId, out var function) && _dialogs.TryGetValue(function, out var compiled)
-                ? compiled.Definition : new NpcDialogDefinition();
+            var basis = _contacts.TryGetValue(npcId, out var function) && function == TownTeleportRules.BeginnerContact
+                ? await BuildBeginnerTeleporterAsync(client)
+                : _contacts.TryGetValue(npcId, out function) && _dialogs.TryGetValue(function, out var compiled)
+                    ? compiled.Definition : new NpcDialogDefinition();
             var menu = new List<NpcDialogMenuEntry>(offers);
             menu.AddRange(basis.Menu);
             ShowDynamic(client, handle, revision, new NpcDialogDefinition { Title = basis.Title, Text = basis.Text, Menu = menu }, 0, 0);

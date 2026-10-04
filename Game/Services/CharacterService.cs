@@ -1618,6 +1618,26 @@ public class CharacterService : ICharacterService
         });
     }
 
+    public Task SaveReturnPointAsync(string characterName, ReturnPoints.ReturnPoint point)
+    {
+        if (string.IsNullOrEmpty(characterName))
+        {
+            return Task.CompletedTask;
+        }
+
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return;
+            }
+
+            character.FlagList = ReturnPoints.ReturnPointRules.Write(character.FlagList, point);
+            await repository.SaveChangesAsync();
+        });
+    }
+
     public Task<PetRecord> GetOrCreatePetAsync(string characterName, long characterId, int accountId,
         long cageItemId, int petResourceId, string defaultName)
     {

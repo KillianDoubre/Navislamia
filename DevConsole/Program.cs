@@ -434,6 +434,8 @@ public class Program
         services.AddSingleton<IQuestCatalogueRepository, QuestCatalogueRepository>();
         services.AddSingleton<IWorldLocationRepository, WorldLocationRepository>();
         services.AddSingleton<IWorldLocationService, WorldLocationService>();
+        services.AddSingleton<Navislamia.Game.Services.ReturnPoints.IReturnPointService>(provider =>
+            new Navislamia.Game.Services.ReturnPoints.ReturnPointService(provider.GetRequiredService<ICharacterService>()));
         services.AddSingleton<ILevelingService, LevelingService>();
         services.AddSingleton<SkillCatalog>();
         services.AddSingleton<ISkillService, SkillService>();
