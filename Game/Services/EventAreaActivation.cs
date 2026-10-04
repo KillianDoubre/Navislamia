@@ -40,7 +40,8 @@ public static class EventAreaActivation
             bool Presence(bool present) => value == 1 && present || value == 2 && !present;
             switch (row.Conditions[i])
             {
-                case 1: if (inventory.Where(item => item.ItemResourceId == code).Sum(item => item.Amount) < value) return false; break;
+                // LIMIT_CONDITION_ITEM_COUNT_GE: FindItem(code)->GetCount(), the first stack of the item.
+                case 1: if ((inventory.Where(item => item.ItemResourceId == code).OrderBy(item => item.Idx).FirstOrDefault()?.Amount ?? 0) < value) return false; break;
                 case 2: if (quests?.GetQuestProgressAsync(client, code).GetAwaiter().GetResult() != value) return false; break;
                 case 3: if (character.Skills?.Any(s => s.SkillId == code && s.Level >= value) != true) return false; break;
                 case 4: if (!Presence(inventory.Any(item => item.ItemResourceId == code && item.WearInfo != ItemWearType.None
@@ -48,7 +49,8 @@ public static class EventAreaActivation
                 case 5: if (!Presence(info.Summons.Any(s => s.Entry.Code == code))) return false; break;
                 case 6: lock (info.BuffLock) if (!Presence(info.ActiveBuffs.Any(s => s.StateId == code
                     && (s.EndTick == uint.MaxValue || unchecked((int)(s.EndTick - ServerClock.Now)) > 0)))) return false; break;
-                default: return false;
+                // EVENT_AREA_INFO::IsActivatable ignores a condition it does not know.
+                default: break;
             }
         }
         return true;
