@@ -41,15 +41,19 @@ public sealed class DungeonService : IDungeonService
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _entrances = new(1, 1);
     private readonly VulcanusScenario _vulcanus;
+    private readonly SecretPortals _portals;
 
     public DungeonService(DungeonCatalog catalog, DungeonRooms rooms, IWarpService warp, IPartyService parties,
         IDungeonGuildRepository guilds, ICharacterService characters, IOptions<DungeonOptions> options,
         MonsterWorldState monsters = null, TimeProvider time = null, Guilds.IGuildService communities = null,
         ILevelingService leveling = null, IDynamicFieldProps props = null, IFieldPropService fieldProps = null,
-        DungeonEvents events = null, Random random = null)
+        DungeonEvents events = null, Random random = null, IMonsterSpawnService monsterSpawn = null,
+        IPlayerVisibilityService players = null)
     {
         _vulcanus = new VulcanusScenario(catalog, rooms, monsters, props, fieldProps, leveling, random);
+        _portals = new SecretPortals(catalog, monsters, props, fieldProps, monsterSpawn, players, random);
         events?.Attach(_vulcanus.OnMonsterKilled);
+        events?.Attach(id => _portals.OnMonsterKilled(id, ServerClock.Now));
         _communities = communities;
         _catalog = catalog; _rooms = rooms; _warp = warp; _parties = parties; _guilds = guilds;
         _characters = characters; _monsters = monsters; _options = options.Value;
@@ -337,6 +341,9 @@ public sealed class DungeonService : IDungeonService
 
     public async Task SweepAsync()
     {
+        // The key monsters and the portals they open live on the world's clock, not on a visit.
+        _portals.Tick(ServerClock.Now);
+
         await _entrances.WaitAsync();
         try
         {

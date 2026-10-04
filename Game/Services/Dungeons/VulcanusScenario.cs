@@ -282,9 +282,14 @@ public sealed class VulcanusScenario
 /// </summary>
 public sealed class DungeonEvents
 {
-    private volatile Action<long> _monsterKilled;
+    private readonly object _gate = new();
+    private Action<long> _monsterKilled;
 
-    public void Attach(Action<long> monsterKilled) => _monsterKilled = monsterKilled;
+    /// <summary>Adds a listener: the Vulcanus scenario and the secret portals both hear a death.</summary>
+    public void Attach(Action<long> monsterKilled)
+    {
+        lock (_gate) _monsterKilled += monsterKilled;
+    }
 
-    public void MonsterKilled(long instanceId) => _monsterKilled?.Invoke(instanceId);
+    public void MonsterKilled(long instanceId) => System.Threading.Volatile.Read(ref _monsterKilled)?.Invoke(instanceId);
 }

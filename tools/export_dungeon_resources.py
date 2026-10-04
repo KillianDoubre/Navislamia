@@ -14,6 +14,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LUA = r'A:\Rappelz Kiff\Epic 7 Part 4\trunk\ETC_dungeon_prop.lua'
+DEFAULT_RANDOM_RESPAWN_LUA = (r'A:\Rappelz Kiff\Rappelz\Rappelz\program\server\GameServer\Resource\Script'
+                              r'\random_respawn.lua')
 
 # The gates vulcanus_check_respawn_group_clear poses when a room is cleared (floors 1, 2, 3 and the boss room).
 VULCANUS_GATES = [126024, 126025, 126026, 126027]
@@ -31,6 +33,58 @@ def field_props():
         path = ROOT / 'data/sqlserver/Arcadia/FieldPropResource.csv'
     with path.open(encoding='utf-8-sig', newline='') as source:
         return {row['id']: row for row in csv.DictReader(source)}
+
+
+def death_props():
+    """MonsterResource.script_on_dead `add_field_prop(prop, seconds, #@pos_x@#, #@pos_y@#, #@pos_layer@#, z, rx, ry, rz,
+    sx, sy, sz)`: the key monsters whose death opens a secret dungeon's portal where they fell (SCRIPT_AddFieldProp)."""
+    path = ROOT / 'data/epic7/MonsterResource.csv'
+    if not path.exists():
+        path = ROOT / 'data/sqlserver/Arcadia/MonsterResource.csv'
+    with path.open(encoding='utf-8-sig', newline='') as source:
+        monsters = list(csv.DictReader(source))
+    result = []
+    for row in monsters:
+        match = re.fullmatch(r'\s*add_field_prop\s*\((.*)\)\s*', row['script_on_dead'] or '')
+        if not match:
+            continue
+        args = [a.strip() for a in match[1].split(',')]
+        if len(args) < 5 or args[2:5] != ['#@pos_x@#', '#@pos_y@#', '#@pos_layer@#']:
+            raise SystemExit(f'monster {row["id"]}: unexpected add_field_prop {row["script_on_dead"]}')
+        number = lambda i, default: float(args[i]) if len(args) > i else default
+        result.append({'MonsterId': int(row['id']), 'PropId': int(args[0]), 'Seconds': int(args[1]),
+                       'ZOffset': number(5, 0.0), 'RotateX': number(6, 0.0), 'RotateY': number(7, 0.0),
+                       'RotateZ': number(8, 0.0), 'ScaleX': number(9, 1.0), 'ScaleY': number(10, 1.0),
+                       'ScaleZ': number(11, 1.0)})
+    return result
+
+
+def key_monster_respawns(lua_path, key_monsters):
+    """random_respawn.lua: the random respawns whose monster is a key monster (the Carbuncles), with their boxes.
+    set_random_respawn(id, interval, area, inc, is_wandering, way_point, prespawn_count, except_raid_siege), interval in
+    ar_time ticks; add_random_area(area, left, top, right, bottom); add_random_monster(id, monster, ratio)."""
+    source = Path(lua_path).read_bytes().decode('cp949', errors='replace').replace('\0', '')
+    respawns, areas, monsters = {}, {}, {}
+    for line in source.splitlines():
+        code = line.split('--', 1)[0]
+        if match := re.search(r'set_random_respawn\s*\(([^)]*)\)', code):
+            a = [int(x) for x in match[1].split(',')]
+            respawns[a[0]] = {'Interval': a[1], 'Area': a[2], 'Wandering': a[4] == 1, 'Count': a[6]}
+        elif match := re.search(r'add_random_area\s*\(([^)]*)\)', code):
+            a = [int(x) for x in match[1].split(',')]
+            areas.setdefault(a[0], []).append({'Left': min(a[1], a[3]), 'Top': min(a[2], a[4]),
+                                               'Right': max(a[1], a[3]), 'Bottom': max(a[2], a[4])})
+        elif match := re.search(r'add_random_monster\s*\(([^)]*)\)', code):
+            a = [int(x) for x in match[1].split(',')]
+            monsters.setdefault(a[0], []).append(a[1])
+    result = []
+    for respawn_id, respawn in sorted(respawns.items()):
+        for monster in monsters.get(respawn_id, []):
+            if monster in key_monsters:
+                result.append({'Id': respawn_id, 'MonsterId': monster, 'IntervalTicks': respawn['Interval'],
+                               'Count': max(1, respawn['Count']), 'Wandering': respawn['Wandering'],
+                               'Boxes': areas.get(respawn['Area'], [])})
+    return result
 
 
 def vulcanus_rewards(lua_path):
@@ -61,6 +115,8 @@ def select(table, mapping):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--lua', default=DEFAULT_LUA, help='the Epic 7 ETC_dungeon_prop.lua')
+    parser.add_argument('--random-respawn-lua', default=DEFAULT_RANDOM_RESPAWN_LUA,
+                        help="the official random_respawn.lua (the Epic 7 dump has none; the 2015 server's)")
     args = parser.parse_args()
     data = {
         'Dungeons': select('DungeonResource', dict(Id='id', LocalFlag='local_flag', Kind='dungeon_type',
@@ -96,6 +152,9 @@ def main():
         match = re.fullmatch(r'NPC_dungeon_siege_manager_contact\(\s*(\d+)\s*\)', npc['contact_script'].split('\0')[0].strip())
         if match:
             data['NpcDungeons'][npc['id']] = int(match[1])
+    data['DeathProps'] = death_props()
+    data['KeyMonsterRespawns'] = key_monster_respawns(args.random_respawn_lua,
+                                                      {p['MonsterId'] for p in data['DeathProps']})
     data['InstanceProps'] = [{
         'DungeonId': int(r['instance_dungeon_id']), 'Type': int(r['instance_type_id']), 'PropId': int(r['prop_id']),
         'X': int(float(r['x'])), 'Y': int(float(r['y'])), 'ZOffset': float(r['offset_z']),
@@ -103,7 +162,8 @@ def main():
         'ScaleX': float(r['scale_x']), 'ScaleY': float(r['scale_y']), 'ScaleZ': float(r['scale_z'])}
         for r in rows('InstanceDungeonHealingPropResource')]
     props = field_props()
-    used = sorted({p['PropId'] for p in data['InstanceProps']} | set(VULCANUS_GATES))
+    used = sorted({p['PropId'] for p in data['InstanceProps']} | set(VULCANUS_GATES)
+                  | {p['PropId'] for p in data['DeathProps']})
     data['PropTemplates'] = [{
         'Id': prop_id, 'ActivateSkillId': int(props[str(prop_id)]['activate_id']),
         'Script': props[str(prop_id)]['script_text'].strip(),

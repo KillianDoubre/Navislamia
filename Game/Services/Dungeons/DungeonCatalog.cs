@@ -27,6 +27,22 @@ public sealed record InstanceProp(int DungeonId, int Type, int PropId, int X, in
 /// <summary>The <c>FieldPropResource</c> columns of the props instances pose: the skill and the script a double-click runs.</summary>
 public sealed record DungeonPropTemplate(int Id, int ActivateSkillId, string Script, int MinLevel, int MaxLevel);
 
+/// <summary>
+/// A monster whose <c>script_on_dead</c> is <c>add_field_prop(prop, seconds, #@pos_x@#, #@pos_y@#, #@pos_layer@#, z, …)</c>:
+/// a secret dungeon's key monster, whose death opens the portal where it fell.
+/// </summary>
+public sealed record DeathProp(int MonsterId, int PropId, int Seconds, float ZOffset = 0, float RotateX = 0,
+    float RotateY = 0, float RotateZ = 0, float ScaleX = 1, float ScaleY = 1, float ScaleZ = 1);
+
+public sealed record RespawnBox(int Left, int Top, int Right, int Bottom);
+
+/// <summary>
+/// A <c>random_respawn.lua</c> entry for a key monster: <see cref="Count"/> kept alive, each brought back
+/// <see cref="IntervalTicks"/> after its death in one of the boxes, drawn at random.
+/// </summary>
+public sealed record KeyMonsterRespawn(int Id, int MonsterId, uint IntervalTicks, int Count, bool Wandering,
+    RespawnBox[] Boxes);
+
 /// <summary><c>vulcanus_clear_reward(layer, floor)</c>: what clearing a room of a floor gives, by difficulty.</summary>
 public sealed record VulcanusReward(int Difficulty, int Floor, long Exp, long Jp, long Gold);
 
@@ -42,6 +58,8 @@ public sealed class DungeonCatalog
     public InstanceProp[] InstanceProps { get; }
     public Dictionary<int, DungeonPropTemplate> PropTemplates { get; }
     public VulcanusReward[] VulcanusRewards { get; }
+    public Dictionary<int, DeathProp> DeathProps { get; }
+    public KeyMonsterRespawn[] KeyMonsterRespawns { get; }
 
     public DungeonCatalog(IOptions<DungeonOptions> options)
     {
@@ -64,6 +82,8 @@ public sealed class DungeonCatalog
         InstanceProps = data.InstanceProps ?? Array.Empty<InstanceProp>();
         PropTemplates = (data.PropTemplates ?? Array.Empty<DungeonPropTemplate>()).ToDictionary(t => t.Id);
         VulcanusRewards = data.VulcanusRewards ?? Array.Empty<VulcanusReward>();
+        DeathProps = (data.DeathProps ?? Array.Empty<DeathProp>()).ToDictionary(p => p.MonsterId);
+        KeyMonsterRespawns = data.KeyMonsterRespawns ?? Array.Empty<KeyMonsterRespawn>();
     }
 
     private sealed class CatalogData
@@ -78,6 +98,8 @@ public sealed class DungeonCatalog
         public InstanceProp[] InstanceProps { get; set; }
         public DungeonPropTemplate[] PropTemplates { get; set; }
         public VulcanusReward[] VulcanusRewards { get; set; }
+        public DeathProp[] DeathProps { get; set; }
+        public KeyMonsterRespawn[] KeyMonsterRespawns { get; set; }
     }
 }
 

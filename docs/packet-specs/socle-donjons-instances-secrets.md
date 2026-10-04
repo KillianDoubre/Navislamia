@@ -109,11 +109,33 @@ Port du Lua Epic 7 `ETC_dungeon_prop.lua` (`on_create_vulcanus_instance`, `vulca
   du dépôt. Les scénarios Cubric (30000, `cubric_*`) et ses `warp_gate` ne sont pas portés : la branche Cubric est
   postérieure au client 7.3.
 
+## Portails secrets (2026-10-04)
+
+Les gestionnaires l'expliquent (`@90408807`/`@90408808`/`@90408811`) : tuer le **monstre clé**, qui fuit sans
+attaquer, ouvre l'espace dimensionnel du donjon secret pour une dizaine de minutes. Ni le C++ ni le Lua disponibles
+ne le codent en dur : c'est la donnée.
+
+- **Monstres clés** : six `MonsterResource` ont pour `script_on_dead`
+  `add_field_prop(portail, 600, #@pos_x@#, #@pos_y@#, #@pos_layer@#, 16, 0, 0, 0, 1, 1, 1)` — 10070016 → 70191
+  (Vallée de cristal), 10090023 → 120291 (Palmir), 10125009 → 110191 (Elcasia), 10146009 → 100191 (Dragon blanc),
+  10158006 → 90191 (Dragon noir), 10165006 → 80191 (Dragon de sable). `SCRIPT_AddFieldProp` : durée × 100 ticks, puis
+  position, couche, hauteur, rotation, échelle.
+- **Leur apparition** : `random_respawn.lua` (le serveur 2015 ; le dump Epic 7 n'a pas ce fichier), entrées 1 à 8 —
+  un exemplaire tenu en vie (`prespawn_count` 1), revenu 60 000 ticks (10 min) après sa mort dans une boîte tirée au
+  hasard parmi celles de sa zone (6 à 9 boîtes). Rien d'autre ne les faisait apparaître : sans eux, aucun portail.
+- **Données** : `export_dungeon_resources.py` relève les `add_field_prop` des `script_on_dead` (`DeathProps`), les
+  entrées de `random_respawn.lua` dont le monstre est l'un d'eux (`KeyMonsterRespawns`, `--random-respawn-lua`) et les
+  modèles des six portails (`enter_to_secret_dungeon(prop)`, sort 6904).
+- **Exécution** (`SecretPortals`, branché sur `DungeonEvents` et le balayage de 5 s) : la mort pose le portail, prop de
+  couche (`IDynamicFieldProps`, `ExpiresAt`), là où le monstre est tombé, et le pousse aux joueurs qui voient l'endroit ;
+  il disparaît 600 s plus tard (`RespawnedFieldPropManager`). Le cadavre reste jusqu'à la réapparition (le combat lit
+  encore l'instance après le crochet). Le portail mène au donjon secret par le chemin existant (`warp_to_secret_dungeon`).
+- **Non porté** : la fuite du monstre clé (son IA est celle d'un monstre non agressif) et le reste de
+  `random_respawn.lua` (Baphomet et ses suivants, entrées 9+), sans lien avec les portails.
+
 ## Limites conservées
 
-Ce lot implémente les accès et la vie des salles. Le déclenchement des portails secrets par leurs monstres clés
-n'est pas encore reproduit ; leur action d'entrée est résolue lorsqu'un portail est présent. Le raccourci de guilde
-est utilisable dès maintenant.
+Le raccourci de guilde est utilisable dès maintenant.
 
 La création de guilde, les alliances, les équipes d'attaque intergroupes, l'inscription officielle aux
 raids, leur classement, les taxes et les objectifs du siège restent des lots de guilde. Les contrôles

@@ -111,8 +111,8 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
   clés de Vulcanus, sorties et nettoyage ; accès public, raid et siège distingués, horaires régionaux et guilde
   contrôlés. Pages d'information des donjons secrets et raccourci de la guilde propriétaire raccordés
   (`socle-donjons-instances-secrets.md`), **à vérifier en jeu**. Le scénario Vulcanus (salles, récompenses,
-  portes d'étage et clés) est porté (2026-10-04) ; restent les apparitions conditionnelles des portails secrets et
-  Cubric (postérieur au client 7.3).
+  portes d'étage et clés) est porté (2026-10-04) ; les portails secrets s'ouvrent à la mort de leurs monstres clés,
+  revenus toutes les 10 minutes (2026-10-04). Reste Cubric (postérieur au client 7.3).
 - ~~HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes~~ : livrés (`socle-huntaholic.md`,
   `socle-encheres-mecanique.md`). Props de soin de Bear Road, états `EraseOnQuitHuntaholic`, objets réservés/interdits
   et sortie au point de retour livrés (`socle-huntaholic.md` §7-8, 2026-10-04). Enchères automatiques et essai PostgreSQL livrés

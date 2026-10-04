@@ -11,7 +11,7 @@ namespace Navislamia.Game.Services.Props;
 /// on its layer only and goes away when used.
 /// </summary>
 public sealed record DynamicFieldProp(FieldPropInstance Instance, byte Layer, FieldPropTemplate Template,
-    Action<DynamicFieldProp> Used)
+    Action<DynamicFieldProp> Used, uint ExpiresAt = 0)
 {
     public long InstanceId => Instance.InstanceId;
 }
@@ -21,7 +21,13 @@ public interface IDynamicFieldProps
     /// <summary>Creates a prop; its instance id never collides with a world prop's (their index in the catalogue).</summary>
     DynamicFieldProp Add(int propId, float x, float y, byte layer, FieldPropTemplate template,
         Action<DynamicFieldProp> used = null, float zOffset = 0, float rotateX = 0, float rotateY = 0,
-        float rotateZ = 0, float scaleX = 1, float scaleY = 1, float scaleZ = 1);
+        float rotateZ = 0, float scaleX = 1, float scaleY = 1, float scaleZ = 1, uint expiresAt = 0);
+
+    /// <summary>
+    /// <c>RespawnedFieldPropManager</c>'s expiration: the props whose <see cref="DynamicFieldProp.ExpiresAt"/> (an ar_time
+    /// tick, 0 = never) has passed leave the world; they are returned so their spot can be refreshed.
+    /// </summary>
+    IReadOnlyList<DynamicFieldProp> RemoveExpired(uint now) => Array.Empty<DynamicFieldProp>();
 
     /// <summary>Takes the prop out of the world without using it. False when it was already gone.</summary>
     bool Remove(long instanceId);
@@ -49,13 +55,13 @@ public sealed class DynamicFieldProps : IDynamicFieldProps
 
     public DynamicFieldProp Add(int propId, float x, float y, byte layer, FieldPropTemplate template,
         Action<DynamicFieldProp> used = null, float zOffset = 0, float rotateX = 0, float rotateY = 0,
-        float rotateZ = 0, float scaleX = 1, float scaleY = 1, float scaleZ = 1)
+        float rotateZ = 0, float scaleX = 1, float scaleY = 1, float scaleZ = 1, uint expiresAt = 0)
     {
         lock (_gate)
         {
             var instance = new FieldPropInstance(_nextInstanceId++, propId, x, y, zOffset, rotateX, rotateY, rotateZ,
                 scaleX, scaleY, scaleZ);
-            var prop = new DynamicFieldProp(instance, layer, template, used);
+            var prop = new DynamicFieldProp(instance, layer, template, used, expiresAt);
             _props[instance.InstanceId] = prop;
             return prop;
         }
@@ -89,6 +95,18 @@ public sealed class DynamicFieldProps : IDynamicFieldProps
 
         prop.Used?.Invoke(prop);
         return true;
+    }
+
+    public IReadOnlyList<DynamicFieldProp> RemoveExpired(uint now)
+    {
+        lock (_gate)
+        {
+            var expired = _props.Values
+                .Where(prop => prop.ExpiresAt != 0 && unchecked((int)(now - prop.ExpiresAt)) >= 0)
+                .ToArray();
+            foreach (var prop in expired) _props.Remove(prop.InstanceId);
+            return expired;
+        }
     }
 
     public IReadOnlyList<FieldPropInstance> Within(float x, float y, byte layer, float range)
