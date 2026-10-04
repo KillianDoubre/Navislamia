@@ -1980,8 +1980,10 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
 - Seul le niveau de l'objet est jugé : `use_min_level` → `LimitMin`, `use_max_level` → `LimitMax`,
   le plafond testé avant le plancher comme dans NGemity `Player::IsUseableItem`. Un handle inconnu
   ou non possédé donne `NotExist`.
-- `ItemUseFlag` n'est pas lu : la valeur réellement importée n'est pas documentée dans le dépôt.
-  Ne jamais l'utiliser comme masque binaire sans arbitrage.
+- **`ItemResources.ItemUseFlag` est le bitset `item_use_flag`** (`ItemBase::Flag`, `ItemLoader.cpp:176`) et les
+  membres de l'enum `ItemUseFlag` sont des **indices de bit** (`ItemUseRules.HasFlag`), pas des masques — établi par
+  les données : les 12 objets au bit 23 (`UsableInOnlyHuntaholic`) sont les objets « exclusifs Bear Road ». Seuls les
+  bits 22/23 (HuntaHolic, `socle-huntaholic.md` §7) sont jugés ; `ItemUseCatalog.UseFlags` les lit de la table.
 - Le refus `ACCESS_DENIED` sur le type d'objet de NGemity est du **code mort**
   (`&& false` commenté, `WorldSession.cpp:1327`) : ne pas le porter.
 - **Effets appliqués** (`ItemUseService.ApplyEffects`, après le résultat) : `IncHp`/`IncMp` (1/2, valeur
@@ -2533,7 +2535,9 @@ numéro de salle (`MonsterWorldState.SpawnInstanceMonster`), score 1/5/10/150, m
 résurrection officielles, 4250/4251 par les sorts **lancés par le serveur** 64818/64827 (`SkillCastKind.InstanceGame`),
 PNJ `go_to_huntaholic` (1 000 or) et boîtes de JP. Points et 12 entrées/jour (06:00) en session, sauvés avec
 `Characters.LogoutTime`. `WarpService.Warp(client, x, y, layer)` change de couche ; `IHuntaholicEvents` relie combat,
-warp, sorts et résurrection sans cycle d'injection. 4008 est déclaré (bras propre).
+warp, sorts et résurrection sans cycle d'injection. 4008 est déclaré (bras propre). **Sortir de HuntaHolic** ramène au
+point de retour `rx`/`ry`, retire les états `EraseOnQuitHuntaholic` et rend les PV/PM d'entrée ; les objets aux bits 22/23
+d'`item_use_flag` sont refusés dedans / dehors (fiche §7).
 
 ### Paquets 240 / 250 — marché NPC (`TM_SC_NPC_TRADE_INFO` / `TM_SC_MARKET`)
 

@@ -132,6 +132,12 @@ public interface IItemResourceRepository
 
     IReadOnlyList<ItemUseFields> GetUseFields();
 
+    /// <summary>
+    /// Every resource's <c>item_use_flag</c> bitset (<c>ItemBase::Flag</c>, the bit indexes of
+    /// <see cref="Navislamia.Game.DataAccess.Entities.Enums.ItemUseFlag"/>), non-zero ones only.
+    /// </summary>
+    IReadOnlyList<(int Id, int Flags)> GetUseFlags() => System.Array.Empty<(int, int)>();
+
     IReadOnlyList<ItemWearFields> GetWearFields();
 
     IReadOnlyList<ItemSocketFields> GetSocketFields();

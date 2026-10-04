@@ -28,8 +28,12 @@ public interface IHuntaholicService
     /// <summary>The 4253 answer's <c>bearroad_ranking</c>: the player's rank by HuntaHolic points among the online players.</summary>
     uint Ranking(GameClient client) => 0;
 
-    /// <summary><c>DB_Login</c>: a character saved in a hunt comes back in the lobby, on its level's lobby layer.</summary>
-    (float X, float Y, byte Layer) PlaceAtLogin(int level, float x, float y, byte layer) => (x, y, layer);
+    /// <summary>
+    /// <c>DB_Login</c>: a character saved in a hunt comes back in the lobby, on its level's lobby layer; one whose level
+    /// no longer has a lobby goes to its return point (<paramref name="townX"/>, <paramref name="townY"/>).
+    /// </summary>
+    (float X, float Y, byte Layer) PlaceAtLogin(int level, float x, float y, byte layer,
+        float townX = HuntaholicDefaults.TownX, float townY = HuntaholicDefaults.TownY) => (x, y, layer);
 
     /// <summary><c>StructPlayer::onLogout</c>: a hunt is quit (retired), a lobby room left.</summary>
     void OnWorldExit(GameClient client);
@@ -396,37 +400,32 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         return ResultCode.Success;
     }
 
-    /// <summary><c>PendWarpToHuntaholicLobby</c>: the return point is kept (<c>hx</c>/<c>hy</c>), then the lobby on the tier's layer.</summary>
+    /// <summary>
+    /// <c>PendWarpToHuntaholicLobby</c>: the HP and MP are kept (<c>StoreCurrentStatesOnEnterInstanceGame(true)</c>),
+    /// then the lobby on the tier's layer. The entry position it keeps too (<c>hx</c>/<c>hy</c>) is never read for
+    /// HuntaHolic: leaving it always goes to the return point (<see cref="WarpOut"/>).
+    /// </summary>
     private void WarpToLobby(GameClient client, int huntaholicId)
     {
         var info = client.ConnectionInfo;
         if (!_catalog.TryGet(huntaholicId, out var huntaholic)) return;
-        var (x, y) = info.PositionAt(_clock());
-        info.HuntaholicReturnX = x;
-        info.HuntaholicReturnY = y;
-        info.HuntaholicReturnLayer = info.Layer;
+        info.HuntaholicEnterHp = info.CharacterHp;
+        info.HuntaholicEnterMp = info.CharacterMp;
         _warp.Warp(client, huntaholic.LobbyX, huntaholic.LobbyY,
             HuntaholicRules.ProperLobbyLayer(huntaholic, info.CharacterLevel));
     }
 
     /// <summary>
-    /// <c>GetPositionOnEnterInstanceGame</c>: leaving HuntaHolic goes to the last town. No town position is kept here,
-    /// so the place the player entered from stands for it, and the starting town after a relog (§9 of the sheet).
+    /// <c>GetPositionOnEnterInstanceGame</c>: leaving HuntaHolic goes to <c>GetLastTownPosition</c>, the return point
+    /// (<c>rx</c>/<c>ry</c>, docs/packet-specs/socle-point-de-retour.md), on layer 0.
     /// </summary>
     private void WarpOut(GameClient client)
     {
         var info = client.ConnectionInfo;
-        if (info.HuntaholicReturnX > 0 && info.HuntaholicReturnY > 0
-            && _catalog.GetHuntaholicId(info.HuntaholicReturnX, info.HuntaholicReturnY) == 0)
-        {
-            _warp.Warp(client, info.HuntaholicReturnX, info.HuntaholicReturnY, info.HuntaholicReturnLayer);
-        }
-        else
-        {
-            _warp.Warp(client, HuntaholicDefaults.TownX, HuntaholicDefaults.TownY, 0);
-        }
-
-        info.HuntaholicReturnX = info.HuntaholicReturnY = 0;
+        var (x, y) = info.RespawnX > 0 && info.RespawnY > 0
+            ? (info.RespawnX, info.RespawnY)
+            : (HuntaholicDefaults.TownX, HuntaholicDefaults.TownY);
+        _warp.Warp(client, x, y, 0);
     }
 
     public bool HandlesDialog(string function) => function is "go_to_huntaholic" or "hunterholic_jpbox_sell";
@@ -756,7 +755,13 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
     {
         var info = client.ConnectionInfo;
         var from = _catalog.GetHuntaholicId(info.X, info.Y);
-        if (from == 0 || _catalog.GetHuntaholicId(x, y) == from || _parties.PartyIdOf(client) == 0) return;
+        if (from == 0 || _catalog.GetHuntaholicId(x, y) == from) return;
+
+        // ProcessWarp, before the room: RemoveAllStateByQuittingHuntaholic, then RestoreStatesOnLeaveInstanceGame(true).
+        _casts.RemoveStatesWithTimeFlag(client, DataAccess.Entities.Enums.StateTimeType.EraseOnQuitHuntaholic);
+        RestoreEntryVitals(client);
+
+        if (_parties.PartyIdOf(client) == 0) return;
 
         if (_catalog.IsLobby(info.X, info.Y))
         {
@@ -770,6 +775,24 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         }
 
         client.SendResult((ushort)GamePackets.TM_CS_HUNTAHOLIC_LEAVE_INSTANCE, (ushort)ResultCode.Success);
+    }
+
+    /// <summary>
+    /// <c>RestoreStatesOnLeaveInstanceGame(true)</c>: the HP and MP kept at the entry come back, then are forgotten.
+    /// The HP is bounded by the maximum, as <c>SetHP</c> is; the MP needs no bound here, since a maximum only grows
+    /// with the level and the states that raised it were taken at the entry's value.
+    /// </summary>
+    private void RestoreEntryVitals(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        if (info.HuntaholicEnterHp < 0 || info.HuntaholicEnterMp < 0) return;
+
+        var (hp, mp) = HuntaholicRules.EntryVitals(info.HuntaholicEnterHp, info.HuntaholicEnterMp, info.CharacterMaxHp);
+        info.HuntaholicEnterHp = info.HuntaholicEnterMp = -1;
+        info.CharacterHp = hp;
+        info.CharacterMp = mp;
+        client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
     }
 
     /// <summary>A room member leaving the lobby while the room started counts as quitting it (forced party leave).</summary>
@@ -808,13 +831,14 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
         }
     }
 
-    public (float X, float Y, byte Layer) PlaceAtLogin(int level, float x, float y, byte layer)
+    public (float X, float Y, byte Layer) PlaceAtLogin(int level, float x, float y, byte layer,
+        float townX = HuntaholicDefaults.TownX, float townY = HuntaholicDefaults.TownY)
     {
         var huntaholicId = _catalog.GetHuntaholicId(x, y);
         if (huntaholicId == 0 || !_catalog.TryGet(huntaholicId, out var huntaholic)) return (x, y, layer);
         var lobbyLayer = HuntaholicRules.ProperLobbyLayer(huntaholic, level);
         if (lobbyLayer == HuntaholicRules.UnusableLobbyLayer)
-            return (HuntaholicDefaults.TownX, HuntaholicDefaults.TownY, 0);
+            return (townX, townY, 0);
         return _catalog.IsDungeon(x, y) ? (huntaholic.LobbyX, huntaholic.LobbyY, lobbyLayer) : (x, y, lobbyLayer);
     }
 
@@ -1065,7 +1089,7 @@ public sealed class HuntaholicService : IHuntaholicService, IHuntaholicEventList
 /// <summary>The values HuntaHolic needs that no table here provides.</summary>
 public static class HuntaholicDefaults
 {
-    /// <summary>The starting town (GameActions' default spawn), standing for <c>GetLastTownPosition</c>.</summary>
+    /// <summary>The town used when no return point is known (none is missing once a character has entered the world).</summary>
     public const float TownX = 153161;
     public const float TownY = 80223;
 

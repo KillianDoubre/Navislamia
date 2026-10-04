@@ -1021,6 +1021,28 @@ public partial class SkillCastService : ISkillCastService
         return true;
     }
 
+    public int RemoveStatesWithTimeFlag(GameClient client, Navislamia.Game.DataAccess.Entities.Enums.StateTimeType flag)
+    {
+        var info = client.ConnectionInfo;
+        int[] matching;
+        lock (info.BuffLock)
+        {
+            matching = info.ActiveBuffs
+                .Where(buff => (_stateCatalog.GetRule(buff.StateId).TimeType & flag) != 0)
+                .Select(buff => buff.StateId)
+                .Distinct()
+                .ToArray();
+        }
+
+        var removed = 0;
+        foreach (var stateId in matching)
+        {
+            if (RemoveState(client, stateId)) removed++;
+        }
+
+        return removed;
+    }
+
     private void ApplyBuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
     {
         var duration = BuffCurve.DurationTicks(fields, skillLevel);

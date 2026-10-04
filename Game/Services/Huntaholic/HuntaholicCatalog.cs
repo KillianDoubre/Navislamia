@@ -87,6 +87,13 @@ public static class HuntaholicRules
     public const int RegionSize = WorldVisibility.RegionSize;
 
     /// <summary>
+    /// <c>RestoreStatesOnLeaveInstanceGame(true)</c>: the HP and MP the player entered with. The HP is bounded by the
+    /// current maximum (<c>SetHP</c>) and kept at 1 at least, so a player never leaves dead by this restore.
+    /// </summary>
+    public static (int Hp, int Mp) EntryVitals(int enterHp, int enterMp, int maxHp) =>
+        (Math.Clamp(enterHp, 1, Math.Max(1, maxHp)), Math.Max(0, enterMp));
+
+    /// <summary>
     /// <c>HuntaholicLoader</c> turns a channel box into region indices, the right and bottom ones plus one,
     /// and <c>GetHuntaholicID</c> compares the position's region against them inclusively.
     /// </summary>

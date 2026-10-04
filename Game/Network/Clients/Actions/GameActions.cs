@@ -142,7 +142,8 @@ public class GameActions : IActions
         var layer = (byte)character.Layer;
         if (_networkService.HuntaholicService is { } huntaholic)
         {
-            var placed = huntaholic.PlaceAtLogin(character.Lv > 0 ? character.Lv : 1, position[0], position[1], layer);
+            var placed = huntaholic.PlaceAtLogin(character.Lv > 0 ? character.Lv : 1, position[0], position[1], layer,
+                returnPoint.X, returnPoint.Y);
             position = new[] { (int)placed.X, (int)placed.Y, position[2] };
             layer = placed.Layer;
         }

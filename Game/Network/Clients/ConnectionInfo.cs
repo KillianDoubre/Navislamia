@@ -156,12 +156,12 @@ public class ConnectionInfo
     }
 
     /// <summary>
-    /// Where the player entered HuntaHolic from (<c>StoreCurrentStatesOnEnterInstanceGame</c>'s <c>hx</c>/<c>hy</c>),
-    /// kept for the session only: leaving goes back there, or to the starting town after a relog.
+    /// The HP and MP the player entered HuntaHolic with (<c>StoreCurrentStatesOnEnterInstanceGame</c>'s
+    /// <c>hhp</c>/<c>hmp</c>), given back when it leaves (<c>RestoreStatesOnLeaveInstanceGame</c>). -1 when none is
+    /// kept. Session only: the reference keeps them as flags across a relog.
     /// </summary>
-    public float HuntaholicReturnX { get; set; }
-    public float HuntaholicReturnY { get; set; }
-    public byte HuntaholicReturnLayer { get; set; }
+    public int HuntaholicEnterHp { get; set; } = -1;
+    public int HuntaholicEnterMp { get; set; } = -1;
 
     /// <summary>
     /// <c>m_tNextAuctionUsableTime</c>: the ar_time before which an auction request answers <c>CoolTime</c> (3 s after
@@ -728,9 +728,8 @@ public class ConnectionInfo
         CharacterChaos = 0;
         HuntaholicPoint = 0;
         HuntaholicEnterCount = 0;
-        HuntaholicReturnX = 0;
-        HuntaholicReturnY = 0;
-        HuntaholicReturnLayer = 0;
+        HuntaholicEnterHp = -1;
+        HuntaholicEnterMp = -1;
         NextHuntaholicRefill = DateTime.MaxValue;
         SummonSlots = Array.Empty<long>();
         lock (SummonLock)

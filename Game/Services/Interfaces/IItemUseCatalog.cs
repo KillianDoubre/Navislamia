@@ -25,4 +25,7 @@ public interface IItemUseCatalog
     /// (<c>ItemBaseType.Use</c>) is spared; an unknown resource is consumed, the reference default.
     /// </summary>
     bool IsConsumedOnUse(int itemResourceId);
+
+    /// <summary>The resource's <c>item_use_flag</c> bitset; 0 for an unknown resource.</summary>
+    int UseFlags(int itemResourceId) => 0;
 }

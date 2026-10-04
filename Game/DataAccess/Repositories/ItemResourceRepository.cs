@@ -121,6 +121,17 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<(int Id, int Flags)> GetUseFlags()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Where(item => item.ItemUseFlag != 0)
+            .Select(item => new { item.Id, item.ItemUseFlag })
+            .AsEnumerable()
+            .Select(item => ((int)item.Id, (int)item.ItemUseFlag))
+            .ToList();
+    }
+
     public IReadOnlyList<ItemSellFields> GetSellPriceFields()
     {
         return _context.ItemResources

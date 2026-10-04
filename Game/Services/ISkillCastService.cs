@@ -44,6 +44,13 @@ public interface ISkillCastService
     bool RemoveState(GameClient client, int stateId);
 
     /// <summary>
+    /// <c>StructCreature::RemoveStateIf(StateFlagChecker(flag))</c>: takes off every active state whose
+    /// <c>state_time_type</c> carries <paramref name="flag"/>, each as <see cref="RemoveState(GameClient,int)"/> does.
+    /// Returns how many were removed.
+    /// </summary>
+    int RemoveStatesWithTimeFlag(GameClient client, Navislamia.Game.DataAccess.Entities.Enums.StateTimeType flag) => 0;
+
+    /// <summary>
     /// Cancels the cast in progress, if it can be cancelled (<c>StructSkill::Cancel</c>): <c>ST_Cancel</c> goes
     /// to the caster and the players who see them. False when there is none or it cannot be.
     /// </summary>

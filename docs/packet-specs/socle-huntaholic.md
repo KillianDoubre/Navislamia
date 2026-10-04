@@ -96,11 +96,27 @@ objectif 3 000). Bear Road : lobby (83719, 2544) canal 300011, donjon (88935, 86
 
 ## 6. Écarts et NON ÉTABLI
 
-- **Retour hors HuntaHolic** : l'officiel ramène à la dernière ville (`GetLastTownPosition`) ; ce serveur n'en garde
-  pas, donc on revient au point d'entrée de la session, ou à la ville de départ après une reconnexion.
 - **Props de soin** : exportés, non posés (aucun prop dynamique par couche n'existe ici).
-- `RemoveAllStateByQuittingHuntaholic` (états `EraseOnQuitHuntaholic`) et les objets
-  `CantUseInHuntaholic`/`UsableInOnlyHuntaholic` ne sont pas appliqués (`ItemUseFlag` non lu, voir 253).
+- Les PV/PM d'entrée (`hhp`/`hmp`) ne vivent que dans la session : l'officiel les garde en drapeaux, donc aussi à
+  travers une reconnexion (`DB_Login.cpp:2367`).
+
+## 7. Sortie, états et objets (2026-10-04)
+
+- **Sortie** : `GetPositionOnEnterInstanceGame` renvoie `hx`/`hy` seulement **hors** de HuntaHolic, sinon
+  `GetLastTownPosition`. Quitter HuntaHolic (sort 64827, fin de chasse sans palier, connexion sans palier) ramène donc
+  **au point de retour** `rx`/`ry` (`socle-point-de-retour.md`), couche 0, et non au point d'entrée.
+- **Toute téléportation qui sort de HuntaHolic** (`ProcessWarp`, crochet `BeforeWarp`) commence, avant la salle, par
+  `RemoveAllStateByQuittingHuntaholic` : chaque état dont `state_time_type` porte `ERASE_ON_QUIT_HUNTAHOLIC` (bit 8,
+  256) est retiré (`ISkillCastService.RemoveStatesWithTimeFlag`). Ce sont les buffs exclusifs Bear Road
+  (200001-200008, posés par les objets 3620000-3620007) et 41102527. Puis `RestoreStatesOnLeaveInstanceGame(true)`
+  rend les PV/PM gardés à l'entrée (`StoreCurrentStatesOnEnterInstanceGame(true)` dans `PendWarpToHuntaholicLobby`),
+  PV bornés par le maximum et au moins 1.
+- **Objets** (`onUseItem`, après Secroute, siège et carte d'événement) : dans HuntaHolic, lobby ou donjon, un objet dont
+  `item_use_flag` porte le bit 22 (`FLAG_CANT_USE_IN_HUNTAHOLIC`) répond `NotActableInHuntaholic` (56) ; hors de
+  HuntaHolic, un objet portant le bit 23 (`FLAG_USABLE_IN_ONLY_HUNTAHOLIC`) répond `ActableOnlyInHuntaholic` (59).
+  `ItemBase::Flag` est copié de `item_use_flag` (`ItemLoader.cpp:176`) et les membres d'`ItemUseFlag` sont des
+  **indices de bit**. La colonne importée est bien ce bitset : les 12 objets au bit 23 sont les objets « exclusifs
+  Bear Road » (buffs, potion de récupération du roi ours, bombes) et 2010472, 75 objets Epic 7 portent le bit 22.
 - Le système anti-addiction (temps de jeu) n'existe pas : `FAILED_BY_GAMETIME_LIMIT` n'est jamais produit.
 - `go_to_huntaholic` est la version 2012 (le Lua 2015 l'appelle encore ; son `warp_to_huntaholic_lobby` n'est pas
   dans le code 2015) : les codes 2 et 3 (horaire, joueur introuvable) ne sont jamais produits.

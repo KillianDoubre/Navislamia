@@ -78,6 +78,17 @@ public class HuntaholicTests
         HuntaholicRules.ProperLobbyLayer(Base(), level).Should().Be((byte)layer);
     }
 
+    // 25166925 is the Bear Road buffs' item_use_flag (bit 23 set), 1 << 22 the "not in HuntaHolic" bit.
+    [TestCase(25166925, true, ResultCode.Success)]
+    [TestCase(25166925, false, ResultCode.ActableOnlyInHuntaholic)]
+    [TestCase(1 << 22, true, ResultCode.NotActableInHuntaholic)]
+    [TestCase(1 << 22, false, ResultCode.Success)]
+    [TestCase(0, true, ResultCode.Success)]
+    public void AnItemIsJudgedByItsHuntaholicFlags(int flags, bool inHuntaholic, ResultCode expected)
+    {
+        ItemUseRules.CheckHuntaholic(flags, inHuntaholic).Should().Be(expected);
+    }
+
     [TestCase(1, 1)]
     [TestCase(2, 5)]
     [TestCase(3, 10)]
@@ -480,22 +491,72 @@ public class HuntaholicTests
     }
 
     [Test]
-    public void TheWarpSpellChecksThenWarpsToTheLobbyAndTheExitGoesBack()
+    public void TheWarpSpellChecksThenWarpsToTheLobbyAndTheExitGoesToTheReturnPoint()
     {
         var traveller = Player(9, "Fay", x: 50000, y: 50000);
+        var info = StorageTestHarness.Session(traveller);
+        info.RespawnX = 6650;
+        info.RespawnY = 7001;
 
         _events.CheckInstanceSkill(traveller, HuntaholicService.WarpSkill).Should().Be(ResultCode.Success);
         _events.FireInstanceSkill(traveller, HuntaholicService.WarpSkill).Should().Be(ResultCode.Success);
-        StorageTestHarness.Session(traveller).X.Should().Be(1800);
-        StorageTestHarness.Session(traveller).Layer.Should().Be(0);
+        info.X.Should().Be(1800);
+        info.Layer.Should().Be(0);
         _events.CheckInstanceSkill(traveller, HuntaholicService.WarpSkill).Should().Be(ResultCode.NotActableInHuntaholic);
 
+        // GetPositionOnEnterInstanceGame: leaving HuntaHolic goes to GetLastTownPosition, not to the entry point.
         _events.FireInstanceSkill(traveller, HuntaholicService.ExitSkill).Should().Be(ResultCode.Success);
-        (StorageTestHarness.Session(traveller).X, StorageTestHarness.Session(traveller).Y).Should().Be((50000f, 50000f));
+        (info.X, info.Y, info.Layer).Should().Be((6650f, 7001f, (byte)0));
 
         var pk = Player(10, "Gus", x: 50000, y: 50000);
         StorageTestHarness.Session(pk).PkMode = true;
         _events.CheckInstanceSkill(pk, HuntaholicService.WarpSkill).Should().Be(ResultCode.PKLimit);
+    }
+
+    [Test]
+    public void LeavingHuntaholicErasesItsStatesAndGivesTheEntryVitalsBack()
+    {
+        var traveller = Player(9, "Fay", x: 50000, y: 50000);
+        var info = StorageTestHarness.Session(traveller);
+        info.CharacterHp = 70;
+        info.CharacterMp = 40;
+        info.RespawnX = 6650;
+        info.RespawnY = 7001;
+
+        _events.FireInstanceSkill(traveller, HuntaholicService.WarpSkill);
+        info.CharacterHp = 12;
+        info.CharacterMp = 3;
+
+        _warp.Warp(traveller, 6650, 7001, 0);
+
+        A.CallTo(() => _casts.RemoveStatesWithTimeFlag(traveller,
+            Navislamia.Game.DataAccess.Entities.Enums.StateTimeType.EraseOnQuitHuntaholic)).MustHaveHappenedOnceExactly();
+        (info.CharacterHp, info.CharacterMp).Should().Be((70, 40));
+        info.HuntaholicEnterHp.Should().Be(-1, "the kept vitals are given back once");
+    }
+
+    [Test]
+    public void AWarpInsideHuntaholicKeepsItsStates()
+    {
+        var player = Player(1, "Ana");
+
+        _warp.Warp(player, 1700, 1700, 0);
+
+        A.CallTo(() => _casts.RemoveStatesWithTimeFlag(A<GameClient>._,
+            A<Navislamia.Game.DataAccess.Entities.Enums.StateTimeType>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public void TheEntryVitalsAreBoundedByTheMaximumAndNeverKill()
+    {
+        HuntaholicRules.EntryVitals(150, 40, 100).Should().Be((100, 40));
+        HuntaholicRules.EntryVitals(0, -5, 100).Should().Be((1, 0));
+    }
+
+    [Test]
+    public void ALoginWhoseLevelHasNoLobbyGoesToTheReturnPoint()
+    {
+        _service.PlaceAtLogin(200, 1700, 1700, 0, 6650, 7001).Should().Be((6650f, 7001f, (byte)0));
     }
 
     [Test]

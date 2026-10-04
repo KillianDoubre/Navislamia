@@ -14,6 +14,7 @@ public class ItemUseCatalog : IItemUseCatalog
     private readonly FrozenDictionary<int, ItemUseFields> _fields;
     private readonly FrozenSet<int> _reusable;
     private readonly FrozenSet<int> _renamesPet;
+    private readonly FrozenDictionary<int, int> _useFlags;
 
     public ItemUseCatalog(IItemResourceRepository repository, string retailPath = null)
     {
@@ -54,6 +55,15 @@ public class ItemUseCatalog : IItemUseCatalog
         _fields = byId.ToFrozenDictionary();
         _reusable = reusable.ToFrozenSet();
         _renamesPet = renamesPet.ToFrozenSet();
+
+        // The flags come from the item table only: the retail use profiles do not carry them.
+        var useFlags = new Dictionary<int, int>();
+        foreach (var (id, flags) in repository.GetUseFlags())
+        {
+            useFlags[id] = flags;
+        }
+
+        _useFlags = useFlags.ToFrozenDictionary();
         _logger.Debug("Loaded use levels for {count} item resources, {reusable} reusable", _levels.Count,
             _reusable.Count);
     }
@@ -67,6 +77,8 @@ public class ItemUseCatalog : IItemUseCatalog
         _fields.TryGetValue(itemResourceId, out fields);
 
     public bool RenamesPet(int itemResourceId) => _renamesPet.Contains(itemResourceId);
+
+    public int UseFlags(int itemResourceId) => _useFlags.GetValueOrDefault(itemResourceId);
 
     public bool IsConsumedOnUse(int itemResourceId)
     {

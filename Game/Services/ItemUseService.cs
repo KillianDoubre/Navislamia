@@ -27,11 +27,13 @@ public class ItemUseService : IItemUseService
     private readonly IStatService _stats;
 
     private readonly Progression.ITitleService _titles;
+    private readonly Huntaholic.IHuntaholicCatalog _huntaholics;
 
     public ItemUseService(ICharacterService characterService, IItemUseCatalog catalog,
         IPetSummonService petSummon, ISkillCastService states, IStatService stats,
-        Progression.ITitleService titles = null)
+        Progression.ITitleService titles = null, Huntaholic.IHuntaholicCatalog huntaholics = null)
     {
+        _huntaholics = huntaholics;
         _titles = titles;
         _characterService = characterService;
         _catalog = catalog;
@@ -93,6 +95,14 @@ public class ItemUseService : IItemUseService
                 client.SendResult(UseItemRequestId, (ushort)gate, value);
                 return;
             }
+        }
+
+        var inHuntaholic = _huntaholics is not null && _huntaholics.GetHuntaholicId(info.X, info.Y) != 0;
+        var huntaholicGate = ItemUseRules.CheckHuntaholic(_catalog.UseFlags((int)item.ItemResourceId), inHuntaholic);
+        if (huntaholicGate != ResultCode.Success)
+        {
+            client.SendResult(UseItemRequestId, (ushort)huntaholicGate, value);
+            return;
         }
 
         // The cool-down is per group and only for groups 1..40, the 40 slots of TS_SC_ITEM_COOL_TIME (217):
