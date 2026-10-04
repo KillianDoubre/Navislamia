@@ -416,7 +416,10 @@ equip/unequip, skill learn).
 `NPC_Tutorial.lua`) ported as `Game/Services/Jobs/` — dynamic dialog pages built by `JobChangeService` and shown by
 `NpcDialogService`, menus hard-coded like the Lua (Lv/JLv 10/10, 50/40, then the master class at NPC 11555 with
 147/49 and quest 3322), everything judged again at the commit, `ICharacterService.ChangeJobAsync`, then the
-`job_N`/`jlv_N`/`job`/`job_level`/`job_depth` properties, the stats and a `@SCRIPT` chat line.
+`job_N`/`jlv_N`/`job`/`job_level`/`job_depth` properties, the stats and a `@SCRIPT` chat line. **Talent skills, the master
+class skill reset and the race change** (§8 of the sheet): a negative `need_jp` is a talent point cost
+(`NotEnoughTP` 83, `ConnectionInfo.CharacterTalentPoint`); `SkillResetRules` ports `ResetSkill`/`ResetJob`/`SetRace`, and
+a reset sends `TS_SC_SKILL_LIST` with `modification_type` 1 (`REFRESH`), the only way to take skills away on the client.
 
 Skill learning is server-authoritative. Epic 7.3 sends `TM_CS_LEARN_SKILL` (`402`, 17 bytes) with the
 character handle, skill id and requested level. `SkillCatalog` validates that the request advances by

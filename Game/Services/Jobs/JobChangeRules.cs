@@ -54,8 +54,11 @@ public static class JobChangeRules
     private static readonly HashSet<string> Functions = new(StringComparer.Ordinal)
     {
         ChangeJob, MasterContact, CheckCommon, Common, TutorialChangeJob, TutorialMenu, TutorialCheck, Tutorial,
-        GotoHector
+        GotoHector, SkillResetRules.GoldReset, SkillResetRules.JpReset, SkillResetRules.ChangeRace, SkillResetRules.SetRace
     };
+
+    /// <summary>The job NPCs of <c>NPC_JobChange_contact</c>, each with its own title and texts.</summary>
+    public static readonly IReadOnlySet<int> JobNpcs = new HashSet<int> { 4004, 1004, 2004, 6004, 7032, 7004 };
 
     private static readonly Regex JobTrigger = new(
         @"\A(Run_JobChange_check_common|Run_JobChange_common|Run_JobChange_Tutorial_check|Run_JobChange_Tutorial)\( '(@[0-9]+)' , ([0-9]+) \)\z",

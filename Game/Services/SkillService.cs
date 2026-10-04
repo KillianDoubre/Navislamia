@@ -45,7 +45,7 @@ public class SkillService : ISkillService
         var currentLevel = info.LearnedSkills.GetValueOrDefault(request.SkillId);
         var evaluation = _catalog.EvaluateAcrossJobs(info.PreviousJobs, info.CharacterJob, info.CharacterLevel,
             info.CharacterJobLevel, request.SkillId, currentLevel, request.TargetLevel, info.LearnedSkills, info.CharacterJp,
-            _rates.SkillJpCost);
+            _rates.SkillJpCost, availableTp: info.CharacterTalentPoint);
         if (!evaluation.IsSuccess)
         {
             client.SendResult(RequestId, (ushort)evaluation.Result, request.SkillId);
@@ -53,10 +53,16 @@ public class SkillService : ISkillService
         }
 
         var remainingJp = info.CharacterJp - evaluation.Cost;
+        // A talent skill spends talent points instead (StructCreature::RegisterSkill), saved with the level.
+        var remainingTp = info.CharacterTalentPoint - evaluation.TalentCost;
         try
         {
-            if (!await _characterService.SaveLearnedSkillAsync(info.CharacterName, request.SkillId,
-                    request.TargetLevel, remainingJp))
+            var saved = evaluation.TalentCost > 0
+                ? await _characterService.SaveLearnedSkillAsync(info.CharacterName, request.SkillId, request.TargetLevel,
+                    remainingJp, remainingTp)
+                : await _characterService.SaveLearnedSkillAsync(info.CharacterName, request.SkillId,
+                    request.TargetLevel, remainingJp);
+            if (!saved)
             {
                 client.SendResult(RequestId, (ushort)ResultCode.DBError, request.SkillId);
                 return;
@@ -72,6 +78,12 @@ public class SkillService : ISkillService
 
         info.CharacterJp = remainingJp;
         info.LearnedSkills[request.SkillId] = request.TargetLevel;
+        if (evaluation.TalentCost > 0)
+        {
+            // SetTalentPoint broadcasts the property.
+            info.CharacterTalentPoint = remainingTp;
+            client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "tp", remainingTp));
+        }
 
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(info.CharacterHandle, info.CharacterExp,
             info.CharacterJp));

@@ -170,6 +170,7 @@ public class GameActions : IActions
         info.CharacterJobLevel = character.Jlv;
         info.CharacterExp = character.Exp;
         info.CharacterJp = character.Jp;
+        info.CharacterTalentPoint = character.TalentPoint;
         info.CharacterGold = character.Gold;
         info.CharacterChaos = character.Chaos;
         info.CharacterStamina = Math.Max(0, character.Stamina);

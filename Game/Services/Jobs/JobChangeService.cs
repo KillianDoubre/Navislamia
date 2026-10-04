@@ -40,7 +40,7 @@ public interface IJobChangeService
 /// <c>StructPlayer::onChangeProperty</c> send: <c>job_N</c>, <c>jlv_N</c>, then <c>job</c> to the region and the
 /// job info, the stats, <c>job_level</c> and <c>job_depth</c>, and the system line of <c>message()</c>.
 /// </summary>
-public sealed class JobChangeService : IJobChangeService
+public sealed partial class JobChangeService : IJobChangeService
 {
     /// <summary><c>CHAT_NPC</c>, what the Lua's <c>message()</c> sends, from <c>@SCRIPT</c>.</summary>
     private const byte ChatNpc = 40;
@@ -57,8 +57,15 @@ public sealed class JobChangeService : IJobChangeService
     private readonly IWarpService _warp;
 
     public JobChangeService(ICharacterService characters, IStatService stats, IWarpService warp,
-        IQuestService quests = null, IPartyService parties = null, IPlayerVisibilityService players = null)
+        IQuestService quests = null, IPartyService parties = null, IPlayerVisibilityService players = null,
+        SkillCatalog skills = null, ILevelingService leveling = null, ISkillCastService casts = null,
+        Creatures.ICreatureService creatures = null, Rates.IRateService rates = null)
     {
+        _skills = skills;
+        _leveling = leveling;
+        _casts = casts;
+        _creatures = creatures;
+        _rates = rates;
         _characters = characters;
         _stats = stats;
         _warp = warp;
@@ -74,7 +81,7 @@ public sealed class JobChangeService : IJobChangeService
         switch (function)
         {
             case JobChangeRules.ChangeJob:
-                return npcId == JobChangeRules.MasterNpcId ? JobChangeStep.Nothing : ChangeJobPage(info, npcId, depth);
+                return npcId == JobChangeRules.MasterNpcId ? JobChangeStep.Nothing : await ChangeJobPageAsync(client, npcId, depth);
 
             case JobChangeRules.MasterContact:
                 return npcId == JobChangeRules.MasterNpcId
@@ -94,6 +101,16 @@ public sealed class JobChangeService : IJobChangeService
             case JobChangeRules.GotoHector:
                 _warp.Warp(client, JobChangeRules.HectorX, JobChangeRules.HectorY);
                 return JobChangeStep.Nothing;
+
+            case SkillResetRules.GoldReset:
+            case SkillResetRules.JpReset:
+                return await ResetSkillsAsync(client, npcId, function == SkillResetRules.GoldReset);
+
+            case SkillResetRules.ChangeRace:
+                return await ChangeRacePageAsync(client, npcId);
+
+            case SkillResetRules.SetRace:
+                return await SetRaceAsync(client, npcId, trigger);
         }
 
         if (!JobChangeRules.TryReadJobTrigger(trigger, out var jobFunction, out var job)
@@ -151,6 +168,14 @@ public sealed class JobChangeService : IJobChangeService
     }
 
     /// <summary><c>NPC_JobChange_change_job</c>.</summary>
+    private async Task<JobChangeStep> ChangeJobPageAsync(GameClient client, int npcId, int depth)
+    {
+        // A master class gets the skill reset, priced by the resets already done (the Epic 7 trunk's branch).
+        return depth >= JobChangeRules.MasterDepth && _skills is not null
+            ? await MasterResetPageAsync(client, npcId)
+            : ChangeJobPage(client.ConnectionInfo, npcId, depth);
+    }
+
     private static JobChangeStep ChangeJobPage(ConnectionInfo info, int npcId, int depth)
     {
         var page = new NpcDialogDefinition { Title = JobChangeRules.Title(npcId) };
@@ -368,6 +393,7 @@ public sealed class JobChangeService : IJobChangeService
             info.PreviousJobs.AddRange(result.PreviousJobs);
             info.CharacterJob = result.Job;
             info.CharacterJobLevel = result.JobLevel;
+            info.CharacterTalentPoint = talentPoints.Value;
 
             SendJobChange(client, result, talentPoints.Value);
             _parties?.OnJobChanged(client);

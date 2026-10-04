@@ -313,7 +313,11 @@ public static class GameCharacterPackets
     /// <c>TS_SC_SKILL_LIST</c> (403). Cooldowns reach the client through this packet, not a dedicated one:
     /// the reference server re-sends the skill after a successful cast for exactly that reason.
     /// </summary>
-    public static byte[] BuildSkillList(uint handle, IReadOnlyCollection<SkillListEntry> skills)
+    /// <param name="refresh">
+    /// <c>modification_type</c> @6: <c>REFRESH</c> (1) replaces the whole list (a reset takes skills away),
+    /// <c>UPDATE</c> (0) changes the skills listed.
+    /// </param>
+    public static byte[] BuildSkillList(uint handle, IReadOnlyCollection<SkillListEntry> skills, bool refresh = false)
     {
         const int fixedPayloadSize = 7;
         const int skillRecordSize = 14;
@@ -323,6 +327,7 @@ public static class GameCharacterPackets
 
         BinaryPrimitives.WriteUInt32LittleEndian(payload, handle);
         BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), checked((ushort)skills.Count));
+        payload[6] = refresh ? (byte)1 : (byte)0;
 
         var offset = fixedPayloadSize;
         foreach (var skill in skills)

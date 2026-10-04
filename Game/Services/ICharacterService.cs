@@ -7,8 +7,29 @@ using Navislamia.Game.Network.Packets.Game;
 
 namespace Navislamia.Game.Services;
 
+/// <summary>
+/// What a skill reset or a race change writes, all absolute (docs/packet-specs/socle-changement-metier.md §8): the skills
+/// kept, the JP, the talent points and the job level, and as the case may be the gold, the reset counter and the race.
+/// </summary>
+public sealed record SkillResetWrite(IReadOnlyDictionary<int, byte> Skills, long Jp, int TalentPoint, int JobLevel,
+    long? Gold = null, int? ResetCount = null, RaceChangeWrite Race = null);
+
+/// <summary>A race change: the new race and its base job, and the stone it takes (one unit).</summary>
+public sealed record RaceChangeWrite(int Race, int Job, int StoneResourceId);
+
+/// <summary>Whether it was saved, and the race stone's stack afterwards (amount 0 when it is gone).</summary>
+public sealed record SkillResetCommit(bool Saved, ItemEntity Stone = null);
+
 public interface ICharacterService
 {
+    /// <summary>Writes a skill reset or a race change in one save; refused when the race stone is missing.</summary>
+    Task<SkillResetCommit> ApplySkillResetAsync(string characterName, SkillResetWrite write) =>
+        Task.FromResult(new SkillResetCommit(false));
+
+    /// <summary>The character's script flags (<c>get_flag</c>, <c>Characters.FlagList</c>).</summary>
+    Task<IReadOnlyDictionary<string, string>> GetFlagsAsync(string characterName) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
+
     Task<IReadOnlyList<ItemEntity>> ConsumeEtherealAsync(string characterName, Func<ItemEntity, int> amount) =>
         Task.FromResult<IReadOnlyList<ItemEntity>>(Array.Empty<ItemEntity>());
     Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false);
@@ -37,6 +58,10 @@ public interface ICharacterService
     Task<bool> UpdateHideEquipFlagAsync(string characterName, int hideEquipFlag);
 
     Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp);
+
+    /// <summary>A talent skill's level: the skill, the JP and the talent points left, in one save.</summary>
+    Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp, int remainingTalentPoint) =>
+        Task.FromResult(false);
 
     /// <summary>
     /// The character's carried quests, ordered by code: the state <c>TM_SC_QUEST_LIST</c> (600) exposes

@@ -71,11 +71,8 @@ seul changement à la fois par session (`ConnectionInfo.JobChangeInProgress`).
 
 ## 6. Non porté
 
-- Changement de race (`NPC_JobChange_change_race`, objet 601100284, `set_race`) : remise au métier 0, réinitialisation des
-  compétences.
-- Réinitialisation des compétences de classe maître par or ou JP (`gold_skill_reset_check`, `jp_skill_reset_check`).
-- Les compétences de talent (TP) elles-mêmes : seuls les points sont accordés.
 - `NPC_JobChange_Beginner_contact` : marqué inutilisé dans le Lua.
+- Le changement de race, la remise à zéro et les compétences de talent sont livrés depuis : voir §8.
 
 ## 7. NON ÉTABLI
 
@@ -83,3 +80,63 @@ seul changement à la fois par session (`ConnectionInfo.JobChangeInProgress`).
   compétences sur `job`/`job_depth`, nécessité de `job_depth` (le serveur ne l'envoie pas à la connexion).
 - Les coûts de JLv viennent de la 9.4 : la table du client 7.3 peut différer.
 - `get_quest_progress == 0` (« acceptable ») est rendu pour toute quête non prise, sans juger si elle peut être acceptée.
+
+## 8. Compétences de talent, remise à zéro de la classe maître, changement de race (2026-10-04)
+
+Sources : Lua Epic 7 du trunk (`NPC_JobChange_change_job` en profondeur 3, `gold_skill_reset_check`,
+`jp_skill_reset_check`, `NPC_JobChange_change_race`, `NPC_JobChange_set_race`), et serveur officiel 2015 :
+`StructCreature::ResetSkill`, `RemoveSkill`, `GetSumOfSkillLearningCost`, `AdjustOverflowedSkillLevel`,
+`StructPlayer::ResetJob`, `SetRace`, `onResetSkill`, `GameContent::isLearnableSkill`.
+
+### Compétences de talent
+
+- **Coût** : une compétence de talent a un `need_jp` **négatif**. Son opposé est le coût en TP, et elle ne coûte aucun JP
+  (`SkillBase::GetNeedTalentPoint`).
+  - 90 entrées du catalogue 7.3, des arbres de classe maître, à −1 par niveau.
+- **Refus** : sans assez de TP, l'apprentissage répond `NotEnoughTP` (83). Avant ce lot, il répondait `NotActable`, ce qui
+  rendait ces compétences inapprenables.
+- **Points** : ils sont tenus en session (`ConnectionInfo.CharacterTalentPoint`, posé à l'entrée en jeu et au passage en
+  classe maître), dépensés avec le niveau dans la même sauvegarde, et la propriété `tp` est renvoyée.
+
+### Remise à zéro de la classe maître
+
+- **Page** : un personnage de profondeur 3 voit, au PNJ de métier, le texte `@90604793`+`reset_count` et les deux remises.
+- **Prix** : il dépend du drapeau `reset_count`, plafonné à 9 :
+  - en or : 10 000, 2,5 M, 5 M, 10 M, 25 M, 50 M, 100 M, 500 M, 1 G, 2 G ;
+  - en JP : 2 000, 500 000, 1 M, 2 M, 5 M, 10 M, 20 M, 100 M, 200 M, 400 M.
+
+  Sans les moyens : `@90604806`. Sinon : `@90604805`.
+- **`ResetSkill(3)`** (`SkillResetRules.Reset`) :
+  - une compétence que les arbres des profondeurs 0 à 2 n'autorisent pas disparaît ;
+  - une compétence qu'ils autorisent sous son niveau est ramenée à leur maximum ;
+  - chaque niveau rendu rembourse son coût : JP = `need × jp_ratio` du **premier arbre essayé**, celui du métier de
+    profondeur 0 (1 hors de lui), au taux `SkillJpCost` du serveur ; TP = coût de talent.
+- **`onResetSkill`** : le JP des JLv du métier courant revient et le JLv repart à 1. Tout cela est vrai à l'officiel.
+- **Envois** :
+  - `TS_SC_SKILL_LIST` avec **`modification_type` = 1 (`REFRESH`)** : le client remplace sa liste, donc les compétences
+    retirées disparaissent ;
+  - JP, `job_level`, `tp`, stats ;
+  - auras des compétences retirées éteintes, incantation annulée (`turnOffAuraOnSkillReset`).
+- **Invocations** : celles qui dépassent un Creature Control réduit sont rappelées et la formation est revalidée.
+
+### Changement de race
+
+- **Conditions** : la pierre 601100284 dans le sac, une autre race que la sienne, au PNJ de métier ou au tuteur 3019.
+- **Effet** :
+  1. `ResetSkill(0)` : toutes les compétences, JP et TP rendus, puis les JLv du métier courant.
+  2. `ResetJob(0)` : les JLv de chaque métier quitté sont rendus en JP, et les 2 TP de la classe maître retirés.
+  3. Le métier de base de la nouvelle race : Déva 3 → 100, Asura 4 → 200, Gaïa 5 → 300.
+  4. La race elle-même. Une pierre est consommée, le tout en une sauvegarde (`ApplySkillResetAsync`).
+- **Envois** : `race` et `job` à la région, `job_0..2`/`jlv_0..2` à 0, `job_depth` 0, la pile de pierres (255/254), puis la
+  remise à zéro ci-dessus.
+
+### NON ÉTABLI
+
+- **Apparence après le changement de race** : le client 7.3 n'a pas été observé. On ne sait pas s'il reconstruit le modèle
+  sur la propriété `race`. L'officiel ne change ni visage ni coiffure (`onBeforeResetRace` est vide). Une reconnexion
+  est le recours sûr.
+- **Non modélisé** :
+  - le déliement des cartes de compétence liées (`UnBindSkillCard`) ;
+  - le retrait des objets portés interdits à la nouvelle race. L'officiel ne les retire pas non plus ; ils sont
+    rejugés à la prochaine entrée en jeu.
+

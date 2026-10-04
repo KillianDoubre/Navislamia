@@ -8,7 +8,11 @@ using Navislamia.Game.Network.Packets;
 
 namespace Navislamia.Game.Services;
 
-public readonly record struct SkillLearnEvaluation(ResultCode Result, long Cost)
+/// <summary>
+/// What learning a level costs: JP, or talent points for a talent skill, whose <c>need_jp</c> is negative
+/// (<c>SkillBase::GetNeedTalentPoint</c>: the opposite of a negative cost is a TP cost, and its JP cost is 0).
+/// </summary>
+public readonly record struct SkillLearnEvaluation(ResultCode Result, long Cost, int TalentCost = 0)
 {
     public bool IsSuccess => Result == ResultCode.Success;
 }
@@ -68,7 +72,8 @@ public class SkillCatalog
     /// </summary>
     public SkillLearnEvaluation EvaluateAcrossJobs(IReadOnlyList<(int Job, int JobLevel)> previousJobs, int jobId,
         int characterLevel, int jobLevel, int skillId, byte currentLevel, byte targetLevel,
-        IReadOnlyDictionary<int, byte> learnedSkills, long availableJp, double costRate = 1, int cardEnhance = 0)
+        IReadOnlyDictionary<int, byte> learnedSkills, long availableJp, double costRate = 1, int cardEnhance = 0,
+        int availableTp = 0)
     {
         var evaluation = new SkillLearnEvaluation(ResultCode.LimitJob, 0);
         foreach (var (previousJob, previousJobLevel) in previousJobs ?? Array.Empty<(int, int)>())
@@ -79,7 +84,7 @@ public class SkillCatalog
             }
 
             evaluation = Evaluate(previousJob, characterLevel, previousJobLevel, skillId, currentLevel, targetLevel,
-                learnedSkills, availableJp, costRate, cardEnhance);
+                learnedSkills, availableJp, costRate, cardEnhance, availableTp);
             if (!KeepsSearching(evaluation.Result))
             {
                 return evaluation;
@@ -87,7 +92,7 @@ public class SkillCatalog
         }
 
         return Evaluate(jobId, characterLevel, jobLevel, skillId, currentLevel, targetLevel, learnedSkills,
-            availableJp, costRate, cardEnhance);
+            availableJp, costRate, cardEnhance, availableTp);
     }
 
     private static bool KeepsSearching(ResultCode result) =>
@@ -100,9 +105,48 @@ public class SkillCatalog
     public IReadOnlyCollection<int> SkillsOf(int jobId) =>
         _jobs.TryGetValue(jobId, out var skills) ? skills.Keys : Array.Empty<int>();
 
+    /// <summary><c>GameContent::GetAllowedMaxSkillLevel(tree, skill)</c>: the highest level a job's tree allows, 0 outside it.</summary>
+    public int MaxLevelIn(int jobId, int skillId) =>
+        _jobs.TryGetValue(jobId, out var skills) && skills.TryGetValue(skillId, out var skill)
+            ? skill.Rules.Select(rule => rule.MaxSkillLevel).DefaultIfEmpty(0).Max()
+            : 0;
+
+    /// <summary>
+    /// <c>GetSumOfSkillLearningCost</c> for one level: what learning it cost, given back by a reset. The JP is the
+    /// skill's need times the <c>jp_ratio</c> of the first tree tried — the depth-0 job's, whose last entry reaching
+    /// the level wins, 1 otherwise (<c>GameContent::GetNeedJpForSkillLevelUp</c>) — and a negative need is TP.
+    /// </summary>
+    public (long Jp, int Tp) LevelCost(int baseJobId, int skillId, int level)
+    {
+        // need_jp belongs to the skill (SkillBase), not to a tree: the longest list a tree carries is the skill's.
+        var costs = _jobs.Values.Select(skills => skills.GetValueOrDefault(skillId)?.JpCosts)
+            .Where(list => list is not null).MaxBy(list => list.Count);
+        if (costs is null || level < 1 || level > costs.Count)
+        {
+            return (0, 0);
+        }
+
+        var need = costs[level - 1];
+        if (need < 0)
+        {
+            return (0, -need);
+        }
+
+        var ratio = 1d;
+        if (_jobs.TryGetValue(baseJobId, out var tree) && tree.TryGetValue(skillId, out var entry))
+        {
+            foreach (var rule in entry.Rules.Where(rule => rule.MaxSkillLevel >= level))
+            {
+                ratio = rule.JpRatio > 0 ? rule.JpRatio : 1;
+            }
+        }
+
+        return ((long)(need * ratio), 0);
+    }
+
     public SkillLearnEvaluation Evaluate(int jobId, int characterLevel, int jobLevel, int skillId,
         byte currentLevel, byte targetLevel, IReadOnlyDictionary<int, byte> learnedSkills, long availableJp,
-        double costRate = 1, int cardEnhance = 0)
+        double costRate = 1, int cardEnhance = 0, int availableTp = 0)
     {
         if (targetLevel == 0 || targetLevel != currentLevel + 1)
         {
@@ -184,12 +228,17 @@ public class SkillCatalog
             return new SkillLearnEvaluation(ResultCode.NotActable, 0);
         }
 
-        var ratio = rule.JpRatio > 0 ? rule.JpRatio : 1;
-        var cost = checked((long)Math.Ceiling(skill.JpCosts[targetLevel - 1] * ratio));
-        if (cost < 0)
+        // GameContent::isLearnableSkill: a talent skill (negative need_jp) costs talent points, no JP, no ratio.
+        var need = skill.JpCosts[targetLevel - 1];
+        if (need < 0)
         {
-            return new SkillLearnEvaluation(ResultCode.NotActable, 0);
+            return availableTp < -need
+                ? new SkillLearnEvaluation(ResultCode.NotEnoughTP, 0, -need)
+                : new SkillLearnEvaluation(ResultCode.Success, 0, -need);
         }
+
+        var ratio = rule.JpRatio > 0 ? rule.JpRatio : 1;
+        var cost = checked((long)Math.Ceiling(need * ratio));
 
         // The server's SkillJpCost rate, after the job's own ratio.
         cost = Rates.RateMath.ScaleCost(cost, costRate);

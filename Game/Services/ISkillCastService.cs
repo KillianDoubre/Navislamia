@@ -55,6 +55,9 @@ public interface ISkillCastService
     /// to the caster and the players who see them. False when there is none or it cannot be.
     /// </summary>
     bool CancelCast(GameClient client) => false;
+
+    /// <summary><c>turnOffAuraOnSkillReset</c>: the cast in progress stops and the auras of skills taken away go out.</summary>
+    void TurnOffAurasOf(GameClient client, System.Collections.Generic.IReadOnlyCollection<int> skillIds) { }
     bool CancelSummonCast(GameClient client, uint handle, bool force = false) => false;
     void ForgetSummonCaster(GameClient client, uint handle) { }
     void OnSummonCasterDamaged(GameClient client, uint handle, int damage) { }

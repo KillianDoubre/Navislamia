@@ -75,6 +75,9 @@ public class ConnectionInfo
     public long CharacterExp { get; set; }
     public object ProgressLock { get; } = new();
     public long CharacterJp { get; set; }
+
+    /// <summary>The talent points (<c>tp</c>): granted by the master class, spent on talent skills, given back by a reset.</summary>
+    public int CharacterTalentPoint { get; set; }
     /// <summary>
     /// The gold the session holds, persisted on save. A booth trade moves gold between two sessions from
     /// two receiving threads, so a check followed by a write would let two purchases spend the same coins:
@@ -730,6 +733,7 @@ public class ConnectionInfo
         EtherealGear = Array.Empty<Navislamia.Game.Services.EtherealCandidate>();
         CharacterExp = 0;
         CharacterJp = 0;
+        CharacterTalentPoint = 0;
         CharacterGold = 0;
         CharacterChaos = 0;
         HuntaholicPoint = 0;

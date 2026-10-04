@@ -1134,6 +1134,22 @@ public partial class SkillCastService : ISkillCastService
         PulseSupportAura(client, fields, now);
     }
 
+    public void TurnOffAurasOf(GameClient client, IReadOnlyCollection<int> skillIds)
+    {
+        // RemoveSkill cancels the skill in use before the list changes.
+        CancelCast(client);
+        KeyValuePair<int, int>[] auras;
+        lock (client.ConnectionInfo.BuffLock)
+        {
+            auras = client.ConnectionInfo.ActiveAuras.Where(aura => skillIds.Contains(aura.Value)).ToArray();
+        }
+
+        foreach (var (group, skillId) in auras)
+        {
+            RemoveAura(client, skillId, group);
+        }
+    }
+
     private void RemoveAura(GameClient client, int skillId, int toggleGroup)
     {
         RemoveAuraProjections(client, skillId);

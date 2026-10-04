@@ -61,6 +61,88 @@ public class CharacterService : ICharacterService
             return changed;
         });
 
+    public Task<SkillResetCommit> ApplySkillResetAsync(string characterName, SkillResetWrite write) =>
+        RunInventoryAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithSkillsAsync(characterName);
+            if (character is null)
+            {
+                return new SkillResetCommit(false);
+            }
+
+            ItemEntity stone = null;
+            if (write.Race is { } race)
+            {
+                // The same context: the items join the tracked character.
+                await repository.GetCharacterByNameWithItemsAsync(characterName);
+                stone = character.Items?.Where(item => item.ItemResourceId == race.StoneResourceId && item.Amount > 0
+                        && item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null)
+                    .OrderBy(item => item.Idx).FirstOrDefault();
+                if (stone is null)
+                {
+                    return new SkillResetCommit(false);
+                }
+
+                stone.Amount -= 1;
+                if (stone.Amount == 0)
+                {
+                    character.Items.Remove(stone);
+                    repository.DeleteItem(stone);
+                }
+
+                // ResetJob(0) then ChangeJob(base job of the race): the base job of the new race, depth 0, no history.
+                character.Race = race.Race;
+                character.CurrentJob = (Job)race.Job;
+                character.PreviousJobs = new Job[3];
+                character.JobLvs = new int[3];
+                character.JobDepth = (JobDepth)1;
+            }
+
+            character.Skills ??= new List<CharacterSkillEntity>();
+            foreach (var skill in character.Skills.ToArray())
+            {
+                if (write.Skills.TryGetValue(skill.SkillId, out var level) && level > 0)
+                {
+                    skill.Level = level;
+                }
+                else
+                {
+                    character.Skills.Remove(skill);
+                }
+            }
+
+            character.Jp = write.Jp;
+            character.TalentPoint = write.TalentPoint;
+            character.Jlv = write.JobLevel;
+            if (write.Gold is { } gold)
+            {
+                character.Gold = gold;
+            }
+
+            if (write.ResetCount is { } count)
+            {
+                var flags = (character.FlagList ?? Array.Empty<string>())
+                    .Where(flag => !flag.StartsWith(Jobs.SkillResetRules.ResetCountFlag + ":", StringComparison.Ordinal))
+                    .Append($"{Jobs.SkillResetRules.ResetCountFlag}:{count}");
+                character.FlagList = flags.ToArray();
+            }
+
+            await repository.SaveChangesAsync();
+            return new SkillResetCommit(true, stone);
+        });
+
+    /// <summary>The character's script flags (<c>get_flag</c>), read without the gate.</summary>
+    public async Task<IReadOnlyDictionary<string, string>> GetFlagsAsync(string characterName)
+    {
+        using var repository = _repositories.Create();
+        var character = await repository.GetCharacterByNameAsync(characterName);
+        return (character?.FlagList ?? Array.Empty<string>())
+            .Where(flag => flag?.Contains(':') == true)
+            .Select(flag => flag.Split(':', 2))
+            .GroupBy(pair => pair[0], StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last()[1], StringComparer.Ordinal);
+    }
+
     public Task<IEnumerable<CharacterEntity>> GetCharactersByAccountNameAsync(string accountName, bool withItems = false)
     {
         return RunExclusiveAsync<IEnumerable<CharacterEntity>>(accountName, async repository =>
@@ -212,7 +294,15 @@ public class CharacterService : ICharacterService
         });
     }
 
-    public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp)
+    public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp) =>
+        SaveLearnedSkillAsync(characterName, skillId, level, remainingJp, null);
+
+    public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp,
+        int remainingTalentPoint) =>
+        SaveLearnedSkillAsync(characterName, skillId, level, remainingJp, (int?)remainingTalentPoint);
+
+    private Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp,
+        int? remainingTalentPoint)
     {
         return RunExclusiveAsync(characterName, async repository =>
         {
@@ -240,6 +330,11 @@ public class CharacterService : ICharacterService
             }
 
             character.Jp = remainingJp;
+            if (remainingTalentPoint is { } talentPoint)
+            {
+                character.TalentPoint = talentPoint;
+            }
+
             await repository.SaveChangesAsync();
             return true;
         });
