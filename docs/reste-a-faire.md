@@ -114,7 +114,9 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
   les apparitions conditionnelles des portails secrets.
 - ~~HuntaHolic (lobby 4001/4002, marché, points), hôtel des ventes~~ : livrés (`socle-huntaholic.md`,
   `socle-encheres-mecanique.md`). Restent : props de soin de Bear Road, états `EraseOnQuitHuntaholic`, objets
-  réservés/interdits en HuntaHolic, enchères automatiques, essai PostgreSQL du stockage des enchères.
+  réservés/interdits en HuntaHolic. Enchères automatiques et essai PostgreSQL livrés
+  (`socle-encheres-mecanique.md` §5–6), **à vérifier en jeu** : 39 définitions importées, 3 compatibles et actives
+  avec le client 7.3 et la région actuelle ; 35 lignes utilisent des objets absents du client, 1 est exclue par région.
 - Ferme de créatures : non implémentée par décision (2026-09-30).
 - Dialogues PNJ non exécutés : timbres et quêtes d'événement (`question_stamp_*`, `valentine_*`, `event_*`),
   durabilité des objets (`max_item_durability`), `tp_skill`, cadeaux (`second_present_*`,

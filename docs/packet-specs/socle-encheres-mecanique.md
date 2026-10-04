@@ -6,7 +6,7 @@ de la logique : le serveur officiel (`AuctionManager.cpp/.h`, `AuctionBase.cpp/.
 
 ## 1. Données
 
-- Tables Telecaster (migration `Version0017_AuctionHouse`) : `AuctionListings` (une enchère en cours : objet, vendeur,
+- Tables Telecaster (migration `Version0018_AuctionHouse`) : `AuctionListings` (une enchère en cours : objet, vendeur,
   fin UTC, prix de départ, prix immédiat, taxe, plus haute mise et son auteur, anciens enchérisseurs) et
   `AuctionKeepings` (le coffre : propriétaire, objet ou or, type `KEEPING_TYPE_*`, enchère et objet liés, échéance).
   L'ancien `AuctionEntity`/`ItemStorageEntity` (relations un-à-un obligatoires, inutilisables pour l'or) n'est pas
@@ -66,7 +66,62 @@ l'objet d'or officiel : code 0, quantité = montant.
 
 ## 4. Écarts et NON ÉTABLI
 
-- Pas d'enchères automatiques (`AutoAuctionResource`, 39 lignes 9.4) ni de vente réservée (`bSecrouteOnly`).
 - Échange en cours et entrepôt ouvert ne sont pas vérifiés (aucun état de session ne les expose ici).
 - Un objet repris du coffre ne rejoint pas une pile existante (nouvelle ligne).
-- Le stockage n'a été exercé que sur un magasin en mémoire (tests) ; l'essai PostgreSQL reste à faire.
+
+## 5. Enchères automatiques (2026-10-04)
+
+Sources : `AutoAuctionLoader.cpp`, `AuctionManager::onProcess`, `AutoAuctionRegistrationInfoLoader.cpp` et
+`StructMisc.h` (`GAIA_MEMBER_SHIP = 9004`). Les **39 définitions** de `AutoAuctionResource.csv` sont exportées dans
+`AuctionCatalog.AutomaticAuctions`, avec le nom du vendeur résolu depuis `StringResource_EN`.
+
+- Le tick de 10 secondes publie un exemplaire, sans personnage vendeur (`SellerId = 0`), sans taxe d'inscription
+  ni achat immédiat. Prix initial et durée viennent des ressources : 6 h, 24 h ou 72 h.
+- La date initiale est interprétée dans `AuctionCatalog:TimeZone` (`Europe/Paris` par défaut), puis convertie en
+  UTC. `repeat_term` est un intervalle en jours de 86 400 secondes, comme dans l'officiel.
+- `repeat_apply = 0` ne publie qu'une fois. Une ressource répétée publie à la prochaine période calculée à partir
+  de son calendrier et de sa dernière inscription réelle. Après une longue interruption, elle publie un seul
+  exemplaire : les semaines manquées ne créent pas de stock supplémentaire.
+- La migration **`Version0019_AutomaticAuctions`** ajoute `AutoAuctionRegistrations` (dernier succès par ressource,
+  index unique), `AutoAuctionResourceId` et `SecrouteOnly`. Objet, vente et historique sont écrits dans une seule
+  transaction PostgreSQL. Un verrou transactionnel par ressource protège aussi la première inscription concurrente.
+  L'historique reste présent après vente ou expiration ; un redémarrage ne recrée pas la même occurrence.
+- Une vente réservée exige un état 9004 actif, y compris pour miser ou acheter directement par son identifiant.
+  Elle est masquée dans les recherches et la liste des mises lorsque le pass est absent ou expiré.
+- Une vente remportée livre l'objet au coffre du gagnant ; aucun paiement vendeur n'est créé pour le serveur.
+  Sans gagnant, l'objet est supprimé à l'échéance.
+
+### Compatibilité des données 9.4 avec le client 7.3
+
+Les 39 définitions sont conservées. Avec `AuctionCatalog:LocalFlag = 1`, la ligne 1 est exclue par son masque
+régional : `AutoAuctionLoader` **écarte** une ligne dont `local_flag & current_flag` est non nul. Parmi les 38 autres, **35 lignes
+utilisent 17 codes absents du catalogue du client 7.3** ; elles sont ignorées avec un avertissement au démarrage.
+Les trois lignes compatibles sont :
+
+| Ressource | Objet | Accès | Durée | Répétition |
+|---|---|---|---|---|
+| 14 | 910005 | Pass village caché | 72 h | 7 jours |
+| 15 | 950019 | Pass village caché | 72 h | 7 jours |
+| 39 | 910005 | Public | 24 h | 7 jours |
+
+Le mécanisme prend en charge les autres définitions dès que leurs objets sont présents dans le catalogue du
+client utilisé. Il ne substitue pas un autre objet aux codes absents.
+
+## 6. Essai PostgreSQL
+
+`AuctionPostgreSqlTests` a été exécuté avec succès sur PostgreSQL le 2026-10-04. Chaque test crée un schéma
+`auction_test_<GUID>`, y applique toutes les migrations Telecaster, puis le supprime ; le schéma de jeu reste intact.
+
+Les deux essais vérifient : fractionnement d'une pile et prélèvement de taxe, mises et remboursement, achat
+immédiat, rechargement des index, retraits d'or et d'objet, refus d'un autre propriétaire et d'un second retrait,
+expiration du coffre, historique automatique après redémarrage, inscription concurrente sans doublon et retour
+arrière intégral lors d'une écriture invalide (aucun objet orphelin ni taxe perdue).
+
+Pour rejouer l'essai, fournir une connexion PostgreSQL dans `NAVIS_AUCTION_TEST_CONNECTION`, puis lancer :
+
+```powershell
+dotnet test Tests/Tests.csproj -c Release --filter FullyQualifiedName~AuctionPostgreSqlTests
+```
+
+Ces tests sont explicites : la suite normale n'exige pas un serveur PostgreSQL. Les tests `AuctionHouseTests`
+couvrent aussi les horaires, répétitions, restrictions premium, incompatibilités et l'import des 39 définitions.

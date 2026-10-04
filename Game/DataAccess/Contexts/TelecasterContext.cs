@@ -10,6 +10,7 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<AllianceEntity> Alliances { get; set; }
     public DbSet<AuctionEntity> Auctions { get; set; }
     public DbSet<AuctionListingEntity> AuctionListings { get; set; }
+    public DbSet<AutoAuctionRegistrationEntity> AutoAuctionRegistrations { get; set; }
     public DbSet<AuctionKeepingEntity> AuctionKeepings { get; set; }
     public DbSet<CharacterEntity> Characters { get; set; }
     public DbSet<CharacterSkillEntity> CharacterSkills { get; set; }
@@ -40,6 +41,7 @@ public class TelecasterContext : SoftDeletionContext
 
         ConfigureAuctions(modelBuilder);
         modelBuilder.Entity<AuctionListingEntity>().HasIndex(a => a.SellerId);
+        modelBuilder.Entity<AutoAuctionRegistrationEntity>().HasIndex(a => a.ResourceId).IsUnique();
         modelBuilder.Entity<AuctionKeepingEntity>().HasIndex(k => k.OwnerId);
         modelBuilder.Entity<CharacterTitleStateEntity>().HasKey(s => s.CharacterId);
         modelBuilder.Entity<CharacterTitleStateEntity>().HasOne<CharacterEntity>().WithOne()

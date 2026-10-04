@@ -120,6 +120,23 @@ public class AuctionCatalogOptions
 {
     public List<AuctionCategoryRow> Categories { get; set; } = new();
     public List<AuctionItemRow> Items { get; set; } = new();
+    public List<AutoAuctionRow> AutomaticAuctions { get; set; } = new();
+    public int LocalFlag { get; set; } = 1;
+    public string TimeZone { get; set; } = "Europe/Paris";
+}
+
+public class AutoAuctionRow
+{
+    public int Id { get; set; }
+    public int ItemCode { get; set; }
+    public string SellerName { get; set; } = "@AUCTION";
+    public long Price { get; set; }
+    public bool SecrouteOnly { get; set; }
+    public int LocalFlag { get; set; }
+    public System.DateTime EnrollmentTime { get; set; }
+    public bool Repeat { get; set; }
+    public int RepeatDays { get; set; }
+    public byte DurationType { get; set; }
 }
 
 public class AuctionCategoryRow

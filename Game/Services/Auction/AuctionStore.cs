@@ -36,6 +36,9 @@ public sealed record TakeOutcome(ResultCode Result, ItemEntity Item = null);
 /// <summary>The auction tables (<c>AuctionListings</c>, <c>AuctionKeepings</c>) and the item rows they hold.</summary>
 public interface IAuctionStore
 {
+    Task<IReadOnlyDictionary<int, DateTime>> LoadAutomaticRegistrationsAsync();
+    Task<RegisterOutcome> RegisterAutomaticAsync(int resourceId, DateTime? previousRegistration,
+        DateTime registeredAt, AuctionListingEntity listing, ItemEntity item);
     Task<IReadOnlyList<(AuctionListingEntity Listing, ItemEntity Item)>> LoadListingsAsync();
     Task<IReadOnlyList<(AuctionKeepingEntity Keeping, ItemEntity Item)>> LoadKeepingsAsync();
 
@@ -66,6 +69,37 @@ public sealed class AuctionStore : IAuctionStore
         _feed = feed;
     }
 
+    public async Task<IReadOnlyDictionary<int, DateTime>> LoadAutomaticRegistrationsAsync()
+    {
+        await using var db = new TelecasterContext(_options);
+        return await db.AutoAuctionRegistrations.AsNoTracking().ToDictionaryAsync(r => r.ResourceId, r => r.LastRegisteredTime);
+    }
+
+    public async Task<RegisterOutcome> RegisterAutomaticAsync(int resourceId, DateTime? previousRegistration,
+        DateTime registeredAt, AuctionListingEntity listing, ItemEntity item)
+    {
+        await using var db = new TelecasterContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        // Serialize the first insert too: a row lock cannot protect a resource that has no history yet.
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({0x4155544F00000000L + resourceId})");
+        var registration = await db.AutoAuctionRegistrations.SingleOrDefaultAsync(r => r.ResourceId == resourceId);
+        if (registration?.LastRegisteredTime != previousRegistration)
+            return new RegisterOutcome(ResultCode.AlreadyExist);
+        if (registration is null)
+        {
+            registration = new AutoAuctionRegistrationEntity { ResourceId = resourceId };
+            db.AutoAuctionRegistrations.Add(registration);
+        }
+        registration.LastRegisteredTime = registeredAt;
+        db.Items.Add(item);
+        await db.SaveChangesAsync();
+        listing.ItemId = item.Id;
+        db.AuctionListings.Add(listing);
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+        return new RegisterOutcome(ResultCode.Success, listing, item);
+    }
+
     public async Task<IReadOnlyList<(AuctionListingEntity Listing, ItemEntity Item)>> LoadListingsAsync()
     {
         await using var context = new TelecasterContext(_options);
@@ -91,6 +125,7 @@ public sealed class AuctionStore : IAuctionStore
         var outcome = await _gate.RunAsync(gold.CharacterName, async () =>
         {
             await using var context = new TelecasterContext(_options);
+            await using var transaction = await context.Database.BeginTransactionAsync();
             var item = await context.Items.FirstOrDefaultAsync(i => i.CharacterId == gold.CharacterId && i.Id == itemHandle);
             if (item is null || item.Amount < count)
             {
@@ -127,6 +162,7 @@ public sealed class AuctionStore : IAuctionStore
             listing.ItemId = auctioned.Id;
             context.AuctionListings.Add(listing);
             await context.SaveChangesAsync();
+            await transaction.CommitAsync();
             return new RegisterOutcome(ResultCode.Success, listing, auctioned, removed ? null : item, removed);
         });
         if (outcome.Result == ResultCode.Success) _feed?.Publish(gold.CharacterName);
@@ -178,6 +214,8 @@ public sealed class AuctionStore : IAuctionStore
             {
                 return new TakeOutcome(ResultCode.NotExist);
             }
+
+            if (row.OwnerId != gold.CharacterId) return new TakeOutcome(ResultCode.AccessDenied);
 
             var character = await context.Characters.FirstAsync(c => c.Id == gold.CharacterId);
             character.Gold = gold.Gold;

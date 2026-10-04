@@ -35,6 +35,28 @@ public class AuctionHouseTests
         public readonly Dictionary<long, AuctionKeepingEntity> Keepings = new();
         public readonly Dictionary<long, long> Gold = new();
         public readonly Dictionary<long, ItemEntity> Items = new();
+        public readonly Dictionary<int, DateTime> Registrations = new();
+
+        public Task<IReadOnlyDictionary<int, DateTime>> LoadAutomaticRegistrationsAsync() =>
+            Task.FromResult<IReadOnlyDictionary<int, DateTime>>(new Dictionary<int, DateTime>(Registrations));
+
+        /// <summary>Resources whose registration fails in the database.</summary>
+        public readonly HashSet<int> FailingAutomatic = new();
+
+        public Task<RegisterOutcome> RegisterAutomaticAsync(int resourceId, DateTime? previousRegistration,
+            DateTime registeredAt, AuctionListingEntity listing, ItemEntity item)
+        {
+            if (FailingAutomatic.Contains(resourceId)) throw new InvalidOperationException("database unavailable");
+            DateTime? last = Registrations.TryGetValue(resourceId, out var value) ? value : null;
+            if (last != previousRegistration) return Task.FromResult(new RegisterOutcome(ResultCode.AlreadyExist));
+            item.Id = _nextId++;
+            Items[item.Id] = item;
+            listing.Id = _nextId++;
+            listing.ItemId = item.Id;
+            Listings[listing.Id] = listing;
+            Registrations[resourceId] = registeredAt;
+            return Task.FromResult(new RegisterOutcome(ResultCode.Success, listing, item));
+        }
 
         public ItemEntity Give(long owner, int code, long count)
         {
@@ -46,10 +68,10 @@ public class AuctionHouseTests
         }
 
         public Task<IReadOnlyList<(AuctionListingEntity Listing, ItemEntity Item)>> LoadListingsAsync() =>
-            Task.FromResult<IReadOnlyList<(AuctionListingEntity, ItemEntity)>>(Array.Empty<(AuctionListingEntity, ItemEntity)>());
+            Task.FromResult<IReadOnlyList<(AuctionListingEntity, ItemEntity)>>(Listings.Values.Select(l => (l, Items[l.ItemId])).ToList());
 
         public Task<IReadOnlyList<(AuctionKeepingEntity Keeping, ItemEntity Item)>> LoadKeepingsAsync() =>
-            Task.FromResult<IReadOnlyList<(AuctionKeepingEntity, ItemEntity)>>(Array.Empty<(AuctionKeepingEntity, ItemEntity)>());
+            Task.FromResult<IReadOnlyList<(AuctionKeepingEntity, ItemEntity)>>(Keepings.Values.Select(k => (k, k.ItemId is { } id ? Items[id] : null)).ToList());
 
         public Task<RegisterOutcome> RegisterAsync(GoldWrite gold, uint itemHandle, long count, AuctionListingEntity listing,
             Func<ItemEntity, ResultCode> check, Func<long> goldAfterCheck)
@@ -460,5 +482,152 @@ public class AuctionHouseTests
         await _service.SearchAsync(bo, new AuctionSearchRequest(-1, 0, "", 1, false));
         var etc = Frames(bo, GamePackets.TM_SC_AUCTION_SEARCH).Last();
         BinaryPrimitives.ReadInt32LittleEndian(etc.AsSpan(15)).Should().Be(1, "the potion is in the etc category");
+    }
+
+    private AuctionService AutomaticService(params AutoAuctionRow[] rows)
+    {
+        var catalog = new AuctionCatalog(Options.Create(new AuctionCatalogOptions
+        {
+            AutomaticAuctions = rows.ToList(),
+            Categories = { new AuctionCategoryRow { CategoryId = 0, SubCategoryId = -1, ItemGroup = 1, ItemClass = -1 } },
+            Items = { new AuctionItemRow { Code = Sword, Name = "Iron Sword", Group = 1, Class = 101 } }
+        }));
+        return new AuctionService(_store, catalog, new SellCatalog(), players: _players, utcNow: () => _now,
+            clock: () => _tick, runTicks: false);
+    }
+
+    private AutoAuctionRow AutomaticRow(int id = 1, bool repeat = true, bool premium = false) => new()
+    {
+        Id = id, ItemCode = Sword, SellerName = "Auctioneer", Price = 10_000, EnrollmentTime = _now,
+        Repeat = repeat, RepeatDays = 7, DurationType = 3, SecrouteOnly = premium
+    };
+
+    [Test]
+    public async Task AutomaticAuctionsRespectCalendarAndRestartWithoutDuplicatesOrBacklog()
+    {
+        var row = AutomaticRow();
+        row.EnrollmentTime = _now.AddHours(1);
+        var service = AutomaticService(row);
+        await service.ProcessAsync();
+        _store.Listings.Should().BeEmpty();
+        _now = _now.AddHours(1);
+        await service.ProcessAsync();
+        var first = _store.Listings.Values.Single();
+        first.Should().Match<AuctionListingEntity>(l => l.SellerId == 0 && l.RegistrationTax == 0
+            && l.InstantPurchasePrice == 0 && l.HighestBiddingPrice == 10000 && l.AutoAuctionResourceId == 1);
+        first.EndTime.Should().Be(_now.AddHours(72));
+        _store.Items[first.ItemId].GenerateBySource.Should().Be(ItemGenerateSource.Auction);
+        service = AutomaticService(row);
+        await service.ProcessAsync();
+        _store.Listings.Should().ContainSingle();
+        _now = _now.AddDays(3);
+        await service.ProcessAsync();
+        _store.Listings.Should().BeEmpty();
+        _store.Items.Should().BeEmpty("unsold server items are destroyed");
+        _store.Keepings.Should().BeEmpty("there is no player with id zero");
+        _now = _now.AddDays(100);
+        await service.ProcessAsync();
+        await AutomaticService(row).ProcessAsync();
+        _store.Listings.Should().ContainSingle("missed weeks do not flood the auction house");
+        _store.Registrations[1].Should().Be(_now);
+    }
+
+    [Test]
+    public async Task AFailedAutomaticRegistrationHoldsUpNeitherTheOthersNorTheExpirations()
+    {
+        _store.FailingAutomatic.Add(1);
+        var service = AutomaticService(AutomaticRow(1), AutomaticRow(2));
+        await service.ProcessAsync();
+        _store.Listings.Values.Should().ContainSingle(l => l.AutoAuctionResourceId == 2);
+
+        // The listing of resource 2 still expires, unsold, while resource 1 keeps failing.
+        _now = _now.AddHours(72);
+        await service.ProcessAsync();
+        _store.Listings.Values.Should().NotContain(l => l.AutoAuctionResourceId == 2 && l.EndTime <= _now);
+
+        _store.FailingAutomatic.Clear();
+        await service.ProcessAsync();
+        _store.Listings.Values.Should().Contain(l => l.AutoAuctionResourceId == 1, "the resource registers once the database answers");
+    }
+
+    [Test]
+    public async Task AOneOffAuctionIsNotRecreatedAfterItIsWonAndTaken()
+    {
+        var row = AutomaticRow(repeat: false);
+        var service = AutomaticService(row);
+        await service.ProcessAsync();
+        var listing = _store.Listings.Values.Single();
+        var buyer = Player(2, "Bo", 50_000);
+        await service.BidAsync(buyer, (int)listing.Id, 10_000);
+        LastResult(buyer).Result.Should().Be((ushort)ResultCode.Success);
+        _now = _now.AddHours(72);
+        await service.ProcessAsync();
+        var keeping = _store.Keepings.Values.Single();
+        keeping.OwnerId.Should().Be(2);
+        keeping.KeepingType.Should().Be((int)StorageType.ItemBySuccessfulBid);
+        await service.TakeAsync(buyer, (int)keeping.Id);
+        _store.Bags[2].Should().ContainSingle();
+        await AutomaticService(row).ProcessAsync();
+        _store.Listings.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task RegionalUnsupportedAndInvalidRepeatRowsAreNotPublished()
+    {
+        var regional = AutomaticRow(1); regional.LocalFlag = 1;
+        var unsupported = AutomaticRow(2); unsupported.ItemCode = 2016027;
+        var invalid = AutomaticRow(3); invalid.RepeatDays = 0;
+        await AutomaticService(regional, unsupported, invalid).ProcessAsync();
+        _store.Listings.Should().BeEmpty();
+        _store.Registrations.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ReservedAuctionsRequireAnUnexpiredHiddenVillagePassEvenWithAKnownId()
+    {
+        var service = AutomaticService(AutomaticRow(premium: true));
+        await service.ProcessAsync();
+        var id = (int)_store.Listings.Keys.Single();
+        var buyer = Player(2, "Bo", 50_000);
+        await service.SearchAsync(buyer, new AuctionSearchRequest(-1, -1, "", 1, false));
+        BinaryPrimitives.ReadInt32LittleEndian(Frames(buyer, GamePackets.TM_SC_AUCTION_SEARCH).Last().AsSpan(15)).Should().Be(0);
+        _tick += 300;
+        await service.BidAsync(buyer, id, 10_000);
+        LastResult(buyer).Result.Should().Be((ushort)ResultCode.NotExist);
+        await service.InstantPurchaseAsync(buyer, id);
+        LastResult(buyer).Result.Should().Be((ushort)ResultCode.NotExist);
+        StorageTestHarness.Session(buyer).ActiveBuffs.Add(new Navislamia.Game.Services.Buffs.ActiveBuff(1, 9004, 0, 1, _tick, _tick + 1000));
+        await service.SearchAsync(buyer, new AuctionSearchRequest(-1, -1, "", 1, false));
+        BinaryPrimitives.ReadInt32LittleEndian(Frames(buyer, GamePackets.TM_SC_AUCTION_SEARCH).Last().AsSpan(15)).Should().Be(1);
+        _tick += 300;
+        await service.InstantPurchaseAsync(buyer, id);
+        LastResult(buyer).Result.Should().Be((ushort)ResultCode.NotActable, "automatic auctions have no instant price");
+        await service.BidAsync(buyer, id, 10_000);
+        LastResult(buyer).Result.Should().Be((ushort)ResultCode.Success);
+        _tick += 1000;
+        await service.BiddedListAsync(buyer, 1);
+        LastResult(buyer).Result.Should().Be((ushort)ResultCode.NotExist, "an expired pass also hides the bid list");
+    }
+
+    [Test]
+    public void TheResourceTimeUsesTheConfiguredServerZone()
+    {
+        var row = AutomaticRow(); row.EnrollmentTime = new DateTime(2015, 11, 4, 22, 30, 0);
+        var catalog = new AuctionCatalog(Options.Create(new AuctionCatalogOptions { AutomaticAuctions = { row }, TimeZone = "Europe/Paris" }));
+        catalog.AutomaticAuctions.Single().EnrollmentTime.Should().Be(new DateTime(2015, 11, 4, 21, 30, 0, DateTimeKind.Utc));
+    }
+
+    [Test]
+    public void AllThirtyNineDefinitionsAreImportedAndOnlyCompatibleRegionalItemsCanBePublished()
+    {
+        var root = new System.IO.DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (root is not null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "DevConsole", "auction-catalog.73.json")))
+            root = root.Parent;
+        root.Should().NotBeNull();
+        using var json = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(System.IO.Path.Combine(root!.FullName, "DevConsole", "auction-catalog.73.json")));
+        var options = System.Text.Json.JsonSerializer.Deserialize<AuctionCatalogOptions>(json.RootElement.GetProperty("AuctionCatalog").GetRawText())!;
+        options.AutomaticAuctions.Select(r => r.Id).Should().Equal(Enumerable.Range(1, 39));
+        var catalog = new AuctionCatalog(Options.Create(options));
+        catalog.AutomaticAuctions.Where(r => catalog.TryGetItem(r.ItemCode, out _)).Select(r => r.Id).Should().Equal(14, 15, 39);
     }
 }

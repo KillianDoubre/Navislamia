@@ -134,6 +134,9 @@ public class Program
         {
             options.Categories = catalog.Categories;
             options.Items = catalog.Items;
+            options.AutomaticAuctions = catalog.AutomaticAuctions;
+            options.LocalFlag = context.Configuration.GetValue("AuctionCatalog:LocalFlag", catalog.LocalFlag);
+            options.TimeZone = context.Configuration.GetValue("AuctionCatalog:TimeZone", catalog.TimeZone);
         });
     }
 

@@ -9,6 +9,8 @@ namespace Navislamia.Game.DataAccess.Entities.Telecaster;
 /// </summary>
 public class AuctionListingEntity : Entity
 {
+    public int? AutoAuctionResourceId { get; set; }
+    public bool SecrouteOnly { get; set; }
     public long ItemId { get; set; }
     public long SellerId { get; set; }
     public string SellerName { get; set; } = string.Empty;

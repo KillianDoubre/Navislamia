@@ -14,6 +14,7 @@ namespace Navislamia.Game.Services.Auction;
 /// </summary>
 public interface IAuctionCatalog
 {
+    IReadOnlyList<AutoAuctionRow> AutomaticAuctions => Array.Empty<AutoAuctionRow>();
     /// <summary>The highest category id, which is also the list unclassified items land in (<c>m_nMaxCategoryIndex</c>).</summary>
     int MaxCategoryIndex { get; }
 
@@ -28,11 +29,25 @@ public interface IAuctionCatalog
 
 public sealed class AuctionCatalog : IAuctionCatalog
 {
+    public IReadOnlyList<AutoAuctionRow> AutomaticAuctions { get; }
     private readonly List<Node> _parents = new();
     private readonly FrozenDictionary<int, AuctionItemRow> _items;
 
     public AuctionCatalog(IOptions<AuctionCatalogOptions> options)
     {
+        var settings = options?.Value ?? new AuctionCatalogOptions();
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZone);
+        // AutoAuctionLoader: a row whose local_flag holds the server's flag is left out (`local_flag & current`).
+        AutomaticAuctions = settings.AutomaticAuctions
+            .Where(r => (r.LocalFlag & settings.LocalFlag) == 0)
+            .Select(r => new AutoAuctionRow
+            {
+                Id = r.Id, ItemCode = r.ItemCode, SellerName = r.SellerName, Price = r.Price,
+                SecrouteOnly = r.SecrouteOnly, LocalFlag = r.LocalFlag, Repeat = r.Repeat,
+                RepeatDays = r.RepeatDays, DurationType = r.DurationType,
+                EnrollmentTime = r.EnrollmentTime.Kind == DateTimeKind.Utc ? r.EnrollmentTime
+                    : TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(r.EnrollmentTime, DateTimeKind.Unspecified), zone)
+            }).ToArray();
         var value = options?.Value ?? new AuctionCatalogOptions();
         foreach (var row in value.Categories)
         {

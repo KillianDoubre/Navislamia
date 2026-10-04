@@ -1424,7 +1424,7 @@ mais un membre d'enum sans branche atteindrait le `throw "Unknown Packet Type"`.
 client → serveur de la famille (`1300`, `1302`, `1304`, `1306`, `1308`, `1309`, `1310`) sont déclarés,
 lus et bornés (une fiche chacun). **La mécanique est celle du serveur officiel** (`AuctionService`,
 `docs/packet-specs/socle-encheres-mecanique.md`) : tables `AuctionListings`/`AuctionKeepings`
-(`Version0017_AuctionHouse`), objet en vente = ligne `Items` sans personnage ni compte, taxe 3/4/5 % pour 6/24/72 h,
+(`Version0018_AuctionHouse`), objet en vente = ligne `Items` sans personnage ni compte, taxe 3/4/5 % pour 6/24/72 h,
 mise prélevée tout de suite (×1,01), achat immédiat, annulation, échéance, **tout l'or entre joueurs passe par le
 coffre** (`TM_CS/SC_ITEM_KEEPING_LIST` 1350/1351 de 3 859 octets, `TM_CS_ITEM_KEEPING_TAKE` 1352, 15 jours), seul l'or
 de l'acteur change, écrit dans la même transaction. Recherche par catégorie, nom anglais et « équipable »

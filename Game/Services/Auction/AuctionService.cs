@@ -58,6 +58,7 @@ public sealed class AuctionService : IAuctionService
     private readonly Dictionary<long, Listing> _listings = new();
     private readonly Dictionary<long, Keeping> _keepings = new();
     private bool _loaded;
+    private IReadOnlyDictionary<int, DateTime> _automaticRegistrations = new Dictionary<int, DateTime>();
 
     public AuctionService(IAuctionStore store, IAuctionCatalog catalog, IItemSellCatalog sellCatalog,
         IEquipmentService equipment = null, IPlayerVisibilityService players = null,
@@ -72,6 +73,8 @@ public sealed class AuctionService : IAuctionService
         _weights = weights;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _clock = clock ?? (() => ServerClock.Now);
+        foreach (var row in _catalog.AutomaticAuctions.Where(r => !_catalog.TryGetItem(r.ItemCode, out _)))
+            _logger.Warning("Automatic auction {resourceId} skipped: item {itemCode} is absent from the client catalog", row.Id, row.ItemCode);
         if (runTicks)
         {
             _ = RunAsync();
@@ -115,11 +118,13 @@ public sealed class AuctionService : IAuctionService
 
             var keyword = request.Keyword ?? string.Empty;
             var found = _listings.Values
+                .Where(l => CanAccess(info, l.Entity))
                 .Where(l => category == AuctionRules.CategorySpecial || l.Category == category)
                 .Where(l => takes is null || takes(l.Group, l.Class))
                 .Where(l => keyword.Length == 0 || l.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 .Where(l => !request.IsEquipable || _equipment is null || _equipment.CanWear(info, l.Item.ItemResourceId))
-                .OrderBy(l => l.Category).ThenBy(l => l.Entity.Id)
+                // addAuctionInfoToIndex keeps the reserved (secroute-only) sales ahead of the others in a category.
+                .OrderBy(l => l.Category).ThenByDescending(l => l.Entity.SecrouteOnly).ThenBy(l => l.Entity.Id)
                 .ToList();
             var page = found.Skip((request.PageNum - 1) * AuctionRules.PerPage).Take(AuctionRules.PerPage)
                 .Select(l => new SearchedAuctionInfo(Wire(l), l.Entity.SellerName, SearchFlag(l, info.CharacterHandle)))
@@ -161,6 +166,7 @@ public sealed class AuctionService : IAuctionService
         {
             var me = (long)client.ConnectionInfo.CharacterHandle;
             var bidded = _listings.Values.Where(l => l.Entity.HighestBidderId == me || l.Entity.BidderIds.Contains(me))
+                .Where(l => CanAccess(client.ConnectionInfo, l.Entity))
                 .OrderBy(l => l.Entity.Id).ToList();
             if (!CheckPage(client, BiddedId, page, bidded.Count)) return Task.CompletedTask;
             var entries = bidded.Skip((page - 1) * AuctionRules.PerPage).Take(AuctionRules.PerPage)
@@ -326,6 +332,11 @@ public sealed class AuctionService : IAuctionService
 
             var code = (int)listing.Item.ItemResourceId;
             var me = (long)info.CharacterHandle;
+            if (!CanAccess(info, listing.Entity))
+            {
+                client.SendResult(BidId, (ushort)ResultCode.NotExist);
+                return;
+            }
             if (listing.Entity.SellerId == me || (listing.Entity.HighestBidderId != 0 && listing.Entity.HighestBidderId == me))
             {
                 client.SendResult(BidId, (ushort)ResultCode.AccessDenied, code);
@@ -411,6 +422,11 @@ public sealed class AuctionService : IAuctionService
 
             var entity = listing.Entity;
             var code = (int)listing.Item.ItemResourceId;
+            if (!CanAccess(info, entity))
+            {
+                client.SendResult(PurchaseId, (ushort)ResultCode.NotExist);
+                return;
+            }
             var me = (long)info.CharacterHandle;
             if (entity.SellerId == me)
             {
@@ -607,6 +623,7 @@ public sealed class AuctionService : IAuctionService
         {
             await EnsureLoadedAsync();
             var now = _utcNow();
+            await ProcessAutomaticAsync(now);
             foreach (var keeping in _keepings.Values.Where(k => k.Entity.ExpireTime <= now).ToList())
             {
                 var change = new AuctionChange();
@@ -625,11 +642,12 @@ public sealed class AuctionService : IAuctionService
                     change.AddedKeepings.Add(ItemKeeping(entity.HighestBidderId, StorageType.ItemBySuccessfulBid, listing));
                     AddSellerPayment(change, listing, entity.HighestBiddingPrice);
                 }
-                else
+                else if (entity.SellerId != 0)
                 {
                     change.AddedKeepings.Add(ItemKeeping(entity.SellerId, StorageType.ItemByExpiration, listing));
                     change.AddedKeepings.Add(GoldKeeping(entity.SellerId, entity.RegistrationTax, StorageType.GoldByRegTax, listing));
                 }
+                else change.DeletedItems.Add(listing.Item.Id);
 
                 if (!await CommitAsync(change)) continue;
                 _listings.Remove(entity.Id);
@@ -686,7 +704,55 @@ public sealed class AuctionService : IAuctionService
         if (_loaded) return;
         foreach (var (listing, item) in await _store.LoadListingsAsync()) AddListing(listing, item);
         foreach (var (keeping, item) in await _store.LoadKeepingsAsync()) _keepings[keeping.Id] = new Keeping(keeping, item);
+        _automaticRegistrations = await _store.LoadAutomaticRegistrationsAsync();
         _loaded = true;
+    }
+
+    private async Task ProcessAutomaticAsync(DateTime now)
+    {
+        foreach (var row in _catalog.AutomaticAuctions)
+        {
+            DateTime? previous = _automaticRegistrations.TryGetValue(row.Id, out var last) ? last : null;
+            if (!_catalog.TryGetItem(row.ItemCode, out _) || !AutoAuctionSchedule.IsDue(row, previous, now)) continue;
+
+            // onProcess logs a failed registration and goes on: one resource must not hold up the others, nor the
+            // expirations that follow in the same tick.
+            try
+            {
+                await RegisterAutomaticAsync(row, previous, now);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Automatic auction {resourceId} could not be registered", row.Id);
+            }
+        }
+    }
+
+    private async Task RegisterAutomaticAsync(Navislamia.Configuration.Options.AutoAuctionRow row, DateTime? previous,
+        DateTime now)
+    {
+        var listing = new AuctionListingEntity
+        {
+            AutoAuctionResourceId = row.Id, SecrouteOnly = row.SecrouteOnly,
+            SellerName = row.SellerName, EndTime = now + AuctionRules.Duration(row.DurationType),
+            StartPrice = row.Price, HighestBiddingPrice = row.Price
+        };
+        var item = new ItemEntity
+        {
+            ItemResourceId = row.ItemCode, Amount = 1, Level = 1,
+            GenerateBySource = ItemGenerateSource.Auction, WearInfo = ItemWearType.None, SocketItemIds = new long[4]
+        };
+        var outcome = await _store.RegisterAutomaticAsync(row.Id, previous, now, listing, item);
+        if (outcome.Result == ResultCode.Success) AddListing(outcome.Listing, outcome.AuctionItem);
+        _automaticRegistrations = await _store.LoadAutomaticRegistrationsAsync();
+    }
+
+    private bool CanAccess(ConnectionInfo info, AuctionListingEntity listing)
+    {
+        if (!listing.SecrouteOnly) return true;
+        // StructState::GAIA_MEMBER_SHIP (9004), already persisted with the player's active buffs.
+        lock (info.BuffLock)
+            return info.ActiveBuffs.Any(b => b.StateId == 9004 && (b.EndTick == 0 || unchecked((int)(b.EndTick - _clock())) > 0));
     }
 
     private static bool CheckPage(GameClient client, ushort requestId, int page, int count)
@@ -788,6 +854,7 @@ public sealed class AuctionService : IAuctionService
 
     private static AuctionListingEntity Clone(AuctionListingEntity entity) => new()
     {
+        AutoAuctionResourceId = entity.AutoAuctionResourceId, SecrouteOnly = entity.SecrouteOnly,
         Id = entity.Id, ItemId = entity.ItemId, SellerId = entity.SellerId, SellerName = entity.SellerName,
         EndTime = entity.EndTime, StartPrice = entity.StartPrice, InstantPurchasePrice = entity.InstantPurchasePrice,
         RegistrationTax = entity.RegistrationTax, HighestBiddingPrice = entity.HighestBiddingPrice,

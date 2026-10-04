@@ -35,6 +35,16 @@ def client_items(path):
     return {struct.unpack_from('<i', data, 132 + i * stride)[0] for i in range(count)}
 
 
+def automatic_auctions(names):
+    return [{'Id': int(r['id']), 'ItemCode': int(r['item_id']),
+             'SellerName': names.get(r['auctionseller_id'], '@AUCTION'), 'Price': int(r['price']),
+             'SecrouteOnly': r['secroute_apply'] == '1', 'LocalFlag': int(r['local_flag']),
+             'EnrollmentTime': r['auction_enrollment_time'].replace(' ', 'T'),
+             'Repeat': r['repeat_apply'] == '1', 'RepeatDays': int(r['repeat_term']),
+             'DurationType': int(r['auctiontime_type'])}
+            for r in rows(os.path.join(SQL, 'AutoAuctionResource.csv'))]
+
+
 def main(argv):
     allowed = client_items(argv[argv.index('--client-items') + 1]) if '--client-items' in argv else None
     categories = [{'CategoryId': int(r['category_id']), 'SubCategoryId': int(r['sub_category_id']),
@@ -49,7 +59,8 @@ def main(argv):
         items.append({'Code': code, 'NameId': int(r['name_id'] or 0), 'Name': names.get(r['name_id'], ''),
                       'Group': int(r['group'] or 0), 'Class': int(r['class'] or 0)})
     with open(OUT, 'w', encoding='utf-8') as stream:
-        json.dump({'AuctionCatalog': {'Categories': categories, 'Items': items}}, stream, ensure_ascii=False,
+        json.dump({'AuctionCatalog': {'Categories': categories, 'Items': items,
+                                     'AutomaticAuctions': automatic_auctions(names)}}, stream, ensure_ascii=False,
                   separators=(',', ':'))
     named = sum(1 for i in items if i['Name'])
     print(f'{os.path.basename(OUT)}: {len(categories)} categories, {len(items)} items ({named} named)')
