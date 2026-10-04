@@ -56,6 +56,8 @@ public class WorldLocationService : IWorldLocationService
 
     public int Count => _locations.Count;
 
+    public System.Collections.Generic.IEnumerable<WorldLocation> All => _locations.Values;
+
     public bool TryGet(int locationId, out WorldLocation location) =>
         _locations.TryGetValue(locationId, out location);
 }

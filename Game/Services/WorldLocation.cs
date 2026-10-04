@@ -1,3 +1,6 @@
+using System;
+using System.Threading;
+
 namespace Navislamia.Game.Services;
 
 /// <summary>
@@ -32,17 +35,36 @@ public sealed class WorldLocation
     public int Y { get; }
 
     /// <summary>
-    /// Raw <c>weather_change_time</c> of the location's first row. No reference establishes its unit (NGemity
-    /// multiplies it by 6000), so it is stored without interpretation.
+    /// Raw <c>weather_change_time</c> of the location's first row, in minutes (the official <c>LocationLoader</c>
+    /// multiplies it by 6000 ticks, like NGemity); see <see cref="WeatherChangeTicks"/>.
     /// </summary>
     public short WeatherChangeTime { get; }
 
+    private int _currentWeather;
+    private long _lastWeatherChange;
+
     /// <summary>
-    /// The weather the 902 carries for this location. No reference ever <b>assigns</b> <c>current_weather</c>:
-    /// NGemity declares it and sends it, and nothing else touches it, so it reads 0 (Clear) — the value rzu
-    /// sends at world entry as well. Kept as the single place the weather cycle card will write to.
+    /// The weather the 902 carries for this location (<c>StructWorldLocation::current_weather</c>), rolled by
+    /// <see cref="PlayerLocationService"/> every <see cref="WeatherChangeTicks"/> like
+    /// <c>WorldLocationManager::onProcess</c>; Clear (0) until the first roll.
     /// </summary>
-    public ushort CurrentWeather => 0;
+    public ushort CurrentWeather
+    {
+        get => (ushort)Volatile.Read(ref _currentWeather);
+        set => Volatile.Write(ref _currentWeather, value);
+    }
+
+    /// <summary><c>last_changed_time</c>: the tick of the last roll, 0 before the first one.</summary>
+    public uint LastWeatherChange
+    {
+        get => (uint)Interlocked.Read(ref _lastWeatherChange);
+        set => Interlocked.Exchange(ref _lastWeatherChange, value);
+    }
+
+    /// <summary>
+    /// <c>weather_change_time</c> is in minutes: <c>LocationLoader</c> registers it multiplied by 6000 ar_time ticks.
+    /// </summary>
+    public uint WeatherChangeTicks => (uint)Math.Max(0, (int)WeatherChangeTime) * 6000u;
 
     /// <summary>
     /// <c>weather_ratio[weather_id][time_id]</c>: the ratio of the folded row for that pair, 0 when the

@@ -14,4 +14,7 @@ public interface IWorldLocationService
     /// nothing rather than wrapping.
     /// </summary>
     bool TryGet(int locationId, out WorldLocation location);
+
+    /// <summary>Every location, for the weather cycle.</summary>
+    System.Collections.Generic.IEnumerable<WorldLocation> All => System.Array.Empty<WorldLocation>();
 }

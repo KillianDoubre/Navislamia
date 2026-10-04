@@ -368,6 +368,17 @@ public class ConnectionInfo
     /// no PK packet of its own.
     /// </summary>
     public bool PkMode { get; set; }
+
+    /// <summary>
+    /// <c>StructPlayer::GetLocationId</c>: the <c>WorldLocation</c> id of the place the character stands in, 0 when
+    /// unknown, set by <c>PlayerLocationService</c> under <see cref="LocationLock"/>.
+    /// </summary>
+    public int LocationId { get; set; }
+
+    /// <summary>The tick of the last location check, for the periodic one.</summary>
+    public uint LastLocationCheck { get; set; }
+
+    public object LocationLock { get; } = new();
     public decimal ImmoralPoint { get; set; }
 
     /// <summary>The ethereal stone's durability (<c>Characters.EtherealStoneDurability</c>), seeded at world entry.</summary>
@@ -721,6 +732,7 @@ public class ConnectionInfo
 
     public void ClearCharacterSession()
     {
+        LocationId = 0;
         CharacterHandle = 0;
         TargetHandle = 0;
         CharacterHp = 0;

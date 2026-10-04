@@ -335,8 +335,14 @@ public class GameClient : Client
         }
 
         var input = buffer.AsSpan(7);
-        ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
-        ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+        var x = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(0, 4));
+        var y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+
+        // StructPlayer::ChangeLocation judges the claim against the server's estimate before the session takes it:
+        // TM_SC_CHANGE_LOCATION (901), and the new place's weather (docs/packet-specs/901-change-location.md).
+        _networkService.PlayerLocationService?.ChangeByRequest(this, x, y);
+        ConnectionInfo.X = x;
+        ConnectionInfo.Y = y;
         SyncVisibleObjects();
         RefreshEventArea();
     }
@@ -2958,6 +2964,13 @@ public class GameClient : Client
             // TM_SC_WEATHER_INFO is a server to client packet: the 7.3 client never sends it. An incoming one
             // is a protocol anomaly, not a request, so it is logged and dropped instead of reaching the
             // "Unknown Packet Type" throw below — exactly like TM_SC_REGION_ACK above.
+            if (header.ID == (ushort)GamePackets.TM_SC_CHANGE_LOCATION)
+            {
+                _logger.Warning("Server to client packet TM_SC_CHANGE_LOCATION ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             if (header.ID == (ushort)GamePackets.TM_SC_WEATHER_INFO)
             {
                 _logger.Warning("Server to client packet TM_SC_WEATHER_INFO ({id}) received from {clientTag}",

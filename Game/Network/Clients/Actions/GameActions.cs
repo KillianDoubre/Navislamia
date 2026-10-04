@@ -342,11 +342,16 @@ public class GameActions : IActions
         client.SendGameTime();
         client.SendTimeSync();
 
-        // TM_SC_WEATHER_INFO (902) at world entry, exactly like rzu (Character.cpp:303-306): the region id and
-        // the weather id are both 0, because resolving a position into a WorldLocation.id needs the client's
-        // map data, which Navislamia does not have yet. The 7.3 client does consume a 902 and this is the only
-        // path that sends one, so sending nothing here would leave the weather family silent in game.
-        client.SendWeatherInfo(0, 0);
+        // DB_Login ends with ChangeLocation: TM_SC_CHANGE_LOCATION (901) and the place's weather (902), resolved from
+        // the client map's location polygons (docs/packet-specs/901-change-location.md).
+        if (_networkService.PlayerLocationService is { } locations)
+        {
+            locations.Refresh(client);
+        }
+        else
+        {
+            client.SendWeatherInfo(0, 0);
+        }
 
         // The client clears its quest container on receive, so the list is emitted whole once per world
         // entry, exactly where the reference does it (NGemity Player::SendLoginProperties,

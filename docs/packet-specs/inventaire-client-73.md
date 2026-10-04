@@ -23,7 +23,7 @@ Trois sources ont été croisées.
 |---|---|---|---|
 | 406 | `TS_SC_STATE_RESULT` | dégâts et soins périodiques d'un état (poison, régénération) affichés au tick, `StructCreature.cpp:872` | haute |
 | 515 | `TS_SC_ENERGY` | compte d'énergie diffusé (`StructPlayer::onEnergyChange`) | haute, voir *Énergie* |
-| 901 | `TS_SC_CHANGE_LOCATION` | réponse à `TM_CS_CHANGE_LOCATION` (900) : lieu précédent et lieu courant (`GameContent::GetLocationId`) | moyenne, débloque la météo (902) |
+| 901 | `TS_SC_CHANGE_LOCATION` | réponse à `TM_CS_CHANGE_LOCATION` (900) : lieu précédent et lieu courant | **livré le 2026-10-04** avec la météo (`901-change-location.md`) |
 | 102 | `TS_SC_CANT_ATTACK` | attaque impossible | basse |
 | 30 | `TS_SC_CHANGE_NAME` | changement de nom (personnage, familier) | avec `/change_name` |
 | 322 | `TS_SC_SHOW_SUMMON_NAME_CHANGE` | fenêtre de renommage d'une invocation | basse |

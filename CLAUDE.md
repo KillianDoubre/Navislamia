@@ -2448,33 +2448,22 @@ sont sauvegardées avec la progression dans les colonnes existantes, sans migrat
 
 Les tests d'offsets des deux trames sont dans `Tests/Game/PkModeStatusTests.cs`.
 
-### Paquet 902 / 903 — `TM_SC_WEATHER_INFO` / `TM_CS_GET_WEATHER_INFO`
+### Lieu et météo — 900/901/902/903 (`TM_CS/SC_CHANGE_LOCATION`, `TM_SC_WEATHER_INFO`)
 
-(Epic 7.3 ; fiche `docs/packet-specs/902-weather-info.md`)
+Fiches `docs/packet-specs/901-change-location.md` et `902-weather-info.md`. `PlayerLocationService` porte
+`StructPlayer::ChangeLocation` et `WorldLocationManager` du serveur officiel :
 
-`TM_SC_WEATHER_INFO` (902, 13 octets : `region_id` `uint32` à 7, `weather_id` `uint16` à 11) et
-`TM_CS_GET_WEATHER_INFO` (903, 11 octets : `region_id` `uint32` à 7). Les ids `1902`/`1903` sont
-`version >= EPIC_9_6_3` et ne doivent pas être ajoutés.
-
-Deux pièges. (1) `region_id` n'est **pas** un indice de région de visibilité (la 550/11, pas de
-180) : c'est l'id de `WorldLocation`, encodé `x × 10000 + y × 100 + n` sur les colonnes `x`/`y`
-de la table ; NGemity y met l'id de l'emplacement, rzu y met 0. (2) La table a **une ligne par
-`(id, weather_id, time_id)`** (la copie client en compte 6497 lignes et 407 ids, dans un ordre
-physique qui n'est pas groupé par id (114 ruptures de l'ordre `(id, weather_id, time_id)`), ce qui
-rend le tri `ORDER BY Id, WeatherId, TimeId` du dépôt nécessaire) : elle doit être repliée en un
-enregistrement par id avec `weather_ratio[weather_id][time_id]`, comme
-`WorldLocationManager::RegisterWorldLocation`, sinon les lignes s'écrasent.
-
-Le client 7.3 **consomme** la 902 (il lit `+7` et `+11`) et, dans le binaire fourni, **n'émet
-jamais** la 903 : la constante `0x387` n'y apparaît que dans la table id→nom, sans constructeur.
-Aucune référence (NGemity, rzu) n'implémente de réponse à la 903. La réponse est donc défensive :
-une 902 à l'id demandé si l'id est connu, rien sinon.
-
-NGemity ne charge la table que pour la replier, **n'affecte jamais `current_weather`** (sa 902 vaut
-toujours `weather_id = 0`) et ne pousse la 902 qu'au changement d'emplacement, calculé depuis les
-données de carte du client — données que Navislamia n'a pas. Le socle suit rzu : une 902 `{0, 0}`
-à l'entrée dans le monde. L'appariement position → id d'emplacement reste `NON ÉTABLI` (taille de
-cellule inconnue) et mérite une carte dédiée.
+- **901** (15 octets, `prev_location_id` @7, `cur_location_id` @11) part **à chaque** contrôle, lieu changé ou non :
+  sur la 900 (position du client gardée à moins de 120 unités de l'estimation, sinon l'estimation), à l'entrée en jeu,
+  à la fin d'un warp et toutes les 30 000 ticks. Le lieu vient de `MapService.GetLocationId` (polygones `.nfl`, plus
+  petite priorité), tenu dans `ConnectionInfo.LocationId`.
+- Lieu changé et connu : **902** avec sa météo, mode PK coupé hors terrain PK (`IPkModeService.LeavePkField` : tout de
+  suite en match à mort/arène, 30 s ailleurs, allumage annulé), duel fini hors champ (2) et champ de bataille (5).
+- **Météo** : `weather_change_time` est en **minutes** (× 6000 ticks, `LocationLoader`) ; tirage 0..99 sur
+  `weather_ratio[tranche][météo]`, tranche = cycle de 12 h de l'heure locale de `game_time` (2 h 30 aube, 4 h jour,
+  8 h 30 soir, 10 h nuit) ; un changement part aux **seuls joueurs du lieu**. La 903 répond avec la météo courante.
+- `region_id` de la 902 est un `WorldLocation.id` (`x × 10000 + y × 100 + n`), jamais un indice de région de
+  visibilité ; la table a une ligne par `(id, weather_id, time_id)`, repliée par `WorldLocationService`.
 
 ### Paquet 1202 — `TM_CS_EMOTION` (émotion)
 

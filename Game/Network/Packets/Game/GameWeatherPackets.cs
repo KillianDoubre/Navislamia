@@ -39,6 +39,25 @@ public static class GameWeatherPackets
     }
 
     /// <summary>
+    /// TM_SC_CHANGE_LOCATION (901): 15 bytes, <c>prev_location_id</c> (int32) at offset 7 and
+    /// <c>cur_location_id</c> (int32) at offset 11 (<c>GameMessage.h:3062</c>), the answer to every
+    /// <c>StructPlayer::ChangeLocation</c>, changed or not.
+    /// </summary>
+    public static byte[] BuildChangeLocation(int previousLocationId, int currentLocationId)
+    {
+        var packet = new byte[HeaderSize + 8];
+        var payload = packet.AsSpan();
+
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), (ushort)GamePackets.TM_SC_CHANGE_LOCATION);
+        BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(HeaderSize, 4), previousLocationId);
+        BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(HeaderSize + 4, 4), currentLocationId);
+        WriteChecksum(packet);
+
+        return packet;
+    }
+
+    /// <summary>
     /// TM_CS_GET_WEATHER_INFO (903) carries the location id the client asks about. Only the exact 11-byte
     /// form is accepted: that size comes from the rzu definition alone — no 7.3 client build emits this
     /// packet, so no reader attests the offset — and a short or padded frame is refused rather than

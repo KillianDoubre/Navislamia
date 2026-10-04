@@ -24,6 +24,12 @@ public interface IPkModeService
 
     /// <summary>The deadlines reached at <paramref name="now"/> take effect.</summary>
     void Process(GameClient client, uint now);
+
+    /// <summary>
+    /// <c>StructPlayer::ChangeLocation</c>: entering a place without PK turns the mode off — at once in a
+    /// deathmatch or an arena, after the usual 30 s elsewhere (<c>TurnOffPkMode</c>).
+    /// </summary>
+    void LeavePkField(GameClient client, bool immediate) { }
 }
 
 public static class PkModeRules
@@ -144,6 +150,39 @@ public sealed class PkModeService : IPkModeService, IDisposable
             info.TurnOnPkAt = on;
             info.TurnOffPkAt = off;
             return accepted ? ResultCode.Success : ResultCode.NotActable;
+        }
+    }
+
+    public void LeavePkField(GameClient client, bool immediate)
+    {
+        var info = client.ConnectionInfo;
+        // GameRules:PkFieldsEverywhere (a debugging option) makes every place a PK field.
+        if (_fields.IsPkField(info))
+        {
+            return;
+        }
+
+        lock (info.PkModeLock)
+        {
+            // ( IsPKOning() || ( IsPKOn() && !IsPKOffing() ) ) && !IsInPKField()
+            if (info.TurnOnPkAt == 0 && !(info.PkMode && info.TurnOffPkAt == 0))
+            {
+                return;
+            }
+
+            var now = ServerClock.Now;
+            if (immediate && info.TurnOnPkAt == 0)
+            {
+                info.TurnOffPkAt = now == 0 ? 1u : now;
+                return;
+            }
+
+            // TurnOffPkMode( false ): a pending switch-on is cancelled, otherwise the switch-off is 30 s ahead.
+            var on = info.TurnOnPkAt;
+            var off = info.TurnOffPkAt;
+            PkModeRules.TurnOff(ref on, ref off, now);
+            info.TurnOnPkAt = on;
+            info.TurnOffPkAt = off;
         }
     }
 

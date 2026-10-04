@@ -25,14 +25,17 @@ public class WarpService : IWarpService
     private readonly IGroundItemService _groundItems;
     private readonly Dungeons.DungeonRooms _dungeons;
     private readonly EventAreaTransitions _areas;
+    private readonly IPlayerLocationService _locations;
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
         IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
         IPlayerVisibilityService playerVisibility, IGroundItemService groundItems,
         Casting.ICastInterrupts casts = null, Compete.ICompeteService compete = null,
         Creatures.ICreatureService creatures = null, Dungeons.DungeonRooms dungeons = null,
-        Huntaholic.IHuntaholicEvents huntaholic = null, EventAreaTransitions areas = null)
+        Huntaholic.IHuntaholicEvents huntaholic = null, EventAreaTransitions areas = null,
+        IPlayerLocationService locations = null)
     {
+        _locations = locations;
         _huntaholic = huntaholic;
         _areas = areas;
         _dungeons = dungeons;
@@ -96,6 +99,9 @@ public class WarpService : IWarpService
             // the players' side of the re-entry (docs/packet-specs/socle-visibilite-joueurs.md §5.3,
             // trigger 4).
             _playerVisibility.EnterWorld(client);
+
+            // GameProc::onWarp ends with ChangeLocation: the new place and its weather.
+            _locations?.Refresh(client);
 
             // The pet is not in a visible set: it follows its master to the new place explicitly.
             _petSummon.FollowWarp(client);

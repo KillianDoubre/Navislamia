@@ -1,5 +1,11 @@
 # 902 / 903 — `TM_SC_WEATHER_INFO` / `TM_CS_GET_WEATHER_INFO`
 
+> **Mise à jour du 2026-10-04** (`901-change-location.md`) : le lieu est résolu par `MapService.GetLocationId`
+> (polygones `.nfl`), la 902 part avec la 901 à l'entrée en jeu, au warp et à chaque changement de lieu, et la
+> météo est tirée comme `WorldLocationManager::onProcess` (`weather_change_time` en minutes, × 6000 ticks). Les
+> paragraphes ci-dessous qui parlent d'un `region_id` et d'un `weather_id` toujours nuls décrivent l'état antérieur.
+
+
 Fiche d'archéologie de protocole, Epic 7.3. Écrite en lecture seule sur les références
 (`reference/rzu`, `reference/ngemity/Chihiro`, `reference/client73`) — aucun Lua, aucun script du
 client, aucun exécutable du client n'a été lancé ; aucune base PostgreSQL n'a été interrogée. Le
