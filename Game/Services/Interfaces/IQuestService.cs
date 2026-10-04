@@ -40,6 +40,10 @@ public interface IQuestService
 
     /// <summary>Official get_quest_status: a 1-based objective's value, 0 when the quest is not held.</summary>
     Task<int> GetQuestStatusAsync(GameClient client, int code, int index) => Task.FromResult(0);
+    Task<Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity> StageScriptStatusAsync(
+        GameClient client, Navislamia.Game.DataAccess.Repositories.Interfaces.ICharacterRepository repository,
+        int code, int index, int value) => Task.FromResult<Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity>(null);
+    void PublishScriptStatus(GameClient client, Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity quest) { }
     Task<int> RunScriptAsync(GameClient client, string script) => Task.FromResult(0);
     Navislamia.Game.Scripting.QuestScriptContext CreateScriptContext(GameClient client) => null;
 

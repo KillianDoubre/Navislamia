@@ -7,8 +7,6 @@ public class EventAreaInfo
 {
     public int Id;
 
-    public static bool IsActivatable(/*StructPlayer pPlayer, int areaIndex*/) => false; // TODO: implement EventAreaInfo.IsActivatable
-
     public PolygonF Area;
 
     public int BeginTime;

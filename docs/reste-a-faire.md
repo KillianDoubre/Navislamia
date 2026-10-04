@@ -1,9 +1,24 @@
-# Reste à faire — état au 3 octobre 2026
+# Reste à faire — état au 4 octobre 2026
 
 Liste de ce qui n'est pas fini sur `master`, par priorité. Le détail de chaque point est dans la fiche citée
 (`docs/packet-specs/`) ou dans `CLAUDE.md` (*Current limitations*).
 
+Dernière validation du lot guildes/titres/classements/zones : **3 554 tests ordinaires réussis**,
+compilation Release du serveur sans erreur. Les essais PostgreSQL en schémas isolés vérifient les
+guildes, l'annulation complète d'un don en échec, les dons concurrents, le classement et les 187
+ressources de zones. Ces essais n'appliquent pas les migrations aux schémas de jeu en production.
+
 ## 1. À vérifier en jeu (livré, jamais essayé avec le client)
+
+- **Guildes : emblèmes, annonces et classement** (`socle-guildes-emblemes-annonces-classement.md`) :
+  upload officiel, notices, `/glist`, `/granking`. Les URL publiques d'emblème/bannière sont à configurer.
+- **Titres de siège, meurtre PK et PC bang** (`socle-titres-siege-pk-pcbang.md`).
+- **Classement des dons 5000/5001** (`socle-classement-dons-persistant.md`) : vrais dons du mois,
+  seuil du top, score/rang personnels. Migration `Version0022_DonationScores`, testée sur PostgreSQL temporaire.
+- **Zones d'événement Lua** (`socle-zones-evenement-lua.md`) : migration Arcadia `EventAreaResources`,
+  187 lignes importées et testées sur PostgreSQL ; entrée/sortie, conditions, objectifs, recouvrements.
+  Restent 18 noms de handlers absents des copies officielles ; voir la fiche pour les identifiants.
+- **Usure, chute 9001, lignes d'objet obtenu et PNJ** (`socle-usure-chute-scripts-pnj.md`) : livrés.
 
 - **Combat réel** (`socle-combat-reel.md`) : dégâts, esquive, blocage, critique, cadence, des deux côtés.
 - **Récompenses des monstres** (`socle-recompenses-monstres.md`) : EXP/JP importés, or au sol et
@@ -84,13 +99,12 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
   tout l'échange si un objet ne passe pas, l'officiel peut laisser un objet déséquipé ; le codage réel de
   `JobResources.JobDepth` (index ou bit) est à confirmer par une requête en base (`JobDepths` sait lire
   les deux).
-- Titres : principal et secondaires, événements d'invocation et d'artisanat livrés. Restent les événements de
-  siège, de meurtre PK, de PC bang, d'objet obtenu (2001), d'amélioration de carte de créature (3201) et de
-  ceinture de cartes (3801).
+- Titres : principal et secondaires, événements d'invocation, d'artisanat, de siège, de meurtre PK et de
+  PC bang livrés. Restent l'objet obtenu (2001) et la ceinture de cartes (3801).
 - Artisanat : tous les types Epic 7 livrés sur le `MixManager` officiel (`socle-artisanat-objets-officiel.md`),
-  **à vérifier en jeu** ; restent l'usure de la durabilité éthérée (rien ne la consomme) et les lignes « objet
-  obtenu » (`@253`/`@254`).
-- PvP : restent les règles d'arène/siège et les alliances de guildes ; compte à rebours PK et autel livrés ; terrains PK, compétences et immoralité sont livrés et testés
+  avec l'usure éthérée et les lignes « objet obtenu » (`@253`/`@254`, `socle-usure-chute-scripts-pnj.md`),
+  **à vérifier en jeu**.
+- PvP : l'arène reste à traiter ; sièges et alliances, compte à rebours PK et autel livrés ; terrains PK, compétences et immoralité sont livrés et testés
   (`socle-pvp-terrains-competences-immoralite.md`).
 - Mort du joueur : objets lâchés seulement sur un serveur PK, comme l'officiel ; à trancher si on le veut
   ailleurs.
@@ -102,11 +116,12 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
 - Invocations et apprivoisement : apprivoisement, formation, invocation, renvoi, marche et attaque de
   l'invocation livrés (`socle-apprivoisement-invocation.md` §15), puis la suite (`socle-invocations-progression.md`)
   et l'équipement, puis les compétences actives et le maintien `/hold`
-  (`socle-invocations-competences-actives.md`), **à vérifier en jeu**. Reste : l'état de chute 9001
-  (l'amélioration des cartes de créature est livrée avec l'artisanat).
-- Guildes : création, alliances, équipes d'attaque, raids, sièges et taxes livrés par Codex
-  (`socle-guildes-alliances-sieges.md`), **à vérifier en jeu** ; restent l'emblème, la publicité et le classement de
-  guilde, et la vérification des formats `@GUILD`/`@ALLIANCE` contre la fenêtre du client 7.3.
+  (`socle-invocations-competences-actives.md`), **à vérifier en jeu**. Chute 9001 et amélioration des cartes
+  de créature livrées avec l'artisanat (`socle-usure-chute-scripts-pnj.md`).
+- Guildes : création, alliances, équipes d'attaque, raids, sièges, taxes, emblèmes, annonces et classement
+  livrés (`socle-guildes-alliances-sieges.md`, `socle-guildes-emblemes-annonces-classement.md`),
+  **à vérifier en jeu**, notamment les formats `@GUILD`/`@ALLIANCE` et l'upload HTTP réel.
+  Le classement de guilde et la gestion des annonces sont accessibles par commandes du dépôt.
 - Donjons : accès aux 20 choix d'instance livré, salles isolées par groupe ou personnage, niveaux/difficultés,
   clés de Vulcanus, sorties et nettoyage ; accès public, raid et siège distingués, horaires régionaux et guilde
   contrôlés. Pages d'information des donjons secrets et raccourci de la guilde propriétaire raccordés
@@ -119,11 +134,12 @@ Les récompenses de `MonsterResource` sont désormais branchées et testées loc
   (`socle-encheres-mecanique.md` §5–6), **à vérifier en jeu** : 39 définitions importées, 3 compatibles et actives
   avec le client 7.3 et la région actuelle ; 35 lignes utilisent des objets absents du client, 1 est exclue par région.
 - Ferme de créatures : non implémentée par décision (2026-09-30).
-- Dialogues PNJ non exécutés : timbres et quêtes d'événement (`question_stamp_*`, `valentine_*`, `event_*`),
-  durabilité des objets (`max_item_durability`), `tp_skill`, cadeaux (`second_present_*`,
-  `dormancyuser_item_*`), `random_item_change_menu`.
+- Dialogues PNJ : timbres, événements, durabilité, `tp_skill`, cadeaux et `random_item_change_menu` livrés
+  (`socle-usure-chute-scripts-pnj.md`). Les fonctions et récompenses incompatibles avec les données 7.3
+  disponibles sont refusées sans consommation ; à vérifier en jeu.
 - Quêtes 701 : les 52 offres et le contrôle Lua des objectifs sont livrés. Les scénarios de donjon
-  ou d'événement dépendent encore des systèmes correspondants. Faveur côté client : aucun paquet
+  sont raccordés aux donjons et zones d'événement importés ; les 18 handlers de zone absents des sources
+  restent à compléter. Faveur côté client : aucun paquet
   connu n'affiche la faveur.
 
 ## 5. Données

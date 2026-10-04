@@ -13,6 +13,44 @@ namespace Tests.Game;
 [TestFixture]
 public class TitleProgressionTests
 {
+    [Test]
+    public async Task Pk_uses_victim_threshold_and_pc_bang_is_a_trusted_snapshot_not_a_login_counter()
+    {
+        var options = new DbContextOptionsBuilder<TelecasterContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString(), o => o.EnableNullChecks(false)).Options;
+        var resources = new ProgressionResources {
+            Titles = new[] { Resource(1), Resource(2), Resource(3), Resource(4) },
+            ConditionTypes = new[] {
+                new TitleConditionType(10, TitleEvents.PlayerKill, new[] { 100, 0, 0 }, false),
+                new TitleConditionType(11, TitleEvents.PlayerKill, new[] { 1000, 0, 0 }, false),
+                new TitleConditionType(12, TitleEvents.PcBangMode, new[] { 2, 0, 0 }, true),
+                new TitleConditionType(13, TitleEvents.PcBangMode, new[] { 2, 1, 0 }, true) },
+            Conditions = new[] {
+                new TitleCondition(1, 0, 10, 2, true), new TitleCondition(2, 0, 11, 1, true),
+                new TitleCondition(3, 0, 12, 1, true), new TitleCondition(4, 0, 13, 1, true) }
+        };
+        var catalog = new TitleCatalog(resources);
+        var stats = new StatService(StatCatalogTestFactory.Create(), A.Fake<IItemStatCatalog>(),
+            A.Fake<ISkillPassiveCatalog>(), A.Fake<IStateCatalog>(), catalog);
+        var client = StorageTestHarness.NewGameClient(new StorageTestHarness.FrameConnection(Array.Empty<byte>()));
+        StorageTestHarness.Session(client).CharacterHandle = 1; StorageTestHarness.Session(client).CharacterName = "Titles";
+        StorageTestHarness.Session(client).CharacterJob = StatCatalogTestFactory.KnownJob; StorageTestHarness.Session(client).CharacterLevel = 5;
+        await using (var db = new TelecasterContext(options))
+        { db.Characters.Add(new CharacterEntity { Id = 1, CharacterName = "Titles" }); await db.SaveChangesAsync(); }
+        var service = new TitleService(options, new CharacterGate(), catalog, stats);
+        await service.RecordAsync(client, TitleEvents.PlayerKilled(99.9999m));
+        (await service.GetOwnedAsync(client)).Should().BeEmpty();
+        await service.RecordAsync(client, TitleEvents.PlayerKilled(100));
+        await service.RecordAsync(client, TitleEvents.PlayerKilled(150));
+        (await service.GetOwnedAsync(client)).Should().Equal(1);
+        StorageTestHarness.Session(client).PcBangMode = 2;
+        await service.RefreshAsync(client); await service.RefreshAsync(client);
+        (await service.GetOwnedAsync(client)).Should().Equal(1, 3);
+        await using var check = new TelecasterContext(options);
+        var state = await check.CharacterTitleStates.SingleAsync();
+        state.ConditionCounts[Array.IndexOf(state.ConditionIds, 10)].Should().Be(2);
+        state.ConditionCounts[Array.IndexOf(state.ConditionIds, 12)].Should().Be(1);
+    }
     [Test, Explicit("Runs title migrations and array round trips in a temporary PostgreSQL schema.")]
     public async Task PostgreSql_title_migration_persists_arrays_and_selection()
     {

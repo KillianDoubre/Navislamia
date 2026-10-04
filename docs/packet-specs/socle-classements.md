@@ -1,5 +1,9 @@
 # Socle « classements de joueurs (top records) » — `TM_CS/SC_RANKING_TOP_RECORD` (5000/5001)
 
+**Mise à jour du 2026-10-04** : le type 0 est désormais alimenté par les dons réellement crédités,
+avec rang du demandeur et persistance mensuelle. Voir `socle-classement-dons-persistant.md`.
+Les passages ci-dessous décrivant une source absente ou une réponse toujours vide sont historiques.
+
 Deux opcodes, une seule famille, **aucun handler** dans les deux références serveur — et une
 réponse nette à la question centrale du PO : **le client Epic 7.3 émet bien `5000`**, depuis un
 seul point du binaire, avec `ranking_type = 0`, et **route bien `5001`**.

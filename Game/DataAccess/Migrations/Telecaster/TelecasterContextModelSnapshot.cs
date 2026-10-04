@@ -773,6 +773,42 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.ToTable("CharacterTitleStates");
                 });
 
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.DonationScoreEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Period")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Score")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId", "Period")
+                        .IsUnique()
+                        .HasFilter("\"DeletedOn\" IS NULL");
+
+                    b.ToTable("DonationScores");
+                });
+
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.DungeonEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -1712,6 +1748,15 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", null)
                         .WithOne()
                         .HasForeignKey("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterTitleStateEntity", "CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.DonationScoreEntity", b =>
+                {
+                    b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", null)
+                        .WithMany()
+                        .HasForeignKey("CharacterId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

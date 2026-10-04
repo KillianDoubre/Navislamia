@@ -9,6 +9,11 @@ public interface IMapService
     /// no map or layer, and the loader keys a single world-wide dictionary on it.
     /// </summary>
     public bool TryGetEventArea(int eventAreaId, out EventAreaInfo eventArea);
+    public bool TryGetEventArea(int eventAreaId, int areaIndex, out EventAreaInfo eventArea)
+    {
+        eventArea = null;
+        return areaIndex == 0 && TryGetEventArea(eventAreaId, out eventArea);
+    }
 
     /// <summary>
     /// Immutable snapshot of the loaded event areas, for callers that have to test a position

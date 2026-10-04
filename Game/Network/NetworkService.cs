@@ -18,6 +18,8 @@ public class NetworkService : INetworkService
 {
     private readonly ILogger<NetworkService> _logger;
     public readonly ICharacterService CharacterService;
+    public readonly Services.Progression.ITitleService TitleService;
+    public readonly IDonationRankingService DonationRankingService;
     public readonly IBannedWordsRepository BannedWordsRepository;
     public readonly IStatService StatService;
     public readonly INpcSpawnService NpcSpawnService;
@@ -114,8 +116,17 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Dungeons.DungeonRooms dungeonRooms = null,
         Navislamia.Game.Services.Guilds.IGuildService guildService = null,
         Navislamia.Game.Services.Huntaholic.IHuntaholicService huntaholicService = null,
-        Navislamia.Game.Services.Auction.IAuctionService auctionService = null, IEtherealWear etherealWear = null)
+        Navislamia.Game.Services.Auction.IAuctionService auctionService = null, IEtherealWear etherealWear = null,
+        Services.Progression.ITitleService titleService = null, IDonationRankingService donationRankingService = null,
+        Navislamia.Game.Services.Guilds.GuildUploadRelay guildUploads = null)
     {
+        TitleService = titleService;
+        DonationRankingService = donationRankingService;
+        if (guildUploads is not null)
+        {
+            guildUploads.IsReady = () => UploadClient?.Ready == true;
+            guildUploads.Send = frame => UploadClient.Connection.Send(frame);
+        }
         EtherealWear = etherealWear;
         GuildService = guildService;
         DungeonRooms = dungeonRooms;

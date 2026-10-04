@@ -398,6 +398,7 @@ public class GameActions : IActions
         // party they left, and ConnectionInfo.PartyId is set from it, never from Characters.PartyId.
         _networkService.PartyService?.OnWorldEntry(client);
         if (_networkService.GuildService is { } guilds) await guilds.OnWorldEntryAsync(client);
+        if (_networkService.TitleService is { } titles) await titles.RefreshAsync(client);
 
         // The creatures (docs/packet-specs/socle-apprivoisement-invocation.md §15): the 301 of each formed summon,
         // the formation 303, and the main summon back beside its master, once the master is in the world.
@@ -407,6 +408,7 @@ public class GameActions : IActions
         }
         _networkService.GroundItemService.Sync(client);
         client.Connection.Send(GameCharacterPackets.BuildItemCoolTime(info.ItemCooldowns, ServerClock.Now));
+        _networkService.EventAreaService?.EnterWorld(client);
     }
 
     private void OnReport(GameClient client, IPacket packet)

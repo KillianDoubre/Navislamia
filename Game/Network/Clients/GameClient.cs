@@ -943,11 +943,8 @@ public class GameClient : Client
     /// <summary>
     /// TM_CS_RANKING_TOP_RECORD (5000): the client asks for the top records of one ranking and expects a
     /// single TM_SC_RANKING_TOP_RECORD (5001) — no TS_SC_RESULT, and no state is armed on its side.
-    /// The minimum socle answers with an empty answer (records = 0, 20 bytes) that echoes the requested
-    /// ranking_type; the data behind it (which ranking, which metric, how many entries, the requester's
-    /// own rank) is a later lot and belongs to Killian (spec §5.5, §7a-§7f). Both scores are therefore
-    /// written as zero — no ranking source exists server-side yet, and the value a non ranked player
-    /// should carry is not established (§7d).
+    /// Donation type 0 reads the persisted monthly score ledger; scores use c_fixed10 units.
+    /// The official reward roster (1) and unsupported Hunta types do not return invented score lists.
     /// </summary>
     private void HandleRankingTopRecord(byte[] buffer)
     {
@@ -960,12 +957,24 @@ public class GameClient : Client
             return;
         }
 
-        Connection.Send(GameRankingPackets.BuildRankingTopRecord(
-            request.RankingType, 0, 0, Array.Empty<GameRankingPackets.RankingRecord>()));
+        _ = SendDonationRankingAsync(request.RankingType);
 
         _logger.Debug(
             "TM_CS_RANKING_TOP_RECORD ({id}) Length: {length} received from {clientTag}: ranking_type={rankingType}",
             (ushort)GamePackets.TM_CS_RANKING_TOP_RECORD, buffer.Length, ClientTag, request.RankingType);
+    }
+
+    private async Task SendDonationRankingAsync(sbyte type)
+    {
+        var handle = ConnectionInfo.CharacterHandle; var name = ConnectionInfo.CharacterName;
+        try
+        {
+            var packet = _networkService.DonationRankingService is { } ranking
+                ? await ranking.GetAsync(handle, type) : null;
+            if (packet is not null && ConnectionInfo.CharacterHandle == handle && ConnectionInfo.CharacterName == name)
+                Connection.Send(packet);
+        }
+        catch (Exception ex) { _logger.Error(ex, "Could not read donation ranking for {Client}", ClientTag); }
     }
 
     /// <summary>
@@ -1428,6 +1437,7 @@ public class GameClient : Client
 
     private async Task SaveProgressSafelyAsync(string operation)
     {
+        if (_networkService.EventAreaService is { } areas) await areas.LeaveWorldAsync(this);
         var info = ConnectionInfo;
         if (_networkService.EtherealWear is { } wear) await wear.FlushAsync(this);
         try

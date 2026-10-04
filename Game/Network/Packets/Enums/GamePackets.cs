@@ -2,6 +2,11 @@ namespace Navislamia.Game.Network.Packets.Enums;
 
 public enum GamePackets : ushort
 {
+    TM_SC_SHOW_CREATE_GUILD = 650,
+    TM_SC_OPEN_GUILD_WINDOW = 651,
+    TM_SC_UPDATE_GUILD_ICON = 652,
+    TM_SC_UPDATE_GUILD_BANNER = 653,
+    TM_SC_SHOW_CREATE_ALLIANCE = 660,
     TM_SC_RESULT = 0,
 
     TM_CS_LOGIN = 1,

@@ -20,4 +20,7 @@ public interface IEventAreaService
     /// true when the session's current area changed.
     /// </summary>
     bool Refresh(GameClient client);
+    void EnterWorld(GameClient client) => Refresh(client);
+    System.Threading.Tasks.Task FlushAsync(GameClient client) => System.Threading.Tasks.Task.CompletedTask;
+    System.Threading.Tasks.Task LeaveWorldAsync(GameClient client) => System.Threading.Tasks.Task.CompletedTask;
 }

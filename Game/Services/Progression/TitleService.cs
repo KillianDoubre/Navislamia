@@ -127,6 +127,8 @@ public sealed class TitleService : ITitleService
                         4002 => ended.Contains(type.Values[0]) ? 1 : 0,
                         7001 => character.Skills?.Any(s => s.SkillId == type.Values[0] && s.Level >= type.Values[1]) == true ? 1 : 0,
                         9001 => client.ConnectionInfo.CharacterGold >= type.Values[0] ? 1 : 0,
+                        TitleEvents.PcBangMode => type.Values is { Length: >= 3 } && type.Values[0] == client.ConnectionInfo.PcBangMode
+                            && type.Values[1] == 0 && type.Values[2] == 0 ? 1 : 0,
                         6001 => client.ConnectionInfo.PkMode ? 1 : 0,
                         6101 => client.ConnectionInfo.ImmoralPoint >= type.Values[0]
                             && client.ConnectionInfo.ImmoralPoint <= type.Values[1] ? 1 : 0,

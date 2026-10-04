@@ -1,5 +1,8 @@
 # Titres secondaires, événements d'invocation et d'artisanat, création d'objets (601)
 
+**Suite du 2026-10-04** : événements de siège vérifiés, meurtre PK et PC bang raccordés.
+Voir `socle-titres-siege-pk-pcbang.md`.
+
 Suite de `socle-progression-monstres-quetes-titres.md`. Sources officielles : `StructPlayer.cpp`
 (`SetMainTitle`, `SetSubTitle`, `IsUsableTitle`), `CalculateStat.cpp` (`applyStatByTitle`,
 `amplifyStatByTitle`), `StructTitleManager.cpp`, `TitleBase.h`, `GameRule.h`, `GameProc.cpp` (`ProcTame`),

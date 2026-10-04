@@ -6,6 +6,7 @@ using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Weight;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -24,11 +25,16 @@ public class ItemDonateService : IItemDonateService
     private readonly ILogger _logger = Log.ForContext<ItemDonateService>();
     private readonly ICharacterService _characterService;
     private readonly IItemSellCatalog _catalog;
+    private readonly DonationStore _store;
+    private readonly IInventoryChangeFeed _feed;
 
-    public ItemDonateService(ICharacterService characterService, IItemSellCatalog catalog = null)
+    public ItemDonateService(ICharacterService characterService, IItemSellCatalog catalog = null, DonationStore store = null,
+        IInventoryChangeFeed feed = null)
     {
         _characterService = characterService;
         _catalog = catalog;
+        _store = store;
+        _feed = feed;
     }
 
     /// <summary><c>GameRule::DONATE_GOLD_UNIT_COUNT</c>: 10 000 gold (or 10 000 of an item's price) for one moral point.</summary>
@@ -124,6 +130,16 @@ public class ItemDonateService : IItemDonateService
         if (affordable != ResultCode.Success)
         {
             client.SendResult(DonateRequestId, (ushort)affordable, value);
+            return;
+        }
+
+        if (_store is not null)
+        {
+            ResultCode result;
+            try { result = await _store.DonateAsync(client, request); }
+            catch (Exception ex) { _logger.Error(ex, "Could not commit donation of {Client}", client.ClientTag); result = ResultCode.DBError; }
+            if (result == ResultCode.Success) _feed?.Publish(info.CharacterName);
+            client.SendResult(DonateRequestId, (ushort)result, value);
             return;
         }
 

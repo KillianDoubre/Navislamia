@@ -72,6 +72,10 @@ VF = {f"UseWith{k}": f"vf_{v}" for k, v in {
 
 # Import order matters for nothing but readability: foreign keys are resolved after every table.
 TABLES = [
+    ("EventAreaResources", "EventAreaResource", ["Id"], {
+        "Conditions": r("activate_condition", 1, 6),
+        "Values": [f"activate_value{i}_{j}" for i in range(1, 7) for j in range(1, 3)],
+        "CountLimit": "count_limit", "EnterHandler": "script_enter_text", "LeaveHandler": "script_leave_text"}),
     ("StringResources", "StringResource", ["Id"], {"Id": "code"}),
     ("StatResources", "StatResource", ["Id"], {
         "Strength": "str", "Vitality": "vit", "Dexterity": "dex", "Agility": "agi",

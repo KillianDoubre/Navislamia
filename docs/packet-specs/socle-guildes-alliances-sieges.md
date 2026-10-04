@@ -1,5 +1,9 @@
 # Guildes, alliances, raids et sièges
 
+**Suite livrée le 2026-10-04** : paquets 650–653/660 et 50003/50004/50009, emblèmes,
+notices, annonces et classement. Voir `socle-guildes-emblemes-annonces-classement.md` ;
+titres de siège vérifiés dans `socle-titres-siege-pk-pcbang.md`.
+
 Lot de Codex (2026-10-03), fusionné avec ses donjons (`socle-donjons-instances-secrets.md`). Cette fiche est
 rédigée **à partir de son code et de ses tests** (`Game/Services/Guilds/`, `Tests/Game/GuildTests.cs`) : la
 source officielle de chaque règle n'est pas citée ici, à compléter.
