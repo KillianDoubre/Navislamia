@@ -26,6 +26,8 @@ public interface ISkillCastService
     /// refresh. Used by the GM command <c>/buff</c>.
     /// </summary>
     void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks);
+    void ApplyMonsterState(GameClient client, int stateId, int stateLevel, uint durationTicks, long monsterId) =>
+        ApplyState(client, stateId, stateLevel, durationTicks);
 
     /// <summary>Applies a self buff or heal carried by an item effect without a learned-skill gate.</summary>
     bool ApplyItemSkill(GameClient client, int skillId, int skillLevel);

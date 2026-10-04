@@ -31,6 +31,8 @@ public class StateCatalog : IStateCatalog
     private static readonly int[] ParameterTriplets = { 0, 1, 2, 3, 4, 5 };
 
     private readonly ILogger _logger = Log.ForContext<StateCatalog>();
+    private readonly FrozenDictionary<int, Buffs.PeriodicStateRule> _periodic;
+    public Buffs.PeriodicStateRule Periodic(int stateId) => _periodic.GetValueOrDefault(stateId);
     private readonly FrozenDictionary<int, StateEffectTemplate[]> _states;
     private readonly FrozenSet<int> _eraseOnRequest;
     private readonly FrozenDictionary<int, Casting.StateRule> _rules;
@@ -39,6 +41,7 @@ public class StateCatalog : IStateCatalog
 
     public StateCatalog(IStateResourceRepository repository)
     {
+        _periodic = (repository.GetPeriodicStates() ?? Array.Empty<Buffs.PeriodicStateRule>()).Where(r => r.Supported).ToFrozenDictionary(r => r.StateId);
         var states = new Dictionary<int, StateEffectTemplate[]>();
         foreach (var state in repository.GetStatStates())
         {

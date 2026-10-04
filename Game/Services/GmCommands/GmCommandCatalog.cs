@@ -40,7 +40,7 @@ public enum GmCommand
     Ride,
     Unride,
     Speed,
-    SubTitle
+    SubTitle, ChangeName, BlockChat, CheckAutoUser, ForceWarp, Invisible, Kick, Rebirth, Lv
 }
 
 /// <summary>
@@ -66,6 +66,14 @@ public static class GmCommandCatalog
 
     public static IReadOnlyList<GmCommandDefinition> All { get; } = new[]
     {
+        new GmCommandDefinition(GmCommand.ChangeName, "change_name", false, "/change_name <name>", FromOfficial),
+        new GmCommandDefinition(GmCommand.BlockChat, "block_chat", true, "/block_chat <name> [minutes 0-144000]", FromOfficial),
+        new GmCommandDefinition(GmCommand.CheckAutoUser, "check_auto_user", true, "/check_auto_user <name>", FromOfficial),
+        new GmCommandDefinition(GmCommand.ForceWarp, "force_warp", true, "/force_warp <name> | <x> <y> [name]", FromOfficial),
+        new GmCommandDefinition(GmCommand.Invisible, "invisible", true, "/invisible [1|2]", FromOfficial),
+        new GmCommandDefinition(GmCommand.Kick, "kick", true, "/kick <name>", FromOfficial),
+        new GmCommandDefinition(GmCommand.Rebirth, "rebirth", true, "/rebirth", FromOfficial),
+        new GmCommandDefinition(GmCommand.Lv, "lv", true, "/lv <level>", FromOfficial),
         new GmCommandDefinition(GmCommand.Help, "help", false, "/help", FromRepository),
         new GmCommandDefinition(GmCommand.Hold, "hold", false, "/hold [summon handle] [on|off]", FromRepository),
         new GmCommandDefinition(GmCommand.Titles, "titles", false, "/titles", FromRepository),

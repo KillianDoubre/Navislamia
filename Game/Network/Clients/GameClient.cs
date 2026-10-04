@@ -1095,6 +1095,7 @@ public class GameClient : Client
 
     private void HandleAttackRequest(byte[] buffer)
     {
+        if (buffer.Length != 15 || ConnectionInfo.CharacterHp <= 0) return;
         var target = GameAttackPackets.ReadAttackTarget(buffer);
 
         // onAttackRequest: a handle other than the character's names one of its summons.
@@ -1106,7 +1107,10 @@ public class GameClient : Client
             return;
         }
 
-        _networkService.CombatService.StartAttack(this, target);
+        if (attacker != ConnectionInfo.CharacterHandle)
+        { Connection.Send(GameStateResultPackets.CantAttack(attacker, target, ResultCode.NotOwn)); return; }
+        if (target == 0) _networkService.CombatService.StopAttack(this);
+        else _networkService.CombatService.StartAttack(this, target);
     }
 
     /// <summary>
@@ -1226,6 +1230,12 @@ public class GameClient : Client
         var info = ConnectionInfo;
         if (info.CharacterHandle == 0 || string.IsNullOrEmpty(message))
         {
+            return;
+        }
+
+        if (info.ChatBlockRemaining(ServerClock.Now) > 0)
+        {
+            SendResult((ushort)GamePackets.TM_CS_CHAT_REQUEST, (ushort)ResultCode.BlockChat);
             return;
         }
 
@@ -1437,8 +1447,11 @@ public class GameClient : Client
 
     private async Task SaveProgressSafelyAsync(string operation)
     {
-        if (_networkService.EventAreaService is { } areas) await areas.LeaveWorldAsync(this);
         var info = ConnectionInfo;
+        Task renaming; lock (info.NameChangeLock) renaming = info.NameChangeCompletion;
+        try { await renaming; }
+        catch (Exception exception) { _logger.Error(exception, "Name change failed before saving {clientTag}", ClientTag); }
+        if (_networkService.EventAreaService is { } areas) await areas.LeaveWorldAsync(this);
         if (_networkService.EtherealWear is { } wear) await wear.FlushAsync(this);
         try
         {
@@ -1454,6 +1467,7 @@ public class GameClient : Client
                 info.CharacterJobLevel, info.CharacterExp, info.CharacterJp, info.CharacterGold,
                 info.CharacterChaos, info.X, info.Y, info.PkMode, info.GetPvpProgress(), info.CharacterStamina,
                 info.GetHuntaholicProgress());
+            await _networkService.CharacterService.SaveChatBlockTimeAsync(info.CharacterName, info.ChatBlockRemaining(ServerClock.Now));
         }
         catch (Exception exception)
         {
@@ -2967,6 +2981,12 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_CS_LEARN_SKILL)
             {
                 _ = HandleLearnSkillAsync(msgBuffer);
+                continue;
+            }
+
+            if (header.ID is (ushort)GamePackets.TM_SC_STATE_RESULT or (ushort)GamePackets.TM_SC_ENERGY or (ushort)GamePackets.TM_SC_CANT_ATTACK)
+            {
+                _logger.Warning("Server-only state/energy/attack packet {id} received from {clientTag}", header.ID, ClientTag);
                 continue;
             }
 

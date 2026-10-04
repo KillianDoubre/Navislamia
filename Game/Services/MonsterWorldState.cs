@@ -43,6 +43,7 @@ public partial class MonsterWorldState
     private readonly object _stateLock = new();
 
     private readonly Dictionary<long, int> _currentHp = new();
+    private readonly Dictionary<long, int> _currentMp = new();
     private readonly Dictionary<long, DateTime> _respawnAt = new();
     private readonly Dictionary<long, int> _dungeonRegen = new();
 
@@ -187,6 +188,7 @@ public partial class MonsterWorldState
                 _respawnAt.Remove(id);
                 _dungeonRegen.Remove(id);
                 _currentHp.Remove(id);
+                _currentMp.Remove(id);
                 _damageContributions.Remove(id);
                 _firstDamage.Remove(id);
                 _movement.Remove(id);
@@ -293,7 +295,7 @@ public partial class MonsterWorldState
     /// handle. Returns the applied buff so the caller can put its handle on the wire.
     /// </summary>
     public ActiveBuff AddState(long instanceId, int stateId, int skillId, int stateLevel, uint startTick,
-        uint endTick)
+        uint endTick, StatePulse pulse = null)
     {
         lock (_stateLock)
         {
@@ -315,7 +317,7 @@ public partial class MonsterWorldState
                 handle = ++_nextStateHandle;
             }
 
-            var buff = new ActiveBuff(handle, stateId, skillId, stateLevel, startTick, endTick);
+            var buff = new ActiveBuff(handle, stateId, skillId, stateLevel, startTick, endTick, Pulse: pulse ?? new StatePulse(startTick, 0) { MonsterId = instanceId, MonsterLife = LifeVersion(instanceId) });
             states.Add(buff);
             return buff;
         }
@@ -329,7 +331,7 @@ public partial class MonsterWorldState
     /// </summary>
     public bool TryAddState(long instanceId, int stateId, int skillId, int stateLevel, uint startTick, uint endTick,
         Casting.StateRule rule, Func<int, Casting.StateRule> rules, out ActiveBuff applied,
-        out IReadOnlyList<ActiveBuff> removed)
+        out IReadOnlyList<ActiveBuff> removed, uint sourceHandle = 0, StatePulse pulse = null)
     {
         lock (_stateLock)
         {
@@ -366,12 +368,16 @@ public partial class MonsterWorldState
                 states.RemoveAt(indices[i]);
             }
 
-            applied = new ActiveBuff(handle, stateId, skillId, decision.Level, startTick, endTick);
+            applied = new ActiveBuff(handle, stateId, skillId, decision.Level, startTick, endTick, sourceHandle, Pulse: pulse);
             states.Add(applied);
             removed = dropped;
             return true;
         }
     }
+
+    public IReadOnlyList<long> StatefulInstances() { lock (_stateLock) return _states.Keys.ToArray(); }
+    public bool RemoveState(long instanceId, ActiveBuff state)
+    { lock (_stateLock) return _states.TryGetValue(instanceId, out var states) && states.Remove(state); }
 
     public IReadOnlyList<ActiveBuff> GetStates(long instanceId)
     {
@@ -384,7 +390,7 @@ public partial class MonsterWorldState
     }
 
     /// <summary>Removes every state whose deadline has passed, across all monsters.</summary>
-    public IReadOnlyList<(long InstanceId, ActiveBuff State)> RemoveExpiredStates(uint now)
+    public IReadOnlyList<(long InstanceId, ActiveBuff State)> RemoveExpiredStates(uint now, Func<int, bool> periodic = null)
     {
         lock (_stateLock)
         {
@@ -399,7 +405,8 @@ public partial class MonsterWorldState
             {
                 for (var i = states.Count - 1; i >= 0; i--)
                 {
-                    if (unchecked((int)(now - states[i].EndTick)) < 0)
+                    if (states[i].EndTick == uint.MaxValue || unchecked((int)(now - states[i].EndTick)) < 0
+                        || (now == states[i].EndTick && periodic?.Invoke(states[i].StateId) == true))
                     {
                         continue;
                     }
@@ -870,7 +877,26 @@ public partial class MonsterWorldState
     /// Restores up to <paramref name="amount"/> HP to a living monster, capped at its maximum, and returns
     /// what it really gained. A corpse gains nothing.
     /// </summary>
-    public int Heal(long instanceId, int amount)
+    public int GetMp(long instanceId)
+    {
+        lock (_stateLock) return _currentMp.TryGetValue(instanceId, out var mp) ? mp
+            : TryGetInstance(instanceId, out var instance) ? instance.Combat?.MaxMp ?? 0 : 0;
+    }
+
+    /// <summary>Creature MP adjustment, capped to its current stat maximum; corpses cannot regenerate.</summary>
+    public int ChangeMp(long instanceId, int amount, int maximum)
+    {
+        lock (_stateLock)
+        {
+            if (!IsAlive(instanceId) || GetHp(instanceId) <= 0) return 0;
+            var old = GetMp(instanceId);
+            var current = (int)Math.Clamp((long)old + amount, 0, Math.Max(0, maximum));
+            _currentMp[instanceId] = current;
+            return current - old;
+        }
+    }
+
+    public int Heal(long instanceId, int amount, int? maximum = null)
     {
         if (amount <= 0)
         {
@@ -879,7 +905,7 @@ public partial class MonsterWorldState
 
         lock (_stateLock)
         {
-            var max = MaxHp(instanceId);
+            var max = maximum ?? MaxHp(instanceId);
             var hp = _currentHp.TryGetValue(instanceId, out var current) ? current : max;
             if (hp <= 0 || _respawnAt.ContainsKey(instanceId))
             {
@@ -1324,6 +1350,7 @@ public partial class MonsterWorldState
             {
                 _respawnAt.Remove(id);
                 _currentHp.Remove(id);
+                _currentMp.Remove(id);
                 _damageContributions.Remove(id);
                 _firstDamage.Remove(id);
                 _movement.Remove(id);

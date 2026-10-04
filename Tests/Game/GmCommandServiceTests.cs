@@ -19,13 +19,15 @@ using Navislamia.Game.Services.Stats;
 namespace Tests.Game;
 
 [TestFixture]
-public class GmCommandServiceTests
+public partial class GmCommandServiceTests
 {
     private const uint CharacterHandle = 0x80000001;
     private const long MonsterInstanceId = 0;
     private const uint MonsterHandle = 0x40000001;
     private const int SkillId = 1011;
 
+    private IResurrectionService _resurrection = null!;
+    private Navislamia.Game.Services.Party.IPartyService _parties = null!;
     private IWarpService _warp = null!;
     private ICombatService _combat = null!;
     private ILevelingService _leveling = null!;
@@ -43,6 +45,8 @@ public class GmCommandServiceTests
     [SetUp]
     public void SetUp()
     {
+        _resurrection = A.Fake<IResurrectionService>();
+        _parties = A.Fake<Navislamia.Game.Services.Party.IPartyService>();
         _warp = A.Fake<IWarpService>();
         _combat = A.Fake<ICombatService>();
         _leveling = A.Fake<ILevelingService>();
@@ -67,7 +71,7 @@ public class GmCommandServiceTests
         _rateOptions = new RatesOptions { EventStatePath = _rateFile };
         _rates = new RateService(new StaticOptionsMonitor<RatesOptions>(_rateOptions));
         _service = new GmCommandService(_warp, _combat, _leveling, _stats, _characters, _items, _monsters,
-            skills, _skillCast, _states, _rates);
+            skills, _skillCast, _states, _rates, parties: _parties, resurrection: _resurrection);
     }
 
     [TearDown]

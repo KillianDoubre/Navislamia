@@ -3,6 +3,7 @@ namespace Navislamia.Configuration.Options;
 public class ServerOptions
 {
     public string Name { get; set; }
+    public int NameCodePage { get; set; } = 1252;
     public string GuildIconUrl { get; set; } = "";
     public string GuildBannerUrl { get; set; } = "";
     public ushort Index { get; set; }

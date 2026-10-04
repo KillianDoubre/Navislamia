@@ -32,6 +32,13 @@ public static class SkillDamageCurve
         return Math.Max(0f, (int)damage);
     }
 
+    // Official StructSkill.cpp:6411-6413. Effect 125 caps multiplicative damage at attack + additions.
+    public static float BaseDamage(CastableBuffFields fields, int level, float attack, float magic) =>
+        fields.EffectType == 125
+            ? Math.Max(0, Math.Min((int)(attack * (SkillAreaRules.Var(fields, 0) + SkillAreaRules.Var(fields, 1) * level)),
+                (int)(attack + SkillAreaRules.Var(fields, 2) + SkillAreaRules.Var(fields, 3) * level)))
+            : BaseDamage(fields.Kind, fields.Vars, level, attack, magic);
+
     /// <summary><c>hit_bonus + (caster level − target level) × percentage</c>.</summary>
     public static int HitBonus(CastableBuffFields fields, int casterLevel, int targetLevel) =>
         fields.HitBonus + (casterLevel - targetLevel) * fields.Percentage;

@@ -417,7 +417,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
             Race = appearance.Race,
             SkinColor = appearance.SkinColor,
             IsFirstEnter = 1,
-            Energy = 0,
+            Energy = info.Energy.Count,
             Sex = appearance.Sex,
             FaceId = appearance.FaceId,
             FaceTextureId = appearance.FaceTextureId,

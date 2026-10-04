@@ -42,6 +42,9 @@ public interface ICharacterService
 
     Task<CharacterEntity> CreateCharacterAsync(CharacterEntity character, bool withStarterItems = false);
 
+    Task<Navislamia.Game.Network.Packets.ResultCode> RenameCharacterAsync(string oldName, string newName) => Task.FromResult(Navislamia.Game.Network.Packets.ResultCode.AccessDenied);
+    Task<bool> SaveChatBlockTimeAsync(string name, int remainingSeconds) => Task.FromResult(false);
+
     Task<bool> CharacterExistsAsync(string characterName);
 
     Task<int> CharacterCountAsync(int accountId);

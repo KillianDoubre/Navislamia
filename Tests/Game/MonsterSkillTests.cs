@@ -143,7 +143,7 @@ public class MonsterSkillTests
 
         service.TryCast(Client(connection), InstanceId, MonsterHandle, 1000, out _).Should().BeTrue();
 
-        A.CallTo(() => skillCast.ApplyState(A<GameClient>._, 4001, 1, 800u)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => skillCast.ApplyMonsterState(A<GameClient>._, 4001, 1, 800u, InstanceId)).MustHaveHappenedOnceExactly();
     }
 
     [Test]
@@ -156,7 +156,7 @@ public class MonsterSkillTests
         // 20 - 30 + 0 + 50 = 40 < 99: resisted, the skill still went off.
         service.TryCast(Client(connection), InstanceId, MonsterHandle, 1000, out _).Should().BeTrue();
 
-        A.CallTo(() => skillCast.ApplyState(A<GameClient>._, A<int>._, A<int>._, A<uint>._)).MustNotHaveHappened();
+        A.CallTo(() => skillCast.ApplyMonsterState(A<GameClient>._, A<int>._, A<int>._, A<uint>._, A<long>._)).MustNotHaveHappened();
     }
 
     [Test]
@@ -164,7 +164,7 @@ public class MonsterSkillTests
     {
         var (buffService, _, skillCast, connection, _) = Build(Row(7007, 301, false, 4002, stateSecond: 10m));
         buffService.TryCast(Client(connection), InstanceId, MonsterHandle, 1000, out _).Should().BeTrue();
-        A.CallTo(() => skillCast.ApplyState(A<GameClient>._, A<int>._, A<int>._, A<uint>._)).MustNotHaveHappened();
+        A.CallTo(() => skillCast.ApplyMonsterState(A<GameClient>._, A<int>._, A<int>._, A<uint>._, A<long>._)).MustNotHaveHappened();
         connection.Sent.Where(p => Id(p) == (ushort)GamePackets.TM_SC_STATE)
             .Select(p => BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(7, 4)))
             .Should().ContainSingle().Which.Should().Be(MonsterHandle);

@@ -27,7 +27,7 @@ namespace Tests.Game;
 /// harmful state, state stacking, delayed fire, cancel and casting pushback.
 /// </summary>
 [TestFixture]
-public class CastMechanicsTests
+public partial class CastMechanicsTests
 {
     // ---- cast range ----
 
@@ -182,7 +182,8 @@ public class CastMechanicsTests
             0m, 0m, 0, CastRange: castRange, CastingType: castingType, CastingLevel: castingLevel,
             Cancelable: cancelable, EffectType: 30001, IsHarmful: true);
 
-    private static Harness Build(CastableBuffFields fields, float monsterX = 100f, ICombatRandom random = null)
+    private static Harness Build(CastableBuffFields fields, float monsterX = 100f, ICombatRandom random = null, IStateCatalog states = null, StatBlock total = null,
+        Func<MonsterWorldState, IStatService, IStateCatalog, ICombatService> combatFactory = null)
     {
         var catalog = A.Fake<IBuffCatalog>();
         A.CallTo(() => catalog.Count).Returns(1);
@@ -191,7 +192,7 @@ public class CastMechanicsTests
 
         var stats = A.Fake<IStatService>();
         A.CallTo(() => stats.Compute(A<ConnectionInfo>._)).Returns(new CharacterStatResult(
-            new StatBlock { AttackRange = 50f, CastingSpeed = 100f, MaxHp = 1000f }, new StatBlock()));
+            total ?? new StatBlock { AttackRange = 50f, CastingSpeed = 100f, MaxHp = 1000f }, new StatBlock()));
 
         var repository = A.Fake<IMonsterResourceRepository>();
         A.CallTo(() => repository.GetByIds(A<IReadOnlyCollection<int>>._)).Returns(new[]
@@ -203,8 +204,8 @@ public class CastMechanicsTests
             Spawns = { new MonsterSpawnPoint { MonsterId = 2101, X = (int)monsterX, Y = 0, Count = 1, Radius = 0 } }
         }));
 
-        var combat = A.Fake<ICombatService>();
-        var service = new SkillCastService(catalog, stats, A.Fake<IStateCatalog>(), world, combat,
+        var combat = combatFactory?.Invoke(world, stats, states ?? A.Fake<IStateCatalog>()) ?? A.Fake<ICombatService>();
+        var service = new SkillCastService(catalog, stats, states ?? A.Fake<IStateCatalog>(), world, combat,
             A.Fake<IFieldPropCatalog>(), A.Fake<IWarpService>(), random: random ?? new Rolls(), runTicks: false);
 
         var connection = new StorageTestHarness.FrameConnection(Array.Empty<byte>());

@@ -9,5 +9,6 @@ namespace Navislamia.Game.Services.Interfaces;
 /// </summary>
 public interface IResurrectionService
 {
+    void Rebirth(GameClient client) { }
     void Resurrect(GameClient client, GameActionPackets.ResurrectionRequest request);
 }

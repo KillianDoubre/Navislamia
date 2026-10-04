@@ -180,6 +180,7 @@ public class GameActions : IActions
         info.DkCount = character.DkCount;
         info.CharacterPermission = character.Permission;
         info.AutoUsed = character.AutoUsed;
+        info.ChatBlockUntil = unchecked(ServerClock.Now + (uint)Math.Clamp((long)character.ChatBlockTime * 100, 0, int.MaxValue));
         info.Layer = layer;
         info.X = position[0];
         info.Y = position[1];
@@ -272,7 +273,7 @@ public class GameActions : IActions
             Race = (byte)character.Race,
             SkinColor = (uint)character.SkinColor,
             IsFirstEnter = 1,
-            Energy = 0,
+            Energy = info.Energy.Count,
             Sex = (byte)character.Sex,
             FaceId = GameCharacterPackets.GetFaceId(character),
             FaceTextureId = (uint)character.TextureId,

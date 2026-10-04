@@ -98,7 +98,7 @@ public class MonsterAiService
         {
             var info = client.ConnectionInfo;
 
-            if (!MonsterAiRules.IsAlive(info.CharacterHp))
+            if (info.IsInvisible || !MonsterAiRules.IsAlive(info.CharacterHp))
             {
                 continue;
             }
@@ -161,7 +161,7 @@ public class MonsterAiService
             // A character at 0 HP is not a target any more: the monster stops swinging and walks home
             // instead of hitting a corpse. Death carries no packet of its own (§3.2), so the value of
             // CharacterHp is the whole of the dead state.
-            if (!MonsterAiRules.IsAlive(info.CharacterHp) || instance.Layer != info.Layer)
+            if (info.IsInvisible || !MonsterAiRules.IsAlive(info.CharacterHp) || instance.Layer != info.Layer)
             {
                 GoHome(enemy, instanceId, handle, info, streamed);
                 continue;

@@ -22,7 +22,7 @@ namespace Navislamia.Game.Services.GmCommands;
 /// not take. Every answer is a system chat line from <c>@SYSTEM</c>, NGemity's convention.
 /// See docs/gm-commands.md.
 /// </summary>
-public class GmCommandService : IGmCommandService
+public partial class GmCommandService : IGmCommandService
 {
     public const string SystemSender = "@SYSTEM";
 
@@ -44,14 +44,18 @@ public class GmCommandService : IGmCommandService
     private readonly Progression.ITitleService _titles;
 
     private readonly Creatures.ICreatureService _creatures;
+    private readonly Party.IPartyService _parties;
+    private readonly IResurrectionService _resurrection;
 
     public GmCommandService(IWarpService warpService, ICombatService combatService,
         ILevelingService levelingService, IStatService statService, ICharacterService characterService,
         IItemSortCatalog itemCatalog, MonsterWorldState monsterState, SkillCatalog skillCatalog,
         ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService,
-        Progression.ITitleService titles = null, Creatures.ICreatureService creatures = null)
+        Progression.ITitleService titles = null, Creatures.ICreatureService creatures = null, Party.IPartyService parties = null,
+        IResurrectionService resurrection = null)
     {
         _creatures = creatures;
+        _parties = parties; _resurrection = resurrection;
         _rateService = rateService;
         _titles = titles;
         _warpService = warpService;
@@ -113,6 +117,7 @@ public class GmCommandService : IGmCommandService
         IEnumerable<GameClient> everyone)
     {
         var info = client.ConnectionInfo;
+        if (await RunOfficialAsync(client, definition, line, everyone)) return;
         switch (definition.Command)
         {
             case GmCommand.Hold:
