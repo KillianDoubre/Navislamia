@@ -741,19 +741,22 @@ public class CombatService : ICombatService
     private int LandPlayerDamage(GameClient attacker, GameClient target, int damage, bool magical, bool reflect, uint summonHandle = 0)
     {
         var info = target.ConnectionInfo;
+        decimal victimImmorality;
         if (!ArePlayerEnemies(attacker, target)) return info.CharacterHp;
         var states = PlayerStates(info);
-        bool wasAlive;
+        bool wasAlive, killed;
         lock (info.ProgressLock)
         {
             wasAlive = info.CharacterHp > 0;
             if (!wasAlive) return info.CharacterHp;
+            victimImmorality = info.ImmoralPoint;
             var shield = Combat.AttackMechanics.ManaShieldAbsorb(damage,
                 Combat.AttackMechanics.ManaShieldRatio(states, magical), info.CharacterMp);
             info.CharacterMp -= shield;
             damage -= shield;
             if (shield > 0) target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", info.CharacterMp));
             info.CharacterHp = MonsterAiRules.PlayerHpAfterDamage(info.CharacterHp, damage);
+            killed = !MonsterAiRules.IsAlive(info.CharacterHp);
         }
         target.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
 
@@ -764,7 +767,7 @@ public class CombatService : ICombatService
             _compete?.OnDamagedByOther(target, attacker);
         }
 
-        if (wasAlive && !MonsterAiRules.IsAlive(info.CharacterHp))
+        if (killed)
         {
             StopAttack(target);
             _casts?.Interrupt(target);
@@ -783,6 +786,8 @@ public class CombatService : ICombatService
                 if (_rules?.CurrentValue?.PkServer == true)
                     MoralityRules.Set(target, MoralityRules.AfterDeath(info.ImmoralPoint, info.PkCount));
             }
+            if (!competing && _titles is not null)
+                _ = _titles.RecordAsync(attacker, Progression.TitleEvents.PlayerKilled(victimImmorality));
         }
 
         else if (wasAlive && damage > 0)

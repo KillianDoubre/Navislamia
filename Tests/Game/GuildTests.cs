@@ -48,6 +48,7 @@ public class GuildTests
         public readonly IStatService Stats = A.Fake<IStatService>();
         public readonly Dictionary<uint, StorageTestHarness.FrameConnection> Frames = new();
         public GuildService Guilds;
+        public readonly GuildUploadRelay Uploads = new();
         public Harness(DbContextOptions<TelecasterContext> options = null)
         {
             Options = options ?? new DbContextOptionsBuilder<TelecasterContext>().UseInMemoryDatabase(Guid.NewGuid().ToString(), o => o.EnableNullChecks(false)).Options;
@@ -61,7 +62,9 @@ public class GuildTests
             Guilds = Service();
         }
         public GuildService Service() => new(Options, Gate, Players, Runtime, Events, Catalog, Rooms,
-            Microsoft.Extensions.Options.Options.Create(new DungeonOptions()), World, Stats, time: Time, parties: Parties);
+            Microsoft.Extensions.Options.Options.Create(new DungeonOptions()), World, Stats, time: Time, parties: Parties,
+            uploads: Uploads, server: Microsoft.Extensions.Options.Options.Create(new ServerOptions { Name = "Navislamia",
+                GuildIconUrl = "https://guild.test/icons/", GuildBannerUrl = "https://guild.test/banners/" }));
         public TelecasterContext Db() => new(Options);
         public async Task<GameClient> Player(uint id, long? guild = null, byte rank = 0, long gold = 500000)
         {

@@ -439,6 +439,7 @@ public class Program
         services.AddSingleton<INpcDialogService, NpcDialogService>();
         services.AddSingleton<NpcScriptCatalog>();
         services.AddSingleton<INpcScriptService, NpcScriptService>();
+        services.AddSingleton<IEventAreaWorldEffects, EventAreaWorldEffects>();
         services.AddSingleton<IPkModeService, PkModeService>();
         services.AddSingleton<IMarketCatalog, MarketCatalog>();
         services.AddSingleton<IMarketService, MarketService>();
@@ -476,6 +477,8 @@ public class Program
         services.AddSingleton<ICardSocketService, CardSocketService>();
         services.AddSingleton<ISkillCardService, SkillCardService>();
         services.AddSingleton<IItemDonateService, ItemDonateService>();
+        services.AddSingleton<DonationStore>();
+        services.AddSingleton<IDonationRankingService, DonationRankingService>();
         services.AddSingleton<IItemSellCatalog, ItemSellCatalog>();
         services.AddSingleton<IMarketSellService, MarketSellService>();
         services.AddSingleton<IPetCatalog, PetCatalog>();
@@ -523,6 +526,7 @@ public class Program
         services.AddSingleton<IWarpService, WarpService>();
         services.AddSingleton<Navislamia.Game.Services.Dungeons.DungeonCatalog>();
         services.AddSingleton<Navislamia.Game.Services.Guilds.GuildRuntime>();
+        services.AddSingleton<Navislamia.Game.Services.Guilds.GuildUploadRelay>();
         services.AddSingleton<Navislamia.Game.Services.Guilds.GuildCombatEvents>();
         services.AddSingleton<Navislamia.Game.Services.Guilds.IGuildService, Navislamia.Game.Services.Guilds.GuildService>();
         services.AddSingleton<Navislamia.Game.Services.Dungeons.DungeonRooms>();
@@ -531,6 +535,8 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Dungeons.IDungeonService, Navislamia.Game.Services.Dungeons.DungeonService>();
         services.AddHostedService<DungeonMaintenanceService>();
         services.AddSingleton<IEventAreaService, EventAreaService>();
+        services.AddSingleton<EventAreaTransitions>();
+        services.AddSingleton<EventAreaCatalog>(provider => new EventAreaCatalog(provider.GetRequiredService<DbContextOptions<ArcadiaContext>>()));
         services.AddSingleton<IResurrectionItemCatalog, ResurrectionItemCatalog>();
         services.AddSingleton<IResurrectionService, ResurrectionService>();
         services.AddSingleton<Navislamia.Game.Services.Huntaholic.IHuntaholicCatalog,
@@ -584,4 +590,3 @@ public class Program
         });
     }
 }
-

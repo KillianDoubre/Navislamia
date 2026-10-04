@@ -24,15 +24,17 @@ public class WarpService : IWarpService
     private readonly IPlayerVisibilityService _playerVisibility;
     private readonly IGroundItemService _groundItems;
     private readonly Dungeons.DungeonRooms _dungeons;
+    private readonly EventAreaTransitions _areas;
 
     public WarpService(INpcSpawnService npcSpawnService, IMonsterSpawnService monsterSpawnService,
         IFieldPropService fieldPropService, ICombatService combatService, IPetSummonService petSummon,
         IPlayerVisibilityService playerVisibility, IGroundItemService groundItems,
         Casting.ICastInterrupts casts = null, Compete.ICompeteService compete = null,
         Creatures.ICreatureService creatures = null, Dungeons.DungeonRooms dungeons = null,
-        Huntaholic.IHuntaholicEvents huntaholic = null)
+        Huntaholic.IHuntaholicEvents huntaholic = null, EventAreaTransitions areas = null)
     {
         _huntaholic = huntaholic;
+        _areas = areas;
         _dungeons = dungeons;
         _creatures = creatures;
         _compete = compete;
@@ -98,6 +100,7 @@ public class WarpService : IWarpService
             // The pet is not in a visible set: it follows its master to the new place explicitly.
             _petSummon.FollowWarp(client);
             _creatures?.FollowWarp(client);
+            _areas?.Changed?.Invoke(client);
 
             _logger.Debug("{clientTag} warped to ({x}, {y})", client.ClientTag, x, y);
         }

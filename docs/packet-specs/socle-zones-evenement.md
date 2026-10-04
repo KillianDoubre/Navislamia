@@ -1,5 +1,10 @@
 # Socle — zones d'événement du monde : `TM_CS_ENTER_EVENT_AREA` (15) et `TM_CS_LEAVE_EVENT_AREA` (16), Epic 7.3
 
+**Implémentation du 2026-10-04** : `EventAreaResource` importé, conditions et scripts d'entrée/sortie
+exécutés dans le bac à sable par personnage. Voir `socle-zones-evenement-lua.md`, notamment les
+18 handlers absents des sources disponibles. Les décisions d'absence d'activation ci-dessous
+décrivent le socle historique.
+
 Fiche d'archéologie de protocole, branche `hermes/packet-socle-zones-evenement`, auteur `navis-ref`.
 Elle ne modifie aucun code du serveur : elle établit ce que les références disent, ce qu'elles ne
 disent pas, et le découpage minimal que la carte d'implémentation doit livrer.

@@ -52,7 +52,7 @@ internal static class StorageTestHarness
         Navislamia.Game.Services.Weight.ICarriedWeightService carriedWeightService = null,
         ICombatService combatService = null,
         Navislamia.Game.Services.Creatures.ICreatureService creatureService = null,
-        ISkillCastService skillCastService = null)
+        ISkillCastService skillCastService = null, IDonationRankingService donationRankingService = null)
     {
         characterService ??= A.Fake<ICharacterService>();
         playerVisibilityService ??= new PlayerVisibilityService(A.Fake<ILogger<PlayerVisibilityService>>());
@@ -100,7 +100,7 @@ internal static class StorageTestHarness
                 A.Fake<IStatService>(), A.Fake<IBannedWordsRepository>()),
             playerTradeService ?? new Navislamia.Game.Services.Trade.PlayerTradeService(characterService,
                 playerVisibilityService),
-            carriedWeightService, creatureService: creatureService);
+            carriedWeightService, creatureService: creatureService, donationRankingService: donationRankingService);
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 

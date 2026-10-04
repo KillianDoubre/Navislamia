@@ -5,6 +5,7 @@ namespace Navislamia.Game.DataAccess.Contexts;
 
 public class TelecasterContext : SoftDeletionContext
 {
+    public DbSet<DonationScoreEntity> DonationScores { get; set; }
     public TelecasterContext(DbContextOptions<TelecasterContext> options) : base(options) { }
 
     public DbSet<AllianceEntity> Alliances { get; set; }
@@ -37,6 +38,11 @@ public class TelecasterContext : SoftDeletionContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<DonationScoreEntity>().HasIndex(s => new { s.CharacterId, s.Period }).IsUnique()
+            .HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<DonationScoreEntity>().Property(s => s.Score).HasPrecision(18, 4);
+        modelBuilder.Entity<DonationScoreEntity>().HasOne<CharacterEntity>().WithMany()
+            .HasForeignKey(s => s.CharacterId).OnDelete(DeleteBehavior.Cascade);
         base.OnModelCreating(modelBuilder);
 
         ConfigureAuctions(modelBuilder);

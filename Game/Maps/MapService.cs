@@ -32,7 +32,7 @@ namespace Navislamia.Game.Maps
         private static QuadTree _qtBlockInfo;
         private static QuadTree _qtAutoBlockInfo;
         private static Dictionary<int, PropContactScriptInfo> _propScriptInfo;
-        private static Dictionary<int, EventAreaInfo> _eventAreaInfo; // TODO: currently only updated but never used
+        private static Dictionary<int, List<EventAreaInfo>> _eventAreaInfo;
         private static EventAreaInfo[] _eventAreaSnapshot = Array.Empty<EventAreaInfo>();
         private static readonly object EventAreaSync = new();
 
@@ -66,14 +66,23 @@ namespace Navislamia.Game.Maps
             _qtBlockInfo = new QuadTree(0, 0, _mapOptions.Width, _mapOptions.Height);
             _qtAutoBlockInfo = new QuadTree(0, 0, _mapOptions.Width, _mapOptions.Height);
             _propScriptInfo = new Dictionary<int, PropContactScriptInfo>();
-            _eventAreaInfo = new Dictionary<int, EventAreaInfo>();
+            lock (EventAreaSync)
+            {
+                _eventAreaInfo = new Dictionary<int, List<EventAreaInfo>>();
+                _eventAreaSnapshot = Array.Empty<EventAreaInfo>(); _eventAreaSnapshotStale = false;
+            }
         }
 
         public bool TryGetEventArea(int eventAreaId, out EventAreaInfo eventArea)
+            => TryGetEventArea(eventAreaId, 0, out eventArea);
+
+        public bool TryGetEventArea(int eventAreaId, int areaIndex, out EventAreaInfo eventArea)
         {
             lock (EventAreaSync)
             {
-                return _eventAreaInfo.TryGetValue(eventAreaId, out eventArea);
+                eventArea = null;
+                if (!_eventAreaInfo.TryGetValue(eventAreaId, out var areas) || areaIndex < 0 || areaIndex >= areas.Count) return false;
+                eventArea = areas[areaIndex]; return true;
             }
         }
 
@@ -97,7 +106,7 @@ namespace Navislamia.Game.Maps
             {
                 if (_eventAreaSnapshotStale)
                 {
-                    _eventAreaSnapshot = _eventAreaInfo.Values.ToArray();
+                    _eventAreaSnapshot = _eventAreaInfo.Values.SelectMany(areas => areas).ToArray();
                     _eventAreaSnapshotStale = false;
                 }
 
@@ -336,7 +345,9 @@ namespace Navislamia.Game.Maps
 
                     lock (EventAreaSync)
                     {
-                        _eventAreaInfo[eventAreaId] = new EventAreaInfo(eventAreaId, points);
+                        if (!_eventAreaInfo.TryGetValue(eventAreaId, out var areas))
+                        { areas = new List<EventAreaInfo>(); _eventAreaInfo.Add(eventAreaId, areas); }
+                        areas.Add(new EventAreaInfo(eventAreaId, points));
                         _eventAreaSnapshotStale = true;
                     }
                 }

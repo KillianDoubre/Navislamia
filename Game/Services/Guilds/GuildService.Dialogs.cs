@@ -22,7 +22,7 @@ public sealed partial class GuildService
         if (!GuildRules.Officers.Contains(npcId)) return false;
         Show(client, npcHandle, "Guilde", "Creation et gestion des guildes et des alliances.",
             ("Creer une guilde (niveau 20, 100000 or)", "show_guild_create()"),
-            ("Creer une alliance", "show_alliance_create()"));
+            ("Creer une alliance", "show_alliance_create()"), ("Ouvrir la guilde", "show_guild_window()"));
         return true;
     }
     private static NpcDialogMenuEntry Entry(string label, string trigger) => new() { Label = label, Trigger = trigger };
@@ -40,6 +40,14 @@ public sealed partial class GuildService
     }
     public bool Select(GameClient client, uint npcHandle, string trigger)
     {
+        if (trigger == "show_guild_window()")
+        {
+            var info = client.ConnectionInfo;
+            lock (info.NpcVisibilityLock)
+                if (info.NpcDialogHandle != npcHandle || !info.NpcDialogTriggers.Contains(trigger)
+                    || !info.SpawnedNpcIdsByHandle.TryGetValue(npcHandle, out var npc) || !GuildRules.Officers.Contains((int)npc)) return true;
+            _ = ExecuteCommandAsync(client, "/gwindow"); return true;
+        }
         if (trigger is "show_guild_create()" or "show_alliance_create()")
         {
             var info = client.ConnectionInfo;
@@ -49,9 +57,8 @@ public sealed partial class GuildService
                     || !info.SpawnedNpcIdsByHandle.TryGetValue(npcHandle, out var npc) || !GuildRules.Officers.Contains((int)npc)) return true;
                 var alliance = trigger == "show_alliance_create()";
                 lock (_inputs) _inputs[client] = new InputWindow(npcHandle, info.NpcDialogRevision, alliance);
-                var packet = new byte[7]; BinaryPrimitives.WriteUInt32LittleEndian(packet, 7);
-                BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4), (ushort)(alliance ? 660 : 650));
-                for (var i = 0; i < 6; i++) packet[6] += packet[i];
+                var packet = GameGuildPackets.BuildWindow(alliance ? Network.Packets.Enums.GamePackets.TM_SC_SHOW_CREATE_ALLIANCE
+                    : Network.Packets.Enums.GamePackets.TM_SC_SHOW_CREATE_GUILD);
                 client.Connection.Send(packet);
             }
             return true;

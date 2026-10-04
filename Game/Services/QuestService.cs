@@ -75,6 +75,20 @@ public sealed class QuestService : IQuestService, IDisposable
 
     public bool HasNpcQuests(int npcId) => _options is not null && _links.ContainsKey(npcId);
 
+    /// <summary>Stage a server Lua objective in its caller's unit of work; caller already holds CharacterGate.</summary>
+    public async Task<CharacterQuestEntity> StageScriptStatusAsync(GameClient client, ICharacterRepository repository,
+        int code, int index, int value)
+    {
+        if (_options is null || index is < 1 or > 6 || value < 0 || !_resources.TryGetValue(code, out var resource)
+            || resource.Type != 701) return null;
+        var quest = await repository.GetQuestAsync(client.ConnectionInfo.CharacterName, code);
+        if (quest is null || quest.Progress is not (QuestRules.InProgress or QuestRules.Finishable)) return null;
+        var status = QuestRules.Slots(quest.Status); status[index - 1] = value; quest.Status = status;
+        quest.Progress = QuestRules.FinishableNow(resource, quest) ? QuestRules.Finishable : QuestRules.InProgress;
+        return quest;
+    }
+    public void PublishScriptStatus(GameClient client, CharacterQuestEntity quest) => SendStatus(client, quest);
+
     /// <summary>Official set_quest_status: a 1-based objective of an accepted external-control quest.</summary>
     public async Task<bool> SetQuestStatusAsync(GameClient client, int code, int index, int value)
     {

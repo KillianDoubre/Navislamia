@@ -8,6 +8,7 @@ using Navislamia.Configuration.Options;
 using Microsoft.Extensions.Options;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.DataAccess.Entities.Arcadia;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
@@ -27,6 +28,7 @@ public interface INpcScriptService
 {
     bool Handles(string function);
     Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger);
+    Task<bool> RunEventAreaAsync(GameClient client, EventAreaResourceEntity area, bool enter) => Task.FromResult(false);
 }
 
 /// <summary>Only the exact server-advertised trigger may reach this interpreter (NpcDialogService).</summary>
@@ -45,25 +47,41 @@ public sealed class NpcScriptService : INpcScriptService
     private readonly IInventoryChangeFeed _feed;
     private readonly NpcScriptOptions _options;
     private readonly ILevelingService _leveling;
+    private readonly IEventAreaWorldEffects _worldEffects;
+    private readonly TimeProvider _time;
 
     public NpcScriptService(NpcScriptCatalog scripts, ICharacterRepositoryFactory repositories, CharacterGate gate,
         IItemMatchCatalog items, IAuctionCatalog names, IQuestService quests = null, IStatService stats = null,
         ICreatureEvents creatures = null, ICastInterrupts states = null, IWarpService warp = null,
-        IInventoryChangeFeed feed = null, IOptions<NpcScriptOptions> options = null, ILevelingService leveling = null)
+        IInventoryChangeFeed feed = null, IOptions<NpcScriptOptions> options = null, ILevelingService leveling = null,
+        IEventAreaWorldEffects worldEffects = null, TimeProvider time = null)
     {
         _scripts = scripts; _repositories = repositories; _gate = gate; _items = items; _names = names;
         _quests = quests; _stats = stats; _creatures = creatures; _states = states; _warp = warp; _feed = feed;
         _options = options?.Value ?? new NpcScriptOptions();
         _leveling = leveling;
+        _worldEffects = worldEffects; _time = time ?? TimeProvider.System;
     }
 
     public bool Handles(string function) => _scripts.Handles(function)
         || function.StartsWith("NPC_all_2012_EnchantEvent_b_", StringComparison.Ordinal)
         || function == "set_flag";
 
-    public async Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger)
+    public Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger) =>
+        RunCoreAsync(client, npcHandle, revision, trigger);
+
+    public async Task<bool> RunEventAreaAsync(GameClient client, EventAreaResourceEntity area, bool enter)
+    {
+        var success = false;
+        await RunCoreAsync(client, 0, 0, enter ? area.EnterHandler : area.LeaveHandler, area, enter, () => success = true);
+        return success;
+    }
+
+    private async Task<NpcScriptPage> RunCoreAsync(GameClient client, uint npcHandle, long revision, string trigger,
+        EventAreaResourceEntity area = null, bool enter = false, Action completed = null)
     {
         var info = client.ConnectionInfo;
+        var characterName = info.CharacterName; var characterHandle = info.CharacterHandle;
         // set_quest_status takes the character gate itself: it runs once the script's own gate is released.
         var questStatuses = new List<(int Code, int Index, int Value)>();
         var committed = false;
@@ -71,15 +89,27 @@ public sealed class NpcScriptService : INpcScriptService
         {
             var result = await _gate.RunAsync(info.CharacterName, async () =>
             {
-                long npcId;
-                lock (info.NpcVisibilityLock)
+                long npcId = 0;
+                if (info.CharacterName != characterName || info.CharacterHandle != characterHandle) return null;
+                if (area is null) lock (info.NpcVisibilityLock)
                     if (info.NpcDialogHandle != npcHandle || info.NpcDialogRevision != revision
                         || !info.SpawnedNpcIdsByHandle.TryGetValue(npcHandle, out npcId)) return null;
                 using var repository = _repositories.Create();
                 var character = await repository.GetCharacterByNameWithItemsAsync(info.CharacterName);
                 if (character is null) return null;
+                if (area is not null && (character.Id != characterHandle || characterHandle == 0)) return null;
                 var function = NpcDialogService.ReadFunctionName(trigger);
                 var flags = ReadFlags(character.FlagList);
+                if (area is not null && enter)
+                {
+                    if (!EventAreaActivation.Allows(area, client, character, flags, _time.GetUtcNow(), _quests)) return null;
+                    if (area.CountLimit > 0)
+                    {
+                        var key = EventAreaActivation.CountKey(area.Id);
+                        long.TryParse(flags.GetValueOrDefault(key), out var count);
+                        flags[key] = checked(count + 1).ToString(CultureInfo.InvariantCulture);
+                    }
+                }
                 // The menu checks these too; repeat under the character gate to prevent replay after a new contact.
                 var giftFlag = function switch { "second_present_weapon" => "q18", "second_present_armor" => "q19",
                     "dormancyuser_item_weapon_receive" => "rental_weapon", "dormancyuser_item_armor_receive" => "rental_armor", _ => null };
@@ -87,17 +117,19 @@ public sealed class NpcScriptService : INpcScriptService
                 if ((function.StartsWith("dormancyuser_item_", StringComparison.Ordinal) || function.StartsWith("second_present", StringComparison.Ordinal))
                     && flags.GetValueOrDefault("event_code") != "1") return null;
 
-                var script = _scripts.Create();
+                var script = _scripts.Create(area is not null);
                 var page = new NpcDialogDefinition();
                 var show = false;
                 var includeQuests = true;
-                var dirty = false;
-                var inventory = (character.Items ??= new List<ItemEntity>()).ToList();
+                var dirty = area is not null && enter && area.CountLimit > 0;
+                var inventory = (character.Items ??= new List<ItemEntity>()).Where(i => i.AccountId == null
+                    && i.AuctionId == null && i.StorageId == null && i.Amount > 0).ToList();
                 var changed = new HashSet<ItemEntity>();
                 var created = new List<ItemEntity>();
                 var messages = new List<string>();
                 var buffs = new List<(int Id, int Level, uint Duration)>();
-                (float X, float Y)? destination = null;
+                var worldEffects = new List<Action>();
+                (float X, float Y, byte Layer)? destination = null;
                 var goldBefore = info.CharacterGold;
                 var gold = goldBefore;
                 long expBefore, jpBefore;
@@ -137,11 +169,15 @@ public sealed class NpcScriptService : INpcScriptService
                     return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? Numeric(n) : DynValue.NewString(value);
                 });
                 Bind("set_flag", a => { flags[Text(a, 0)] = Text(a, 1); dirty = true; return Nil(); });
+                Bind("del_flag", a => { flags.Remove(Text(a, 0)); dirty = true; return Nil(); });
+                Bind("random", a => Numeric(a.Count == 1 ? Random.Shared.Next(1, checked((int)Number(a, 0)) + 1)
+                    : Random.Shared.Next(checked((int)Number(a, 0)), checked((int)Number(a, 1)) + 1)));
                 DynValue Value(CallbackArguments a) => Text(a, 0) switch {
                     "name" => DynValue.NewString(info.CharacterName), "level" => Numeric(info.CharacterLevel),
                     "job" => Numeric(info.CharacterJob), "job_level" => Numeric(info.CharacterJobLevel),
                     "job_depth" => Numeric(JobDepths.ToIndex((short)character.JobDepth, true)), "race" => Numeric(info.CharacterRace),
                     "layer" => Numeric(info.Layer), "gold" => Numeric(gold), "exp" => Numeric(exp), "jp" => Numeric(jp),
+                    "x" => Numeric(info.X), "y" => Numeric(info.Y),
                     "event_code" => Numeric(flags.GetValueOrDefault("event_code") == "1" ? 1 : 0), _ => Numeric(0) };
                 Bind("get_value", Value); Bind("gv", Value);
                 Bind("set_value", a => {
@@ -229,8 +265,27 @@ public sealed class NpcScriptService : INpcScriptService
                 });
                 Bind("add_state", a => { if (_states is null) throw new InvalidOperationException("State relay is unavailable");
                     buffs.Add(((int)Number(a, 0), (int)Number(a, 1), checked((uint)Number(a, 2)))); return Nil(); });
+                if (area is not null)
+                {
+                    Bind("add_npc", a => {
+                        if (_worldEffects is null) throw new InvalidOperationException("World effects unavailable");
+                        var x = (float)a[0].Number; var y = (float)a[1].Number; var code = checked((int)Number(a, 2));
+                        var count = a.Count > 3 ? checked((int)Number(a, 3)) : 1;
+                        var duration = a.Count > 4 ? checked((uint)Number(a, 4)) : 0;
+                        var layer = info.Layer;
+                        if (count is < 1 or > 100) throw new InvalidOperationException("Invalid script spawn count");
+                        worldEffects.Add(() => _worldEffects.SpawnMonsters(code, count, x, y, layer, duration)); return Numeric(0);
+                    });
+                    Bind("add_field_prop", a => {
+                        if (_worldEffects is null) throw new InvalidOperationException("World effects unavailable");
+                        var code = checked((int)Number(a, 0)); var duration = checked((uint)Number(a, 1));
+                        var x = a.Count > 2 ? (float)a[2].Number : info.X; var y = a.Count > 3 ? (float)a[3].Number : info.Y;
+                        var layer = a.Count > 4 ? checked((byte)Number(a, 4)) : info.Layer;
+                        worldEffects.Add(() => _worldEffects.SpawnProp(code, duration, x, y, layer)); return Numeric(0);
+                    });
+                }
                 Bind("warp", a => { if (_warp is null) throw new InvalidOperationException("Warp service is unavailable");
-                    destination = ((float)a[0].Number, (float)a[1].Number); return Nil(); });
+                    destination = ((float)a[0].Number, (float)a[1].Number, a.Count > 2 ? checked((byte)Number(a, 2)) : info.Layer); return Nil(); });
                 // Saving remains atomic at the end of the function, including legacy explicit save() calls.
                 Bind("save", _ => Nil()); Bind("update_gold_chaos", _ => Nil());
                 // Lua 5.0's table.getn is still used by the card exchange.
@@ -238,14 +293,24 @@ public sealed class NpcScriptService : INpcScriptService
                 tableModule["getn"] = DynValue.NewCallback((_, a) => Numeric(a[0].Table.Length));
 
                 // Coroutine instruction budget bounds server script execution; no untrusted script is loaded.
-                var entry = script.LoadString(trigger);
+                var entry = script.LoadString(string.IsNullOrWhiteSpace(trigger) || trigger.Trim() == "0" ? "return" : trigger);
                 var coroutine = script.CreateCoroutine(entry).Coroutine;
                 coroutine.AutoYieldCounter = 100_000;
                 coroutine.Resume();
                 if (coroutine.State != CoroutineState.Dead) throw new InvalidOperationException("NPC script instruction budget exceeded");
 
+                var stagedQuests = new List<CharacterQuestEntity>();
+                if (area is not null)
+                    foreach (var (code, index, value) in questStatuses)
+                    {
+                        var quest = _quests is null ? null : await _quests.StageScriptStatusAsync(client, repository, code, index, value);
+                        if (quest is null) throw new InvalidOperationException("Event script objective is not active");
+                        stagedQuests.Add(quest); dirty = true;
+                    }
+
                 character.FlagList = flags.Select(f => $"{f.Key}:{f.Value}").ToArray();
-                lock (info.NpcVisibilityLock)
+                if (info.CharacterName != characterName || info.CharacterHandle != characterHandle) return null;
+                if (area is null) lock (info.NpcVisibilityLock)
                     if (info.NpcDialogHandle != npcHandle || info.NpcDialogRevision != revision
                         || !info.SpawnedNpcIdsByHandle.ContainsKey(npcHandle)) return null;
                 var debit = goldBefore - gold;
@@ -265,6 +330,8 @@ public sealed class NpcScriptService : INpcScriptService
                 try { if (dirty) { character.Gold = info.CharacterGold; await repository.SaveChangesAsync(); } }
                 catch { info.AddGold(debit); throw; }
                 committed = true;
+                completed?.Invoke();
+                foreach (var quest in stagedQuests.Distinct()) _quests.PublishScriptStatus(client, quest);
                 if (expGain > 0 || jpGain > 0)
                     lock (info.ProgressLock)
                     {
@@ -282,17 +349,18 @@ public sealed class NpcScriptService : INpcScriptService
                 if (debit != 0) client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "gold", info.CharacterGold));
                 foreach (var message in messages) client.Connection.Send(GameChatPackets.BuildChat("@SCRIPT", TownTeleportRules.ChatNpc, message));
                 foreach (var state in buffs) _states.ApplyState(client, state.Id, state.Level, state.Duration);
+                foreach (var effect in worldEffects) effect();
                 if (changed.Count > 0)
                 {
                     _creatures?.EquipmentDurabilityChanged(client, changed.ToArray());
                     EquipmentStatRefresh.Send(client, _stats, inventory);
                     _feed?.Publish(info.CharacterName);
                 }
-                if (destination is { } point) _warp.Warp(client, point.X, point.Y);
+                if (destination is { } point) _warp.Warp(client, point.X, point.Y, point.Layer);
                 return show ? new NpcScriptPage(page, includeQuests) : null;
             });
 
-            foreach (var (code, index, value) in committed ? questStatuses : new())
+            foreach (var (code, index, value) in committed && area is null ? questStatuses : new())
                 if (_quests is null || !await _quests.SetQuestStatusAsync(client, code, index, value))
                     Log.Warning("NPC script quest status {Code}/{Index} = {Value} not applied for {Character}", code, index, value, info.CharacterName);
             return result;

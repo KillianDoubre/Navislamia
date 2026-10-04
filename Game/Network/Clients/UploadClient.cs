@@ -13,11 +13,13 @@ namespace Navislamia.Game.Network.Clients;
 public class UploadClient : Client
 {
     private readonly ILogger _logger = Log.ForContext<UploadClient>();
+    private readonly NetworkService _network;
     
     public bool Ready { get; set; }
     
     public UploadClient(NetworkService networkService) : base(networkService, ClientType.Upload)
-    {       
+    {
+        _network = networkService;
         CreateClientConnection(networkService.NetworkOptions.Upload.Ip, networkService.NetworkOptions.Upload.Port);
     }
 
@@ -74,6 +76,14 @@ public class UploadClient : Client
             var msgBuffer = Connection.Read((int)header.Length);
 
             remainingData -= msgBuffer.Length;
+
+            if (header.ID == (ushort)UploadPackets.TM_US_UPLOAD)
+            {
+                if (Ready && GuildUploadPackets.TryReadUpload(msgBuffer, out var upload) && _network.GuildService is { } guilds)
+                    _ = guilds.CompleteUploadAsync(upload);
+                continue;
+            }
+            if (header.ID == (ushort)UploadPackets.TM_US_REQUEST_UPLOAD) continue;
 
             // Check for packets that haven't been defined yet (development)
             if (!Enum.IsDefined(typeof(UploadPackets), header.ID))

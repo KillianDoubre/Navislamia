@@ -42,6 +42,8 @@ public sealed partial class GuildService : IGuildService
     private readonly TimeZoneInfo _zone;
     private readonly DungeonOptions _dungeonOptions;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly GuildUploadRelay _uploads;
+    private readonly ServerOptions _server;
     private readonly Dictionary<(uint Target, bool Alliance), Invitation> _invitations = new();
     private readonly Dictionary<GameClient, InputWindow> _inputs = new();
     private static readonly HashSet<string> Commands = new(StringComparer.OrdinalIgnoreCase)
@@ -49,7 +51,8 @@ public sealed partial class GuildService : IGuildService
         "gcreate", "gdestroy", "ginvite", "gjoin", "gkick", "gleave", "gpromote", "gpermission",
         "gpermissionset", "gpermissionname", "gnotice", "gurl", "gmemo", "ginfo", "graidsiegetip",
         "gacreate", "gainvite", "gajoin", "gakick", "galeave", "gadestroy", "garaid", "graid",
-        "graidcancel", "gtax", "gwithdraw", "gdropdungeon", "rpcreate", "rp_ginvite", "rp_gjoin"
+        "graidcancel", "gtax", "gwithdraw", "gdropdungeon", "rpcreate", "rp_ginvite", "rp_gjoin",
+        "gicon", "gbanner", "gupdateicon", "gupdatebanner", "gadvertise", "glist", "granking", "gwindow"
     };
     private sealed record Invitation(GameClient Target, GameClient Inviter, long Group, long InviterGuild, int Token, DateTimeOffset Expires,
         uint InviterHandle, string InviterName);
@@ -60,11 +63,13 @@ public sealed partial class GuildService : IGuildService
         IPlayerVisibilityService players, GuildRuntime runtime, GuildCombatEvents events,
         DungeonCatalog catalog, DungeonRooms rooms, IOptions<DungeonOptions> dungeonOptions,
         MonsterWorldState world = null, IStatService stats = null, TitleCatalog titleCatalog = null,
-        ITitleService titles = null, IBannedWordsRepository banned = null, TimeProvider time = null, Party.IPartyService parties = null)
+        ITitleService titles = null, IBannedWordsRepository banned = null, TimeProvider time = null, Party.IPartyService parties = null,
+        GuildUploadRelay uploads = null, IOptions<ServerOptions> server = null)
     {
         // The guild units open their own transactions around session effects: no retrying strategy (TelecasterOptions).
         _options = TelecasterOptions.WithoutRetry(options); _characters = characters; _players = players.Registry; _runtime = runtime;
         _parties = parties;
+        _uploads = uploads; _server = server?.Value ?? new ServerOptions();
         _catalog = catalog; _rooms = rooms; _world = world; _stats = stats; _titleCatalog = titleCatalog ?? new TitleCatalog();
         _titles = titles; _banned = banned; _time = time ?? TimeProvider.System; _dungeonOptions = dungeonOptions.Value;
         _zone = TimeZoneInfo.FindSystemTimeZoneById(_dungeonOptions.TimeZone);
@@ -139,11 +144,19 @@ public sealed partial class GuildService : IGuildService
     {
         if (command is "gcreate" or "gacreate")
             return PrepareCreation(client, command == "gacreate", argument);
+        if (command is "gicon" or "gbanner" or "glist" or "granking")
+            return await PublicGuildCommandAsync(db, client, command, argument);
         if (guild is null && command != "gjoin") return false;
         bool Permit(GuildPermissions permission) => GuildRules.Permitted(guild, member, permission);
         var args = argument.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         switch (command)
         {
+            case "gwindow":
+                notifications.Add(() => client.Connection.Send(GameGuildPackets.BuildWindow(GamePackets.TM_SC_OPEN_GUILD_WINDOW))); return true;
+            case "gupdateicon": case "gupdatebanner":
+                return PrepareUpload(client, member, guild, command == "gupdatebanner", notifications);
+            case "gadvertise":
+                return Advertise(member, guild, argument, notifications);
             case "ginfo": case "graidsiegetip":
                 await SendInfoAsync(db, client, guild); return true;
             case "ginvite":
@@ -213,6 +226,7 @@ public sealed partial class GuildService : IGuildService
             case "gnotice": case "gurl":
                 if (!Permit(GuildPermissions.Notice) || !GuildRules.ValidText(argument, command == "gnotice" ? 128 : 128)) return false;
                 if (command == "gnotice") guild.Notice = argument; else guild.Url = argument;
+                if (command == "gnotice") notifications.Add(() => Broadcast(guild.Id, $"NOTICE|{argument}"));
                 return true;
             case "gmemo":
             {
@@ -324,6 +338,7 @@ public sealed partial class GuildService : IGuildService
         var effective = EffectiveGuild(guild.Id);
         var owned = await db.Dungeons.Where(d => d.OwnerGuildId == effective).Select(d => d.Id).FirstOrDefaultAsync();
         Send(client, $"GINFO|{guild.Id}|{guild.Name}|{leader}|{members.Length}|{guild.Notice}|{(guild.Recruiting ? 1 : 0)}|{owned}|{guild.Url}");
+        Send(client, AdvertiseLine(guild));
         var names = Pad(guild.PermissionNames, string.Empty); var sets = Pad(guild.PermissionSets, (GuildPermissions)0);
         Send(client, "GPERMISSION|" + string.Concat(Enumerable.Range(0, 6).Select(i => $"{names[i]}|{(int)sets[i]}|")));
         foreach (var member in members)

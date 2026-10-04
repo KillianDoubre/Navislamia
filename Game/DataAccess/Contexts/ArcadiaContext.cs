@@ -6,6 +6,7 @@ namespace Navislamia.Game.DataAccess.Contexts;
 
 public class ArcadiaContext : SoftDeletionContext
 {
+    public DbSet<EventAreaResourceEntity> EventAreaResources { get; set; }
     public ArcadiaContext(DbContextOptions<ArcadiaContext> options) : base(options) { }
 
     public DbSet<ChannelResourceEntity> ChannelResources { get; set; }

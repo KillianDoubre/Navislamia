@@ -14,6 +14,12 @@ public static class TitleEvents
 {
     public const int DungeonSiegeStart = 5201;
     public const int DungeonSiegeEnd = 5202;
+    public const int PlayerKill = 6002;
+    public const int PcBangMode = 9000;
+
+    /// <summary>StructPlayer::onDead passes the victim's immorality, before its death penalty.</summary>
+    public static Func<TitleConditionType, long?> PlayerKilled(decimal victimImmorality) => type =>
+        type.Category == PlayerKill && type.Values is { Length: > 0 } && type.Values[0] <= victimImmorality ? 1 : null;
     public static Func<TitleConditionType, long?> SiegeStart(int dungeon, bool attacker) => type =>
         type.Category == DungeonSiegeStart && type.Values is { Length: >= 2 }
         && (type.Values[0] == 0 || type.Values[0] == dungeon) && (type.Values[1] != 0) == attacker ? 1 : null;

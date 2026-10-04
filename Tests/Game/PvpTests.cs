@@ -45,6 +45,7 @@ public class PvpTests
         public readonly ISkillCastService CastListener = A.Fake<ISkillCastService>();
         public readonly SkillEffectScheduler Effects = new(false);
         public readonly CombatService Combat;
+        public readonly Navislamia.Game.Services.Progression.ITitleService Titles = A.Fake<Navislamia.Game.Services.Progression.ITitleService>();
         public readonly Dictionary<GameClient, StorageTestHarness.FrameConnection> Connections = new();
         public readonly IMapService Map = A.Fake<IMapService>();
 
@@ -88,7 +89,7 @@ public class PvpTests
             Combat = new CombatService(World, A.Fake<IMonsterSpawnService>(), Leveling, A.Fake<IGroundItemService>(),
                 rates, Stats, States, Parties, random: random, players: Players, casts: Interrupts,
                 deathDrops: DeathDrops, compete: Compete, rules: options, runTicks: false,
-                pkFields: new PkFieldService(Map, locations, options), creatures: Creatures);
+                pkFields: new PkFieldService(Map, locations, options), creatures: Creatures, titles: Titles);
         }
         public GameClient Client(uint handle, float x = 100, byte layer = 0)
         {
@@ -336,6 +337,8 @@ public class PvpTests
         h.Combat.DamagePlayerByPlayer(killer, victim, 5000);
         Info(killer).ImmoralPoint.Should().Be(100); Info(killer).PkCount.Should().Be(1);
         Info(killer).DkCount.Should().Be(1);
+        A.CallTo(() => h.Titles.RecordAsync(killer,
+            A<Func<Navislamia.Game.Services.Progression.TitleConditionType,long?>>._)).MustHaveHappenedOnceExactly();
         A.CallTo(() => h.CastListener.ApplyState(killer, 5999, 1, 720000)).MustHaveHappenedOnceExactly();
         A.CallTo(() => h.Leveling.ApplyDeathPenalty(A<GameClient>._)).MustNotHaveHappened();
         var immoral = h.Connections[killer].Sent.Single(f => f.Length == 37 && System.Text.Encoding.ASCII.GetString(f, 12, 7) == "immoral");
@@ -366,6 +369,8 @@ public class PvpTests
         Info(killer).GetPvpProgress().Should().Be(new PvpProgress(0, 0, 0));
         A.CallTo(() => h.Leveling.ApplyDeathPenalty(A<GameClient>._)).MustNotHaveHappened();
         A.CallTo(() => h.DeathDrops.DropOnDeathAsync(A<GameClient>._)).MustNotHaveHappened();
+        A.CallTo(() => h.Titles.RecordAsync(A<GameClient>._,
+            A<Func<Navislamia.Game.Services.Progression.TitleConditionType,long?>>._)).MustNotHaveHappened();
     }
 
     [Test]
@@ -377,6 +382,10 @@ public class PvpTests
         A.CallTo(() => h.Leveling.ApplyDeathPenalty(victim)).MustHaveHappenedOnceExactly();
         A.CallTo(() => h.DeathDrops.DropOnDeathAsync(victim)).MustHaveHappenedOnceExactly();
         Info(victim).ImmoralPoint.Should().Be(92);
+        var condition = new Navislamia.Game.Services.Progression.TitleConditionType(1, 6002, new[] { 100,0,0 }, false);
+        A.CallTo(() => h.Titles.RecordAsync(killer,
+            A<Func<Navislamia.Game.Services.Progression.TitleConditionType,long?>>.That.Matches(f => f(condition) == 1)))
+            .MustHaveHappenedOnceExactly();
     }
 
     [Test]

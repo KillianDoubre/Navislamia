@@ -189,6 +189,58 @@ namespace Navislamia.Game.Migrations.Arcadia
                         });
                 });
 
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.EventAreaResourceEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("BeginTime")
+                        .HasColumnType("integer");
+
+                    b.Property<int[]>("Conditions")
+                        .HasColumnType("integer[]");
+
+                    b.Property<int>("CountLimit")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("EndTime")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EnterHandler")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LeaveHandler")
+                        .HasColumnType("text");
+
+                    b.Property<int>("MaxLevel")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MinLevel")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("RaceJobLimit")
+                        .HasColumnType("bigint");
+
+                    b.Property<int[]>("Values")
+                        .HasColumnType("integer[]");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EventAreaResources");
+                });
+
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Arcadia.GlobalVariableEntity", b =>
                 {
                     b.Property<long>("Id")

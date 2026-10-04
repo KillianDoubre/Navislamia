@@ -37,6 +37,10 @@ public interface IQuestService
     Task LeaveWorldAsync(GameClient client);
     Task RefreshAsync(GameClient client);
     Task<bool> SetQuestStatusAsync(GameClient client, int code, int index, int value) => Task.FromResult(false);
+    Task<Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity> StageScriptStatusAsync(
+        GameClient client, Navislamia.Game.DataAccess.Repositories.Interfaces.ICharacterRepository repository,
+        int code, int index, int value) => Task.FromResult<Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity>(null);
+    void PublishScriptStatus(GameClient client, Navislamia.Game.DataAccess.Entities.Telecaster.CharacterQuestEntity quest) { }
     Task<int> RunScriptAsync(GameClient client, string script) => Task.FromResult(0);
     Navislamia.Game.Scripting.QuestScriptContext CreateScriptContext(GameClient client) => null;
 
