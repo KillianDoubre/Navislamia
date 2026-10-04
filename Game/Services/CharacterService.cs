@@ -14,11 +14,13 @@ using Serilog;
 
 namespace Navislamia.Game.Services;
 
-public class CharacterService : ICharacterService
+public partial class CharacterService : ICharacterService
 {
     private readonly ILogger<CharacterService> _logger;
     private readonly ICharacterRepositoryFactory _repositories;
     private readonly IItemMatchCatalog _itemTemplates;
+    private readonly IBannedWordsRepository _bannedWords;
+    private readonly int _nameCodePage;
     private readonly IStarterItemsRepository _starterItemsRepository;
     private readonly CharacterGate _gate;
     private readonly Weight.IInventoryChangeFeed _inventoryFeed;
@@ -35,9 +37,12 @@ public class CharacterService : ICharacterService
     /// </summary>
     public CharacterService(IStarterItemsRepository starterItemsRepository, ICharacterRepositoryFactory repositories,
         CharacterGate gate, ILogger<CharacterService> logger, Weight.IInventoryChangeFeed inventoryFeed = null,
-        IItemMatchCatalog itemTemplates = null)
+        IItemMatchCatalog itemTemplates = null, IBannedWordsRepository bannedWords = null,
+        Microsoft.Extensions.Options.IOptions<Navislamia.Configuration.Options.ServerOptions> server = null)
     {
         _itemTemplates = itemTemplates;
+        _bannedWords = bannedWords;
+        _nameCodePage = server?.Value?.NameCodePage ?? 1252;
         _inventoryFeed = inventoryFeed;
         _starterItemsRepository = starterItemsRepository;
         _repositories = repositories;

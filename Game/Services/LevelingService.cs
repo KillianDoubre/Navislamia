@@ -53,14 +53,34 @@ public class LevelingService : ILevelingService
             return;
         }
 
+        PublishLevel(client, newLevel);
+    }
+
+    public bool SetLevel(GameClient client, int level)
+    {
+        if (!TryGetExperienceFor(level, out var exp)) return false;
+        lock (client.ConnectionInfo.ProgressLock)
+        {
+            client.ConnectionInfo.CharacterExp = exp;
+            client.Connection.Send(GameCharacterPackets.BuildExpUpdate(client.ConnectionInfo.CharacterHandle, exp, client.ConnectionInfo.CharacterJp));
+            if (client.ConnectionInfo.CharacterLevel != level) PublishLevel(client, level);
+        }
+        return true;
+    }
+
+    private void PublishLevel(GameClient client, int newLevel)
+    {
+        var info = client.ConnectionInfo;
+        var wasAlive = info.CharacterHp > 0;
+        var increased = newLevel > info.CharacterLevel;
         info.CharacterLevel = newLevel;
         var result = _statService.Compute(info);
         var stats = result.Total;
         var maxHp = (int)stats.MaxHp;
         var maxMp = (int)stats.MaxMp;
-        info.CharacterHp = maxHp;
+        info.CharacterHp = increased && wasAlive ? maxHp : Math.Min(info.CharacterHp, maxHp);
         info.CharacterMaxHp = maxHp;
-        info.CharacterMp = maxMp;
+        info.CharacterMp = increased && wasAlive ? maxMp : Math.Min(info.CharacterMp, maxMp);
 
         var handle = info.CharacterHandle;
         // The reference broadcasts the new level to the region (NGemity Player.cpp:1459, BroadcastLevelMsg).
@@ -68,12 +88,12 @@ public class LevelingService : ILevelingService
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, stats, StatInfoType.Total));
         client.Connection.Send(GameStatPackets.BuildStatInfo(handle, result.ByItem, StatInfoType.ByItem));
         client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_hp", maxHp));
-        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "hp", maxHp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "hp", info.CharacterHp));
         client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
-        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "mp", maxMp));
+        client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "mp", info.CharacterMp));
 
         // StructPlayer::onExpChange runs on_player_level_up once, with the level reached.
-        _returnPoints?.OnLevelUp(client, newLevel);
+        if (increased) _returnPoints?.OnLevelUp(client, newLevel);
     }
 
     private readonly ReturnPoints.IReturnPointService _returnPoints;

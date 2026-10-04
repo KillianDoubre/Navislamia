@@ -8,4 +8,4 @@ public readonly record struct ActiveBuff(
     uint StartTick,
     uint EndTick,
     uint SourceHandle = 0,
-    bool AuraProjection = false);
+    bool AuraProjection = false, StatePulse Pulse = null);

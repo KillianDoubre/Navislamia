@@ -4,6 +4,7 @@ namespace Navislamia.Game.Services.Stats;
 
 public interface IStateCatalog
 {
+    Buffs.PeriodicStateRule Periodic(int stateId) => default;
     IReadOnlyList<StatEffect> Resolve(int stateId, int stateLevel);
 
     /// <summary>

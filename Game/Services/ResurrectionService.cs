@@ -52,6 +52,23 @@ public class ResurrectionService : IResurrectionService
         _resurrectionItems = resurrectionItems;
     }
 
+    /// <summary>ScriptPlayer.cpp:5294: in-place HP and MP addition, no warp and no experience refund.</summary>
+    public void Rebirth(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        lock (info.ProgressLock)
+        {
+            var stats = _statService.Compute(info).Total;
+            var oldHp = info.CharacterHp; var oldMp = info.CharacterMp;
+            info.CharacterHp = (int)Math.Min(stats.MaxHp, (long)oldHp + (int)stats.MaxHp);
+            // The official script adds max HP to MP too; preserve this documented behavior.
+            info.CharacterMp = (int)Math.Min(stats.MaxMp, (long)oldMp + (int)stats.MaxHp);
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", info.CharacterHp));
+            client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", info.CharacterMp));
+            client.SendToSelfAndObservers(GameStatPackets.BuildRegenHpMp(info.CharacterHandle, info.CharacterHp - oldHp, info.CharacterMp - oldMp, info.CharacterHp, info.CharacterMp));
+        }
+    }
+
     public void Resurrect(GameClient client, GameActionPackets.ResurrectionRequest request)
     {
         const ushort requestId = (ushort)GamePackets.TM_CS_RESURRECTION;

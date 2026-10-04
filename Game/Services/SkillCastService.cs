@@ -427,6 +427,13 @@ public partial class SkillCastService : ISkillCastService
             return;
         }
 
+        var energyCost = EnergyCost(fields, skillLevel);
+        var beforeEnergy = info.Energy.Count;
+        var retention = energyCost > 0 ? EnergyRetention(info, now) : 0;
+        if (!info.Energy.Consume(energyCost, retention > 0 && _random.Next(100) < retention))
+        { SendCastFailed(client, request, ResultCode.NotEnoughEnergy); return; }
+        if (beforeEnergy != info.Energy.Count) EnergyCounter.Publish(client);
+
         // The area and multi-hit families run their own fires once the cast delay is over
         // (docs/packet-specs/socle-competences-zone-multi-coups.md): the delay, the cancel and the pushback
         // above are the same as every other skill's.
@@ -442,6 +449,9 @@ public partial class SkillCastService : ISkillCastService
         var fireSent = false;
         switch (fields.Kind)
         {
+            case SkillCastKind.Energy:
+                if (info.Energy.Add(skillLevel, EnergyCounter.Capacity(info), now) > 0) EnergyCounter.Publish(client);
+                break;
             case SkillCastKind.Buff:
                 ApplyBuff(client, fields, skillLevel, now);
                 break;
@@ -855,9 +865,13 @@ public partial class SkillCastService : ISkillCastService
             return false;
         }
 
+        if (info.Energy.Count < EnergyCost(fields, skillLevel))
+        { error = ResultCode.NotEnoughEnergy; return false; }
         error = ResultCode.Success;
         return true;
     }
+
+    private static int EnergyCost(CastableBuffFields f, int level) => (int)Math.Clamp(f.CostEnergy + f.CostEnergyPerSkl * level, 0m, int.MaxValue);
 
     /// <summary>
     /// Resolves the cast target for every kind but a prop: a visible, living monster for the kinds
@@ -1070,8 +1084,8 @@ public partial class SkillCastService : ISkillCastService
     }
 
     /// <summary>
-    /// The kinds whose target is a monster rather than the caster. Taming is one of them since étape 0 of
-    /// the socle (docs/packet-specs/socle-apprivoisement-invocation.md §11): the creature spell 4003 is
+    /// The kinds whose target is a monster rather than the caster. Taming is one of them since Ã©tape 0 of
+    /// the socle (docs/packet-specs/socle-apprivoisement-invocation.md Â§11): the creature spell 4003 is
     /// cast at a monster, so an unresolvable handle must answer <c>NotExist</c> rather than land on the
     /// caster.
     /// </summary>
@@ -1084,7 +1098,7 @@ public partial class SkillCastService : ISkillCastService
     /// <summary>The area and multi-hit damage families, which <see cref="CastDamageSequence"/> resolves.</summary>
     private static bool IsDamageSequence(CastableBuffFields fields) =>
         fields.Kind is SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
-        && fields.EffectType is not (0 or 231 or 30001);
+        && fields.EffectType is not (0 or 125 or 231 or 30001 or 30003);
 
     public void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks)
     {
@@ -1102,6 +1116,9 @@ public partial class SkillCastService : ISkillCastService
         if (IsSupport(fields)) return ApplySupportItem(client, fields, level);
         switch (fields.Kind)
         {
+            case SkillCastKind.Energy:
+                if (client.ConnectionInfo.Energy.Add(level, EnergyCounter.Capacity(client.ConnectionInfo), ServerClock.Now) > 0) EnergyCounter.Publish(client);
+                return true;
             case SkillCastKind.Buff:
                 ApplyBuff(client, fields, level, ServerClock.Now);
                 SendStatRefresh(client, client.ConnectionInfo);
@@ -1272,8 +1289,7 @@ public partial class SkillCastService : ISkillCastService
         var magical = fields.Kind == SkillCastKind.MagicAttack;
         var targetLevel = _monsterState.TryGetInstance(instanceId, out var instance) ? instance.Level : 0;
 
-        var baseDamage = SkillDamageCurve.BaseDamage(fields.Kind, fields.Vars, skillLevel,
-            stats.AttackPointRight, stats.MagicPoint);
+        var baseDamage = SkillDamageCurve.BaseDamage(fields, skillLevel, stats.AttackPointRight, stats.MagicPoint);
         if (ResolvePlayerTarget(instanceId) is { } player)
         {
             var playerHit = _combatService.RollPlayerHit(client, player, baseDamage,
@@ -1283,6 +1299,7 @@ public partial class SkillCastService : ISkillCastService
             var competing = _compete?.AreCompeting(client, player) == true;
             _ethereal?.Hit(client, true, playerHit.Damage, EtherealHit.Skill, competing: competing);
             var hp = _combatService.DamagePlayerByPlayer(client, player, playerHit.Damage, magical);
+            ProduceAttackEnergy(client, fields, skillLevel);
             return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, targetHandle, hp,
                 playerHit.Damage, (byte)playerHit.Flags, ElementalType: (byte)fields.ElementalType);
         }
@@ -1291,12 +1308,25 @@ public partial class SkillCastService : ISkillCastService
             SkillDamageCurve.HitBonus(fields, info.CharacterLevel, targetLevel),
             SkillDamageCurve.CriticalBonus(fields, skillLevel), fields.ElementalType);
 
+        ProduceAttackEnergy(client, fields, skillLevel);
         var hate = HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, hit.Damage);
         var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage, hate);
         _ethereal?.Hit(client, true, hit.Damage, EtherealHit.Skill);
         var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
 
         return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType);
+    }
+
+    private static void ProduceAttackEnergy(GameClient client, CastableBuffFields fields, int skillLevel)
+    {
+        var info = client.ConnectionInfo;
+        if (fields.EffectType is 125 or 30003)
+        {
+            var count = fields.EffectType == 30003
+                ? (int)(SupportVar(fields, 4) + SupportVar(fields, 5) * skillLevel)
+                : (int)Math.Ceiling(SupportVar(fields, 6) + SupportVar(fields, 7) * skillLevel);
+            if (info.Energy.Add(count, EnergyCounter.Capacity(info), ServerClock.Now) > 0) EnergyCounter.Publish(client);
+        }
     }
 
     private void CastDamageSequence(GameClient client, GameActionPackets.SkillRequest request,
@@ -1467,7 +1497,7 @@ public partial class SkillCastService : ISkillCastService
         var stateLevel = BuffCurve.StateLevel(fields, skillLevel);
         if (!_monsterState.TryAddState(instanceId, fields.StateId, fields.SkillId, stateLevel, now,
                 unchecked(now + duration), _stateCatalog.GetRule(fields.StateId), _stateCatalog.GetRule,
-                out var state, out var displaced))
+                out var state, out var displaced, info.CharacterHandle, NewStatePulse(fields.StateId, now, info.CharacterHandle, client)))
         {
             return;
         }
@@ -1503,11 +1533,12 @@ public partial class SkillCastService : ISkillCastService
     /// and a stun-like state breaks the cast in progress (<see cref="CastRules.InterruptsCasting"/>).
     /// </summary>
     private bool ApplyState(GameClient client, int stateId, int skillId, int stateLevel, uint now,
-        uint endTick, uint sourceHandle = 0, bool projection = false)
+        uint endTick, uint sourceHandle = 0, bool projection = false, StatePulse suppliedPulse = null)
     {
         var info = client.ConnectionInfo;
         var rule = _stateCatalog.GetRule(stateId);
 
+        var pulse = suppliedPulse ?? NewStatePulse(stateId, now, sourceHandle, client);
         ushort stateHandle;
         int level;
         var displaced = new List<ActiveBuff>();
@@ -1542,7 +1573,7 @@ public partial class SkillCastService : ISkillCastService
                 info.ActiveBuffs.RemoveAt(indices[i]);
             }
 
-            info.ActiveBuffs.Add(new ActiveBuff(stateHandle, stateId, skillId, level, now, endTick, sourceHandle, projection));
+            info.ActiveBuffs.Add(new ActiveBuff(stateHandle, stateId, skillId, level, now, endTick, sourceHandle, projection, pulse));
         }
 
         foreach (var state in displaced)
@@ -1674,7 +1705,9 @@ public partial class SkillCastService : ISkillCastService
         {
             try
             {
-                ProcessCasts(ServerClock.Now);
+                var now = ServerClock.Now;
+                ProcessPeriodicStates(now);
+                ProcessCasts(now);
             }
             catch (Exception exception)
             {
@@ -1706,7 +1739,8 @@ public partial class SkillCastService : ISkillCastService
                 for (var i = info.ActiveBuffs.Count - 1; i >= 0; i--)
                 {
                     var buff = info.ActiveBuffs[i];
-                    if (buff.EndTick == NeverExpires || unchecked((int)(now - buff.EndTick)) < 0)
+                    if (buff.EndTick == NeverExpires || unchecked((int)(now - buff.EndTick)) < 0
+                        || (now == buff.EndTick && _stateCatalog.Periodic(buff.StateId).Supported))
                     {
                         continue;
                     }
@@ -1734,7 +1768,7 @@ public partial class SkillCastService : ISkillCastService
 
     private void ExpireMonsterStates(uint now)
     {
-        var expired = _monsterState.RemoveExpiredStates(now);
+        var expired = _monsterState.RemoveExpiredStates(now, id => _stateCatalog.Periodic(id).Supported);
         if (expired.Count == 0)
         {
             return;

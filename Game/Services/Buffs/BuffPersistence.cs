@@ -60,7 +60,9 @@ public static class BuffPersistenceRules
         var remaining = infinite ? 0 : Math.Max(0, unchecked((int)(state.EndTick - now)));
         if (!infinite && remaining == 0) return null;
         return new CharacterStateEntity { SummonCardId = cardId, StateId = state.StateId, SkillId = state.SkillId,
-            StateLevel = state.StateLevel, Infinite = infinite, RemainingTicks = remaining, SavedAtUtc = utc };
+            StateLevel = state.StateLevel, Infinite = infinite, RemainingTicks = remaining, SavedAtUtc = utc,
+            PeriodicBaseDamage = state.Pulse?.BaseDamage,
+            RemainingFireTicks = state.Pulse is null ? null : Math.Max(0, unchecked((int)(state.Pulse.LastFire + catalog.Periodic(state.StateId).Interval - now))) };
     }
 
     public static ActiveBuff? Restore(CharacterStateEntity state, IStateCatalog catalog, uint now, DateTime utc,
@@ -72,7 +74,10 @@ public static class BuffPersistenceRules
         if (!state.Infinite && (catalog.GetRule(state.StateId).TimeType & StateTimeType.TimeDecreaseOnLogout) != 0)
             remaining -= (long)Math.Min(int.MaxValue, Math.Max(0, (utc - state.SavedAtUtc).TotalSeconds * ServerClock.TicksPerSecond));
         if (!state.Infinite && remaining <= 0) return null;
+        var periodic = catalog.Periodic(state.StateId);
+        var pulse = periodic.Supported && state.PeriodicBaseDamage is { } damage
+            ? new StatePulse(unchecked(now + (uint)Math.Max(0, state.RemainingFireTicks ?? 0) - periodic.Interval), damage) : null;
         return new ActiveBuff(handle, state.StateId, state.SkillId, state.StateLevel, now,
-            state.Infinite ? uint.MaxValue : unchecked(now + (uint)remaining));
+            state.Infinite ? uint.MaxValue : unchecked(now + (uint)remaining), Pulse: pulse);
     }
 }

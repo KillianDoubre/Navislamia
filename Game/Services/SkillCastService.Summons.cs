@@ -366,7 +366,8 @@ public partial class SkillCastService
         }
         _monsterState.AddSummonHate(target.Id, cast.Master, cast.Actor.Handle, HateRules.SkillHate(f.HateMod, f.HateBasic, f.HatePerSkl, cast.Cast.SkillLevel, 0));
         if (!_monsterState.TryAddState(target.Id, f.StateId, f.SkillId, level, now, end,
-            _stateCatalog.GetRule(f.StateId), _stateCatalog.GetRule, out var state, out var removed)) return;
+            _stateCatalog.GetRule(f.StateId), _stateCatalog.GetRule, out var state, out var removed, cast.Actor.Handle,
+            NewStatePulse(f.StateId, now, cast.Actor.Handle, cast.Master))) return;
         foreach (var observer in SupportPlayers(cast.Master))
         {
             var handle = observer.ConnectionInfo.GetMonsterHandle(target.Id); if (handle == 0) continue;

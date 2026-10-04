@@ -12,6 +12,7 @@ public partial class SkillCastService
 {
     public void ProcessBuffs(uint now)
     {
+        ProcessPeriodicStates(now);
         ExpirePlayerBuffs(now); ExpireMonsterStates(now);
         GameClient[] clients; lock (_lock) clients = _clients.ToArray();
         foreach (var client in clients)
@@ -24,7 +25,8 @@ public partial class SkillCastService
                     for (var i = summon.ActiveBuffs.Count - 1; i >= 0; i--)
                     {
                         var state = summon.ActiveBuffs[i];
-                        if (state.EndTick == uint.MaxValue || unchecked((int)(state.EndTick - now)) > 0) continue;
+                        if (state.EndTick == uint.MaxValue || unchecked((int)(state.EndTick - now)) > 0
+                            || (now == state.EndTick && _stateCatalog.Periodic(state.StateId).Supported)) continue;
                         expired.Add(state); summon.ActiveBuffs.RemoveAt(i);
                     }
                 foreach (var state in expired) SendToSelfAndWatchers(client,

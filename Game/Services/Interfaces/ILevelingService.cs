@@ -5,6 +5,7 @@ namespace Navislamia.Game.Services;
 public interface ILevelingService
 {
     void ApplyExperience(GameClient client);
+    bool SetLevel(GameClient client, int level) => false;
 
     /// <summary>
     /// Gives back <paramref name="ratio"/> of the experience the last death took and forgets the rest

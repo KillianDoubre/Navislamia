@@ -13,6 +13,7 @@ public readonly record struct StateRuleFields(int StateId, int[] DuplicateGroups
 
 public interface IStateResourceRepository
 {
+    IReadOnlyList<Navislamia.Game.Services.Buffs.PeriodicStateRule> GetPeriodicStates() => System.Array.Empty<Navislamia.Game.Services.Buffs.PeriodicStateRule>();
     IReadOnlyList<StateEffectFields> GetStatStates();
 
     /// <summary>

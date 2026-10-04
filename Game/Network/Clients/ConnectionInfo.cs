@@ -730,9 +730,20 @@ public class ConnectionInfo
         }
     }
 
+    public object NameChangeLock { get; } = new();
+    public System.Threading.Tasks.Task NameChangeCompletion { get; set; } = System.Threading.Tasks.Task.CompletedTask;
+    public bool IsInvisible { get; set; }
+    public uint ChatBlockUntil { get; set; }
+    public int ChatBlockRemaining(uint now) => ChatBlockUntil == 0 ? 0 : Math.Max(0, unchecked((int)(ChatBlockUntil - now)) / 100);
+
+    public Navislamia.Game.Services.EnergyCounter Energy { get; } = new();
+
     public void ClearCharacterSession()
     {
         LocationId = 0;
+        Energy.Clear();
+        NameChangeCompletion = System.Threading.Tasks.Task.CompletedTask;
+        IsInvisible = false; ChatBlockUntil = 0;
         CharacterHandle = 0;
         TargetHandle = 0;
         CharacterHp = 0;

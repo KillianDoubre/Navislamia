@@ -115,8 +115,9 @@ public class CombatService : ICombatService
             return;
         }
 
-        if (!_worldState.IsAlive(targetInstanceId))
+        if (!_worldState.IsAlive(targetInstanceId) || _worldState.GetHp(targetInstanceId) <= 0)
         {
+            CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotActable);
             return;
         }
 
@@ -618,6 +619,13 @@ public class CombatService : ICombatService
         return hit with { Damage = PvpDamage(hit.Damage) };
     }
 
+    private void CantAttackOrEnd(GameClient client, uint targetHandle, Network.Packets.ResultCode reason)
+    {
+        bool active; lock (_lock) active = _sessions.ContainsKey(client);
+        if (active) StopAttack(client);
+        else client.Connection.Send(GameStateResultPackets.CantAttack(client.ConnectionInfo.CharacterHandle, targetHandle, reason));
+    }
+
     private void StartPlayerAttack(GameClient client, uint targetHandle)
     {
         var info = client.ConnectionInfo;
@@ -627,11 +635,10 @@ public class CombatService : ICombatService
             seen = info.SpawnedPlayers.ContainsKey(targetHandle);
         }
 
-        if (!seen || _players is null || !_players.Registry.TryResolve(targetHandle, out var target)
-            || !MonsterAiRules.IsAlive(target.ConnectionInfo.CharacterHp) || !IsEnemy(client, target))
-        {
-            return;
-        }
+        if (!seen || _players is null || !_players.Registry.TryResolve(targetHandle, out var target))
+        { CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotExist); return; }
+        if (!MonsterAiRules.IsAlive(target.ConnectionInfo.CharacterHp) || !IsEnemy(client, target))
+        { CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotActable); return; }
 
         lock (_lock)
         {

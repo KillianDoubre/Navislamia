@@ -228,6 +228,7 @@ public partial class SkillCastService
     {
         if (target.Summon is null) return ApplyState(target.Owner, stateId, skillId, level, now, end, source, projection);
         var summon = target.Summon; var rule = _stateCatalog.GetRule(stateId);
+        var pulse = NewStatePulse(stateId, now, source, target.Owner);
         var removed = new List<ActiveBuff>(); ActiveBuff applied;
         lock (summon.BuffLock)
         {
@@ -238,7 +239,7 @@ public partial class SkillCastService
             if (decision.RefreshIndex >= 0) indices.Add(decision.RefreshIndex);
             foreach (var i in indices.Distinct().OrderDescending())
             { if (i != decision.RefreshIndex) removed.Add(summon.ActiveBuffs[i]); summon.ActiveBuffs.RemoveAt(i); }
-            applied = new ActiveBuff(handle, stateId, skillId, decision.Level, now, end, source, projection);
+            applied = new ActiveBuff(handle, stateId, skillId, decision.Level, now, end, source, projection, pulse);
             summon.ActiveBuffs.Add(applied);
         }
         foreach (var state in removed) SendToSelfAndWatchers(target.Owner,

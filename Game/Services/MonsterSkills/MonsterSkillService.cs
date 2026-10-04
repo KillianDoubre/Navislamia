@@ -43,6 +43,7 @@ public class MonsterSkillService : IMonsterSkillService
     private readonly ICombatRandom _random;
     private readonly IPlayerVisibilityService _players;
     private readonly IScriptService _scripts;
+    private readonly Stats.IStateCatalog _states;
     private readonly SkillEffectScheduler _effects;
     private readonly ICharacterService _characters;
     private readonly IMonsterSpawnService _spawns;
@@ -53,8 +54,10 @@ public class MonsterSkillService : IMonsterSkillService
     public MonsterSkillService(IMonsterSkillCatalog catalog, MonsterWorldState world, ICombatService combat,
         ISkillCastService skillCast, ICombatRandom random = null, IPlayerVisibilityService players = null,
         IScriptService scripts = null, SkillEffectScheduler effects = null,
-        ICharacterService characters = null, IMonsterSpawnService spawns = null, IQuestService quests = null)
+        ICharacterService characters = null, IMonsterSpawnService spawns = null, IQuestService quests = null,
+        Stats.IStateCatalog states = null)
     {
+        _states = states;
         _players = players;
         _quests = quests;
         _scripts = scripts;
@@ -159,7 +162,8 @@ public class MonsterSkillService : IMonsterSkillService
                 {
                     if (handle == monsterHandle)
                     {
-                        var state = _world.AddState(instanceId, stateId, 0, level, now, unchecked(now + duration));
+                        var state = _world.AddState(instanceId, stateId, 0, level, now, unchecked(now + duration),
+                            new StatePulse(now, _states?.Periodic(stateId).SnapshotDamage(_combat.GetMonsterStats(instanceId)) ?? 0) { MonsterId = instanceId });
                         void SendState(GameClient recipient)
                         {
                             var h = recipient.ConnectionInfo.GetMonsterHandle(instanceId);
@@ -386,7 +390,8 @@ public class MonsterSkillService : IMonsterSkillService
 
                 var stateLevel = BuffCurve.StateLevel(fields, skill.Level);
                 var state = _world.AddState(instanceId, fields.StateId, fields.SkillId, stateLevel, now,
-                    unchecked(now + duration));
+                    unchecked(now + duration),
+                    new StatePulse(now, _states?.Periodic(fields.StateId).SnapshotDamage(_combat.GetMonsterStats(instanceId)) ?? 0) { MonsterId = instanceId });
                 client.Connection.Send(GameSkillPackets.BuildState(monsterHandle, state.StateHandle,
                     (uint)state.StateId, (ushort)stateLevel, state.EndTick, now));
                 ObserverFrames.SendMonsterFrame(_players, client, instanceId, (_, watcherHandle) =>
@@ -405,8 +410,8 @@ public class MonsterSkillService : IMonsterSkillService
                     fields.ProbabilityIncBySlv, skill.Level);
                 if (duration > 0 && !info.IsImmortal && Casting.CastRules.StateLands(chance, _random.Next(100)))
                 {
-                    _skillCast.ApplyState(client, fields.StateId, BuffCurve.StateLevel(fields, skill.Level),
-                        duration);
+                    _skillCast.ApplyMonsterState(client, fields.StateId, BuffCurve.StateLevel(fields, skill.Level),
+                        duration, instanceId);
                 }
 
                 return null;

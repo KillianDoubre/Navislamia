@@ -13,5 +13,7 @@ public class CharacterStateEntity
     public int StateLevel { get; set; }
     public long RemainingTicks { get; set; }
     public bool Infinite { get; set; }
+    public int? PeriodicBaseDamage { get; set; }
+    public int? RemainingFireTicks { get; set; }
     public DateTime SavedAtUtc { get; set; }
 }

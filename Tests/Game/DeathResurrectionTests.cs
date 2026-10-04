@@ -31,7 +31,7 @@ namespace Tests.Game;
 /// PK server drops.
 /// </summary>
 [TestFixture]
-public class DeathResurrectionTests
+public partial class DeathResurrectionTests
 {
     private static ushort Id(byte[] packet) => BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(4, 2));
 

@@ -64,7 +64,7 @@ public static class ActorStatus
 
     /// <summary>A player's whole mask, read from its session: every state the mask carries, in one place.</summary>
     public static uint ForPlayer(ConnectionInfo info) =>
-        ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking, info.BoothType, info.ImmoralPoint);
+        ForPlayer(info.PkMode, info.IsSitting, info.IsBattleMode, info.IsWalking, info.BoothType, info.ImmoralPoint) | (info.IsInvisible ? CreatureStatus.Invisible : 0u);
 
     /// <summary>
     /// A monster's mask. <paramref name="dead"/> is the corpse flag; the corpse outlives the death

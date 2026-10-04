@@ -28,7 +28,7 @@ using Navislamia.Game.Services.Stats;
 namespace Tests.Game;
 
 [TestFixture]
-public class SupportSkillTests
+public partial class SupportSkillTests
 {
     private sealed class BlockingSave : SaveChangesInterceptor
     {
@@ -80,7 +80,7 @@ public class SupportSkillTests
         }
         public GameClient Player(uint handle, float x = 0, long? party = 9, byte layer = 0)
         {
-            var wire = new StorageTestHarness.FrameConnection(Array.Empty<byte>()); var client = StorageTestHarness.NewGameClient(wire);
+            var wire = new StorageTestHarness.FrameConnection(Array.Empty<byte>()); var client = StorageTestHarness.NewGameClient(wire, playerVisibilityService: Players);
             Wires[client] = wire; var info = Info(client); info.CharacterHandle = handle; info.CharacterName = "P" + handle;
             info.CharacterHp = 500; info.CharacterMp = 200; info.CharacterMaxHp = 1000;
             info.PartyId = party; info.Layer = layer; info.X = info.DestinationX = x;

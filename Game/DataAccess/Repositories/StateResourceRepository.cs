@@ -17,6 +17,12 @@ public class StateResourceRepository : IStateResourceRepository
         _context = new ArcadiaContext(options);
     }
 
+    public IReadOnlyList<Navislamia.Game.Services.Buffs.PeriodicStateRule> GetPeriodicStates() =>
+        _context.StateResources.AsNoTracking().Where(s => s.BaseEffect != StateBaseEffect.None)
+            .Select(s => new Navislamia.Game.Services.Buffs.PeriodicStateRule((int)s.Id, (int)s.BaseEffect,
+                s.FireInterval, (int)s.ElementalType, s.AmplifyBase, s.AmplifyPerSkill,
+                s.AddDamageBase, s.AddDamagePerSkl, s.Values)).ToList();
+
     public IReadOnlyList<StateEffectFields> GetStatStates()
     {
         var supported = StateCatalog.SupportedEffectTypes;

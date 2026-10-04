@@ -70,7 +70,7 @@ public class BuffCatalog : IBuffCatalog
 
     public static readonly int[] CastableEffectTypes =
     {
-        MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, AddRegionHpMp, AddRegionHp, ToggleAura, ToggleDifferentialAura,
+        0, 125, 30003, 30006, MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, AddRegionHpMp, AddRegionHp, ToggleAura, ToggleDifferentialAura,
         PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming, Resurrection, ResurrectionWithRecover,
         InstanceGameEffect, RegionHealByFieldProp, AreaEffectHealByFieldProp,
         30011, 30012, 30013, 30016, 232, 241, 261, 262, 263, 271
@@ -148,7 +148,7 @@ public class BuffCatalog : IBuffCatalog
         // spell carry their effect themselves.
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
                 or SkillCastKind.ActivateProp or SkillCastKind.PropHeal or SkillCastKind.Summon or SkillCastKind.Unsummon
-                or SkillCastKind.Taming or SkillCastKind.Resurrection or SkillCastKind.InstanceGame)
+                or SkillCastKind.Taming or SkillCastKind.Resurrection or SkillCastKind.InstanceGame or SkillCastKind.Energy)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -191,12 +191,13 @@ public class BuffCatalog : IBuffCatalog
             row.HateMod,
             row.HateBasic,
             row.HatePerSkl, row.ValidRange, row.UseOnSelf, row.UseOnParty,
-            row.UseOnNeutral, row.UseOnCharacter, row.UseOnSummon, row.ElementalType);
+            row.UseOnNeutral, row.UseOnCharacter, row.UseOnSummon, row.ElementalType, row.CostEnergy, row.CostEnergyPerSkl);
         return true;
     }
 
     private static bool TryResolveKind(CastableSkillRow row, out SkillCastKind kind)
     {
+        if (row.SkillId == 2631 && row.EffectType == 0) { kind = SkillCastKind.Energy; return true; }
         kind = default;
 
         if (row.EffectType is ToggleAura or ToggleDifferentialAura)
@@ -266,14 +267,14 @@ public class BuffCatalog : IBuffCatalog
         }
 
         // Existing single-target families retain their target gate.
-        if (row.EffectType is PhysicalSingleDamage or MagicSingleDamage)
+        if (row.EffectType is PhysicalSingleDamage or 125 or 30003 or 30006 or MagicSingleDamage)
         {
             if (row.Target != (int)SkillTarget.Target || !row.IsHarmful)
             {
                 return false;
             }
 
-            kind = row.EffectType == PhysicalSingleDamage
+            kind = row.EffectType is PhysicalSingleDamage or 125 or 30003 or 30006
                 ? SkillCastKind.PhysicalAttack
                 : SkillCastKind.MagicAttack;
             return true;

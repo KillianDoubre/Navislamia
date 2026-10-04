@@ -55,7 +55,8 @@ public enum SkillCastKind
     /// healing prop, never learned; the prop is used up, then heals around it at once (9502) or leaves a healing area
     /// (9503). docs/packet-specs/socle-huntaholic.md §8.
     /// </summary>
-    PropHeal
+    PropHeal,
+    Energy
 }
 
 public readonly record struct CastableBuffFields(
@@ -94,7 +95,7 @@ public readonly record struct CastableBuffFields(
     int HateBasic = 0,
     decimal HatePerSkl = 0m,
     int ValidRange = 0, bool UseOnSelf = true, bool UseOnParty = true,
-    bool UseOnNeutral = true, bool UseOnCharacter = true, bool UseOnSummon = true, int ElementalType = 0);
+    bool UseOnNeutral = true, bool UseOnCharacter = true, bool UseOnSummon = true, int ElementalType = 0, decimal CostEnergy = 0m, decimal CostEnergyPerSkl = 0m);
 
 /// <summary>The raw fields the catalog classifies into a <see cref="SkillCastKind"/>.</summary>
 public readonly record struct CastableSkillRow(
@@ -133,7 +134,7 @@ public readonly record struct CastableSkillRow(
     int HateBasic = 0,
     decimal HatePerSkl = 0m,
     int ValidRange = 0, bool UseOnSelf = true, bool UseOnParty = true,
-    bool UseOnNeutral = true, bool UseOnSummon = true, int ElementalType = 0);
+    bool UseOnNeutral = true, bool UseOnSummon = true, int ElementalType = 0, decimal CostEnergy = 0m, decimal CostEnergyPerSkl = 0m);
 
 /// <summary>A resurrection skill (<c>EF_RESURRECTION</c> 504 or <c>EF_RESURRECTION_WITH_RECOVER</c> 30501).</summary>
 public readonly record struct ResurrectionSkillRow(int SkillId, int EffectType, decimal[] Vars);

@@ -29,6 +29,7 @@ public interface IPartyService
     DungeonParty DungeonParty(GameClient client) => null;
     /// <summary>Runs a party chat command; false when the line is not one, so it goes on to the GM commands.</summary>
     bool TryHandleCommand(GameClient client, string message);
+    void OnNameChanged(GameClient client) { }
 
     /// <summary>At the end of world entry: back into the party the character belongs to, if any.</summary>
     void OnWorldEntry(GameClient client);
@@ -150,6 +151,7 @@ public sealed partial class PartyService : IPartyService
         Action<GameClient, string[]> handler = tokens[0].ToLowerInvariant() switch
         {
             "/pcreate" => Create,
+            "/passist" => Assist,
             "/pinvite" => Invite,
             "/pjoin" => Join,
             "/pleave" => (c, _) => Leave(c),
@@ -199,6 +201,31 @@ public sealed partial class PartyService : IPartyService
             SendToParty(party, PartyMessages.Login(party.Name, member.Name));
             BroadcastMemberInfo(party, client);
             SendPartyInfo(client, party);
+        }
+    }
+
+    private void Assist(GameClient client, string[] tokens)
+    {
+        if (tokens.Length < 2 || !uint.TryParse(tokens[1], out var handle) || handle == 0
+            || !TryGetParty(client.ConnectionInfo.CharacterHandle, out var party)) return;
+        var member = Online(handle);
+        if (member is null || !TryGetParty(handle, out var other) || other.Id != party.Id) return;
+        var target = member.ConnectionInfo.TargetHandle;
+        // Monster handles are allocated per viewer; translate the official shared handle here.
+        if (member.ConnectionInfo.TryResolveMonster(target, out var instance))
+            target = client.ConnectionInfo.GetMonsterHandle(instance);
+        Reply(client, $"ASSIST|{target}|");
+    }
+
+    public void OnNameChanged(GameClient client)
+    {
+        lock (_gate)
+        {
+            if (!TryGetParty(client.ConnectionInfo.CharacterHandle, out var party)) return;
+            var member = party.Find(client.ConnectionInfo.CharacterHandle);
+            if (member is null) return;
+            member.Name = client.ConnectionInfo.CharacterName;
+            foreach (var player in party.Members.Select(m => Online(m.CharacterId)).Where(c => c is not null)) SendPartyInfo(player);
         }
     }
 
@@ -686,7 +713,7 @@ public sealed partial class PartyService : IPartyService
         }
 
         public long CharacterId { get; }
-        public string Name { get; }
+        public string Name { get; set; }
         public int Level { get; set; }
         public int Job { get; set; }
         public int Race { get; set; }

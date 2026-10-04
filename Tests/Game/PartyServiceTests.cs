@@ -21,7 +21,7 @@ using Microsoft.Extensions.Options;
 namespace Tests.Game;
 
 [TestFixture]
-public class PartyServiceTests
+public partial class PartyServiceTests
 {
     private PlayerVisibilityService _visibility;
     private IBannedWordsRepository _bannedWords;
