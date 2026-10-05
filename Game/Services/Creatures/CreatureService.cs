@@ -270,6 +270,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
 
         CreatureCard main = null, sub = null;
+        List<long> orphans;
         lock (info.SummonLock)
         {
             info.CreatureCards.Clear();
@@ -305,6 +306,24 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             }
 
             info.CreatureCardsLoaded = true;
+            orphans = equipment.Where(item => item.EquippedBySummonId is { } summonId
+                    && !info.CreatureCards.Values.Any(card => card.HasSummon && card.SummonId == summonId))
+                .Select(item => item.Id).ToList();
+        }
+
+        // DB_Login::readEquipItemList skips an item whose summon is not the character's (GetSummon fails): the
+        // equipment of a creature whose card left with someone else comes back to the bag unworn.
+        if (orphans.Count > 0)
+        {
+            try
+            {
+                await _characters.UnwearItemsAsync(info.CharacterName, orphans);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Could not unwear the items left by a departed summon of {clientTag}",
+                    client.ClientTag);
+            }
         }
 
         // SendCharacterInfo: the creature window gets every formed summon, then the formation.
@@ -2179,17 +2198,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
     }
 
-    private static bool IsCardInWorld(ConnectionInfo info, long cardId)
-    {
-        CreatureCard card;
-        lock (info.SummonLock)
-        {
-            card = info.CreatureCards.GetValueOrDefault(cardId);
-        }
-
-        return card is not null && card.SummonHandle != 0
-               && info.Summons.Any(summon => summon.Handle == card.SummonHandle);
-    }
+    private static bool IsCardInWorld(ConnectionInfo info, long cardId) => HeldItemRules.IsCardInWorld(info, cardId);
 
     private async Task<bool> CreateSummonAsync(ConnectionInfo info, CreatureCard card)
     {

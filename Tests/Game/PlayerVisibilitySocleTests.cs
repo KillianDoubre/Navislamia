@@ -399,6 +399,7 @@ public class PlayerVisibilitySocleTests
         var info = StorageTestHarness.Session(client);
         info.CharacterHandle = handle;
         info.Layer = 0;
+        info.CharacterHp = 100;
         info.X = 0f;
         info.Y = 0f;
         return client;

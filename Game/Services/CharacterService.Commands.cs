@@ -23,6 +23,13 @@ public partial class CharacterService
             if (await repository.CharacterExistsAsync(newName)) return ResultCode.AlreadyExist;
             character.CharacterName = newName;
             character.WasNameChanged = true;
+            // Official Db/DB_CreateCharacter.cpp:283,354-358: smp_update_character_name also updates auction names.
+            // Save these denormalized names with the character, in the same EF transaction.
+            foreach (var auction in await repository.GetNamedAuctionsAsync(character.Id))
+            {
+                if (auction.SellerId == character.Id) auction.SellerName = newName;
+                if (auction.HighestBidderId == character.Id) auction.HighestBidderName = newName;
+            }
             try { await repository.SaveChangesAsync(); }
             catch (DbUpdateException) { return ResultCode.DBError; }
             return ResultCode.Success;

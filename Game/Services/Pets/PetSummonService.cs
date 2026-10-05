@@ -267,7 +267,7 @@ public class PetSummonService : IPetSummonService
     public void SetPickupFilter(GameClient client, uint handle, uint filter)
     {
         client.ConnectionInfo.PetPickupFilter = filter;
-        _logger.Debug("{clientTag} set the pet pickup filter to {filter} (handle {handle}); not applied",
+        _logger.Debug("{clientTag} set the pet pickup filter to {filter} (handle {handle})",
             client.ClientTag, filter, handle);
     }
 

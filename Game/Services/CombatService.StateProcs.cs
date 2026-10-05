@@ -14,13 +14,15 @@ public partial class CombatService
     private readonly IItemStatCatalog _procItemStats;
 
     public void NotifyHit(CombatActor attacker, CombatActor target, HitResult hit,
-        uint attackType = EnergyProcs.NormalAttack, int element = 0, bool attackProcs = true)
+        uint attackType = EnergyProcs.NormalAttack, int element = 0, bool attackProcs = true, int skillId = 0)
     {
         if (attacker.Owner is null || target.Owner is null) return;
         if ((hit.Flags & HitFlags.Miss) == 0 && attackProcs)
         {
             RunStateProcs(attacker, target, StateProcEvent.Attack, attackType, element);
             RunStateProcs(target, attacker, StateProcEvent.BeingAttacked, attackType, element);
+            // OnAttack (StructCreature.cpp:4108-4116): the attack procs, then the attacker's procs keyed by the skill.
+            if (skillId != 0) RunSkillIdProcs(attacker, target, skillId);
             if (!attacker.IsMonster && !attacker.IsSummon)
                 _energyProcs?.OnAttack(attacker.Owner, attackType, element, ActorHpPercent(target));
             if (!target.IsMonster && !target.IsSummon)
@@ -58,6 +60,35 @@ public partial class CombatService
             if (CombatRange.Distance(p.X, p.Y, x, y) <= 525f)
                 RunStateProcs(new CombatActor(client, summon.Handle), victim, StateProcEvent.Kill);
         }
+    }
+
+    /// <summary>
+    /// <c>StructCreature::ProcBySkillId</c>: the <c>EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID</c> (32281) passives of a player
+    /// or a summon whose skill <paramref name="skillId"/> just landed. A monster learns no passive.
+    /// </summary>
+    private void RunSkillIdProcs(CombatActor owner, CombatActor other, int skillId)
+    {
+        if (_cooldownProcs is null || !_cooldownProcs.ListensTo(skillId) || owner.IsMonster
+            || owner.Owner?.ConnectionInfo.CharacterHandle is not > 0) return;
+        KeyValuePair<int, byte>[] learned;
+        var info = owner.Owner.ConnectionInfo;
+        if (owner.IsSummon)
+        {
+            lock (info.SummonLock)
+            {
+                var card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == owner.SummonHandle);
+                if (card is null) return;
+                learned = card.Skills.ToArray();
+            }
+        }
+        else
+        {
+            learned = info.LearnedSkills.ToArray();
+        }
+
+        foreach (var proc in _cooldownProcs.ResolveForSkill(learned, skillId, ActorHpPercent(owner),
+                     ActorHpPercent(other), _random))
+            _casts?.ApplyCooldownProc(owner, proc);
     }
 
     private void RunStateProcs(CombatActor owner, CombatActor other, StateProcEvent trigger, uint type = 0, int element = 0)

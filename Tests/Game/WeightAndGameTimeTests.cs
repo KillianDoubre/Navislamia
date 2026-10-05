@@ -115,6 +115,7 @@ public class WeightAndGameTimeTests
         var connection = new StorageTestHarness.FrameConnection(frame);
         var client = StorageTestHarness.NewGameClient(connection, carriedWeightService: weights);
         StorageTestHarness.Session(client).CharacterHandle = 7;
+        StorageTestHarness.Session(client).CharacterHp = 100;
 
         client.OnDataReceived(frame.Length);
 

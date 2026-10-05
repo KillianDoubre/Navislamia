@@ -80,8 +80,9 @@ Un départ du monde (lobby, déconnexion) ferme l'échange ; le partenaire reço
 - **Poids** : jugé avant l'or (`CheckTradeWeight`), `TooHeavy` aux deux (voir `socle-poids.md`).
 - **Non modélisés** : règle PK, entrepôt ouvert (51, 88 : aucun état
   d'entrepôt en session), `GameRule::bDisableTrade`, blocage de compte sur « Add Trade Bug ». Échangeable =
-  non porté et pas une carte d'invocation liée (`0x8000_0000`) ; les autres règles d'`IsTradable` ne sont
-  pas lues.
+  non porté (par le joueur ou une invocation), ni tenu par une créature ou le familier dehors (`IsErasable`,
+  `socle-duree-invocations.md` §6), ni la carte d'un apprivoisement en cours. **Une carte apprivoisée s'échange**
+  (le refus « carte liée » d'avant, sans source, est retiré le 2026-10-05) ; `FLAG_CANT_TRADE` n'est pas lu.
 
 ## 6. NON ÉTABLI
 

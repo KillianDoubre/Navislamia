@@ -58,9 +58,11 @@ class ItemWearImportTests(unittest.TestCase):
 
     def test_plan_mode_never_drops_staging_tables(self):
         with patch.object(importer, "introspect", return_value=({}, {}, {})), \
-                patch.object(importer, "import_table", return_value=[]), patch.object(importer, "psql") as sql:
-            importer.main(["import_epic7.py", "--plan", "ItemResources"])
+                patch.object(importer, "import_table", return_value=[]), patch.object(importer, "psql") as sql, \
+                patch.object(importer, "validate_client"), patch.object(importer.prune_to_client73, "main") as prune:
+            importer.main(["import_epic7.py", "--plan", "--client-dir", "client-fixture", "ItemResources"])
             sql.assert_not_called()
+            prune.assert_called_once_with(["client-fixture"])
 
     def test_embedded_migration_matches_every_csv_row(self):
         source = importer.DATA / "ItemResource.csv"

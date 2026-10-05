@@ -156,6 +156,22 @@ public static class ResurrectionRules
     /// </summary>
     public static int CompeteHp(float maxHp) => Math.Max(1, (int)(maxHp / 10f));
 
+    /// <summary>
+    /// <c>EF_AUTO_RESURRECTION_AFTER_REMOVE_STATE</c> (3321), <c>StructPlayer::onAfterRemoveState</c>
+    /// (<c>StructPlayer.cpp:12023-12028</c>): the MP spent is <c>(value_0 + value_1 × level) × MP</c>, the HP gained
+    /// <c>(value_2 + value_3 × level) × that cost</c>, both truncated like the C++ <c>int</c>; <c>Resurrect</c> gives at
+    /// least 1 HP (<c>StructCreature.cpp:6513</c>) and <c>AddHP</c>/<c>AddMP</c> keep within the maxima.
+    /// </summary>
+    public static (int Hp, int Mp) VitalsByAutoResurrection(decimal[] values, int stateLevel, int currentMp, float maxHp)
+    {
+        static decimal V(decimal[] v, int i) => v is not null && i < v.Length ? v[i] : 0m;
+        var mp = Math.Max(0, currentMp);
+        var cost = (int)((V(values, 0) + V(values, 1) * stateLevel) * mp);
+        var gain = (int)((V(values, 2) + V(values, 3) * stateLevel) * cost);
+        var hp = (int)Math.Clamp(Math.Max(gain, 1), 1m, Math.Max(1m, (decimal)maxHp));
+        return (hp, Math.Clamp(mp - cost, 0, mp));
+    }
+
     public static (int Hp, int Mp) VitalsByState(ResurrectionStateValues values, int stateLevel, float maxHp,
         float maxMp, int currentMp)
     {

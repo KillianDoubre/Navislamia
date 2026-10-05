@@ -30,6 +30,12 @@ public interface IGroundItemService
     Task TakeAsync(GameClient client, uint itemHandle);
 
     /// <summary>
+    /// <c>TM_CS_TAKE_ITEM</c> with its <c>taker_handle</c>: the master's collecting pet takes the item when it is
+    /// named (official <c>onTakeItem</c>), the player otherwise.
+    /// </summary>
+    Task TakeAsync(GameClient client, uint takerHandle, uint itemHandle) => TakeAsync(client, itemHandle);
+
+    /// <summary>
     /// The nearest ground item <paramref name="owner"/> may take, on its layer, within
     /// <paramref name="range"/> of (<paramref name="x"/>, <paramref name="y"/>) and not already being taken —
     /// what a pet goes for. False when there is none.

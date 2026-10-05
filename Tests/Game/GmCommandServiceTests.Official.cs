@@ -37,6 +37,7 @@ public partial class GmCommandServiceTests
         connection.Sent[0].Should().Equal(GamePetPackets.BuildChangeName(CharacterHandle, "Renamed"));
         Replies(connection).Should().Equal(("@NOTICE", (byte)Navislamia.Game.Network.Packets.Enums.ChatType.Notice, "@131"));
         A.CallTo(() => _parties.OnNameChanged(client)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => _guilds.OnNameChangedAsync(client, "Tester")).MustHaveHappenedOnceExactly();
     }
 
     [TestCase("Tester", "@118")]
@@ -80,6 +81,7 @@ public partial class GmCommandServiceTests
         StorageTestHarness.Session(client).CharacterName.Should().Be("Tester");
         connection.Sent.Should().NotContain(p => Id(p) == 30);
         A.CallTo(() => _parties.OnNameChanged(client)).MustNotHaveHappened();
+        A.CallTo(() => _guilds.OnNameChangedAsync(client, A<string>._)).MustNotHaveHappened();
     }
 
     [Test]

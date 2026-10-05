@@ -95,7 +95,7 @@ public class MarketSellService : IMarketSellService
         var total = (long)sellCount * unitPrice;
         var remaining = item.Amount - sellCount;
 
-        if (!IsSellable(item) || remaining < 0)
+        if (!IsSellable(client.ConnectionInfo, item) || remaining < 0)
         {
             _logger.Debug("Item {code} (handle {itemHandle}) of {clientTag} is not sellable ({remaining} left "
                           + "after {count}), refused with NotExist", itemCode, itemHandle, client.ClientTag,
@@ -167,15 +167,16 @@ public class MarketSellService : IMarketSellService
     /// <summary>
     /// The demonstrable subset of <c>Player::IsSellable</c> (<c>Player.cpp:3158-3166</c>): the item must be
     /// in the bag (<c>GetItemByHandleAsync</c> resolved it there), not worn, not stored and not equipped by
-    /// a summon. The rest of the reference test — skill cards bound to a target, summon cards bound to a
-    /// belt slot, the <c>ITEM_FLAG_TAMING</c> flag — has no readable equivalent in this repository (its
-    /// <c>ItemFlag.Taming</c> is a bit index where NGemity compares a mask) and stays reserved
-    /// (fiche §6 écart 5, A VERIFIER 2).
+    /// a summon, not held by a creature or the pet out (official <c>IsErasable</c>, <c>StructPlayer.cpp:12498</c>,
+    /// <see cref="Creatures.HeldItemRules"/>), not the card of a taming in progress (<c>IsSellable</c>, <c>:12628</c>).
+    /// Skill cards bound to a target and <c>FLAG_CANT_SELL</c> stay reserved (fiche §6 écart 5, A VERIFIER 2).
     /// </summary>
-    private static bool IsSellable(ItemEntity item)
+    private static bool IsSellable(Network.Clients.ConnectionInfo info, ItemEntity item)
     {
         return item.WearInfo == ItemWearType.None
                && item.StorageId is null
-               && item.EquippedBySummonId is null;
+               && item.EquippedBySummonId is null
+               && Creatures.HeldItemRules.IsErasable(info, item.Id)
+               && info.TamingCardItemId != item.Id;
     }
 }

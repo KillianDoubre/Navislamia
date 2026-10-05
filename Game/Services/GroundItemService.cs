@@ -34,6 +34,7 @@ public class GroundItemService : IGroundItemService
     private readonly Weight.ICarriedWeightService _weights;
     private readonly IPartyService _parties;
     private readonly Func<uint> _clock;
+    private readonly IItemUseCatalog _itemTypes;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
@@ -46,8 +47,10 @@ public class GroundItemService : IGroundItemService
 
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
         IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players,
-        Weight.ICarriedWeightService weights = null, IPartyService parties = null, Func<uint> clock = null)
+        Weight.ICarriedWeightService weights = null, IPartyService parties = null, Func<uint> clock = null,
+        IItemUseCatalog itemTypes = null)
     {
+        _itemTypes = itemTypes;
         _parties = parties;
         _weights = weights;
         _clock = clock ?? (() => ServerClock.Now);
@@ -203,8 +206,9 @@ public class GroundItemService : IGroundItemService
         {
             // The rules are judged inside the removal, under the database gate, so an equip handled
             // between a separate read and the erase cannot slip a worn item through.
+            // IsDropable starts with IsErasable (StructPlayer.cpp:12658): nothing a creature or the pet out holds falls.
             var removal = await _characterService.RemoveItemAsync(info.CharacterName, itemHandle,
-                item => ResolveDropCount(item, count));
+                item => Creatures.HeldItemRules.IsErasable(info, item.Id) ? ResolveDropCount(item, count) : 0);
             if (removal.Removed <= 0)
             {
                 SendDropResult(client, itemHandle, false);
@@ -245,7 +249,15 @@ public class GroundItemService : IGroundItemService
         }
     }
 
-    public async Task TakeAsync(GameClient client, uint itemHandle)
+    public Task TakeAsync(GameClient client, uint itemHandle) => TakeAsync(client, 0, itemHandle);
+
+    /// <summary>
+    /// <c>TM_CS_TAKE_ITEM</c> (204). The official <c>onTakeItem</c> (<c>GameMessage.cpp:1301-1315</c>) lets the
+    /// client's own pet gather name the summoned pet as <paramref name="takerHandle"/>: when that pet is out and
+    /// collects items, it is the taker — the range is judged from it and <c>TS_SC_TAKE_ITEM_RESULT</c> animates
+    /// it. Any other handle is the player.
+    /// </summary>
+    public async Task TakeAsync(GameClient client, uint takerHandle, uint itemHandle)
     {
         if (!_items.TryGetValue(itemHandle, out var item))
         {
@@ -253,10 +265,26 @@ public class GroundItemService : IGroundItemService
             return;
         }
 
-        // onTakeItem's order: the range (TOO_FAR) is judged before the quest item and the pick-up order, which
-        // refuse with ACCESS_DENIED (6): the object is there, its order just does not name the asker yet (see
-        // GroundItemPickupRules for the 30/40/50 s pacing).
-        if (!WithinPickupRange(client.ConnectionInfo, item))
+        // onTakeItem's order: the range (TOO_FAR), judged from the taker — the player or its collecting pet —, comes
+        // before the quest item and the pick-up order, which refuse with ACCESS_DENIED (6): the object is there, its
+        // order just does not name the asker yet (see GroundItemPickupRules for the 30/40/50 s pacing). The order
+        // names the master, whoever takes (ItemPickupOrder.hPlayer[i] == pClient->GetHandle()).
+        var info = client.ConnectionInfo;
+        var taker = info.CharacterHandle;
+        float x = info.X, y = info.Y;
+        if (takerHandle != 0 && takerHandle != taker)
+        {
+            lock (info.PetLock)
+            {
+                if (info.ActivePet is { CollectRange: > 0 } pet && pet.Handle == takerHandle)
+                {
+                    taker = pet.Handle;
+                    (x, y) = pet.PositionAt(ServerClock.Now);
+                }
+            }
+        }
+
+        if (item.Layer != info.Layer || CombatRange.Distance(x, y, item.X, item.Y) > PickupRange)
         {
             client.SendResult(TakeRequestId, (ushort)ResultCode.TooFar, 0);
             return;
@@ -268,7 +296,7 @@ public class GroundItemService : IGroundItemService
             return;
         }
 
-        var result = await TakeAsync(client, item, client.ConnectionInfo.CharacterHandle);
+        var result = await TakeAsync(client, item, taker);
         client.SendResult(TakeRequestId, (ushort)result, 0);
     }
 
@@ -278,7 +306,8 @@ public class GroundItemService : IGroundItemService
         var best = float.MaxValue;
         foreach (var item in _items.Values)
         {
-            if (!PetMayCollect(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0)
+            if (!PetMayCollect(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0
+                || !Pets.PetPickupFilter.Collects(owner.ConnectionInfo.PetPickupFilter, TypeOf(item.ItemCode)))
             {
                 continue;
             }
@@ -306,6 +335,12 @@ public class GroundItemService : IGroundItemService
         return WithinPickupRange(owner.ConnectionInfo, item)
             && await TakeAsync(owner, item, petHandle) == ResultCode.Success;
     }
+
+    /// <summary>The item's <c>type</c> column, or <c>null</c> for gold (code 0) and an item no catalog knows.</summary>
+    private ItemBaseType? TypeOf(int itemCode) =>
+        itemCode != 0 && _itemTypes is not null && _itemTypes.TryGetUseFields(itemCode, out var fields)
+            ? fields.BaseType
+            : null;
 
     /// <summary>
     /// Whether <paramref name="picker"/> may take <paramref name="item"/> right now — the order loop the

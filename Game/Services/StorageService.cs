@@ -110,6 +110,15 @@ public class StorageService : IStorageService
             return;
         }
 
+        // MoveInventoryToStorage starts with IsErasable (StructPlayer.cpp:3458) and onStorage ignores its false: an item a
+        // creature or the pet out holds stays in the bag, silently, like a worn one.
+        if (request.Mode == StorageRules.ItemToStorage && !Creatures.HeldItemRules.IsErasable(info, request.ItemHandle))
+        {
+            _logger.Debug("{clientTag} kept item {handle} in the bag: a creature or the pet holds it", client.ClientTag,
+                request.ItemHandle);
+            return;
+        }
+
         // WorldSession.cpp:1603-1606 refuses a unit count of zero or less with NOT_ENOUGH_MONEY, for the
         // gold modes as well — NGemity's own gold branch tests the balance first, which a negative count
         // slips through and turns into an increase of the total gold.

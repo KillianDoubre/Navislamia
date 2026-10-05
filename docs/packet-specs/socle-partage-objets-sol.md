@@ -366,6 +366,8 @@ La source `Game/Message/GameMessage.cpp` (`onTakeItem`) et `Game/Rule/GameRule.h
    le temps (`IsTakeableQuestItem`, approché par « son propriétaire ») — la branche l'ouvrait à tous après 30 s.
    `GroundItem.QuestItem`, `GroundItem.HasPickupOrder`.
 
+5. **Avec le filtre 355 et la 204 du familier** (fusion avec master, 2026-10-05, `socle-familier-pet.md` §19) : une 204 dont le preneur est le familier dehors est jugée sur la position du familier pour la portée, puis sur l'ordre de ramassage **du maître** (`hPlayer[i] == pClient->GetHandle()`) ; la collecte serveur du familier combine `PetMayCollect` (30/50 s) et le filtre de types.
+
 Points tranchés de la liste ci-dessous : 2 (la cadence du serveur est l'officielle ; celle du client ne concerne que
 le familier), 6 (objet de quête), 7 (jet d'inventaire : ordre vide). Restent ouverts : 3 (portée 300 contre
 20 + demi-taille), 4 (emplacements 1-2), 5 (durée de vie), 8 (`NOT_OWN`, qui chez l'officiel vise un objet déjà dans

@@ -74,6 +74,9 @@ public class NetworkService : INetworkService
     public readonly Navislamia.Game.Services.Friends.IFriendService FriendService;
     public readonly IPlayerLocationService PlayerLocationService;
 
+    /// <summary>The world's obstacles, which a player's walk is judged against; null in harnesses that do not build it.</summary>
+    public readonly Navislamia.Game.Maps.Collision.IWorldCollision WorldCollision;
+
     public AuthClient AuthClient { get; set; }
 
     public UploadClient UploadClient { get; set; }
@@ -122,8 +125,10 @@ public class NetworkService : INetworkService
         Services.Progression.ITitleService titleService = null, IDonationRankingService donationRankingService = null,
         Navislamia.Game.Services.Guilds.GuildUploadRelay guildUploads = null,
         Navislamia.Game.Services.Friends.IFriendService friendService = null,
-        IPlayerLocationService playerLocationService = null)
+        IPlayerLocationService playerLocationService = null,
+        Navislamia.Game.Maps.Collision.IWorldCollision worldCollision = null)
     {
+        WorldCollision = worldCollision;
         FriendService = friendService;
         PlayerLocationService = playerLocationService;
         TitleService = titleService;

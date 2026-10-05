@@ -643,6 +643,7 @@ public partial class SkillCastService : ISkillCastService
             (uint)removed.StateId));
         SendStatRefresh(client, info);
         client.SendResult(requestId, (ushort)ResultCode.Success);
+        AfterPlayerStatesRemoved(client, new[] { removed });
 
         _logger.Debug("{clientTag} cancelled state {stateCode} through the state window", client.ClientTag,
             request.StateCode);
@@ -1150,7 +1151,51 @@ public partial class SkillCastService : ISkillCastService
         SendToSelfAndWatchers(client, GameSkillPackets.BuildStateRemoval(info.CharacterHandle, removed.StateHandle,
             (uint)removed.StateId));
         SendStatRefresh(client, info);
+        AfterPlayerStatesRemoved(client, new[] { removed });
         return true;
+    }
+
+    /// <summary>
+    /// <c>StructPlayer::onAfterRemoveState</c> for the one effect a removal triggers here:
+    /// <c>EF_AUTO_RESURRECTION_AFTER_REMOVE_STATE</c> (3321). A dead player whose such state ends — 314085, put by the
+    /// death trigger 314084 — comes back where it fell (<c>Resurrect(CRT_STATE, …, GetLastDecreasedEXP(), true)</c>):
+    /// HP and MP from <see cref="ResurrectionRules.VitalsByAutoResurrection"/>, all the experience the death took.
+    /// A living player is left alone (<c>Resurrect</c> refuses one who is not dead).
+    /// </summary>
+    private void AfterPlayerStatesRemoved(GameClient client, IEnumerable<ActiveBuff> removed)
+    {
+        foreach (var buff in removed)
+        {
+            var rule = _stateCatalog.GetRule(buff.StateId);
+            if (rule.EffectType != (int)Navislamia.Game.DataAccess.Entities.Enums.EffectTrigger.AutoResurrectionAfterRemoveState)
+            {
+                continue;
+            }
+
+            var info = client.ConnectionInfo;
+            if (info.CharacterHp > 0 || Interlocked.CompareExchange(ref info.ResurrectionInProgress, 1, 0) != 0)
+            {
+                continue;
+            }
+
+            try
+            {
+                var maxHp = _statService.Compute(info).Total.MaxHp;
+                var (hp, mp) = ResurrectionRules.VitalsByAutoResurrection(rule.Values, buff.StateLevel,
+                    info.CharacterMp, maxHp);
+                info.CharacterHp = hp;
+                info.CharacterMp = mp;
+                client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", hp));
+                client.SendVitalProperty(GameStatPackets.BuildProperty(info.CharacterHandle, "mp", mp));
+                var exp = _leveling?.RestoreDeathExperience(client, 1m) ?? 0;
+                _logger.Debug("{clientTag} came back by state {stateId} with {hp} hp, {mp} mp and {exp} exp",
+                    client.ClientTag, buff.StateId, hp, mp, exp);
+            }
+            finally
+            {
+                Volatile.Write(ref info.ResurrectionInProgress, 0);
+            }
+        }
     }
 
     public int RemoveStatesWithTimeFlag(GameClient client, Navislamia.Game.DataAccess.Entities.Enums.StateTimeType flag)
@@ -1771,6 +1816,7 @@ public partial class SkillCastService : ISkillCastService
             }
 
             SendStatRefresh(client, info);
+            AfterPlayerStatesRemoved(client, expired);
         }
     }
 

@@ -180,7 +180,11 @@ here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summo
 the caller. **306 is the double summon, 302 a bound card leaving the bag** (`docs/packet-specs/socle-duree-invocations.md`):
 a second summon called while the main one is out stays `1000 + 1881 level × 700 + 112-state level × value_4 × 100` ticks
 (306 on its handle, 0 under state 3121), then goes back; a card gone from the bag sends 302, one come in 301, both from a
-re-read after `IInventoryChangeFeed`, and the `Summons` row follows its card. `CharacterService` writes `MainSummonId` and
+re-read after `IInventoryChangeFeed`, and the `Summons` row follows its card. **What a creature or the pet holds never
+leaves the bag** (official `IsErasable`, `Creatures/HeldItemRules`: formed card, summon out, belt slot, cage of the pet
+out) — trade, sale, booth, auction, storage, drop, destruction and crafting all judge it; a tamed card that is neither
+formed nor out trades freely, and a departed creature's equipment is unworn at the old master's next login (§6 of
+that sheet). `CharacterService` writes `MainSummonId` and
 `SummonSlotItemIds`, and those six columns hold *summon* sids like the official character row, not card ids:
 the session and the 303 speak card handles, `CharacterService` translates both ways.
 
@@ -191,6 +195,14 @@ pipe-delimited list of `QS2`, `KMT` and chat-mode entries stored as text in
 `Characters.ClientInfo`. `CharacterDefaults` supplies the complete default map for new and legacy
 characters. Do not split this value into the `quick_slot`, `current_key` or `saved_key` properties
 used by later clients such as Epic 9.4; this Epic 7.3 executable only registers `client_info`.
+
+**A walk is judged against where the server has the player** (`docs/packet-specs/socle-anti-triche-deplacement.md`,
+official `onMoveRequest`/`GetValidWayPoint`): `ConnectionInfo.BeginWalk` keeps the accepted path and `PositionAt`
+follows it leg by leg at the echoed speed; a dead player's request is dropped; a claimed position outside the map or
+more than 525 units from the estimate, or a way through a `.nfa` obstacle, answers `ACCESS_DENIED` and walks the
+player back (`Movement/PlayerMoveRules`, `PlayerMoves`); a region update or a 900 keeps the client's position only
+within 120 units of the estimate. A death stops the walk for the player and its observers. Any server-side change of
+a player's position should go through `BeginWalk`/`Rebase`; changing `MoveStartTick` or the destination at least drops the kept path.
 
 Movement uses the client's current `x/y` fields for visibility; the final waypoint is a future
 destination and must never be used as the current position.
@@ -887,7 +899,8 @@ passives** (the other 34 have `var1 >= 1000`, a state id — they apply a state 
   `HuntingTraining` (10013) is **a summon's own** passive: damage dealt to and taken from a creature type
   (`CreatureExpertise`, monster `grp` → `MonsterInstance.CreatureGroup`), applied to the raw damage.
 - `IncSkillCoolTimeOn*` (10063-10070) are event triggers on the combat procs (`Combat/CooldownProcs`): the owner's
-  cooling skills gain or lose seconds, then a 403.
+  cooling skills gain or lose seconds, then a 403. `IncSkillCoolTimeOnSkillOfId` (32281) is the same proc fired when
+  one of its listed skills (`var11..13`) lands: `NotifyHit(..., skillId)`.
 
 `SkillPassiveCatalog` is frozen at startup like every other catalog. **117 skill rows** carry a supported
 effect type (101 unconditional plus the 16 weapon-gated masteries), and it holds the **87** whose vars are
@@ -2178,7 +2191,7 @@ de dégâts et de récompenses existants. Conditions communes avec l'énergie da
 `AttackProcConditions` : arme, probabilité entière, PV, masque, élément ; `_KILL_TAG` pour la mort.
 `CastInterrupts.ApplyCombatState` rejoint le moteur de cumul, statistiques et diffusion existant,
 avec source/pulse corrects et coût MP officiel. Pas de cycle DI, de migration ni de nouvel opcode.
-Le déclencheur 314084 pose 314085 ; son effet de résurrection différée 3321 reste à porter.
+Le déclencheur 314084 pose 314085, dont la fin relève le joueur mort sur place (3321, `AfterPlayerStatesRemoved`).
 Fiche et limites : `docs/packet-specs/socle-passifs-etats-combat.md`. Tests : `StateProcsTests`,
 `EnergyProcsTests`, `ServiceGraphTests`.
 
@@ -2322,16 +2335,19 @@ ouvrent une (`NpcDialogService.OpensConfirmation`), et aucun Lua Epic 7 n'appell
   réémettre de `TS_SC_MOVE` tant que la cible n'a pas dérivé de 3 m, et le rappelle au-delà de 540 unités.
   **Le rayon de ramassage vient de la compétence « Collect Items » (effet 10047, `var1` en mètres : 5/10/15)**,
   **× 12 unités par mètre** (règle de NGemity pour toute portée de compétence) ; le familier prend le butin
-  de son maître par le ramassage manuel, **`item_taker` = le familier et aucun `TS_SC_RESULT`**. Le filtre
-  355 est déclaré, lu, gardé (`PetPickupFilter`) et **jamais appliqué**. Le nom vit dans `Pets` (une ligne
+  de son maître par le ramassage manuel, **`item_taker` = le familier et aucun `TS_SC_RESULT`**. **Le filtre
+  355 suit la règle du client** (fiche §19, `PetPickupFilter`) : un bit par `type` d'objet — Consumable 0x01
+  (`Supply`), Soulstone 0x02, Cube 0x04, Card 0x08, Gear 0x10 (`Armor`), Etc 0x20 —, `0x3f` « All » comparé à
+  l'égalité (seul à laisser passer `Charm`), `Use` toujours ramassé, défaut `0x1f`. Aucun serveur officiel ne lit
+  la 355 : le client filtre sa propre collecte et envoie une 204 dont le `taker_handle` est le familier, que
+  `GroundItemService.TakeAsync(client, taker, item)` juge depuis le familier (`onTakeItem`). Le nom vit dans `Pets` (une ligne
   par cage) ; un familier jamais nommé reçoit la **353 sur son handle** **au lieu de sortir**, l'objet 920010
   (`RenamePet`, 120) la rouvre, refusé **avant consommation** sans familier dehors ; la 354 n'est acceptée que
   pour un handle proposé (`PetNameOffers`), avec **la règle des noms de personnage** (4-18 lettres/chiffres,
   mots interdits) ; refus = `@1105`/`@1106` + `TS_SC_RESULT(354)`, succès = `TS_SC_CHANGE_NAME` (30, 30 octets,
   `handle` @7, `name[19]` @11) au maître et aux observateurs, puis le résultat.
-- `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options
-  (`PET_PICKUP_FILTER`), mais n'est **pas déclaré** : sa valeur n'est pas établie et le ramassage par
-  familier n'existe pas. Il tombe dans `Undefined packet ID`, sans erreur.
+- `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre « Pickup Filter »
+  du client (`PET_PICKUP_FILTER`) ; déclaré et lu, sans réponse.
 - 353/354 (nom du familier) ont leur propre fiche et leur propre branche.
 - Détail et réserves : `docs/packet-specs/socle-familier-pet.md` ; tests : `Tests/Game/PetWorldTests.cs`.
 
@@ -3000,3 +3016,48 @@ its arguments **before** Serilog checks the level, so a per-packet one is wrappe
 - That rule covers client packets. An id the server only ever emits needs no arm in
   `GameClient.Receive`, so `GameSummonPackets`' seven strictly server-to-client ids are
   declared in `GamePackets` with no dispatch entry; 33 `TM_SC_*` members already had none.
+
+## Renommage des registres (2026-10-05, uscT2HaQ)
+
+`/change_name` sauvegarde les noms vendeur/meneur avec le personnage, puis rafraîchit groupe,
+guilde et enchères. Ordre des verrous : enchères puis CharacterGate ; ne jamais faire l'inverse.
+`@GUILD CHANGE_NAME` est officiel (`GuildManager.cpp:885`) ; `@ALLIANCE GLEADER_CHANGE`
+pour un chef renommé est une adaptation du format `GameMessage.cpp:4767`, documentée dans la fiche.
+
+## Équipes d'attaque persistées (2026-10-05)
+
+`PartyService` stocke 0/1/2 ; `Parties.LeadPartyId` vaut l'id principal pour les équipes.
+Au démarrage, charger les groupes puis `IGuildService.LoadAsync()` avant le réseau ; le registre
+`_teams` et les guildes doivent revenir ensemble. Fiche : `socle-equipes-attaque-persistance.md`.
+Pour les dialogues de siège, les libellés viennent du Lua officiel ; une entrée sans identifiant
+établi est omise et consignée NON ÉTABLI (`socle-donjons-instances-secrets.md`, xHHwc9Z2).
+
+
+### Filtre 7.3 : références sémantiques et chaînes (2026-10-05, RlwjZDsY)
+
+Ne jamais protéger une famille de ressources par tous les nombres du code ou du Lua.
+`tools/resource_reachability.py` suit les points d’entrée publiés et arguments typés ;
+`docs/packet-specs/audit-litteraux-73.md` cite les 134 décisions et leurs sources.
+`StringResources` est borné aux codes déclarés de `db_string.rdb`, sans exception hors client.
+Les FK facultatives vers des chaînes supprimées sont mises à NULL dans la transaction ;
+une FK obligatoire inconnue bloque le filtre. Sauvegarde Arcadia puis restauration vérifiée
+avant un nouveau nettoyage des données. Le plan reste en lecture seule.
+
+
+### Import Epic 7 et filtre obligatoire (2026-10-05, lbQQRm8S)
+
+`tools/import_epic7.py` valide les fichiers client avant toute écriture puis rejoue le
+filtre 7.3 après résolution des FK, même pour un import partiel. Fournir `--client-dir`
+ou `NAVIS_CLIENT73`. `--plan` reste intégralement en lecture seule ; son filtre décrit
+la base actuelle. Ne pas ajouter d’option permettant un import réussi sans filtrage.
+
+
+### Maintenance PostgreSQL livrée, installation explicite (2026-10-05, CkEncmJM)
+
+`tools/Backup-PostgreSql.ps1` sauvegarde Arcadia/Telecaster/auth en custom, lit le catalogue,
+publie l’archive et SHA256, puis applique 14 jours de rotation après succès des trois bases.
+Secrets uniquement par environnement de processus, restauré en finally. L’installateur
+`tools/Install-PostgreSqlMaintenance.ps1` exige une exécution administrateur explicite
+(service Automatic, tâche SYSTEM quotidienne à 02:30) ; sa livraison ne vaut pas installation.
+Les deux scripts acceptent -WhatIf. Ne jamais modifier automatiquement la configuration
+machine au titre d’une tâche qui demande uniquement de livrer ces scripts.
