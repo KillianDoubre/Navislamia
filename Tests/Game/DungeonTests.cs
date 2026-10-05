@@ -16,7 +16,7 @@ using Navislamia.Game.Services.Props;
 namespace Tests.Game;
 
 [TestFixture]
-public class DungeonTests
+public partial class DungeonTests
 {
     private DungeonOptions _options;
     private DungeonCatalog _catalog;

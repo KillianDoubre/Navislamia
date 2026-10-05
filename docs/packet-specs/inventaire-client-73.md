@@ -69,12 +69,8 @@ regarder ; une ligne traitée se barre ici et se documente dans la fiche du syst
 Tous livrés le 2026-10-05 (lot de Codex relu) : ~~322~~, ~~451~~ (réponse à 452 ; 450 est commenté chez l'officiel),
 ~~512~~, ~~514~~, ~~3003 / 3004~~. Restent :
 
-- **Fenêtres de confirmation ouvertes par le C++ officiel** : `secret_dungeon_confirm_window`
-  (`warp_to_secret_dungeon`), `instance_dungeon_confirm_window` et `…_window2` (`warp_to_instance_dungeon`,
-  `exit_indun`), `dungeon_raid_confirm_window` (`begin_dungeon_raid`), `recall_feather_confirm_window` et
-  `number_input_window` (`on_channel_set`), `ScriptPlayer.cpp:2578-3203`, `StructCreature.cpp:4908`. Le serveur passe
-  aujourd'hui par des pages de dialogue. Le rappel de ces fenêtres porte des paramètres ajoutés par le client
-  (l'officiel l'accepte par `strstr`) : leur format n'est pas établi, il faut le lire dans `SFrame.exe`.
+- ~~**Fenêtres de confirmation ouvertes par le C++ officiel**~~ (donjon secret, instance, raid, plume de rappel,
+  canal) : livrées le 2026-10-05, rappels mesurés dans `SFrame.exe` (`socle-fenetres-script.md`).
 - ~~La 451 d'une carte dont le propriétaire est hors ligne (vue aux enchères) répond `NotExist`~~ : lue en base depuis
   le 2026-10-05 (`451-skill-level-list.md`).
 - Le menu du gestionnaire de siège (`NpcDialogService.TryShow`, `NPC_dungeon_siege_manager_contact`) envoie des

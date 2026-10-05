@@ -95,7 +95,7 @@ public static class PropScript
 
         return name switch
         {
-            "warp_to_instance_dungeon" when arguments.Length is 1 or 2 && TryInt(arguments[0], out var id)
+            "warp_to_instance_dungeon" or "enter_instance_dungeon" when arguments.Length is 1 or 2 && TryInt(arguments[0], out var id)
                 && (arguments.Length == 1 || TryInt(arguments[1], out _))
                 => new PropAction(PropActionKind.EnterInstanceDungeon, 0, 0, id,
                     Type: arguments.Length == 2 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : -1),
@@ -113,6 +113,8 @@ public static class PropScript
             "warp_to_siege_dungeon" when arguments.Length == 1 && TryInt(arguments[0], out var id)
                 => new PropAction(PropActionKind.EnterSiegeDungeon, 0, 0, id),
             // The exit gates of an instance pass their own prop id (exit_instance_dungeon(126027)); the NPC's form has none.
+            "exit_indun" when arguments.Length == 1 && TryInt(arguments[0], out var exitId)
+                => new PropAction(PropActionKind.ExitInstanceDungeon, 0, 0, exitId),
             "exit_instance_dungeon" or "leave_instance_dungeon" when arguments.Length == 0
                 || arguments.Length == 1 && TryInt(arguments[0], out _)
                 => new PropAction(PropActionKind.ExitInstanceDungeon, 0, 0, 0),

@@ -19,6 +19,7 @@ public interface IDungeonService
 {
     ResultCode Check(GameClient client, PropAction action);
     Task<ResultCode> ExecuteAsync(GameClient client, PropAction action);
+    Task<ResultCode> ConfirmAsync(GameClient client, PropAction action) => ExecuteAsync(client, action);
     Task SweepAsync() => Task.CompletedTask;
 
     /// <summary>A Vulcanus floor gate (<c>enter_other_indun</c>): the floor window, on the gate's handle.</summary>
@@ -69,6 +70,56 @@ public sealed class DungeonService : IDungeonService
     public void ShowFloorWindow(GameClient client, uint gateHandle, PropAction action) =>
         _vulcanus.ShowFloorWindow(client, gateHandle, action);
 
+    /// <summary>ScriptPlayer's native confirmations; the 3001 response alone executes the entrance.</summary>
+    public async Task<ResultCode> ConfirmAsync(GameClient client, PropAction action)
+    {
+        var info = client.ConnectionInfo;
+        var stamp = (info.CharacterHandle, info.CharacterName, info.NpcDialogRevision, info.Layer, info.GuildId);
+        bool Current() => stamp == (info.CharacterHandle, info.CharacterName, info.NpcDialogRevision, info.Layer, info.GuildId);
+        if (action.Kind == PropActionKind.EnterOwnedSecretDungeon)
+        {
+            if (info.GuildId is not > 0) return ResultCode.AccessDenied;
+            var owned = await _guilds.OwnedDungeonAsync(info.GuildId.Value);
+            if (!Current()) return ResultCode.NotActable;
+            action = new PropAction(PropActionKind.EnterSecretDungeon, 0, 0, DungeonRules.SecretForOwner(owned));
+        }
+        // enter_dungeon offers the raid window to the attack team's leader before the first entrance.
+        if (action.Kind == PropActionKind.EnterDungeon && info.GuildId > 0
+            && _parties.DungeonParty(client) is { Type: 1 } party && party.Leader == info.CharacterHandle
+            && _rooms.Find(new DungeonRoomKey(DungeonRoomKind.Raid, action.DungeonId, Effective(info.GuildId))) is null)
+        {
+            var raid = action with { Kind = PropActionKind.BeginDungeonRaid };
+            if (Check(client, raid) == ResultCode.Success)
+            {
+                var ownership = await _guilds.GetAsync(action.DungeonId);
+                if (!Current()) return ResultCode.NotActable;
+                if (ownership.OwnerGuild != Effective(info.GuildId)) action = raid;
+            }
+        }
+        if (action.Kind is not (PropActionKind.EnterInstanceDungeon or PropActionKind.EnterSecretDungeon
+            or PropActionKind.ExitInstanceDungeon or PropActionKind.BeginDungeonRaid))
+            return await ExecuteAsync(client, action);
+        var check = Check(client, action);
+        if (check != ResultCode.Success) return check;
+        var id = action.DungeonId;
+        if (action.Kind == PropActionKind.ExitInstanceDungeon)
+        {
+            if (_rooms.RoomOf(client) is not { Key.Kind: DungeonRoomKind.Instance } room) return ResultCode.NotActable;
+            id = room.Key.DungeonId;
+            action = action with { DungeonId = id };
+        }
+        var (window, trigger) = action.Kind switch
+        {
+            PropActionKind.EnterInstanceDungeon => ("instance_dungeon_confirm_window", "warp_to_instance_dungeon"),
+            PropActionKind.EnterSecretDungeon => ("secret_dungeon_confirm_window", "warp_to_secret_dungeon"),
+            PropActionKind.ExitInstanceDungeon => ("instance_dungeon_confirm_window2", "exit_indun"),
+            _ => ("dungeon_raid_confirm_window", "begin_dungeon_raid")
+        };
+        return ScriptWindows.Show(client, window,
+            action.Kind == PropActionKind.BeginDungeonRaid ? info.CharacterName : id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            trigger, action) ? ResultCode.Success : ResultCode.NotActable;
+    }
+
     private InstanceType Type(GameClient client, PropAction action) => _catalog.Types.FirstOrDefault(t =>
         t.DungeonId == action.DungeonId && (action.Type < 0 || t.Type == action.Type) && t.Allows(client.ConnectionInfo.CharacterLevel));
 
@@ -79,7 +130,9 @@ public sealed class DungeonService : IDungeonService
         if (!Handles(action.Kind)) return ResultCode.NotActable;
         if (action.Kind is PropActionKind.ExitDungeon)
             return _catalog.Exits.ContainsKey(action.DungeonId) ? ResultCode.Success : ResultCode.NotExist;
-        if (action.Kind is PropActionKind.ExitInstanceDungeon) return ResultCode.Success;
+        if (action.Kind is PropActionKind.ExitInstanceDungeon)
+            return action.DungeonId == 0 || _rooms.RoomOf(client)?.Key.DungeonId == action.DungeonId
+                ? ResultCode.Success : ResultCode.NotActable;
         // The floor gates and their window act inside the instance the player is visiting.
         if (action.Kind is PropActionKind.EnterOtherInstanceDungeon or PropActionKind.WarpInstanceFloor)
             return _rooms.RoomOf(client) is { Key.Kind: DungeonRoomKind.Instance } room && room.Key.DungeonId == action.DungeonId

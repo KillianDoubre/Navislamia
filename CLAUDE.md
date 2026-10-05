@@ -2193,6 +2193,13 @@ consommé une fois, utilisable sans PNJ. Une fenêtre de saisie ajoutant des par
 callback exige encore sa validation spécifique. Fiches : `3003-show-window.md`,
 `3004-general-message-box.md`. Ce SFrame 7.3 route 3004 malgré la note « Since 7.4 » de rzu.
 
+**Fenêtres natives** (`socle-fenetres-script.md`, `ScriptWindows`) : `secret_dungeon_confirm_window`,
+`instance_dungeon_confirm_window`(2), `dungeon_raid_confirm_window`, `recall_feather_confirm_window` (objet 112,
+`RecallFeatherService`) et `number_input_window` (`show_channel_set`), rappels mesurés dans `SFrame.exe` et acceptés
+par égalité stricte, une fois. **`warp_to_instance_dungeon`/`warp_to_secret_dungeon` téléportent sans fenêtre** ;
+seules `enter_instance_dungeon`, `enter_secret_dungeon`, `leave_instance_dungeon` et le raid de `enter_dungeon` en
+ouvrent une (`NpcDialogService.OpensConfirmation`), et aucun Lua Epic 7 n'appelle les trois premières.
+
 ### Apprivoisement et invocation des créatures — étape 0 (fiche `docs/packet-specs/socle-apprivoisement-invocation.md`)
 
 - Les trois sorts de créature sont **4001** (invocation, effet 601), **4002** (renvoi, effet 602) et **4003**

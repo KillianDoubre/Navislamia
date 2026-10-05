@@ -162,20 +162,31 @@ public class NpcDialogService : INpcDialogService
 
         var info = client.ConnectionInfo;
         var special = false;
+        ScriptWindow window = null;
         lock (info.NpcVisibilityLock)
         {
             var pending = info.ScriptWindowTrigger;
-            if (pending.Length > 0 && (trigger == pending || (ReadFunctionName(pending) == pending && trigger == pending + "()")))
+            var candidate = info.ScriptWindow;
+            if (pending.Length > 0 && (candidate is not null && candidate.Trigger == pending
+                ? candidate.Character == info.CharacterHandle && candidate.Matches(trigger)
+                    && (candidate.Window != "number_input_window" || candidate.Npc == info.NpcDialogHandle
+                        && candidate.Revision == info.NpcDialogRevision)
+                : trigger == pending || (ReadFunctionName(pending) == pending && trigger == pending + "()")))
             {
                 info.ScriptWindowTrigger = string.Empty;
+                info.ScriptWindow = null;
+                window = candidate?.Trigger == pending ? candidate : null;
+                info.NpcDialogTriggers.Clear();
                 special = true;
             }
         }
         if (special)
         {
-            var windowAction = PropScript.Parse(trigger);
+            var windowAction = window?.DungeonAction ?? PropScript.Parse(trigger);
             if (_dungeons is not null && Dungeons.DungeonService.Handles(windowAction.Kind))
                 _ = SelectDungeonAsync(client, windowAction);
+            else if (window?.Window == "number_input_window" && window.Npc != 0 && _npcScripts is not null)
+                _ = RunNpcScriptAsync(client, window.Npc, window.Revision, trigger);
             else if (_npcScripts is not null) _ = _npcScripts.RunWindowScriptAsync(client, trigger);
             return;
         }
@@ -185,6 +196,7 @@ public class NpcDialogService : INpcDialogService
             {
                 info.ClearNpcDialog();
                 info.ScriptWindowTrigger = string.Empty;
+                info.ScriptWindow = null;
             }
             return;
         }
@@ -208,7 +220,10 @@ public class NpcDialogService : INpcDialogService
         var action = PropScript.Parse(trigger);
         if (_dungeons is not null && Dungeons.DungeonService.Handles(action.Kind))
         {
-            _ = SelectDungeonAsync(client, action);
+            // Only the official entries that open a native window confirm first: enter_dungeon (SCRIPT_WarpToDungeon,
+            // the raid window), enter_instance_dungeon, enter_secret_dungeon and leave_instance_dungeon. A menu's
+            // warp_to_instance_dungeon / warp_to_secret_dungeon warps at once (socle-fenetres-script.md §3).
+            _ = SelectDungeonAsync(client, action, confirm: OpensConfirmation(trigger, action));
             return;
         }
         if (_quests is not null && ReadFunctionName(trigger) is "set_quest_status" or "set_title_condition")
@@ -378,9 +393,14 @@ public class NpcDialogService : INpcDialogService
         return TownTeleportRules.BeginnerTeleporter(info.CharacterRace, info.PreviousJobs.Count, questProgress);
     }
 
-    private async Task SelectDungeonAsync(GameClient client, PropAction action)
+    /// <summary>Whether a menu trigger is one of the official functions that open a native confirmation window.</summary>
+    public static bool OpensConfirmation(string trigger, PropAction action) =>
+        action.Kind == PropActionKind.EnterDungeon
+        || ReadFunctionName(trigger) is "enter_instance_dungeon" or "enter_secret_dungeon" or "leave_instance_dungeon";
+
+    private async Task SelectDungeonAsync(GameClient client, PropAction action, bool confirm = false)
     {
-        var result = await _dungeons.ExecuteAsync(client, action);
+        var result = confirm ? await _dungeons.ConfirmAsync(client, action) : await _dungeons.ExecuteAsync(client, action);
         if (result != Navislamia.Game.Network.Packets.ResultCode.Success)
             client.SendResult(3001, (ushort)result);
     }
