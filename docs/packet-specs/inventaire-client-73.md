@@ -104,6 +104,19 @@ porte déjà les conditions et peut servir de base commune.
   d'appelant.
 - Les groupes vivent en mémoire et disparaissent au redémarrage du serveur.
 - `EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources` (`socle-zones-evenement.md`).
+- `/passist` envoie aussi `TS_SC_TARGET` (512), que l'officiel n'envoie jamais (`SendTargetMsg` sans appelant) : ajout
+  de Codex, gardé car sans danger, à confirmer en jeu (`512-target.md`).
+- `docs/gm-commands.md` (français) est en partie dépassé : `/level` seul monte, `/lv` monte et descend, et les groupes
+  existent ; la liste à jour est `docs/gm-commands.en.md`.
+
+### Données après le filtre 7.3 (`filtre-ressources-73.md`)
+
+- Les instances 50000, 60000 et 70000 n'ont plus aucun monstre (tous inconnus du client 7.3) ; 40000, 41001, 42001
+  et 43001 en ont perdu une partie. Savoir si ces instances existent seulement en 7.3.
+- 134 lignes hors du jeu 7.3 restent parce qu'un entier littéral du code ou du Lua pourrait les nommer : à revoir une
+  à une pour une base strictement 7.3.
+- `StringResources` (102 256 lignes) n'est pas filtrée.
+- Un nouvel `import_epic7.py` réinsère les lignes Epic 7 hors client : rejouer `tools/prune_to_client73.py` après.
 
 ### Décisions laissées à Killian
 
