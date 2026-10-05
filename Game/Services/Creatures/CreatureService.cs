@@ -2742,6 +2742,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             var intervalMs = CombatService.IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
             // StructMonster::onDamage: the hate goes to the summon that hit, the kill and the reward to its master.
             var targetHp = _combat.ApplyDamage(client, swing.TargetInstanceId, monsterHandle, hit.Damage, 0);
+            _combat.NotifyHit(new Combat.CombatActor(client, handle), new Combat.CombatActor(client, MonsterId: swing.TargetInstanceId), hit);
             _ethereal?.Hit(client, true, hit.Damage, summon: card);
             if (targetHp > 0)
             {

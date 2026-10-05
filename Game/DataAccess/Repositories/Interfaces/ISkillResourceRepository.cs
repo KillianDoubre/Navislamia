@@ -157,7 +157,7 @@ public interface ISkillResourceRepository
     /// </summary>
     IReadOnlyList<CastableSkillRow> GetSkillRows(IReadOnlyCollection<int> ids);
 
-    /// <summary>The rows of the given effect types (the energy passives 32262/32263).</summary>
+    /// <summary>The rows of the given effect types, including state and energy proc passives.</summary>
     IReadOnlyList<CastableSkillRow> GetSkillRowsByEffectType(IReadOnlyCollection<int> effectTypes) =>
         System.Array.Empty<CastableSkillRow>();
 }

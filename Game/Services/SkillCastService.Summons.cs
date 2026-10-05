@@ -241,11 +241,18 @@ public partial class SkillCastService
             foreach (var target in SummonSupportTargets(cast, now))
             {
                 if (fields.Kind == SkillCastKind.Heal)
+                {
                     hits.Add((-1, HealSupport(cast.Master, target, fields, cast.Cast.SkillLevel,
                         cast.Actor.Stats.MagicPoint, cast.Actor.Handle)));
+                    NotifySkillHit(new Combat.CombatActor(cast.Master, cast.Actor.Handle), new Combat.CombatActor(target.Owner, target.Summon?.Handle ?? 0), fields);
+                }
                 else if (ApplySupportState(target, fields.StateId, fields.SkillId,
                     BuffCurve.StateLevel(fields, cast.Cast.SkillLevel), now,
-                    unchecked(now + BuffCurve.DurationTicks(fields, cast.Cast.SkillLevel)), cast.Actor.Handle)) RefreshSupportStats(target);
+                    unchecked(now + BuffCurve.DurationTicks(fields, cast.Cast.SkillLevel)), cast.Actor.Handle))
+                {
+                    RefreshSupportStats(target);
+                    NotifySkillHit(new Combat.CombatActor(cast.Master, cast.Actor.Handle), new Combat.CombatActor(target.Owner, target.Summon?.Handle ?? 0), fields);
+                }
             }
         }
         SendSummonSkill(cast, SkillPacketType.Fire, hits);
@@ -337,6 +344,8 @@ public partial class SkillCastService
                 var hp = target.Player is { } victim ? _combatService.DamagePlayerBySummon(cast.Master, victim, cast.Actor.Handle,
                     hit.Damage, kind == DamageKind.Magical)
                     : _combatService.ApplyDamage(cast.Master, target.Id, cast.Master.ConnectionInfo.GetMonsterHandle(target.Id), hit.Damage, 0);
+                NotifySkillHit(new Combat.CombatActor(cast.Master, cast.Actor.Handle), target.Player is { } playerVictim
+                    ? new Combat.CombatActor(playerVictim) : new Combat.CombatActor(cast.Master, MonsterId: target.Id), f, hit);
                 if (target.Monster is not null && hp > 0) _monsterState.AddSummonHate(target.Id, cast.Master, cast.Actor.Handle,
                     HateRules.SkillHate(f.HateMod, f.HateBasic, f.HatePerSkl, cast.Cast.SkillLevel, hit.Damage));
                 _ethereal?.Hit(cast.Master, true, hit.Damage, EtherealHit.Skill, cast.Card);

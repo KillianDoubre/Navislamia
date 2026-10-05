@@ -25,6 +25,8 @@ public interface ISkillCastService
     /// through the same path a buff cast takes — same state handle rule, same expiry tick, same stat
     /// refresh. Used by the GM command <c>/buff</c>.
     /// </summary>
+    void ApplyCombatState(Combat.CombatActor target, Combat.CombatActor source, Combat.StateProc proc) { }
+
     void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks);
     void ApplyMonsterState(GameClient client, int stateId, int stateLevel, uint durationTicks, long monsterId) =>
         ApplyState(client, stateId, stateLevel, durationTicks);

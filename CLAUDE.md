@@ -2154,6 +2154,19 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
 - Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
 
+### Passifs qui posent un état au combat (2026-10-05)
+
+`Combat/StateProcs` charge les effets de compétence 10048..10062 et lit les déclencheurs des
+états actifs 26, 36..39, 3201..3211 et 3311. `CombatService.NotifyHit` reçoit coups, critiques,
+esquives et blocages des joueurs, invocations et monstres ; mort/meurtre restent dans les chemins
+de dégâts et de récompenses existants. Conditions communes avec l'énergie dans
+`AttackProcConditions` : arme, probabilité entière, PV, masque, élément ; `_KILL_TAG` pour la mort.
+`CastInterrupts.ApplyCombatState` rejoint le moteur de cumul, statistiques et diffusion existant,
+avec source/pulse corrects et coût MP officiel. Pas de cycle DI, de migration ni de nouvel opcode.
+Le déclencheur 314084 pose 314085 ; son effet de résurrection différée 3321 reste à porter.
+Fiche et limites : `docs/packet-specs/socle-passifs-etats-combat.md`. Tests : `StateProcsTests`,
+`EnergyProcsTests`, `ServiceGraphTests`.
+
 ### Paquets 450/451/452 — niveaux de compétences des cartes
 
 452 (11 octets, handle de carte à +7) répond désormais **451**, depuis

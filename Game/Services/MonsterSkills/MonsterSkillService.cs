@@ -320,6 +320,8 @@ public class MonsterSkillService : IMonsterSkillService
                         SkillDamageCurve.CriticalBonus(fields, skill.Level), fields.ElementalType);
                     // The same landing as a swing: mana shield, reflections and the duel it interrupts.
                     var hp = _combat.DamagePlayer(target, hit.Damage, id, fields.Kind == SkillCastKind.MagicAttack);
+                    _combat.NotifyHit(new Combat.CombatActor(target, MonsterId: id), new Combat.CombatActor(target), hit,
+                        Combat.EnergyProcs.Harmful | (fields.Kind == SkillCastKind.MagicAttack ? Combat.EnergyProcs.MagicalSkill : Combat.EnergyProcs.PhysicalSkill), fields.ElementalType);
                     hits.Add(new SkillHit(fields.Kind == SkillCastKind.MagicAttack ? SkillHitType.MagicDamage : SkillHitType.Damage,
                         target.ConnectionInfo.CharacterHandle, hp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType));
                     if (hp <= 0) break;
@@ -437,6 +439,8 @@ public class MonsterSkillService : IMonsterSkillService
                     SkillDamageCurve.CriticalBonus(fields, skill.Level), fields.ElementalType);
 
                 _combat.DamagePlayer(client, hit.Damage, instanceId, magical);
+                _combat.NotifyHit(new Combat.CombatActor(client, MonsterId: instanceId), new Combat.CombatActor(client), hit,
+                    Combat.EnergyProcs.Harmful | (magical ? Combat.EnergyProcs.MagicalSkill : Combat.EnergyProcs.PhysicalSkill), fields.ElementalType);
                 return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, info.CharacterHandle,
                     info.CharacterHp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType);
             }
