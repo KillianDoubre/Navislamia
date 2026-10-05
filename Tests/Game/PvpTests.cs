@@ -222,6 +222,27 @@ public class PvpTests
     }
 
     [Test]
+    public void A_bow_without_an_arrow_refuses_a_player_target_with_not_enough_bullet()
+    {
+        using var h = new Harness(); var attacker = h.Client(100); var victim = h.Client(101);
+        Info(attacker).PkMode = true;
+        Info(attacker).EquippedWeapon = Navislamia.Game.DataAccess.Entities.Enums.ItemType.LightBow;
+        Info(attacker).LeftHand = null;
+
+        h.Combat.StartAttack(attacker, 101);
+
+        var frame = h.Connections[attacker].Sent
+            .Single(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 102);
+        frame.Length.Should().Be(19);
+        BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(7)).Should().Be(100);
+        BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(11)).Should().Be(101);
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should().Be(32);
+        typeof(CombatService).GetMethod("Tick", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(h.Combat, new object[] { DateTime.UtcNow.AddSeconds(1) });
+        Info(victim).CharacterHp.Should().Be(5000, "the arrow refusal opened no session");
+    }
+
+    [Test]
     public void Reflection_reduces_elemental_damage_without_reflecting_it_back_again()
     {
         using var h = new Harness(); var attacker = h.Client(101); var victim = h.Client(100);

@@ -98,7 +98,8 @@ Manquent :
 
 ### Petits manques
 
-- `TS_SC_CANT_ATTACK` (102) n'est pas envoyé pour `NOT_ENOUGH_BULLET` (flèches) ni `ACCESS_DENIED` (`IsAttackable`).
+- ~~`TS_SC_CANT_ATTACK` (102) n'est pas envoyé pour `NOT_ENOUGH_BULLET` (flèches) ni `ACCESS_DENIED` (`IsAttackable`)~~ :
+  les deux depuis le 2026-10-05 (`102-cant-attack.md` §9-10).
 - ~~Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion~~ : uscT2HaQ, noms persistés et registres rafraîchis (`socle-guildes-alliances-sieges.md`).
 - ~~Le filtre de ramassage du familier (355) est lu et gardé, jamais appliqué.~~ Appliqué depuis le 2026-10-05
   (`socle-familier-pet.md` §19).

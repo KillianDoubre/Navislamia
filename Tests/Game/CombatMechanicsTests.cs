@@ -259,4 +259,168 @@ public class CombatMechanicsTests
         BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(59)).Should().Be(world.GetHp(monsterId));
         combat.StopAttack(client);
     }
+
+    // ---- the arrow refusal of onAttackRequest (docs/packet-specs/102-cant-attack.md §5.6, case A) ----
+
+    private static StateRule NoStateRule => new(77, Array.Empty<int>(), 0, 0, 0, new decimal[20]);
+
+    private static int Sessions(CombatService combat) => ((System.Collections.IDictionary)typeof(CombatService)
+        .GetField("_sessions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .GetValue(combat)!).Count;
+
+    private static List<byte[]> CantAttackFrames(GameClient client) =>
+        ((StorageTestHarness.FrameConnection)client.Connection).Sent
+            .Where(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 102).ToList();
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void A_ranged_weapon_without_an_arrow_is_refused_with_not_enough_bullet(bool emptyReserve)
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.CharacterHandle = 0x11223344;
+        info.EquippedWeapon = ItemType.Crossbow;
+        info.LeftHand = emptyReserve ? new LeftHandItem(7, 1201, null, 0, Array.Empty<StatEffect>()) : null;
+
+        combat.StartAttack(client, 0x40000001);
+
+        Sessions(combat).Should().Be(0, "the arrow refusal opens no attack session");
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        frame.Length.Should().Be(19);
+        BinaryPrimitives.ReadUInt32LittleEndian(frame).Should().Be(19);
+        BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4)).Should().Be(102);
+        frame[6].Should().Be(StorageTestHarness.Checksum(frame));
+        BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(7)).Should().Be(0x11223344);
+        BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(11)).Should().Be(0x40000001);
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should()
+            .Be((int)Navislamia.Game.Network.Packets.ResultCode.NotEnoughBullet,
+                "NOT_ENOUGH_BULLET (32), the only 102 code the 7.3 client turns into its own message");
+    }
+
+    [TestCase(ItemType.LightBow, true)]
+    [TestCase(ItemType.HeavyBow, true)]
+    [TestCase(ItemType.Crossbow, true)]
+    [TestCase(ItemType.OnehandSword, false)]
+    public void A_ranged_weapon_with_an_arrow_and_any_melee_weapon_open_the_attack(ItemType weapon, bool arrows)
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.EquippedWeapon = weapon;
+        info.LeftHand = arrows ? new LeftHandItem(7, 1201, null, 3, Array.Empty<StatEffect>()) : null;
+
+        combat.StartAttack(client, 0x40000001);
+
+        CantAttackFrames(client).Should().BeEmpty();
+        Sessions(combat).Should().Be(1);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void A_refused_target_keeps_its_own_code_with_an_empty_quiver(bool deadMonster)
+    {
+        var (combat, client, info, monsterId) = Defender(NoStateRule, 0);
+        info.CharacterHandle = 0x11223344;
+        info.EquippedWeapon = ItemType.LightBow;
+        info.LeftHand = null;
+        var world = (MonsterWorldState)typeof(CombatService).GetField("_worldState",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(combat)!;
+        if (deadMonster)
+        {
+            world.ApplyDamage(monsterId, int.MaxValue);
+        }
+
+        combat.StartAttack(client, deadMonster ? 0x40000001u : 0x40000099u);
+
+        Sessions(combat).Should().Be(0);
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should()
+            .Be(deadMonster ? 5 : 1, "the target's refusal comes first: NOT_ACTABLE for the dead, NOT_EXIST for the unknown");
+    }
+
+    [Test]
+    public void The_arrow_refusal_of_a_live_session_is_sent_without_ending_it()
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.EquippedWeapon = ItemType.LightBow;
+        info.LeftHand = new LeftHandItem(7, 1201, null, 1, Array.Empty<StatEffect>());
+        combat.StartAttack(client, 0x40000001);
+        Sessions(combat).Should().Be(1);
+
+        info.LeftHand = null;
+        combat.StartAttack(client, 0x40000001);
+
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should().Be(32);
+        Sessions(combat).Should().Be(1, "step 6 sends the refusal instead of an EndAttack");
+    }
+
+    // ---- IsAttackable, the last step of onAttackRequest (102-cant-attack.md §10, case B) ----
+
+    private static decimal[] Values(params decimal[] head)
+    {
+        var values = new decimal[20];
+        head.CopyTo(values, 0);
+        return values;
+    }
+
+    [TestCase(82, 1, 0, true, TestName = "EF_MEZZ value_0: no action at all")]
+    [TestCase(82, 0, 1, true, TestName = "EF_MEZZ value_2: no attack")]
+    [TestCase(82, 0, 0, false, TestName = "EF_MEZZ movement only: the attack stays")]
+    [TestCase(104, 0, 1, true, TestName = "EF_TRANSFORMATION value_2: no normal attack")]
+    public void A_state_that_forbids_the_attack_is_answered_access_denied(int effectType, int value0, int value2,
+        bool refused)
+    {
+        var (combat, client, info, _) = Defender(new StateRule(77, Array.Empty<int>(), 0, 0, effectType,
+            Values(value0, 0, value2)), 1);
+        info.CharacterHandle = 0x11223344;
+        // A permanent state: the harness's uint.MaxValue - 1 reads as already over in wrapping tick arithmetic.
+        lock (info.BuffLock) { info.ActiveBuffs.Clear(); info.ActiveBuffs.Add(new ActiveBuff(1, 77, 0, 1, 0, uint.MaxValue)); }
+
+        combat.StartAttack(client, 0x40000001);
+
+        if (!refused)
+        {
+            CantAttackFrames(client).Should().BeEmpty();
+            Sessions(combat).Should().Be(1);
+            return;
+        }
+
+        Sessions(combat).Should().Be(0);
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should()
+            .Be((int)Navislamia.Game.Network.Packets.ResultCode.AccessDenied, "IsAttackable is false: ACCESS_DENIED (6)");
+    }
+
+    [Test]
+    public void Stun_riding_and_the_listed_misc_states_refuse_and_an_unlisted_one_does_not()
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        lock (info.BuffLock) info.ActiveBuffs.Add(new ActiveBuff(2, 6006, 0, 1, 0, uint.MaxValue));
+        combat.StartAttack(client, 0x40000001);
+        BinaryPrimitives.ReadInt32LittleEndian(CantAttackFrames(client).Single().AsSpan(15)).Should().Be(6, "stun");
+
+        lock (info.BuffLock) info.ActiveBuffs.RemoveAll(b => b.StateId == 6006);
+        info.RideHandle = 0x50000001;
+        combat.StartAttack(client, 0x40000001);
+        BinaryPrimitives.ReadInt32LittleEndian(CantAttackFrames(client).Last().AsSpan(15)).Should().Be(6, "riding");
+
+        info.RideHandle = 0;
+        combat.StartAttack(client, 0x40000001);
+        Sessions(combat).Should().Be(1, "state 77 is EF_MISC but not one of the listed codes");
+
+        AttackMechanics.BlocksAttack(6008, 0, Values()).Should().BeTrue("fear clears IsActable");
+        AttackMechanics.BlocksAttack(6008, 82, Values()).Should().BeFalse("the code list is EF_MISC's switch only");
+    }
+
+    [Test]
+    public void A_sitting_player_stands_up_and_attacks()
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.IsSitting = true;
+
+        combat.StartAttack(client, 0x40000001);
+
+        info.IsSitting.Should().BeFalse("onAttackRequest: StandUp then BroadcastStatusMessage");
+        ((StorageTestHarness.FrameConnection)client.Connection).Sent
+            .Any(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 500).Should().BeTrue();
+        Sessions(combat).Should().Be(1);
+    }
 }

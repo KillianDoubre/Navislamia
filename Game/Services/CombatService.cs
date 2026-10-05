@@ -112,7 +112,8 @@ public partial class CombatService : ICombatService
 
         // A character at 0 HP is dead (this version has no death packet, the hp value is the whole state):
         // it must not start swinging, exactly as SkillCastService refuses a cast at 0 HP.
-        if (!MonsterAiRules.IsAlive(info.CharacterHp) || Creatures.SummonFall.IsActive(info, ServerClock.Now))
+        // onAttackRequest: a dead attacker is ignored, without an answer.
+        if (!MonsterAiRules.IsAlive(info.CharacterHp))
         {
             return;
         }
@@ -126,6 +127,13 @@ public partial class CombatService : ICombatService
         if (!_worldState.IsAlive(targetInstanceId) || _worldState.GetHp(targetInstanceId) <= 0)
         {
             CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotActable);
+            return;
+        }
+
+        // onAttackRequest's own order (official 0x140110970): the target's refusals come first, so a target the
+        // server refuses keeps its own code even with an empty quiver; step 6 only then refuses the bow itself.
+        if (RefuseWithoutBullets(client, targetHandle) || RefuseNotAttackable(client, targetHandle))
+        {
             return;
         }
 
@@ -260,11 +268,13 @@ public partial class CombatService : ICombatService
         // remaining 0.2, one arrow per shot from the shield slot. No arrow, no attack.
         if (ranged)
         {
-            if (info.LeftHand is not { WeaponType: null } arrows || arrows.Amount < 1)
+            if (!Combat.AttackMechanics.HasArrows(info.LeftHand))
             {
                 StopAttack(client);
                 return;
             }
+
+            var arrows = info.LeftHand;
 
             if (!session.Aimed)
             {
@@ -645,6 +655,89 @@ public partial class CombatService : ICombatService
         else client.Connection.Send(GameStateResultPackets.CantAttack(client.ConnectionInfo.CharacterHandle, targetHandle, reason));
     }
 
+    /// <summary>
+    /// The arrow refusal of <c>onAttackRequest</c> (step 6, official <c>0x140110c75</c>): a bow or crossbow whose
+    /// shield slot holds no arrow, or an empty reserve, is answered with 102 and
+    /// <see cref="Network.Packets.ResultCode.NotEnoughBullet"/> (32) and opens no session. Unlike the target
+    /// refusals it is sent whatever the session state — the official step has no <c>EndAttack</c>, and 32 is the
+    /// only code the 7.3 client turns into its own interface message.
+    /// </summary>
+    private bool RefuseWithoutBullets(GameClient client, uint targetHandle)
+    {
+        var info = client.ConnectionInfo;
+        if (!Combat.AttackMechanics.IsRanged(info.EquippedWeapon) || Combat.AttackMechanics.HasArrows(info.LeftHand))
+        {
+            return false;
+        }
+
+        client.Connection.Send(GameStateResultPackets.CantAttack(info.CharacterHandle, targetHandle,
+            Network.Packets.ResultCode.NotEnoughBullet));
+        return true;
+    }
+
+    /// <summary>
+    /// The last steps of <c>onAttackRequest</c> (official source <c>GameMessage.cpp</c>): a sitting player stands up
+    /// first, then <c>IsAttackable</c> — not riding, not casting, no state that forbids attacking (fear included),
+    /// no fall from a mount — or the request is answered 102 with
+    /// <see cref="Network.Packets.ResultCode.AccessDenied"/> (6), sent whatever the session state like the arrows.
+    /// </summary>
+    private bool RefuseNotAttackable(GameClient client, uint targetHandle)
+    {
+        var info = client.ConnectionInfo;
+        if (info.IsSitting)
+        {
+            info.IsSitting = false;
+            client.SendActorStatus();
+        }
+
+        if (IsAttackable(info))
+        {
+            return false;
+        }
+
+        client.Connection.Send(GameStateResultPackets.CantAttack(info.CharacterHandle, targetHandle,
+            Network.Packets.ResultCode.AccessDenied));
+        return true;
+    }
+
+    /// <summary><c>StructPlayer::IsAttackable</c> → <c>StructCreature::IsAttackable</c>, the player's part.</summary>
+    internal bool IsAttackable(ConnectionInfo info)
+    {
+        var now = ServerClock.Now;
+        if (info.RideHandle != 0 || Creatures.SummonFall.IsActive(info, now))
+        {
+            return false;
+        }
+
+        lock (info.CastLock)
+        {
+            if (info.PendingCast is not null)
+            {
+                return false;
+            }
+        }
+
+        if (_states is null)
+        {
+            return true;
+        }
+
+        lock (info.BuffLock)
+        {
+            foreach (var buff in info.ActiveBuffs)
+            {
+                if (buff.EndTick != uint.MaxValue && unchecked((int)(now - buff.EndTick)) > 0) continue;
+                var rule = _states.GetRule(buff.StateId);
+                if (Combat.AttackMechanics.BlocksAttack(buff.StateId, rule.EffectType, rule.Values))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     private void StartPlayerAttack(GameClient client, uint targetHandle)
     {
         var info = client.ConnectionInfo;
@@ -658,6 +751,10 @@ public partial class CombatService : ICombatService
         { CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotExist); return; }
         if (!MonsterAiRules.IsAlive(target.ConnectionInfo.CharacterHp) || !IsEnemy(client, target))
         { CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotActable); return; }
+        if (RefuseWithoutBullets(client, targetHandle) || RefuseNotAttackable(client, targetHandle))
+        {
+            return;
+        }
 
         lock (_lock)
         {

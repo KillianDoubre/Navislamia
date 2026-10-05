@@ -1944,6 +1944,18 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   n'importe qui). Règle PK et entrepôt ouvert non modélisés. Lobby et déconnexion ferment l'échange.
 - Fiche : `docs/packet-specs/280-trade.md`.
 
+### Paquet 102 — `TM_SC_CANT_ATTACK` (refus d'attaque)
+
+- Trame **19 octets** : `attacker_handle` @7, `target_handle` @11, `reason` **i32** @15
+  (`GameStateResultPackets.CantAttack`) ; id 102 sous `EPIC_9_6_3`, aucun champ gaté.
+- Ordre de `onAttackRequest` (source officielle `GameMessage.cpp`) : attaquant mort → rien ; **3** `NOT_OWN` ;
+  **1** `NOT_EXIST` et **5** `NOT_ACTABLE` (remplacés par un `EndAttack` si une attaque est en cours) ; **32**
+  `NOT_ENOUGH_BULLET` (arc/arbalète **d'un joueur** sans flèche) ; un joueur assis se relève ; **6** `ACCESS_DENIED`
+  si `IsAttackable` est faux (monture, incantation, chute 9001, états `EF_MEZZ`/`EF_TRANSFORMATION`/`EF_MISC` listés
+  dans `AttackMechanics.BlocksAttack`, peur). 32 et 6 partent par `Connection.Send` quel que soit l'état de session.
+- En pleine volée, la dernière flèche arrête l'attaque **en silence**. Le client 7.3 n'affiche un message que pour
+  32 (n° 334). Fiche : `docs/packet-specs/102-cant-attack.md` (§10 pour le cas 6).
+
 ### Paquet 203 — `TM_CS_DROP_ITEM` (objet lâché au sol)
 
 - **`TM_CS_DROP_ITEM` (203) est implémenté** : trame fixe de **15 octets** — en-tête 7, `item_handle`

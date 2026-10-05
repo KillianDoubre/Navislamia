@@ -59,6 +59,40 @@ public static class AttackMechanics
     public static bool IsRanged(ItemType? weapon) => IsBow(weapon) || IsCrossbow(weapon);
 
     /// <summary>
+    /// The arrow reserve a bow or crossbow shoots, <c>GetBulletCount()</c> of <c>onAttackRequest</c>: the shield
+    /// slot's left hand, and only when it holds no weapon of its own (<see cref="LeftHandItem.WeaponType"/> unset
+    /// for the <c>Bullet</c> group).
+    /// </summary>
+    public static bool HasArrows(LeftHandItem left) => left is { WeaponType: null } arrows && arrows.Amount >= 1;
+
+    /// <summary>
+    /// The <c>EF_MISC</c> states that turn <c>STATUS_ATTACKABLE</c> off (<c>CalculateStat.cpp:2905-2978</c>): nightmare,
+    /// stun, sleep, seal, shine wall, carelessness, fall from a mount, stone curse (both), frozen (both), the protecting
+    /// force of the beginning, hide and the trace of the fugitive — and fear, which clears <c>IsActable</c>.
+    /// </summary>
+    public static readonly IReadOnlySet<int> NotAttackableStates = new HashSet<int>
+    {
+        13601, 6006, 6005, 999990, 999991, 9007, 9001, 6012, 6019, 6009, 314113, 201085, 6016, 201084, 6008
+    };
+
+    /// <summary>
+    /// Whether an active state forbids the normal attack: an <c>EF_MISC</c> one of <see cref="NotAttackableStates"/>,
+    /// <c>EF_MEZZ</c> (82) with <c>value_0</c> (no action) or <c>value_2</c> (no attack), <c>EF_TRANSFORMATION</c>
+    /// (104) with <c>value_2</c> (<c>CalculateStat.cpp:2679-2730</c>).
+    /// </summary>
+    public static bool BlocksAttack(int stateId, int effectType, IReadOnlyList<decimal> values)
+    {
+        decimal Value(int i) => values is not null && i < values.Count ? values[i] : 0m;
+        return effectType switch
+        {
+            0 => NotAttackableStates.Contains(stateId),
+            82 => Value(0) != 0m || Value(2) != 0m,
+            104 => Value(2) != 0m,
+            _ => false
+        };
+    }
+
+    /// <summary>
     /// Two weapons are in use when the shield slot holds a weapon and the main hand is not a bow (the shield slot
     /// of an archer holds the arrows).
     /// </summary>
