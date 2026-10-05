@@ -339,6 +339,13 @@ connaissait que l'objet. `PetPickupTests` donnait le même `CharacterHandle` à 
 fixture en reçoit un distinct (`0x80000002`), l'assertion « le butin n'est qu'à son tueur » étant conservée
 et devenant enfin réelle.
 
+**Quelle des deux cadences est implémentée.** C'est celle de la **boucle du serveur officiel** (§7.1 :
+30 s dès qu'un emplacement est occupé, 40/50 s à deux et trois), pas l'échelle du client, qui n'ouvre
+l'état « tout le monde » qu'après 5000 ticks et laisse donc un tiers attendre 50 s même quand un seul
+emplacement est rempli (§5.2, §5.4). Ce point reste ouvert au **point 2** ci-dessous : si Killian tranche
+pour le client, il faudra ouvrir à 50 s en toutes circonstances, ce qui ne change qu'une constante de la
+règle et la sortie de `GroundItemPickupRules`.
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Le chiffre public des paliers.** `203-drop-item.md:285` et `CLAUDE.md:1931` annoncent un
