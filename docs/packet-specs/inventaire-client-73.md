@@ -73,9 +73,8 @@ Tous livrés le 2026-10-05 (lot de Codex relu) : ~~322~~, ~~451~~ (réponse à 4
   canal) : livrées le 2026-10-05, rappels mesurés dans `SFrame.exe` (`socle-fenetres-script.md`).
 - ~~La 451 d'une carte dont le propriétaire est hors ligne (vue aux enchères) répond `NotExist`~~ : lue en base depuis
   le 2026-10-05 (`451-skill-level-list.md`).
-- Le menu du gestionnaire de siège (`NpcDialogService.TryShow`, `NPC_dungeon_siege_manager_contact`) envoie des
-  libellés **en français écrits en dur** (« Entrer dans le donjon », « Commencer le raid de guilde »…) au lieu
-  d'identifiants de chaîne du client.
+- ~~Le menu du gestionnaire de siège envoie des libellés français écrits en dur~~ : xHHwc9Z2,
+  chaînes Lua officielles ; raccourcis sans identifiant établi retirés (`socle-donjons-instances-secrets.md`).
 
 ### Effets déclenchés au combat (`m_vProcBy*`, `CalculateStat.cpp`)
 
