@@ -56,7 +56,9 @@ public static class GroundItemPickupRules
     /// the two other contributing parties, which needs a per-party contribution table the repository does
     /// not have — <c>docs/packet-specs/socle-partage-objets-sol.md</c> §7.2), so production only ever passes
     /// <c>occupiedSlots</c> 0 or 1. The pacing below is the official one for every count, so the dedicated
-    /// multi-slot card will extend the caller, not rewrite the rule.
+    /// multi-slot card will extend the caller, not rewrite the rule — but note what this signature assumes:
+    /// the slot that may name the asker is the first filled one, every further filled slot naming somebody
+    /// else. A card that fills slots 1 and 2 asks per slot and generalises this loop.
     /// </remarks>
     public static bool CanPickUp(uint elapsedTicks, int occupiedSlots, bool firstSlotNamesMe)
     {
