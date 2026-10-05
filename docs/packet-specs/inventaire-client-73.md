@@ -130,8 +130,7 @@ La résurrection différée 3321 produite par l'état de mort 314084 reste à po
 
 - **Anti-triche** : le serveur croit les positions du client (`TM_CS_MOVE_REQUEST`, `TM_CS_REGION_UPDATE`, 900) sans
   contrôle de vitesse ni d'obstacles ; les paquets 54, 57 et 59 sont lus et ignorés.
-- **Exploitation** : PostgreSQL démarre à la main avec les droits administrateur, aucune sauvegarde automatique des
-  bases, aucun test de charge à plusieurs dizaines de joueurs.
+- **Exploitation** : ~~PostgreSQL démarre à la main, aucune sauvegarde automatique des bases~~ : CkEncmJM, scripts de démarrage Automatic et sauvegarde quotidienne avec rotation livrés (`exploitation-postgresql.md`), installation administrateur encore à faire. Aucun test de charge à plusieurs dizaines de joueurs.
 - **Validation en jeu** : la plupart des systèmes à plusieurs joueurs (échange, étals, enchères, groupe, guildes,
   sièges, duel, PvP, buffs de groupe) et les contenus (artisanat, quêtes, HuntaHolic, donjons) ne sont validés que
   par les tests automatiques.

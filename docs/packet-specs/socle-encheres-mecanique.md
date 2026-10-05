@@ -132,7 +132,7 @@ Source officielle 2015, chemins sous `GameServer/Game/` : `Db/DB_CreateCharacter
 (`smp_update_character_name`, puis groupe, guilde, enchères), `Community/GuildManager.cpp:885-888`
 (`CHANGE_NAME|ancien|nouveau|`), `DaemonProc/AuctionManager.cpp:1602-1640` (vendeur et meneur).
 Navislamia lit les membres/chefs par SID dans `Characters` ; aucun cache de noms de guilde séparé.
-Le personnage et les deux noms dénormalisés des ventes sont sauv?s ensemble. Le verrou des enchères
+Le personnage et les deux noms dénormalisés des ventes sont enregistrés ensemble. Le verrou des enchères
 couvre la sauvegarde et la mise à jour de son index, avec l'ordre enchères puis CharacterGate.
 La guilde reçoit `@GUILD`/110 `CHANGE_NAME|ancien|nouveau|`. Pour un chef allié seulement,
 l'alliance reçoit `@ALLIANCE`/150 `GLEADER_CHANGE|guilde|nouveau|`, format officiel de
@@ -143,4 +143,4 @@ est une adaptation explicite au cache de chefs du client, à vérifier en jeu. A
 Tests : `GuildTests.Rename_refreshes_guild_and_alliance_leader_only_when_needed`,
 `AuctionHouseTests.Rename_updates_cached_seller_and_highest_bidder_and_preserves_other_names`,
 `CharacterCommandsTests` (noms persistés après relecture). Vérifier `/change_name` avec les
-fenêtres guilde/alliance et recherche enchères déjà ouvertes, puis apr?s reconnexion.
+fenêtres guilde/alliance et recherche enchères déjà ouvertes, puis après reconnexion.

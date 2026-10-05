@@ -3031,3 +3031,14 @@ avant un nouveau nettoyage des données. Le plan reste en lecture seule.
 filtre 7.3 après résolution des FK, même pour un import partiel. Fournir `--client-dir`
 ou `NAVIS_CLIENT73`. `--plan` reste intégralement en lecture seule ; son filtre décrit
 la base actuelle. Ne pas ajouter d’option permettant un import réussi sans filtrage.
+
+
+### Maintenance PostgreSQL livrée, installation explicite (2026-10-05, CkEncmJM)
+
+`tools/Backup-PostgreSql.ps1` sauvegarde Arcadia/Telecaster/auth en custom, lit le catalogue,
+publie l’archive et SHA256, puis applique 14 jours de rotation après succès des trois bases.
+Secrets uniquement par environnement de processus, restauré en finally. L’installateur
+`tools/Install-PostgreSqlMaintenance.ps1` exige une exécution administrateur explicite
+(service Automatic, tâche SYSTEM quotidienne à 02:30) ; sa livraison ne vaut pas installation.
+Les deux scripts acceptent -WhatIf. Ne jamais modifier automatiquement la configuration
+machine au titre d’une tâche qui demande uniquement de livrer ces scripts.

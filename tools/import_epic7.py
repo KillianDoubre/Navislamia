@@ -350,7 +350,8 @@ def main(argv):
         resolve_foreign_keys(pending)
         drop_staging(pending)
     print("\nMandatory client 7.3 filter" + (" (plan against current database)" if dry else ""))
-    # Source/runtime choices are exactly those documented in filtre-ressources-73.md §5.
+    # Typed references follow official Resource/Script/NPC_ItemUP.lua:109,152-177,
+    # documented with all audited sources in filtre-ressources-73.md §5.
     # Errors propagate: an import cannot report success when its final filter fails.
     return prune_to_client73.main([args.client_dir] + ([] if dry else ["--apply"]))
 
