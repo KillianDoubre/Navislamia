@@ -295,6 +295,27 @@ public sealed partial class GuildService : IGuildService
         catch (Exception ex) { Log.Error(ex, "Guild world entry failed"); }
         finally { _gate.Release(); }
     }
+    public async Task OnNameChangedAsync(GameClient client, string oldName)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            var info = client.ConnectionInfo;
+            if (!Current(client, info.CharacterHandle, info.CharacterName)) return;
+            // Official Community/GuildManager.cpp:885-888; names here are read by SID from Characters.
+            if (info.GuildId is not > 0) return;
+            Broadcast(info.GuildId.Value, $"CHANGE_NAME|{oldName}|{info.CharacterName}|");
+            await using var db = new TelecasterContext(_options);
+            var guild = await db.Guilds.AsNoTracking().SingleOrDefaultAsync(g => g.Id == info.GuildId);
+            // Official Message/GameMessage.cpp:4767: alliance's cached guild leader uses GLEADER_CHANGE.
+            if (guild?.LeaderId == info.CharacterHandle && guild.AllianceId is > 0)
+                Broadcast(guild.AllianceId.Value, $"GLEADER_CHANGE|{guild.Id}|{info.CharacterName}|", true);
+            foreach (var key in _invitations.Keys.ToArray())
+                if (_invitations[key].InviterHandle == info.CharacterHandle)
+                    _invitations[key] = _invitations[key] with { InviterName = info.CharacterName };
+        }
+        finally { _gate.Release(); }
+    }
     public async Task OnWorldExitAsync(GameClient client)
     {
         lock (_inputs) _inputs.Remove(client);

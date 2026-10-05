@@ -48,3 +48,22 @@ possède un donjon. En mode PK, les alliés sont amis ; un duel l'emporte.
 - Les formats exacts des lignes `@GUILD`/`@ALLIANCE` attendues par la fenêtre de guilde du client 7.3 et les trames
   650/660 n'ont pas été mesurés dans le client pour ce lot.
 - L'emblème, la publicité et le classement de guilde ne sont pas couverts.
+
+## Renommage immédiat (uscT2HaQ, 2026-10-05)
+
+Source officielle 2015, chemins sous `GameServer/Game/` : `Db/DB_CreateCharacter.cpp:283,345-363`
+(`smp_update_character_name`, puis groupe, guilde, enchères), `Community/GuildManager.cpp:885-888`
+(`CHANGE_NAME|ancien|nouveau|`), `DaemonProc/AuctionManager.cpp:1602-1640` (vendeur et meneur).
+Navislamia lit les membres/chefs par SID dans `Characters` ; aucun cache de noms de guilde séparé.
+Le personnage et les deux noms dénormalisés des ventes sont sauv?s ensemble. Le verrou des enchères
+couvre la sauvegarde et la mise à jour de son index, avec l'ordre enchères puis CharacterGate.
+La guilde reçoit `@GUILD`/110 `CHANGE_NAME|ancien|nouveau|`. Pour un chef allié seulement,
+l'alliance reçoit `@ALLIANCE`/150 `GLEADER_CHANGE|guilde|nouveau|`, format officiel de
+`Message/GameMessage.cpp:4767`. Les invitations du même SID suivent aussi le nouveau nom.
+
+**NON ÉTABLI** : le C++ 2015 n'appelle pas `GLEADER_CHANGE` au renommage lui-même ; cet envoi
+est une adaptation explicite au cache de chefs du client, à vérifier en jeu. Aucun identifiant inventé.
+Tests : `GuildTests.Rename_refreshes_guild_and_alliance_leader_only_when_needed`,
+`AuctionHouseTests.Rename_updates_cached_seller_and_highest_bidder_and_preserves_other_names`,
+`CharacterCommandsTests` (noms persistés après relecture). Vérifier `/change_name` avec les
+fenêtres guilde/alliance et recherche enchères déjà ouvertes, puis apr?s reconnexion.

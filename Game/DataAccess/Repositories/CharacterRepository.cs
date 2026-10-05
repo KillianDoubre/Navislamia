@@ -65,6 +65,9 @@ public sealed class CharacterRepository : ICharacterRepository
         return _context.Characters.FirstOrDefaultAsync(c => c.CharacterName == characterName);
     }
 
+    public Task<List<AuctionListingEntity>> GetNamedAuctionsAsync(long characterId) =>
+        _context.AuctionListings.Where(a => a.SellerId == characterId || a.HighestBidderId == characterId).ToListAsync();
+
     public Task<CharacterEntity> GetCharacterByNameWithSkillsAsync(string characterName)
     {
         return _context.Characters

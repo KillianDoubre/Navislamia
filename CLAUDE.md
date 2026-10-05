@@ -2997,3 +2997,10 @@ its arguments **before** Serilog checks the level, so a per-packet one is wrappe
 - That rule covers client packets. An id the server only ever emits needs no arm in
   `GameClient.Receive`, so `GameSummonPackets`' seven strictly server-to-client ids are
   declared in `GamePackets` with no dispatch entry; 33 `TM_SC_*` members already had none.
+
+## Renommage des registres (2026-10-05, uscT2HaQ)
+
+`/change_name` sauvegarde les noms vendeur/meneur avec le personnage, puis rafraîchit groupe,
+guilde et enchères. Ordre des verrous : enchères puis CharacterGate ; ne jamais faire l'inverse.
+`@GUILD CHANGE_NAME` est officiel (`GuildManager.cpp:885`) ; `@ALLIANCE GLEADER_CHANGE`
+pour un chef renommé est une adaptation du format `GameMessage.cpp:4767`, documentée dans la fiche.

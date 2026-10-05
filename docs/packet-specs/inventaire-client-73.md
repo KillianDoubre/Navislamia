@@ -98,7 +98,7 @@ La résurrection différée 3321 produite par l'état de mort 314084 reste à po
 ### Petits manques
 
 - `TS_SC_CANT_ATTACK` (102) n'est pas envoyé pour `NOT_ENOUGH_BULLET` (flèches) ni `ACCESS_DENIED` (`IsAttackable`).
-- Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion.
+- ~~Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion~~ : uscT2HaQ, noms persistés et registres rafraîchis (`socle-guildes-alliances-sieges.md`).
 - Le filtre de ramassage du familier (355) est lu et gardé, jamais appliqué.
 - Les objets au sol ne s'ouvrent jamais aux autres joueurs (l'officiel les ouvre au groupe puis à tous après un délai).
 - ~~Les invocations n'ont pas de durée : 302 et 306 n'ont pas d'appelant~~ : double invocation et cartes qui

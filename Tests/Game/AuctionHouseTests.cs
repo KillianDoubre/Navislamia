@@ -212,6 +212,25 @@ public class AuctionHouseTests
         _store.Keepings.Values.Where(k => k.OwnerId == StorageTestHarness.Session(client).CharacterHandle);
 
     [Test]
+    public async Task Rename_updates_cached_seller_and_highest_bidder_and_preserves_other_names()
+    {
+        var seller = Player(1, "Seller", 100000); var bidder = Player(2, "Bidder", 100000);
+        var other = Player(3, "Other", 100000);
+        var sold = await Sell(seller, 1000, 10000); var unrelated = await Sell(other, 1000, 10000);
+        await _service.BidAsync(bidder, (int)sold, 1000);
+        (await _service.RenameCharacterAsync(1, "Renamed", () => Task.FromResult(ResultCode.AccessDenied))).Should().Be(ResultCode.AccessDenied);
+        _store.Listings[sold].SellerName.Should().Be("Seller");
+        await _service.OnNameChangedAsync(1, "Renamed");
+        await _service.OnNameChangedAsync(2, "Newbidder");
+        _store.Listings[sold].SellerName.Should().Be("Renamed");
+        _store.Listings[sold].HighestBidderName.Should().Be("Newbidder");
+        _store.Listings[unrelated].SellerName.Should().Be("Other");
+        // A subsequent bid clones the in-memory entity: it must retain the new seller name.
+        await _service.BidAsync(other, (int)sold, 1010);
+        _store.Listings[sold].SellerName.Should().Be("Renamed");
+    }
+
+    [Test]
     public void TheRulesAreTheOfficialRates()
     {
         AuctionRules.RegistrationTax(AuctionRules.Duration(1), 10_000).Should().Be(300);

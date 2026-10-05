@@ -131,6 +131,35 @@ public class GuildTests
                 Microsoft.Extensions.Options.Options.Create(new DungeonOptions()), World, Time, Guilds);
         }
     }
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task Rename_refreshes_guild_and_alliance_leader_only_when_needed(bool leader)
+    {
+        var h = new Harness(); var chief = await h.Player(1); var member = await h.Player(2);
+        var allied = await h.Player(3); var outsider = await h.Player(4);
+        var guild = await h.SeedGuild(chief, "Wolves"); await h.Join(chief, member);
+        await h.SeedGuild(allied, "Lions");
+        (await h.Create(chief, "Union", true)).Should().BeTrue(); await h.JoinAlliance(chief, allied);
+        foreach (var frame in h.Frames.Values) frame.Sent.Clear();
+        var renamed = leader ? chief : member; var old = Info(renamed).CharacterName;
+        await using (var db = h.Db())
+        {
+            (await db.Characters.FindAsync((long)Info(renamed).CharacterHandle))!.CharacterName = "Renamed";
+            await db.SaveChangesAsync();
+        }
+        Info(renamed).CharacterName = "Renamed";
+        await h.Guilds.OnNameChangedAsync(renamed, old);
+        h.Frames[1].Sent.Should().Contain(p => Encoding.ASCII.GetString(p).Contains($"CHANGE_NAME|{old}|Renamed|"));
+        h.Frames[2].Sent.Should().Contain(p => Encoding.ASCII.GetString(p).Contains($"CHANGE_NAME|{old}|Renamed|"));
+        var alliance = h.Frames[3].Sent.Where(p => p[30] == (byte)ChatType.AllianceSystem).ToArray();
+        if (leader) alliance.Should().ContainSingle().Which.Should().Equal(
+            Navislamia.Game.Network.Packets.Game.GameChatPackets.BuildChat("@ALLIANCE", (byte)ChatType.AllianceSystem, $"GLEADER_CHANGE|{guild}|Renamed|"));
+        else alliance.Should().BeEmpty();
+        h.Frames[4].Sent.Should().BeEmpty();
+        await h.Guilds.ExecuteCommandAsync(allied, "/ginfo");
+        h.Frames[3].Sent.Should().Contain(p => Encoding.ASCII.GetString(p).Contains(leader ? $"{guild}|Wolves|Renamed|" : $"{guild}|Wolves|P1|"));
+    }
+
     private static ConnectionInfo Info(GameClient client) => StorageTestHarness.Session(client);
     private static MonsterInstance Monster(int code, int dungeon, byte layer, DungeonCatalog catalog, long id = 999) => new(id, code,
         catalog.Dungeons[dungeon].X, catalog.Dungeons[dungeon].Y, 0, 50, 100, 1, 0, false, 100, 100, 100, 1, 1, 0, 0, Layer: layer);

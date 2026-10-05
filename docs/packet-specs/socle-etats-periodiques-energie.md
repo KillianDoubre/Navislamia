@@ -74,7 +74,7 @@ Codex avait numéroté sa migration `Version0023`, comme celle des amis : elle a
 
 - L'affichage exact de la 406 côté client (chiffres flottants, couleur) n'a pas été observé en jeu.
 - Les états périodiques de dégâts PM/PS (2, 3) touchent les PV de la même façon dans ce lot.
-- Les guildes, enchères et noms de propriétaire hors groupe ne suivent pas un `/change_name` avant reconnexion.
+- Guildes, alliances et enchères suivent `/change_name` : voir `socle-guildes-alliances-sieges.md` (uscT2HaQ).
 - `NOT_ENOUGH_BULLET` et `ACCESS_DENIED` de `onAttackRequest` (flèches, `IsAttackable`) ne partent pas en 102.
 
 Tests : `StateEnergyTests`, `CastMechanicsTests.StateEnergy`, `EnergyProcsTests`, `GmCommandServiceTests.Official`,
