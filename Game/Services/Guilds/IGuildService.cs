@@ -7,6 +7,8 @@ namespace Navislamia.Game.Services.Guilds;
 
 public interface IGuildService
 {
+    Task LoadAsync();
+    Task OnNameChangedAsync(GameClient client, string oldName);
     Task<bool> CompleteUploadAsync(Navislamia.Game.Network.Packets.Upload.GuildUploadPackets.Upload upload) => Task.FromResult(false);
     bool TryHandleCommand(GameClient client, string message);
     Task<bool> ExecuteCommandAsync(GameClient client, string message);

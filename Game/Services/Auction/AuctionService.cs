@@ -17,6 +17,8 @@ namespace Navislamia.Game.Services.Auction;
 /// <summary>The auction house (docs/packet-specs/socle-encheres-mecanique.md).</summary>
 public interface IAuctionService
 {
+    Task OnNameChangedAsync(uint characterId, string name);
+    Task<ResultCode> RenameCharacterAsync(uint characterId, string name, Func<Task<ResultCode>> rename);
     Task SearchAsync(GameClient client, AuctionSearchRequest request);
     Task SellingListAsync(GameClient client, int page);
     Task BiddedListAsync(GameClient client, int page);
@@ -82,6 +84,30 @@ public sealed class AuctionService : IAuctionService
     }
 
     // ---- lists ----------------------------------------------------------------------------------------------
+
+    public async Task OnNameChangedAsync(uint characterId, string name)
+        => await RenameCharacterAsync(characterId, name, () => Task.FromResult(ResultCode.Success));
+
+    public async Task<ResultCode> RenameCharacterAsync(uint characterId, string name, Func<Task<ResultCode>> rename)
+    {
+        // Official DaemonProc/AuctionManager.cpp:1602-1640: seller and current highest bidder only.
+        await _gate.WaitAsync();
+        try
+        {
+            await EnsureLoadedAsync();
+            // Same lock order as bids/registration: auction gate then CharacterGate. A concurrent bid cannot
+            // write an old cached name between the committed rename and its in-memory update.
+            var result = await rename();
+            if (result != ResultCode.Success) return result;
+            foreach (var listing in _listings.Values)
+            {
+                if (listing.Entity.SellerId == characterId) listing.Entity.SellerName = name;
+                if (listing.Entity.HighestBidderId == characterId) listing.Entity.HighestBidderName = name;
+            }
+            return result;
+        }
+        finally { _gate.Release(); }
+    }
 
     /// <summary><c>onAuctionSearch</c> then <c>SearchAndSendAuctionList</c>; the next request waits 3 s.</summary>
     public async Task SearchAsync(GameClient client, AuctionSearchRequest request)

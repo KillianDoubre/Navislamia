@@ -14,7 +14,7 @@ using Serilog;
 namespace Navislamia.Game.Services.Party;
 
 public sealed record DungeonParty(long Id, uint Leader, IReadOnlyList<uint> Members, IReadOnlyList<GameClient> Online,
-    string Name = "", int Type = 0, long AttackGuild = 0);
+    string Name = "", int Type = 0, long AttackGuild = 0, int DungeonId = 0, long HeadParty = 0);
 
 /// <summary>
 /// Parties, driven entirely by chat commands and <c>@PARTY</c> system lines — the Epic 7.3 client has no
@@ -26,6 +26,8 @@ public sealed record DungeonParty(long Id, uint Leader, IReadOnlyList<uint> Memb
 public interface IPartyService
 {
     int CreateAttackParty(GameClient client, string name, long guild, int type) => 0;
+    void LinkAttackParty(long id, int dungeon, long head) { }
+    IReadOnlyList<DungeonParty> AttackParties() => Array.Empty<DungeonParty>();
     void DisbandAttackParty(long id) { }
     bool AttackPartyExists(long id) => false;
     DungeonParty DungeonParty(GameClient client) => null;
@@ -84,6 +86,21 @@ public interface IPartyService
 public sealed partial class PartyService : IPartyService
 {
     private readonly Guilds.GuildRuntime _guilds;
+    public void LinkAttackParty(long id, int dungeon, long head)
+    {
+        lock (_gate)
+        {
+            if (!_parties.TryGetValue((int)id, out var party) || party.Type is not (1 or 2)) return;
+            party.DungeonId = dungeon; party.HeadParty = head; Persist(party);
+        }
+    }
+    public IReadOnlyList<DungeonParty> AttackParties()
+    {
+        lock (_gate) return _parties.Values.Where(p => p.Type is 1 or 2).Select(p =>
+            new DungeonParty(p.Id, (uint)p.LeaderId, p.Members.Select(m => (uint)m.CharacterId).ToArray(),
+                p.Members.Select(m => Online(m.CharacterId)).Where(c => c is not null).ToArray(), p.Name, p.Type,
+                p.AttackGuild, p.DungeonId, p.HeadParty)).ToArray();
+    }
     public bool AttackPartyExists(long id)
     {
         lock (_gate) return _parties.TryGetValue((int)id, out var party) && party.AttackGuild != 0;
@@ -110,6 +127,7 @@ public sealed partial class PartyService : IPartyService
                 if (online is not null) online.ConnectionInfo.PartyId = null;
             }
             _parties.Remove(party.Id);
+            Persist(party);
         }
     }
     public DungeonParty DungeonParty(GameClient client)
@@ -119,7 +137,7 @@ public sealed partial class PartyService : IPartyService
             if (!TryGetParty(client.ConnectionInfo.CharacterHandle, out var party)) return null;
             return new DungeonParty(party.Id, (uint)party.LeaderId,
                 party.Members.Select(m => (uint)m.CharacterId).ToArray(),
-                party.Members.Select(m => Online(m.CharacterId)).Where(c => c is not null).ToArray(), party.Name, party.Type, party.AttackGuild);
+                party.Members.Select(m => Online(m.CharacterId)).Where(c => c is not null).ToArray(), party.Name, party.Type, party.AttackGuild, party.DungeonId, party.HeadParty);
         }
     }
     public int MemberCount(GameClient client)
@@ -401,7 +419,7 @@ public sealed partial class PartyService : IPartyService
         }
 
         var created = new PartyState(++_nextPartyId, name, NewPassword(), info.CharacterHandle);
-        created.AttackGuild = guild; created.Type = type;
+        created.AttackGuild = guild; created.Type = type; created.HeadParty = type is 1 or 2 ? created.Id : 0;
         var member = new PartyMember(info.CharacterHandle, info.CharacterName);
         Remember(member, info);
         created.Members.Add(member);
@@ -668,13 +686,13 @@ public sealed partial class PartyService : IPartyService
     // ---- persistence (socle-groupe.md, *Persistance*) -----------------------------------------------------------
 
     /// <summary>
-    /// Only an ordinary party is stored. The official server stores every type and destroys the HuntaHolic and arena
-    /// parties at load; the attack teams are not stored here because their guild side lives in memory. Called under
+    /// Ordinary parties and attack teams are stored; HuntaHolic and arena parties are transient.
+    /// Official Community/PartyLoader.cpp:264-359 restores attack team links. Called under
     /// <see cref="_gate"/>, so the snapshots queue in the order the changes happened.
     /// </summary>
     private void Persist(PartyState party)
     {
-        if (_store is null || party.Type != 0)
+        if (_store is null || party.Type is not (0 or 1 or 2))
         {
             return;
         }
@@ -683,7 +701,7 @@ public sealed partial class PartyService : IPartyService
             ? party.Members.Select(m => m.CharacterId).ToArray()
             : Array.Empty<long>();
         _writes.Writer.TryWrite(new PartySnapshot(party.Id, party.Name, party.LeaderId, party.ShareMode, party.Type,
-            members));
+            members, party.Type is 1 or 2 ? party.HeadParty : null));
     }
 
     private async Task WriteAsync()
@@ -718,19 +736,26 @@ public sealed partial class PartyService : IPartyService
         lock (_gate)
         {
             _nextPartyId = Math.Max(_nextPartyId, maxId);
-            foreach (var row in stored)
+            foreach (var row in stored.OrderBy(r => r.Type == 0 || r.LeadPartyId == r.Id ? 0 : 1).ThenBy(r => r.Id))
             {
                 // PartyManager::loadPartyList: no member, a leader who is not one of them, a HuntaHolic or arena party
-                // is destroyed. An attack team is too (its guild side is not stored), and so is a party whose members
+                // is destroyed. Attack teams need a valid guild/dungeon/head, as Community/PartyLoader.cpp:281-359,
+                // and so is a party whose members
                 // already belong to an earlier one.
-                if (!PartyRules.Restorable(row) || row.Members.Any(m => _partyOf.ContainsKey(m.CharacterId)))
+                var invalidLink = row.Type is 1 or 2 && (row.AttackGuild <= 0 || row.DungeonId <= 0 || row.MaxParties <= 0
+                    || (row.LeadPartyId == row.Id
+                        ? _parties.Values.Any(p => p.Type is 1 or 2 && p.AttackGuild == row.AttackGuild)
+                        : !_parties.TryGetValue((int)row.LeadPartyId, out var head) || head.HeadParty != head.Id
+                            || head.Type != row.Type || head.AttackGuild != row.AttackGuild || head.DungeonId != row.DungeonId
+                            || _parties.Values.Count(p => p.HeadParty == head.Id) >= row.MaxParties));
+                if (!PartyRules.Restorable(row) || invalidLink || row.Members.Any(m => _partyOf.ContainsKey(m.CharacterId)))
                 {
                     _writes.Writer.TryWrite(new PartySnapshot(row.Id, row.Name, row.LeaderId, row.ShareMode, row.Type,
                         Array.Empty<long>()));
                     continue;
                 }
 
-                var party = new PartyState(row.Id, row.Name, NewPassword(), row.LeaderId) { ShareMode = row.ShareMode };
+                var party = new PartyState(row.Id, row.Name, NewPassword(), row.LeaderId) { ShareMode = row.ShareMode, Type = row.Type, AttackGuild = row.AttackGuild, DungeonId = row.DungeonId, HeadParty = row.LeadPartyId };
                 foreach (var member in row.Members.Take(MaxMembers))
                 {
                     party.Members.Add(new PartyMember(member.CharacterId, member.Name)
@@ -787,6 +812,8 @@ public sealed partial class PartyService : IPartyService
 
     private sealed class PartyState
     {
+        public int DungeonId { get; set; }
+        public long HeadParty { get; set; }
         public long AttackGuild { get; set; }
         public int Type { get; set; }
         public PartyState(int id, string name, int password, long leaderId)
@@ -838,8 +865,8 @@ public static class PartyRules
 
     /// <summary>
     /// <c>PartyManager::loadPartyList</c>'s destruction rule: members, a leader among them, and an ordinary party (the
-    /// HuntaHolic and arena parties never survive a restart; attack teams are not restored here).
+    /// HuntaHolic and arena parties never survive a restart; attack teams need their guild links).
     /// </summary>
     public static bool Restorable(StoredParty party) =>
-        party.Type == 0 && party.Members.Count > 0 && party.Members.Any(m => m.CharacterId == party.LeaderId);
+        party.Type is 0 or 1 or 2 && party.Members.Count > 0 && party.Members.Any(m => m.CharacterId == party.LeaderId);
 }

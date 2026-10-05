@@ -73,9 +73,8 @@ Tous livrés le 2026-10-05 (lot de Codex relu) : ~~322~~, ~~451~~ (réponse à 4
   canal) : livrées le 2026-10-05, rappels mesurés dans `SFrame.exe` (`socle-fenetres-script.md`).
 - ~~La 451 d'une carte dont le propriétaire est hors ligne (vue aux enchères) répond `NotExist`~~ : lue en base depuis
   le 2026-10-05 (`451-skill-level-list.md`).
-- Le menu du gestionnaire de siège (`NpcDialogService.TryShow`, `NPC_dungeon_siege_manager_contact`) envoie des
-  libellés **en français écrits en dur** (« Entrer dans le donjon », « Commencer le raid de guilde »…) au lieu
-  d'identifiants de chaîne du client.
+- ~~Le menu du gestionnaire de siège envoie des libellés français écrits en dur~~ : xHHwc9Z2,
+  chaînes Lua officielles ; raccourcis sans identifiant établi retirés (`socle-donjons-instances-secrets.md`).
 
 ### Effets déclenchés au combat (`m_vProcBy*`, `CalculateStat.cpp`)
 
@@ -99,7 +98,7 @@ Manquent :
 ### Petits manques
 
 - `TS_SC_CANT_ATTACK` (102) n'est pas envoyé pour `NOT_ENOUGH_BULLET` (flèches) ni `ACCESS_DENIED` (`IsAttackable`).
-- Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion.
+- ~~Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion~~ : uscT2HaQ, noms persistés et registres rafraîchis (`socle-guildes-alliances-sieges.md`).
 - ~~Le filtre de ramassage du familier (355) est lu et gardé, jamais appliqué.~~ Appliqué depuis le 2026-10-05
   (`socle-familier-pet.md` §19).
 - Les objets au sol ne s'ouvrent jamais aux autres joueurs (l'officiel les ouvre au groupe puis à tous après un délai).
@@ -109,7 +108,7 @@ Manquent :
   porté le 2026-10-05 (`socle-duree-invocations.md` §6) ; l'équipement d'une créature cédée revient au sac de
   l'ancien maître à sa connexion, comme l'officiel.
 - ~~Les groupes vivent en mémoire et disparaissent au redémarrage du serveur~~ : persistés depuis le 2026-10-05
-  (`socle-groupe.md` §6) ; les équipes d'attaque ne le sont pas encore (leur côté guilde est en mémoire).
+  (`socle-groupe.md` §6) ; ~~les équipes d'attaque ne le sont pas encore~~ : types 1/2 et guilde restaurés (`socle-equipes-attaque-persistance.md`).
 - ~~`EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources`~~ : 167 zones actives ; les polygones sans ligne (1000, 9000, 9001, 120101-120113) restent sans effet (`socle-zones-evenement-lua.md`, relecture du 2026-10-05).
 - `/passist` envoie aussi `TS_SC_TARGET` (512), que l'officiel n'envoie jamais (`SendTargetMsg` sans appelant) : ajout
   de Codex, gardé car sans danger, à confirmer en jeu (`512-target.md`).
@@ -119,10 +118,9 @@ Manquent :
 
 - Les instances 50000, 60000 et 70000 n'ont plus aucun monstre (tous inconnus du client 7.3) ; 40000, 41001, 42001
   et 43001 en ont perdu une partie. Savoir si ces instances existent seulement en 7.3.
-- 134 lignes hors du jeu 7.3 restent parce qu'un entier littéral du code ou du Lua pourrait les nommer : à revoir une
-  à une pour une base strictement 7.3.
-- `StringResources` (102 256 lignes) n'est pas filtrée.
-- Un nouvel `import_epic7.py` réinsère les lignes Epic 7 hors client : rejouer `tools/prune_to_client73.py` après.
+- ~~134 lignes hors du jeu 7.3 gardées par littéral, à revoir une à une~~ : RlwjZDsY, audit individuel, 99 supprimées et 35 références typées conservées (`audit-litteraux-73.md`).
+- ~~`StringResources` (102 256 lignes) non filtrée~~ : RlwjZDsY, codes bornés à `db_string.rdb` ; les 102256 actuels sont déjà connus.
+- ~~Un nouvel `import_epic7.py` réinsère les lignes Epic 7 hors client sans rejouer le filtre~~ : lbQQRm8S, filtrage final obligatoire ; `--plan` vérifié en lecture seule.
 
 ### Décisions laissées à Killian
 
@@ -134,8 +132,7 @@ Manquent :
 
 - **Anti-triche** : ~~le serveur croit les positions du client sans contrôle de vitesse ni d'obstacles~~ : porté le
   2026-10-05 (`socle-anti-triche-deplacement.md`) ; les paquets 54, 57 et 59 restent lus et ignorés.
-- **Exploitation** : PostgreSQL démarre à la main avec les droits administrateur, aucune sauvegarde automatique des
-  bases, aucun test de charge à plusieurs dizaines de joueurs.
+- **Exploitation** : ~~PostgreSQL démarre à la main, aucune sauvegarde automatique des bases~~ : CkEncmJM, scripts de démarrage Automatic et sauvegarde quotidienne avec rotation livrés (`exploitation-postgresql.md`), installation administrateur encore à faire. Aucun test de charge à plusieurs dizaines de joueurs.
 - **Validation en jeu** : la plupart des systèmes à plusieurs joueurs (échange, étals, enchères, groupe, guildes,
   sièges, duel, PvP, buffs de groupe) et les contenus (artisanat, quêtes, HuntaHolic, donjons) ne sont validés que
   par les tests automatiques.

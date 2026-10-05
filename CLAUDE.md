@@ -3013,3 +3013,48 @@ its arguments **before** Serilog checks the level, so a per-packet one is wrappe
 - That rule covers client packets. An id the server only ever emits needs no arm in
   `GameClient.Receive`, so `GameSummonPackets`' seven strictly server-to-client ids are
   declared in `GamePackets` with no dispatch entry; 33 `TM_SC_*` members already had none.
+
+## Renommage des registres (2026-10-05, uscT2HaQ)
+
+`/change_name` sauvegarde les noms vendeur/meneur avec le personnage, puis rafraîchit groupe,
+guilde et enchères. Ordre des verrous : enchères puis CharacterGate ; ne jamais faire l'inverse.
+`@GUILD CHANGE_NAME` est officiel (`GuildManager.cpp:885`) ; `@ALLIANCE GLEADER_CHANGE`
+pour un chef renommé est une adaptation du format `GameMessage.cpp:4767`, documentée dans la fiche.
+
+## Équipes d'attaque persistées (2026-10-05)
+
+`PartyService` stocke 0/1/2 ; `Parties.LeadPartyId` vaut l'id principal pour les équipes.
+Au démarrage, charger les groupes puis `IGuildService.LoadAsync()` avant le réseau ; le registre
+`_teams` et les guildes doivent revenir ensemble. Fiche : `socle-equipes-attaque-persistance.md`.
+Pour les dialogues de siège, les libellés viennent du Lua officiel ; une entrée sans identifiant
+établi est omise et consignée NON ÉTABLI (`socle-donjons-instances-secrets.md`, xHHwc9Z2).
+
+
+### Filtre 7.3 : références sémantiques et chaînes (2026-10-05, RlwjZDsY)
+
+Ne jamais protéger une famille de ressources par tous les nombres du code ou du Lua.
+`tools/resource_reachability.py` suit les points d’entrée publiés et arguments typés ;
+`docs/packet-specs/audit-litteraux-73.md` cite les 134 décisions et leurs sources.
+`StringResources` est borné aux codes déclarés de `db_string.rdb`, sans exception hors client.
+Les FK facultatives vers des chaînes supprimées sont mises à NULL dans la transaction ;
+une FK obligatoire inconnue bloque le filtre. Sauvegarde Arcadia puis restauration vérifiée
+avant un nouveau nettoyage des données. Le plan reste en lecture seule.
+
+
+### Import Epic 7 et filtre obligatoire (2026-10-05, lbQQRm8S)
+
+`tools/import_epic7.py` valide les fichiers client avant toute écriture puis rejoue le
+filtre 7.3 après résolution des FK, même pour un import partiel. Fournir `--client-dir`
+ou `NAVIS_CLIENT73`. `--plan` reste intégralement en lecture seule ; son filtre décrit
+la base actuelle. Ne pas ajouter d’option permettant un import réussi sans filtrage.
+
+
+### Maintenance PostgreSQL livrée, installation explicite (2026-10-05, CkEncmJM)
+
+`tools/Backup-PostgreSql.ps1` sauvegarde Arcadia/Telecaster/auth en custom, lit le catalogue,
+publie l’archive et SHA256, puis applique 14 jours de rotation après succès des trois bases.
+Secrets uniquement par environnement de processus, restauré en finally. L’installateur
+`tools/Install-PostgreSqlMaintenance.ps1` exige une exécution administrateur explicite
+(service Automatic, tâche SYSTEM quotidienne à 02:30) ; sa livraison ne vaut pas installation.
+Les deux scripts acceptent -WhatIf. Ne jamais modifier automatiquement la configuration
+machine au titre d’une tâche qui demande uniquement de livrer ces scripts.

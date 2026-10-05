@@ -10,8 +10,8 @@ removed unless something still points at it:
     stats, an item effect "skill" (5) or "add state" (6));
   * Telecaster (an item a character holds, a learned skill, a saved state, a summon, a quest in progress or done,
     a paid item, a starter item);
-  * the server's catalogues, Lua and code (DevConsole/*.73.json, Game/**/*.json, Game/Scripting/Scripts/*.lua and
-    the integer literals of Game/**/*.cs), read by key family for JSON and as any literal for Lua and code.
+  * typed catalogue references and reachable Lua entry points (resource_reachability.py);
+  * StringResources: exactly the ids declared by the client db_string.rdb (no outside exemption).
 
 What stays outside the 7.3 set for one of these reasons is listed, so it can be cleaned at its source. The rows of
 QuestLinkResources whose NPC or quest is removed go with them. Everything happens in one transaction.
@@ -28,9 +28,11 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import client73_ids  # noqa: E402
+import resource_reachability
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PSQL = r"C:\Program Files\PostgreSQL\18\bin\psql.exe"
@@ -102,18 +104,15 @@ def json_references():
     return found
 
 
-def literal_references():
-    """Integer literals of the Lua scripts and the C# code: protect any row they could name."""
-    numbers = set()
-    sources = list((ROOT / "Game" / "Scripting" / "Scripts").glob("*.lua"))
-    sources += [p for p in (ROOT / "Game").rglob("*.cs") if "bin" not in p.parts and "obj" not in p.parts
-                and "Migrations" not in p.parts]
-    for path in sources:
-        numbers.update(int(n) for n in re.findall(r"(?<![\w.])(\d{3,10})(?![\w.])", path.read_text(encoding="utf-8-sig")))
-    # The NPC dialogue functions are Lua kept in JSON strings.
-    for path in (ROOT / "Game" / "Scripting" / "Scripts").glob("*.json"):
-        numbers.update(int(n) for n in re.findall(r"(?<![\w.])(\d{3,10})(?![\w.])", path.read_text(encoding="utf-8-sig")))
-    return numbers
+def literal_references(known_npcs, known_monsters, known_quests):
+    handlers = [v for row in query("Arcadia", 'SELECT "EnterHandler", "LeaveHandler" FROM "EventAreaResources"') for v in row]
+    quest_scripts = [v for row in query("Arcadia", 'SELECT "Id", "ScriptStartText", "ScriptEndText", "ScriptDropText" FROM "QuestResources"')
+                     if int(row[0]) in known_quests for v in row[1:]]
+    found = resource_reachability.references(ROOT, known_npcs, handlers, quest_scripts)[0]
+    for family, ids in resource_reachability.monster_references(
+            ROOT / "Game/Scripting/Scripts/monster_triggers.lua", known_monsters).items():
+        found[family].update(ids)
+    return found
 
 
 def plan(client_dir):
@@ -170,9 +169,9 @@ def plan(client_dir):
         protect(table, {i for r in query("Telecaster", sql) for i in ints(r[0])}, why)
     for table, ids in json_references().items():
         protect(table, ids, "named by a catalogue")
-    literals = literal_references()
-    for table in db:
-        protect(table, literals, "a literal of the code or the Lua")
+    literals = literal_references(seven["NpcResources"], seven["MonsterResources"] | json_references()["MonsterResources"], seven["QuestResources"])
+    for table, ids in literals.items():
+        protect(table, ids, "reachable typed code or Lua reference")
 
     kept = {table: (db[table] & seven[table]) | outside[table] for table in db}
 
@@ -186,7 +185,8 @@ def plan(client_dir):
             protect("StateResources", ints(r[2]), "a kept item's state")
             protect("SummonResources", ints(r[3]), "a kept item's summon")
             for types, vars_ in ((r[4], r[5]), (r[6], r[7])):
-                for effect, var in zip(ints(types) or [], re.findall(r"-?\d+(?:\.\d+)?", vars_ or "")):
+                for effect, var in zip([int(float(v)) for v in re.findall(r"-?\d+(?:\.\d+)?", types or "")],
+                                         re.findall(r"-?\d+(?:\.\d+)?", vars_ or "")):
                     if effect == EFFECT_SKILL:
                         protect("SkillResources", ints(var), "a kept item's use effect")
                     elif effect == EFFECT_ADD_STATE:
@@ -224,6 +224,12 @@ def plan(client_dir):
             break
 
     removed = {table: db[table] - kept[table] for table in db}
+    # Strings are protocol/client vocabulary: retain exactly codes in the client's own db_string.
+    db["StringResources"] = {int(r[0]) for r in query("Arcadia", 'select "Id" from "StringResources"')}
+    seven["StringResources"] = client73_ids.string_ids(pathlib.Path(client_dir) / "db_string.rdb")
+    kept["StringResources"] = db["StringResources"] & seven["StringResources"]
+    removed["StringResources"] = db["StringResources"] - kept["StringResources"]
+    reasons["StringResources"] = {}
     return db, seven, kept, removed, reasons
 
 
@@ -233,15 +239,26 @@ def apply(removed):
     def ids(table):
         return "array[" + ",".join(str(i) for i in sorted(removed[table])) + "]::bigint[]"
 
+    # String ids outside db_string have no vocabulary in this client. Clear nullable
+    # references first. Refuse to destroy a NOT NULL effect definition in future imports.
+    for table, column, required in query("Arcadia", "SELECT c.relname, a.attname, a.attnotnull FROM pg_constraint f "
+            "JOIN pg_class c ON c.oid=f.conrelid JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=ANY(f.conkey) "
+            "WHERE f.confrelid='\"StringResources\"'::regclass"):
+        if required == "t":
+            if query("Arcadia", f'SELECT 1 FROM "{table}" WHERE "{column}" = any({ids("StringResources")}) LIMIT 1'):
+                raise ValueError(f"Unknown client string on required {table}.{column}; audit before pruning")
+        else:
+            statements.append(f'UPDATE "{table}" SET "{column}" = NULL WHERE "{column}" = any({ids("StringResources")});')
     # Children first; a kept row never points at a removed one (the closure), so no foreign key fires.
     statements.append(f'delete from "QuestLinkResources" where "QuestId" = any({ids("QuestResources")}) '
                       f'or "NpcId" = any({ids("NpcResources")});')
     for table in ("QuestResources", "NpcResources", "MonsterResources", "ItemResources", "SkillResources",
-                  "SummonResources", "StateResources", "StatResources"):
+                  "SummonResources", "StateResources", "StatResources", "StringResources"):
         if removed[table]:
             statements.append(f'delete from "{table}" where "Id" = any({ids(table)});')
     statements.append("commit;")
-    script = ROOT / "data" / "prune_to_client73.sql"
+    with tempfile.NamedTemporaryFile(suffix=".sql", delete=False) as temporary:
+        script = pathlib.Path(temporary.name)
     script.write_text("\n".join(statements) + "\n", encoding="utf-8")
     config = settings()
     result = subprocess.run([PSQL, "-h", config.get("DataSource", "localhost"), "-p", str(config.get("Port", 5432)),

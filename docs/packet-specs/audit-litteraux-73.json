@@ -1,0 +1,1332 @@
+[
+  {
+    "table": "ItemResources",
+    "id": 960124,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:44060"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012567,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:26089",
+      "Resource/Script/NPC_Event.lua:26107"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012604,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:26083",
+      "Resource/Script/NPC_Event.lua:26090",
+      "Resource/Script/NPC_Event.lua:26101"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012605,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:26163"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012606,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:26181",
+      "Resource/Script/NPC_Event.lua:41638"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012616,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:26286",
+      "Resource/Script/NPC_Event.lua:26328",
+      "Resource/Script/NPC_Event.lua:26369"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012644,
+    "keep": false,
+    "reason": "Base arithmétique rank + 2012644 ; seuls les résultats 2012646–2012651 sont des objets atteints.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38418",
+      "Resource/Script/NPC_Event.lua:38472"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012646,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38417",
+      "Resource/Script/NPC_Event.lua:38471",
+      "Resource/Script/NPC_Event.lua:38567"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012647,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38657",
+      "Resource/Script/NPC_Event.lua:38676",
+      "Resource/Script/NPC_Event.lua:38695"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012648,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38744",
+      "Resource/Script/NPC_Event.lua:38763",
+      "Resource/Script/NPC_Event.lua:38782"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012649,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38832",
+      "Resource/Script/NPC_Event.lua:38851",
+      "Resource/Script/NPC_Event.lua:38870"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012650,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38926",
+      "Resource/Script/NPC_Event.lua:38945",
+      "Resource/Script/NPC_Event.lua:38964"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012651,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38417",
+      "Resource/Script/NPC_Event.lua:38471",
+      "Resource/Script/NPC_Event.lua:39013"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012665,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:37273",
+      "Resource/Script/NPC_Event.lua:38378",
+      "Resource/Script/NPC_Event.lua:38466"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012724,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38123",
+      "Resource/Script/NPC_Event.lua:38378",
+      "Resource/Script/NPC_Event.lua:38466"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012749,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38253",
+      "Resource/Script/NPC_Event.lua:38378",
+      "Resource/Script/NPC_Event.lua:38466"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012760,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:38273",
+      "Resource/Script/NPC_Event.lua:38378",
+      "Resource/Script/NPC_Event.lua:38466"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012781,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:22885",
+      "Resource/Script/player_item_setting.lua:2008",
+      "Resource/Script/player_item_setting.lua:2010"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 2012874,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:43984",
+      "Resource/Script/NPC_Event.lua:43989",
+      "Resource/Script/NPC_Event.lua:44002"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100284,
+    "keep": true,
+    "reason": "Pierre de changement de race : SkillResetRules.cs:23, JobChangeService.Reset.cs:154,266 ; Lua officiel NPC_JobChange.lua:95,123,150.",
+    "evidence": [
+      "Resource/Script/NPC_JobChange.lua:95",
+      "Resource/Script/NPC_JobChange.lua:123",
+      "Resource/Script/NPC_JobChange.lua:150"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100300,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:109",
+      "Resource/Script/NPC_ItemUP.lua:152"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100301,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:109",
+      "Resource/Script/NPC_ItemUP.lua:155",
+      "Resource/Script/player_item_setting.lua:1225"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100302,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:109",
+      "Resource/Script/NPC_ItemUP.lua:158",
+      "Resource/Script/player_item_setting.lua:1225"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100303,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:109",
+      "Resource/Script/NPC_ItemUP.lua:161",
+      "Resource/Script/player_item_setting.lua:1225"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100304,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:110",
+      "Resource/Script/NPC_ItemUP.lua:164",
+      "Resource/Script/player_item_setting.lua:1225"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100305,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:110",
+      "Resource/Script/NPC_ItemUP.lua:167",
+      "Resource/Script/player_item_setting.lua:1229"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100306,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:110",
+      "Resource/Script/NPC_ItemUP.lua:170",
+      "Resource/Script/player_item_setting.lua:1233"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100307,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:110",
+      "Resource/Script/NPC_ItemUP.lua:173",
+      "Resource/Script/player_item_setting.lua:1241"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100338,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:43988"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100339,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:44006"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100341,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:44024"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100342,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:44042"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100343,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:44078"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100344,
+    "keep": false,
+    "reason": "Fonctions Halloween 2013 sans point d’entrée publié.",
+    "evidence": [
+      "Resource/Script/NPC_Event.lua:44096"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100354,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:153"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100355,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/ETC_dungeon_prop.lua:3789",
+      "Resource/Script/ETC_dungeon_prop.lua:3793",
+      "Resource/Script/ETC_dungeon_prop.lua:3794"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100356,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/ETC_dungeon_prop.lua:3846",
+      "Resource/Script/ETC_dungeon_prop.lua:3850",
+      "Resource/Script/ETC_dungeon_prop.lua:3851"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100357,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/ETC_dungeon_prop.lua:3808",
+      "Resource/Script/ETC_dungeon_prop.lua:3812",
+      "Resource/Script/ETC_dungeon_prop.lua:3813"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100358,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/ETC_dungeon_prop.lua:3827",
+      "Resource/Script/ETC_dungeon_prop.lua:3831",
+      "Resource/Script/ETC_dungeon_prop.lua:3832"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100359,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:168"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100360,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:171"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 601100361,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/ETC_dungeon_prop.lua:3827",
+      "Resource/Script/ETC_dungeon_prop.lua:3831",
+      "Resource/Script/ETC_dungeon_prop.lua:3832"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 700000585,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:110",
+      "Resource/Script/NPC_ItemUP.lua:176"
+    ]
+  },
+  {
+    "table": "ItemResources",
+    "id": 700000822,
+    "keep": true,
+    "reason": "Référence objet dans une fonction Lua accessible (entrée PNJ, dialogue ou événement).",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:177"
+    ]
+  },
+  {
+    "table": "SkillResources",
+    "id": 4004,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:2481",
+      "Game/Network/Clients/GameClient.cs:2487",
+      "Game/Network/Clients/GameClient.cs:2497"
+    ]
+  },
+  {
+    "table": "SkillResources",
+    "id": 6101,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Progression/TitleService.cs:133"
+    ]
+  },
+  {
+    "table": "SkillResources",
+    "id": 40049,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:826"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 651,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Enums/GamePackets.cs:19",
+      "Game/Network/Packets/Game/GamePetPackets.cs:39",
+      "Game/Services/Combat/AttackProcConditions.cs:8"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 652,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Enums/GamePackets.cs:20"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 653,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Enums/GamePackets.cs:21"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 654,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Game/BoothPackets.cs:17",
+      "Game/Network/Packets/Game/GameSummonPackets.cs:172",
+      "Game/Services/Combat/AttackProcConditions.cs:8"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 660,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Enums/GamePackets.cs:22",
+      "Game/Services/Compete/CompeteService.cs:88"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 672,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Game/GameSummonPackets.cs:175"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 688,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/MonsterAiService.cs:362"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 744,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/MarketTradeService.cs:62"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 749,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/MarketTradeService.cs:17",
+      "Game/Services/MarketTradeService.cs:23",
+      "Game/Services/MarketTradeService.cs:78"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 754,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Contexts/ArcadiaContext.cs:262",
+      "Game/DataAccess/Entities/Arcadia/MixResourceEntity.cs:10",
+      "Game/DataAccess/Repositories/Interfaces/IMixResourceRepository.cs:7"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 769,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/MarketTradeService.cs:23",
+      "Game/Services/MarketTradeService.cs:108"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 771,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/Actions/GameActions.cs:359",
+      "Game/Services/MarketTradeService.cs:18",
+      "Game/Services/MarketTradeService.cs:108"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 779,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/MarketTradeService.cs:18"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000013,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3453"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000026,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3453"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000039,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3453"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000052,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3453"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000081,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3460"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000082,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3476"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000083,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3490"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000084,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3506"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000085,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3522"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000086,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3538"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000087,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3550"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000088,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3564"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000089,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3578"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000090,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3592"
+    ]
+  },
+  {
+    "table": "MonsterResources",
+    "id": 22000091,
+    "keep": false,
+    "reason": "Sélecteur de branche monster_id dans trigger, sans apparition du monstre dans les catalogues 7.3.",
+    "evidence": [
+      "Resource/Script/ETC_run_monster_skill.lua:3606"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 13005,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:518",
+      "Game/Scripting/Scripts/monster_triggers.lua:526",
+      "Game/Scripting/Scripts/monster_triggers.lua:534"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 15011,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:316"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 15012,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:322"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 15041,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:594"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 15043,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:602"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 15044,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:610"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 30001,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:230",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:30",
+      "Game/Services/SkillCastService.cs:1101"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 30002,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:231",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:31"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 30003,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:232",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:39",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:48"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 30004,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:233",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:40",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:155"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 30005,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:234",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:56"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 30006,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:235",
+      "Game/DataAccess/Migrations/Arcadia/20261001161635_RandomQuestPools.cs:66",
+      "Game/Services/Buffs/BuffCatalog.cs:73"
+    ]
+  },
+  {
+    "table": "NpcResources",
+    "id": 30007,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:237"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 1067,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Migrations/Arcadia/20261001155902_QuestGoldReward.cs:32",
+      "Game/Services/MarketSellService.cs:157"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 1068,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Migrations/Arcadia/20261001155902_QuestGoldReward.cs:32",
+      "Game/Services/MarketSellService.cs:157"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 1303,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:497",
+      "Game/Network/Clients/GameClient.cs:505",
+      "Game/Network/Packets/Enums/GamePackets.cs:271"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 5120,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Game/GameAuctionPackets.cs:53"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 5139,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Game/GameAuctionPackets.cs:187"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 145002,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:502"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 145003,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:482"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 145004,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:502"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 145010,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Scripting/Scripts/monster_triggers.lua:1944"
+    ]
+  },
+  {
+    "table": "StateResources",
+    "id": 145017,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Resource/Script/NPC_Dungeon.lua:9384",
+      "Resource/Script/NPC_Dungeon.lua:9450"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 5201,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Progression/TitleEvents.cs:15"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 5202,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Progression/TitleEvents.cs:16"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6001,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Repositories/Interfaces/ISkillResourceRepository.cs:148",
+      "Game/Network/Clients/GameClient.cs:992",
+      "Game/Network/Clients/GameClient.cs:3608"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6002,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:1016",
+      "Game/Network/Clients/GameClient.cs:3606",
+      "Game/Network/Packets/Enums/GamePackets.cs:449"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6003,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:1018",
+      "Game/Network/Clients/GameClient.cs:3609",
+      "Game/Network/Packets/Enums/GamePackets.cs:445"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6004,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:1043",
+      "Game/Network/Clients/GameClient.cs:1067",
+      "Game/Network/Clients/GameClient.cs:3606"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6005,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:1044",
+      "Game/Network/Clients/GameClient.cs:3609",
+      "Game/Network/Packets/Enums/GamePackets.cs:445"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6006,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:1066",
+      "Game/Network/Clients/GameClient.cs:3606",
+      "Game/Network/Packets/Enums/GamePackets.cs:451"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6007,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:3609",
+      "Game/Network/Packets/Enums/GamePackets.cs:445",
+      "Game/Network/Packets/Game/GameFarmPackets.cs:13"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6008,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:1089",
+      "Game/Network/Clients/GameClient.cs:1090",
+      "Game/Network/Clients/GameClient.cs:3607"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6012,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Guilds/GuildRules.cs:16"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6013,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Repositories/Interfaces/ISkillResourceRepository.cs:148",
+      "Game/Services/ResurrectionItemCatalog.cs:44",
+      "Game/Services/Buffs/BuffCatalog.cs:248"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6101,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Progression/TitleService.cs:133"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6411,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Buffs/SkillDamageCurve.cs:35"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6624,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/MonsterCombatStats.cs:123"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6625,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Props/TownTeleportRules.cs:57",
+      "Game/Services/ReturnPoints/ReturnPointRules.cs:54"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6629,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/MonsterCombatStats.cs:123"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 6959,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/ReturnPoints/ReturnPointRules.cs:44"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7001,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Progression/TitleService.cs:128"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7003,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Resource/Script/monster_roaming.lua:4553",
+      "Resource/Script/monster_roaming.lua:4554",
+      "Resource/Script/monster_roaming.lua:4555"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7004,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Jobs/JobChangeRules.cs:61"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7031,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Resource/Script/NPC_ItemUP.lua:92",
+      "Resource/Script/player_item_setting.lua:3"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7032,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Jobs/JobChangeRules.cs:61"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7037,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Guilds/GuildRules.cs:16"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7077,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Huntaholic/HuntaholicProgress.cs:13"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7095,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Huntaholic/HuntaholicProgress.cs:13"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7900,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/CraftingEngine.Official.cs:708",
+      "Game/Services/CraftingEngine.Official.cs:768"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 7901,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/CraftingEngine.Official.cs:822",
+      "Game/Services/CraftingEngine.Official.cs:867",
+      "Game/Services/CraftingEngine.Official.cs:904"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 8000,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Enums/GamePackets.cs:463",
+      "Game/Services/Trade/PlayerTradeService.cs:34"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 8001,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Progression/TitleService.cs:145"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 8105,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Packets/Enums/GamePackets.cs:467"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 8192,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Arcadia/ItemResourceEntity.cs:19",
+      "Game/DataAccess/Entities/Enums/GuildPermissions.cs:21",
+      "Game/DataAccess/Entities/Enums/ItemJobRestriction.cs:12"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 9000,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Services/Progression/TitleEvents.cs:18"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 9001,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/DataAccess/Entities/Enums/SkillEffectType.cs:138",
+      "Game/Services/Casting/CastRules.cs:103",
+      "Game/Services/Creatures/SummonFall.cs:8"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 9004,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:2446",
+      "Game/Network/Packets/Enums/GamePackets.cs:466",
+      "Game/Network/Packets/Game/GameSecurityPackets.cs:8"
+    ]
+  },
+  {
+    "table": "StatResources",
+    "id": 9005,
+    "keep": false,
+    "reason": "Collision numérique hors de cette famille : opcode, commentaire, catégorie, sélecteur ou coordonnée ; aucun argument de ressource typé atteignable.",
+    "evidence": [
+      "Game/Network/Clients/GameClient.cs:2446",
+      "Game/Network/Clients/GameClient.cs:2451",
+      "Game/Network/Clients/GameClient.cs:2627"
+    ]
+  }
+]

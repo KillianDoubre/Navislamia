@@ -26,6 +26,8 @@ public interface ICharacterRepository : IDisposable
     /// <summary>The character row alone, without any collection.</summary>
     Task<CharacterEntity> GetCharacterByNameAsync(string characterName);
 
+    Task<List<AuctionListingEntity>> GetNamedAuctionsAsync(long characterId);
+
     /// <summary>The character with its learned skills, the collection a skill write must see.</summary>
     Task<CharacterEntity> GetCharacterByNameWithSkillsAsync(string characterName);
 

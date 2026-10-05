@@ -5,7 +5,7 @@ The Epic 7 Part 4 dump is the closest data to the 7.3 client, so its rows win ov
   * an existing row (same key) has every mapped column overwritten with its Epic 7 value;
   * an Epic 7 row the table lacks is inserted, a NOT NULL column the source has no value for getting
     its type's zero;
-  * a 9.4-only row is left as it is (and counted): nothing the 7.3 client knows points at it.
+  * pruning to client 7.3 runs after importing and resolving foreign keys, including partial imports.
 
 Columns are mapped by introspection: a Postgres column (EF property) takes the source column whose name
 is the same once case and underscores are ignored, unless OVERRIDES says otherwise — the overrides are
@@ -17,11 +17,14 @@ reads 0 as "none" (NULL) and is only set when the referenced row exists, so a ke
 import does not fill (EffectResources, ModelEffectResources) stays NULL instead of failing.
 
 Usage:
-    python tools/import_epic7.py --plan      # print the mapping, touch nothing
-    python tools/import_epic7.py             # import every table
-    python tools/import_epic7.py SkillResources StateResources   # only these
+    python tools/import_epic7.py --client-dir <extracted client> --plan  # both plans, no writes
+    python tools/import_epic7.py --client-dir <extracted client>         # import then prune
+    python tools/import_epic7.py --client-dir <extracted client> SkillResources StateResources
+NAVIS_CLIENT73 can supply --client-dir; NAVIS_EPIC7 selects the CSV directory.
+Back up Arcadia before a live import. Pruning is mandatory; no unfiltered success path.
 The database password is read from DevConsole/appsettings.json (never printed).
 """
+import argparse
 import csv
 import json
 import os
@@ -32,7 +35,10 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DATA = ROOT / "data" / "epic7"
+DATA = pathlib.Path(os.environ.get("NAVIS_EPIC7", ROOT / "data" / "epic7"))
+
+sys.path.insert(0, str(ROOT / "tools"))
+import prune_to_client73  # noqa: E402
 AUDIT = {"CreatedOn", "ModifiedOn", "DeletedOn"}
 
 # Whitelists use the repository's separate enum masks, not the original combined ItemBase.nLimit.
@@ -308,9 +314,28 @@ def drop_staging(pending):
         psql(f"DROP TABLE IF EXISTS {staging}; DROP TABLE IF EXISTS {staging}_rows;")
 
 
+def validate_client(client_dir):
+    # Validate every file needed by the mandatory filter before the first import write.
+    prune_to_client73.client73_ids.client_ids(client_dir)
+    prune_to_client73.client73_ids.string_ids(pathlib.Path(client_dir) / "db_string.rdb")
+    prune_to_client73.EPIC7 = DATA
+    prune_to_client73.epic7_ids("StateResource", "state_id")
+    prune_to_client73.epic7_ids("StatResource", "id")
+
+
 def main(argv):
-    dry = "--plan" in argv
-    only = [a for a in argv[1:] if not a.startswith("--")]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--plan", action="store_true")
+    parser.add_argument("--client-dir", default=os.environ.get("NAVIS_CLIENT73"))
+    parser.add_argument("tables", nargs="*")
+    args = parser.parse_args(argv[1:])
+    if not args.client_dir:
+        parser.error("--client-dir or NAVIS_CLIENT73 is required for mandatory 7.3 pruning")
+    unknown = set(args.tables) - {t for t, *_ in TABLES}
+    if unknown:
+        parser.error("Unknown tables: " + ", ".join(sorted(unknown)))
+    validate_client(args.client_dir)
+    dry, only = args.plan, args.tables
     columns, foreign, primary = introspect()
     if not dry:
         for staging in [f"epic7_{t.lower()}" for t, *_ in TABLES]:
@@ -324,7 +349,12 @@ def main(argv):
         print()
         resolve_foreign_keys(pending)
         drop_staging(pending)
+    print("\nMandatory client 7.3 filter" + (" (plan against current database)" if dry else ""))
+    # Typed references follow official Resource/Script/NPC_ItemUP.lua:109,152-177,
+    # documented with all audited sources in filtre-ressources-73.md §5.
+    # Errors propagate: an import cannot report success when its final filter fails.
+    return prune_to_client73.main([args.client_dir] + ([] if dry else ["--apply"]))
 
 
 if __name__ == "__main__":
-    main(sys.argv)
+    sys.exit(main(sys.argv))
