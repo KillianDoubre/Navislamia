@@ -88,8 +88,8 @@ Manquent :
 - ~~les temps de recharge modifiés sur attaque, coup reçu ou mort (`IncSkillCoolTimeOn*`, 10063-10065)~~ ;
 - ~~la maîtrise du bouclier (`IncreaseExtensionAttribute`, 10009) et l'expertise d'esquive (10011)~~ ;
 - ~~les passifs des invocations (`AmplifySummonHpMpSp` 10032, `HuntingTraining` 10013)~~ : les trois livrés le
-  2026-10-05 (`socle-passifs-combat-recharge-bouclier.md`). Reste `EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID` (32281,
-  deux compétences), déclenché par l'usage d'une compétence précise.
+  2026-10-05 (`socle-passifs-combat-recharge-bouclier.md`), ainsi que ~~`EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID`
+  (32281)~~ (§1 de la même fiche).
 
 `Combat/AttackProcConditions.cs` porte maintenant les conditions communes aux états et à l'énergie
 (`_ATTACK_TAG`, `CheckProcByAttack`) ; les événements de mort utilisent `_KILL_TAG`.

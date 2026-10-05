@@ -887,7 +887,8 @@ passives** (the other 34 have `var1 >= 1000`, a state id — they apply a state 
   `HuntingTraining` (10013) is **a summon's own** passive: damage dealt to and taken from a creature type
   (`CreatureExpertise`, monster `grp` → `MonsterInstance.CreatureGroup`), applied to the raw damage.
 - `IncSkillCoolTimeOn*` (10063-10070) are event triggers on the combat procs (`Combat/CooldownProcs`): the owner's
-  cooling skills gain or lose seconds, then a 403.
+  cooling skills gain or lose seconds, then a 403. `IncSkillCoolTimeOnSkillOfId` (32281) is the same proc fired when
+  one of its listed skills (`var11..13`) lands: `NotifyHit(..., skillId)`.
 
 `SkillPassiveCatalog` is frozen at startup like every other catalog. **117 skill rows** carry a supported
 effect type (101 unconditional plus the 16 weapon-gated masteries), and it holds the **87** whose vars are

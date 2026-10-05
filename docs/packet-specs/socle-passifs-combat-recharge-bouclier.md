@@ -26,8 +26,17 @@ Source : serveur officiel 2015 (`Game/Struct/CalculateStat.cpp`, `StructProc.cpp
   sur les mêmes évènements (coups, critiques, esquives, blocages, meurtre). Un monstre ou un état ne porte pas ces
   passifs.
 - **Données** : 10063 ×5, 10064 ×1, 10065 ×4 ; 10066-10070 aucune ligne mais gérés.
-- **Non porté** : `EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID` (32281, 41309 et 41331), déclenché par l'usage d'une
-  compétence précise (`m_mapProcBySkillId`).
+- **`EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID` (32281), porté le 2026-10-05** : la même `StructCooldownProc`
+  (`var0..8`), rangée par compétence déclenchante — `var11..13`, la liste s'arrêtant au premier 0
+  (`CalculateStat.cpp:1184-1203`, `m_mapProcBySkillId`). Elle part quand l'une d'elles **touche** :
+  `StructSkill.cpp:2828` appelle `OnAttack(..., GetSkillId())` pour chaque résultat non esquivé, puis
+  `StructCreature::ProcBySkillId` (`StructCreature.cpp:3589`) juge le `_PROC_TAG` — chance `var9 + var10 × niveau`,
+  PV du lanceur `var14..15`, PV de la cible `var16..17`, ni arme ni type ni élément. Côté dépôt :
+  `CooldownProcs.ResolveForSkill`/`ListensTo`, `CombatService.RunSkillIdProcs` (joueur ou invocation, jamais un
+  monstre), appelé par `NotifyHit(..., skillId)` après les procs d'attaque ; `NotifySkillHit` passe l'id du sort.
+  Données : 41309 (3901 −1 s × niveau, 3 % × niveau, sur 41306) et 41331 (3751 −6 s × niveau, 100 %, sur 63441 ou
+  63442). Tests : `StateProcsTests.A_skill_of_id_proc_fires_on_its_listed_skills_only`,
+  `A_listed_skill_landing_shortens_the_named_skill_of_its_caster`.
 
 ## 2. Bouclier, esquive et attributs de base (10008, 10009, 10011)
 
