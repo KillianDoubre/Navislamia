@@ -71,6 +71,10 @@ public interface ICharacterService
     Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp, int remainingTalentPoint) =>
         Task.FromResult(false);
 
+    /// <summary>Several skill levels in one save, JP and talent points untouched (the GM command <c>/maxskills</c>).</summary>
+    Task<bool> SaveLearnedSkillsAsync(string characterName, IReadOnlyDictionary<int, byte> skills) =>
+        Task.FromResult(false);
+
     /// <summary>
     /// The character's carried quests, ordered by code: the state <c>TM_SC_QUEST_LIST</c> (600) exposes
     /// and <c>TM_CS_DROP_QUEST</c> (603) erases.

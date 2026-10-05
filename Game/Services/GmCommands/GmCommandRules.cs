@@ -169,6 +169,68 @@ public static class GmCommandRules
                target > currentJobLevel && target <= MaxJobLevel;
     }
 
+    /// <summary><c>/job &lt;job id&gt;</c>: one positive job id; whether the race's tree holds it is the service's call.</summary>
+    public static bool TryParseJob(string[] args, out int job)
+    {
+        job = 0;
+        return args is { Length: 1 } &&
+               int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out job) && job > 0;
+    }
+
+    /// <summary>
+    /// <c>/race &lt;deva|asura|gaia&gt;</c>, or the race id itself: Gaia 3, Deva 4, Asura 5 (the repository's
+    /// <c>CharacterRace</c>, the one <c>SkillResetRules.BaseJob</c> reads).
+    /// </summary>
+    public static bool TryParseRace(string[] args, out int race)
+    {
+        race = 0;
+        if (args is not { Length: 1 })
+        {
+            return false;
+        }
+
+        race = args[0].ToLowerInvariant() switch
+        {
+            "gaia" or "3" => 3,
+            "deva" or "4" => 4,
+            "asura" or "5" => 5,
+            _ => 0
+        };
+        return race != 0;
+    }
+
+    /// <summary>
+    /// <c>/maxskills</c>: every skill of the trees the character can read (the jobs left behind and the current
+    /// job), at the highest level any of those trees allows, when that is above the level learnt.
+    /// </summary>
+    public static IReadOnlyDictionary<int, byte> MaxSkillLevels(SkillCatalog catalog, IEnumerable<int> jobs,
+        IReadOnlyDictionary<int, byte> learned)
+    {
+        var levels = new Dictionary<int, byte>();
+        foreach (var job in jobs)
+        {
+            foreach (var skillId in catalog.SkillsOf(job))
+            {
+                var max = (byte)Math.Clamp(catalog.MaxLevelIn(job, skillId), 0, byte.MaxValue);
+                if (max > levels.GetValueOrDefault(skillId))
+                {
+                    levels[skillId] = max;
+                }
+            }
+        }
+
+        var raised = new Dictionary<int, byte>();
+        foreach (var (skillId, level) in levels)
+        {
+            if (level > learned.GetValueOrDefault(skillId))
+            {
+                raised[skillId] = level;
+            }
+        }
+
+        return raised;
+    }
+
     /// <summary>
     /// <c>/learn &lt;skill&gt; [level]</c>: a positive skill id, then an optional level in 1..255. A missing level
     /// is 0 here and means "the skill's maximum", which only the catalogue knows.

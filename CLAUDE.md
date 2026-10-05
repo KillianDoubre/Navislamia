@@ -1618,6 +1618,9 @@ The `&`-prefixed command lists found online do not exist in this client: none of
 the session's stat move speed (`ConnectionInfo.MoveSpeedOverride`, read by `StatService.Compute(info)`, so the
 client's own walk, the echo and the peers follow; bounded by the wire byte, 255 × 7); no value resets it.
 `/ride`, `/unride`, `/titles`, `/title` and `/subtitle` are player commands.
+`/job <id>` and `/race <name>` go through `IJobChangeService.ForceJobAsync`/`ForceRaceAsync` (the NPC's saves and
+frames; `/race` is `SetRace` with a stone id of 0, which `ApplySkillResetAsync` reads as "no stone"), and `/maxskills`
+raises the current and left-behind trees to their maximum through `SaveLearnedSkillsAsync`, one save.
 
 ## Rates
 

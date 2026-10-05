@@ -78,21 +78,25 @@ public partial class CharacterService : ICharacterService
             ItemEntity stone = null;
             if (write.Race is { } race)
             {
-                // The same context: the items join the tracked character.
-                await repository.GetCharacterByNameWithItemsAsync(characterName);
-                stone = character.Items?.Where(item => item.ItemResourceId == race.StoneResourceId && item.Amount > 0
-                        && item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null)
-                    .OrderBy(item => item.Idx).FirstOrDefault();
-                if (stone is null)
+                // A stone id of 0 is the GM command /race, which takes no stone.
+                if (race.StoneResourceId != 0)
                 {
-                    return new SkillResetCommit(false);
-                }
+                    // The same context: the items join the tracked character.
+                    await repository.GetCharacterByNameWithItemsAsync(characterName);
+                    stone = character.Items?.Where(item => item.ItemResourceId == race.StoneResourceId && item.Amount > 0
+                            && item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null)
+                        .OrderBy(item => item.Idx).FirstOrDefault();
+                    if (stone is null)
+                    {
+                        return new SkillResetCommit(false);
+                    }
 
-                stone.Amount -= 1;
-                if (stone.Amount == 0)
-                {
-                    character.Items.Remove(stone);
-                    repository.DeleteItem(stone);
+                    stone.Amount -= 1;
+                    if (stone.Amount == 0)
+                    {
+                        character.Items.Remove(stone);
+                        repository.DeleteItem(stone);
+                    }
                 }
 
                 // ResetJob(0) then ChangeJob(base job of the race): the base job of the new race, depth 0, no history.
@@ -302,6 +306,40 @@ public partial class CharacterService : ICharacterService
 
     public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp) =>
         SaveLearnedSkillAsync(characterName, skillId, level, remainingJp, null);
+
+    public Task<bool> SaveLearnedSkillsAsync(string characterName, IReadOnlyDictionary<int, byte> skills)
+    {
+        if (skills is null || skills.Count == 0)
+        {
+            return Task.FromResult(false);
+        }
+
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithSkillsAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            character.Skills ??= new List<CharacterSkillEntity>();
+            foreach (var (skillId, level) in skills)
+            {
+                var skill = character.Skills.FirstOrDefault(entry => entry.SkillId == skillId);
+                if (skill is null)
+                {
+                    character.Skills.Add(new CharacterSkillEntity { SkillId = skillId, Level = level });
+                }
+                else
+                {
+                    skill.Level = level;
+                }
+            }
+
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
 
     public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp,
         int remainingTalentPoint) =>

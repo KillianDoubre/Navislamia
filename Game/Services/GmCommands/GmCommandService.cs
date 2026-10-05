@@ -53,8 +53,10 @@ public partial class GmCommandService : IGmCommandService
         IItemSortCatalog itemCatalog, MonsterWorldState monsterState, SkillCatalog skillCatalog,
         ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService,
         Progression.ITitleService titles = null, Creatures.ICreatureService creatures = null, Party.IPartyService parties = null,
-        IResurrectionService resurrection = null, Friends.IFriendService friends = null)
+        IResurrectionService resurrection = null, Friends.IFriendService friends = null,
+        Jobs.IJobChangeService jobChange = null)
     {
+        _jobChange = jobChange;
         _friends = friends;
         _creatures = creatures;
         _parties = parties; _resurrection = resurrection;
@@ -120,6 +122,7 @@ public partial class GmCommandService : IGmCommandService
     {
         var info = client.ConnectionInfo;
         if (await RunOfficialAsync(client, definition, line, everyone)) return;
+        if (await RunCharacterAsync(client, definition, line)) return;
         switch (definition.Command)
         {
             case GmCommand.Hold:

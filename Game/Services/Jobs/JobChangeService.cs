@@ -32,6 +32,29 @@ public interface IJobChangeService
 
     /// <summary>Changes the job (<c>Run_JobChange_common</c>): validation, database, then the properties.</summary>
     Task<bool> CommitAsync(GameClient client, int npcId, int job, bool tutorial);
+
+    /// <summary>
+    /// The GM command <c>/job</c>: any job of the character's race tree, at any depth, without the NPC, the level
+    /// or the quest. The skills and JP stay as they are.
+    /// </summary>
+    Task<GmJobChange> ForceJobAsync(GameClient client, int job);
+
+    /// <summary>
+    /// The GM command <c>/race</c>: <c>StructPlayer::SetRace</c> without the stone — skills reset, the new race's
+    /// base job, the JP of the skills and job levels given back.
+    /// </summary>
+    Task<GmJobChange> ForceRaceAsync(GameClient client, int race);
+}
+
+/// <summary>What <c>/job</c> or <c>/race</c> did.</summary>
+public enum GmJobChange
+{
+    Done,
+    AlreadyThere,
+    NotInRaceTree,
+    UnknownRace,
+    Busy,
+    NotSaved
 }
 
 /// <summary>
@@ -434,9 +457,13 @@ public sealed partial class JobChangeService : IJobChangeService
         var info = client.ConnectionInfo;
         var handle = info.CharacterHandle;
         var left = result.Depth - 1;
-        var (leftJob, leftJobLevel) = result.PreviousJobs[left];
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, $"job_{left}", leftJob));
-        client.Connection.Send(GameStatPackets.BuildProperty(handle, $"jlv_{left}", leftJobLevel));
+        if (left >= 0)
+        {
+            // /job may set a base job, which leaves nothing behind.
+            var (leftJob, leftJobLevel) = result.PreviousJobs[left];
+            client.Connection.Send(GameStatPackets.BuildProperty(handle, $"job_{left}", leftJob));
+            client.Connection.Send(GameStatPackets.BuildProperty(handle, $"jlv_{left}", leftJobLevel));
+        }
 
         var jobFrame = GameStatPackets.BuildProperty(handle, "job", result.Job);
         if (_players is not null)

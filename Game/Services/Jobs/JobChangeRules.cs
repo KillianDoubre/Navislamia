@@ -125,6 +125,49 @@ public static class JobChangeRules
         _ => Array.Empty<int>()
     };
 
+    /// <summary>
+    /// The jobs from the race's base job to <paramref name="targetJob"/>, through <see cref="NextJobs"/> (the GM
+    /// command <c>/job</c>): <c>[200]</c>, <c>[200, 201]</c> … <c>[200, 201, 210, 220]</c>. Null when the job is not in
+    /// the race's tree.
+    /// </summary>
+    public static IReadOnlyList<int> PathTo(int race, int targetJob)
+    {
+        var baseJob = SkillResetRules.BaseJob(race);
+        if (baseJob == 0)
+        {
+            return null;
+        }
+
+        var paths = new List<List<int>> { new() { baseJob } };
+        for (var depth = 0; depth <= MasterDepth; depth++)
+        {
+            var next = new List<List<int>>();
+            foreach (var path in paths)
+            {
+                if (path[^1] == targetJob)
+                {
+                    return path;
+                }
+
+                foreach (var job in NextJobs(race, path[^1], depth))
+                {
+                    next.Add(new List<int>(path) { job });
+                }
+            }
+
+            paths = next;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The job level a job left behind keeps for <c>/job</c>: what the official change asks to leave that depth
+    /// (<see cref="MeetsRequirement"/>: 10, 40, 49), or the level it already had if higher.
+    /// </summary>
+    public static int LeftJobLevel(int depth, int knownJobLevel) =>
+        Math.Max(knownJobLevel, depth switch { 0 => 10, 1 => 40, _ => 49 });
+
     /// <summary>The job's name string (<c>"@10" .. job</c>, e.g. <c>@10201</c>).</summary>
     public static string JobName(int job) => "@10" + job.ToString(CultureInfo.InvariantCulture);
 

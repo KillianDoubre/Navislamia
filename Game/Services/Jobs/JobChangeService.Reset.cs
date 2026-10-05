@@ -161,6 +161,102 @@ public sealed partial class JobChangeService
         }
     }
 
+    public async Task<GmJobChange> ForceRaceAsync(GameClient client, int race)
+    {
+        var info = client.ConnectionInfo;
+        var baseJob = SkillResetRules.BaseJob(race);
+        if (baseJob == 0)
+        {
+            return GmJobChange.UnknownRace;
+        }
+
+        if (race == info.CharacterRace)
+        {
+            return GmJobChange.AlreadyThere;
+        }
+
+        if (_skills is null || Interlocked.CompareExchange(ref info.JobChangeInProgress, 1, 0) != 0)
+        {
+            return GmJobChange.Busy;
+        }
+
+        try
+        {
+            // SetRace's own path (ResetSkill(0), ResetJob(0), the base job of the race): only the stone is left out.
+            var committed = await CommitResetAsync(client, PlanReset(info, 0), null, null,
+                new RaceChangeWrite(race, baseJob, 0));
+            return committed ? GmJobChange.Done : GmJobChange.NotSaved;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref info.JobChangeInProgress, 0);
+        }
+    }
+
+    public async Task<GmJobChange> ForceJobAsync(GameClient client, int job)
+    {
+        var info = client.ConnectionInfo;
+        var path = JobChangeRules.PathTo(info.CharacterRace, job);
+        if (path is null)
+        {
+            return GmJobChange.NotInRaceTree;
+        }
+
+        if (info.CharacterJob == job)
+        {
+            return GmJobChange.AlreadyThere;
+        }
+
+        if (Interlocked.CompareExchange(ref info.JobChangeInProgress, 1, 0) != 0)
+        {
+            return GmJobChange.Busy;
+        }
+
+        try
+        {
+            // The jobs left behind keep the job level they had, at least what the official change asks to leave them.
+            var known = new Dictionary<int, int>();
+            foreach (var (previousJob, previousJobLevel) in info.PreviousJobs) known[previousJob] = previousJobLevel;
+            known[info.CharacterJob] = info.CharacterJobLevel;
+            var previous = new List<(int Job, int JobLevel)>();
+            for (var depth = 0; depth < path.Count - 1; depth++)
+            {
+                previous.Add((path[depth], JobChangeRules.LeftJobLevel(depth, known.GetValueOrDefault(path[depth]))));
+            }
+
+            // Becoming a master class grants its talent points once, as the official change does.
+            var talentGrant = previous.Count == JobChangeRules.MasterDepth
+                              && JobChangeRules.Depth(info.PreviousJobs) < JobChangeRules.MasterDepth
+                ? JobChangeRules.MasterClassTalentPoints
+                : 0;
+            var talentPoints = await _characters.ChangeJobAsync(info.CharacterName, job, previous, talentGrant);
+            if (talentPoints is null)
+            {
+                return GmJobChange.NotSaved;
+            }
+
+            info.PreviousJobs.Clear();
+            info.PreviousJobs.AddRange(previous);
+            info.CharacterJob = job;
+            info.CharacterJobLevel = 1;
+            info.CharacterTalentPoint = talentPoints.Value;
+
+            SendJobChange(client, new JobChangeResult(job, 1, previous, previous.Count, talentGrant), talentPoints.Value);
+            _parties?.OnJobChanged(client);
+            if (_quests is not null)
+            {
+                await _quests.RefreshAsync(client);
+            }
+
+            _logger.Information("{clientTag} GM job change to {job} (depth {depth})", client.ClientTag, job, previous.Count);
+            return GmJobChange.Done;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref info.JobChangeInProgress, 0);
+        }
+    }
+
     private static bool IsRaceChangeNpc(int npcId) => JobChangeRules.JobNpcs.Contains(npcId) || npcId == JobChangeRules.TutorialNpcId;
 
     private static string RaceTitle(int npcId) => npcId == JobChangeRules.TutorialNpcId ? "@90300401" : JobChangeRules.Title(npcId);

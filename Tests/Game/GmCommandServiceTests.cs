@@ -502,6 +502,67 @@ public partial class GmCommandServiceTests
     }
 
     [Test]
+    public async Task MaxSkills_RaisesTheTreeToItsMaximumInOneSaveWithoutJp()
+    {
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        var info = StorageTestHarness.Session(client);
+        info.CharacterJob = 100;
+        info.CharacterJp = 55;
+        info.LearnedSkills[SkillId] = 2;
+        A.CallTo(() => _characters.SaveLearnedSkillsAsync("Tester", A<IReadOnlyDictionary<int, byte>>._)).Returns(true);
+        A.CallTo(() => _stats.Compute(info))
+            .Returns(new CharacterStatResult(new StatBlock { MaxHp = 800, MaxMp = 300 }, new StatBlock()));
+
+        await _service.HandleAsync(client, "/maxskills", Array.Empty<GameClient>());
+        await _service.HandleAsync(client, "/maxskills", Array.Empty<GameClient>());
+
+        info.LearnedSkills[SkillId].Should().Be(5);
+        info.CharacterJp.Should().Be(55);
+        A.CallTo(() => _characters.SaveLearnedSkillsAsync("Tester",
+                A<IReadOnlyDictionary<int, byte>>.That.Matches(skills => skills.Count == 1 && skills[SkillId] == 5)))
+            .MustHaveHappenedOnceExactly();
+        connection.Sent.Should().Contain(packet => Id(packet) == (ushort)GamePackets.TM_SC_SKILL_LIST);
+        Replies(connection).Select(reply => reply.Text).Should().Equal(new[] { "1 skills raised to their maximum level.",
+            "Every skill of this job is already at its maximum." });
+    }
+
+    [Test]
+    public async Task JobAndRace_GoThroughTheJobChangeService()
+    {
+        var jobs = A.Fake<Navislamia.Game.Services.Jobs.IJobChangeService>();
+        var service = new GmCommandService(_warp, _combat, _leveling, _stats, _characters, _items, _monsters,
+            new SkillCatalog(new SkillCatalogOptions()), _skillCast, _states, _rates, jobChange: jobs);
+        var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
+        A.CallTo(() => jobs.ForceJobAsync(client, 220)).Returns(Navislamia.Game.Services.Jobs.GmJobChange.Done);
+        A.CallTo(() => jobs.ForceJobAsync(client, 301)).Returns(Navislamia.Game.Services.Jobs.GmJobChange.NotInRaceTree);
+        A.CallTo(() => jobs.ForceRaceAsync(client, 5)).Returns(Navislamia.Game.Services.Jobs.GmJobChange.Done);
+
+        await service.HandleAsync(client, "/job 220", Array.Empty<GameClient>());
+        await service.HandleAsync(client, "/job 301", Array.Empty<GameClient>());
+        await service.HandleAsync(client, "/race Asura", Array.Empty<GameClient>());
+        await service.HandleAsync(client, "/race elf", Array.Empty<GameClient>());
+
+        A.CallTo(() => jobs.ForceRaceAsync(A<GameClient>._, A<int>._)).MustHaveHappenedOnceExactly();
+        Replies(connection).Select(reply => reply.Text).Should().Equal(new[]
+        {
+            "Job 220, job level 1. Skills and JP are unchanged; /maxskills fills the new tree.",
+            "Job 301 is not in this race's tree; change the race first (/race).",
+            "Race changed: base job, skills reset and their JP given back. Reconnect to see the new body.",
+            "Usage: /race <deva|asura|gaia>"
+        });
+    }
+
+    [TestCase("deva", 4)]
+    [TestCase("GAIA", 3)]
+    [TestCase("5", 5)]
+    [TestCase("6", 0)]
+    public void Race_ReadsTheNameOrTheId(string argument, int expected)
+    {
+        GmCommandRules.TryParseRace(new[] { argument }, out var race).Should().Be(expected != 0);
+        race.Should().Be(expected);
+    }
+
+    [Test]
     public async Task Learn_RefusesAnUnknownSkillOrALevelAboveItsMaximum()
     {
         var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
