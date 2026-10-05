@@ -1863,9 +1863,11 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   `LOGOUT`. Règles : chef seul pour inviter/exclure/promouvoir/dissoudre/partager, **le chef ne peut pas
   partir**, 8 membres, `/pjoin` exige le mot de passe de l'invitation. PV/PM en pourcentage tronqué à
   l'octet, **1 tant que non nul** ; `MINFO` rediffusé quand un pourcentage change (PV, PM, régénération).
-- **En mémoire** : un groupe survit à la sortie de ses membres (LOGOUT, puis LOGIN et PINFO au retour),
-  pas au redémarrage. `ConnectionInfo.PartyId` vient du service, **plus de `Characters.PartyId`** (la table
-  `Parties` n'a pas le mot de passe et son `LeadPartyId` auto-référent est obligatoire). Les membres
+- **Persistés** (`socle-groupe.md` §6) : un groupe survit à la sortie de ses membres (LOGOUT, puis LOGIN et PINFO
+  au retour) **et au redémarrage** : `Parties` + `Characters.PartyId` comme la table `Party` et `Character.party_id`
+  de l'officiel, écrits par une file unique après chaque changement (`IPartyStore`), relus avant l'ouverture du réseau
+  (`IPartyService.LoadAsync`, règles de `PartyManager::loadPartyList`). Seuls les groupes ordinaires sont stockés ; le
+  mot de passe d'invitation est retiré au rechargement. `ConnectionInfo.PartyId` vient toujours du service. Les membres
   en ligne à 540 unités du monstre partagent l'expérience, les JP et le chaos. L'or se partage au
   ramassage entre membres à 400 unités du ramasseur, indépendamment du mode. Les membres du groupe
   peuvent ramasser le butin du monstre ; `monopoly` l'attribue au ramasseur, `random` tire un

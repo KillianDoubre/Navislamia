@@ -65,8 +65,12 @@ public class Program
         host.Services.GetRequiredService<ISkillCastService>();
         host.Services.GetRequiredService<RateEventTicker>();
         host.Services.GetRequiredService<PetBehaviorService>();
+        // PartyManager::Init: the stored parties are back before the network opens.
+        var parties = host.Services.GetRequiredService<Navislamia.Game.Services.Party.IPartyService>();
+        await parties.LoadAsync();
 
         await host.RunAsync();
+        await parties.FlushAsync();
         await Log.CloseAndFlushAsync();
     }
 
@@ -511,6 +515,7 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Weight.IInventoryChangeFeed, Navislamia.Game.Services.Weight.InventoryChangeFeed>();
         services.AddSingleton<Navislamia.Game.Services.Weight.IItemWeightCatalog, Navislamia.Game.Services.Weight.ItemWeightCatalog>();
         services.AddSingleton<Navislamia.Game.Services.Weight.ICarriedWeightService, Navislamia.Game.Services.Weight.CarriedWeightService>();
+        services.AddSingleton<Navislamia.Game.Services.Party.IPartyStore, Navislamia.Game.Services.Party.PartyStore>();
         services.AddSingleton<Navislamia.Game.Services.Party.IPartyService, Navislamia.Game.Services.Party.PartyService>();
         services.AddSingleton<Navislamia.Game.Services.Friends.IFriendStore, Navislamia.Game.Services.Friends.FriendStore>();
         services.AddSingleton<Navislamia.Game.Services.Friends.IFriendService, Navislamia.Game.Services.Friends.FriendService>();

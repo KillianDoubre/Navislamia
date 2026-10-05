@@ -101,7 +101,8 @@ porte déjà les conditions et peut servir de base commune.
 - Une carte formée ou dont la créature est dehors peut encore être échangée, vendue ou rangée : l'officiel la
   refuse (`StructPlayer::IsErasable`) ; ici la créature est renvoyée et l'emplacement vidé. L'équipement d'une
   créature cédée reste chez l'ancien propriétaire.
-- Les groupes vivent en mémoire et disparaissent au redémarrage du serveur.
+- ~~Les groupes vivent en mémoire et disparaissent au redémarrage du serveur~~ : persistés depuis le 2026-10-05
+  (`socle-groupe.md` §6) ; les équipes d'attaque ne le sont pas encore (leur côté guilde est en mémoire).
 - `EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources` (`socle-zones-evenement.md`).
 - `/passist` envoie aussi `TS_SC_TARGET` (512), que l'officiel n'envoie jamais (`SendTargetMsg` sans appelant) : ajout
   de Codex, gardé car sans danger, à confirmer en jeu (`512-target.md`).
