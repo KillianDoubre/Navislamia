@@ -125,10 +125,8 @@ Livrée le 2026-10-05 (carte Trello `6nctY154`). Modèle officiel : la table `Pa
   ligne ; l'entrée en jeu d'un membre envoie `LOGIN` puis `PINFO`, comme après une déconnexion. Comme l'officiel, un
   groupe sans membre ou dont le chef n'est pas membre est détruit, ainsi qu'un groupe HuntaHolic ou d'arène. Les ids
   neufs reprennent après le plus grand id jamais donné (lignes supprimées comprises).
-- **Écarts** : seuls les groupes ordinaires (type 0) sont stockés. Les équipes d'attaque (types 1 et 2) ne le sont
-  pas : leur côté guilde (`GuildService._teams`) vit en mémoire, un groupe rechargé sans lui serait orphelin ;
-  l'officiel les relie de nouveau (`joinLinkedParty`). Le mot de passe d'invitation n'est pas stocké (l'officiel non
-  plus) : il est retiré au rechargement, une invitation en cours meurt avec le serveur.
+- **Types persistés** : 0, 1 et 2. Les liens d'équipes d'attaque sont restaurés avec les guildes
+  (voir `socle-equipes-attaque-persistance.md`). Les invitations ne survivent pas au redémarrage.
 - **Tests** : `PartyServiceTests.Persistence.cs` (ordre des écritures, HuntaHolic jamais stocké, restauration et
   règles de destruction, ids suivants) et l'essai PostgreSQL explicite
   `PostgreSql_party_rows_and_members_survive_a_restart` (migrations dans un schéma isolé, écriture, suppression,

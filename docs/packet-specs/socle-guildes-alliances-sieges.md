@@ -67,3 +67,7 @@ Tests : `GuildTests.Rename_refreshes_guild_and_alliance_leader_only_when_needed`
 `AuctionHouseTests.Rename_updates_cached_seller_and_highest_bidder_and_preserves_other_names`,
 `CharacterCommandsTests` (noms persistés après relecture). Vérifier `/change_name` avec les
 fenêtres guilde/alliance et recherche enchères déjà ouvertes, puis apr?s reconnexion.
+
+## Équipes persistées
+
+Types 1/2 et liens guildes restaurés au démarrage : `socle-equipes-attaque-persistance.md`.

@@ -44,7 +44,7 @@ public class GuildTests
         public readonly DungeonCatalog Catalog = new(Microsoft.Extensions.Options.Options.Create(new DungeonOptions()));
         public readonly MonsterWorldState World;
         public readonly DungeonRooms Rooms;
-        public readonly PartyService Parties;
+        public PartyService Parties;
         public readonly IStatService Stats = A.Fake<IStatService>();
         public readonly Dictionary<uint, StorageTestHarness.FrameConnection> Frames = new();
         public GuildService Guilds;
@@ -131,6 +131,39 @@ public class GuildTests
                 Microsoft.Extensions.Options.Options.Create(new DungeonOptions()), World, Time, Guilds);
         }
     }
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task Attack_teams_and_guild_links_survive_restart_and_disband_is_persisted(int type)
+    {
+        var h = new Harness(); var chief = await h.Player(1); var linked = await h.Player(2);
+        var guild = await h.SeedGuild(chief, "Wolves");
+        var alliedGuild = await h.SeedGuild(linked, "Lions");
+        await h.Create(chief, "Union", true); await h.JoinAlliance(chief, linked);
+        await using (var db = h.Db()) { (await db.Guilds.FindAsync(guild))!.DungeonId = 130000; await db.SaveChangesAsync(); }
+        var store = new PartyStore(h.Options, h.Catalog);
+        h.Parties = new PartyService(h.Players, h.Stats, A.Fake<IBannedWordsRepository>(), h.Runtime, store: store);
+        h.Guilds = h.Service();
+        var head = h.Parties.CreateAttackParty(chief, "Attack", guild, type);
+        h.Parties.LinkAttackParty(head, 130000, head);
+        var child = h.Parties.CreateAttackParty(linked, "Support", guild, type);
+        h.Parties.LinkAttackParty(child, 130000, head);
+        await h.Parties.FlushAsync();
+        var persisted = await store.LoadAsync();
+        persisted.Parties.Should().HaveCount(2).And.OnlyContain(p => p.AttackGuild == guild && p.DungeonId == 130000 && p.LeadPartyId == head);
+        Info(chief).PartyId = null; Info(linked).PartyId = null;
+        h.Parties = new PartyService(h.Players, h.Stats, A.Fake<IBannedWordsRepository>(), h.Runtime, store: store);
+        await h.Parties.LoadAsync(); h.Guilds = h.Service(); await h.Guilds.LoadAsync();
+        h.Parties.OnWorldEntry(chief); h.Parties.OnWorldEntry(linked);
+        Info(chief).PartyId.Should().Be(head); Info(linked).PartyId.Should().Be(child);
+        h.Parties.DungeonParty(linked)!.Type.Should().Be(type);
+        h.Guilds.SameAttackTeam(chief, linked).Should().BeTrue();
+        h.Guilds.EffectiveGuild(alliedGuild).Should().Be(guild);
+        h.Parties.DisbandAttackParty(child); h.Parties.DisbandAttackParty(head); await h.Parties.FlushAsync();
+        (await store.LoadAsync()).Parties.Should().BeEmpty();
+        await using var verify = h.Db();
+        (await verify.Characters.ToListAsync()).Should().OnlyContain(c => c.PartyId == null);
+    }
+
     [TestCase(true)]
     [TestCase(false)]
     public async Task Rename_refreshes_guild_and_alliance_leader_only_when_needed(bool leader)

@@ -3004,3 +3004,11 @@ its arguments **before** Serilog checks the level, so a per-packet one is wrappe
 guilde et enchères. Ordre des verrous : enchères puis CharacterGate ; ne jamais faire l'inverse.
 `@GUILD CHANGE_NAME` est officiel (`GuildManager.cpp:885`) ; `@ALLIANCE GLEADER_CHANGE`
 pour un chef renommé est une adaptation du format `GameMessage.cpp:4767`, documentée dans la fiche.
+
+## Équipes d'attaque persistées (2026-10-05)
+
+`PartyService` stocke 0/1/2 ; `Parties.LeadPartyId` vaut l'id principal pour les équipes.
+Au démarrage, charger les groupes puis `IGuildService.LoadAsync()` avant le réseau ; le registre
+`_teams` et les guildes doivent revenir ensemble. Fiche : `socle-equipes-attaque-persistance.md`.
+Pour les dialogues de siège, les libellés viennent du Lua officiel ; une entrée sans identifiant
+établi est omise et consignée NON ÉTABLI (`socle-donjons-instances-secrets.md`, xHHwc9Z2).

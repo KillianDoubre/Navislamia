@@ -106,7 +106,7 @@ La résurrection différée 3321 produite par l'état de mort 314084 reste à po
   refuse (`StructPlayer::IsErasable`) ; ici la créature est renvoyée et l'emplacement vidé. L'équipement d'une
   créature cédée reste chez l'ancien propriétaire.
 - ~~Les groupes vivent en mémoire et disparaissent au redémarrage du serveur~~ : persistés depuis le 2026-10-05
-  (`socle-groupe.md` §6) ; les équipes d'attaque ne le sont pas encore (leur côté guilde est en mémoire).
+  (`socle-groupe.md` §6) ; ~~les équipes d'attaque ne le sont pas encore~~ : types 1/2 et guilde restaurés (`socle-equipes-attaque-persistance.md`).
 - ~~`EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources`~~ : 167 zones actives ; les polygones sans ligne (1000, 9000, 9001, 120101-120113) restent sans effet (`socle-zones-evenement-lua.md`, relecture du 2026-10-05).
 - `/passist` envoie aussi `TS_SC_TARGET` (512), que l'officiel n'envoie jamais (`SendTargetMsg` sans appelant) : ajout
   de Codex, gardé car sans danger, à confirmer en jeu (`512-target.md`).

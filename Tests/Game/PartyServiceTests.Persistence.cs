@@ -110,6 +110,25 @@ public partial class PartyServiceTests
             "a destroyed party is deleted from the table, its members' party_id cleared");
     }
 
+    [Test]
+    public async Task Attack_party_loader_rejects_missing_guild_dungeon_head_wrong_type_and_capacity()
+    {
+        StoredParty Row(int id, int type, long guild, int dungeon, long head, int max = 2) =>
+            new(id, "Party" + id, id, PartyShareMode.Monopoly, type,
+                new[] { new StoredPartyMember(id, "P" + id, 30, 110, 4) }, guild, dungeon, head, max);
+        var store = new RecordingStore { Stored = new[]
+        {
+            Row(10, 1, 7, 130000, 10), Row(11, 1, 7, 130000, 10), Row(12, 1, 7, 130000, 10),
+            Row(13, 2, 7, 130000, 10), Row(14, 1, 0, 130000, 14), Row(15, 1, 8, 0, 15),
+            Row(16, 1, 8, 130000, 99), Row(17, 1, 9, 130300, 10), Row(18, 1, 7, 130000, 18)
+        }, MaxId = 18 };
+        WithStore(store); await _parties.LoadAsync();
+        _parties.AttackParties().Select(p => p.Id).Should().BeEquivalentTo(new long[] { 10, 11 });
+        await _parties.FlushAsync();
+        store.Saved.Select(p => p.Id).Should().BeEquivalentTo(new[] { 12, 13, 14, 15, 16, 17, 18 });
+        store.Saved.Should().OnlyContain(p => p.Members.Count == 0);
+    }
+
     [Test, Explicit("Runs the Telecaster migrations in an isolated schema on the configured local PostgreSQL server.")]
     public async Task PostgreSql_party_rows_and_members_survive_a_restart()
     {
