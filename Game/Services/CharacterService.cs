@@ -1452,18 +1452,40 @@ public partial class CharacterService : ICharacterService
         });
     }
 
-    public async Task<CreatureState> GetCreatureStateAsync(string characterName, IReadOnlyCollection<int> cardIds)
+    public Task<CreatureState> GetCreatureStateAsync(string characterName, IReadOnlyCollection<int> cardIds)
     {
         if (string.IsNullOrEmpty(characterName) || cardIds is null)
         {
-            return null;
+            return Task.FromResult<CreatureState>(null);
         }
 
-        using var repository = _repositories.Create();
+        return RunExclusiveAsync(characterName, repository => ReadCreatureStateAsync(repository, characterName, cardIds));
+    }
+
+    private static async Task<CreatureState> ReadCreatureStateAsync(ICharacterRepository repository,
+        string characterName, IReadOnlyCollection<int> cardIds)
+    {
         var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
         if (character is null)
         {
             return null;
+        }
+
+        // StructPlayer::onAdd -> AddSummon -> DB_UpdateSummon: the summon row follows its card. A card that came by a
+        // trade, a booth or the storage still names its former owner, which hid its creature from the new one.
+        var held = (character.Items ?? new List<ItemEntity>())
+            .Where(item => cardIds.Contains((int)item.ItemResourceId)).Select(item => item.Id).ToList();
+        var moved = held.Count == 0 ? new List<SummonEntity>()
+            : (await repository.GetSummonsOfCardsAsync(held)).Where(s => s.CharacterId != character.Id).ToList();
+        foreach (var summon in moved)
+        {
+            summon.CharacterId = character.Id;
+            summon.AccountId = character.AccountId;
+        }
+
+        if (moved.Count > 0)
+        {
+            await repository.SaveChangesAsync();
         }
 
         var summons = await repository.GetSummonsAsync(character.Id);
@@ -1484,7 +1506,28 @@ public partial class CharacterService : ICharacterService
             }
         }
 
-        return new CreatureState(cards, slots, character.MainSummonId);
+        return new CreatureState(cards, slots, character.MainSummonId)
+        {
+            SubSummonId = character.SubSummonId,
+            RemainSummonTime = character.RemainSummonTime
+        };
+    }
+
+    public Task<bool> SaveSubSummonAsync(string characterName, long? subSummonId, int remainTicks)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            character.SubSummonId = subSummonId;
+            character.RemainSummonTime = subSummonId is null ? 0 : remainTicks;
+            await repository.SaveChangesAsync();
+            return true;
+        });
     }
 
     public Task<TamingCommit> CommitTamingAsync(string characterName, long cardItemId, bool success, int summonCode,

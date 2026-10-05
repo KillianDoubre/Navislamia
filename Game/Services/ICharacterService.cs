@@ -265,10 +265,18 @@ public interface ICharacterService
 
     /// <summary>
     /// The character's creature cards (items whose resource is a summon card) with the summon row of each, the
-    /// main summon and the six formation slots (docs/packet-specs/socle-apprivoisement-invocation.md §15).
+    /// main summon and the six formation slots (docs/packet-specs/socle-apprivoisement-invocation.md §15). A summon
+    /// row follows its card: one whose card the character now holds is written to the character first
+    /// (<c>StructPlayer::onAdd</c> → <c>AddSummon</c> → <c>DB_UpdateSummon</c>).
     /// </summary>
     Task<CreatureState> GetCreatureStateAsync(string characterName, IReadOnlyCollection<int> cardIds) =>
         Task.FromResult<CreatureState>(null);
+
+    /// <summary>
+    /// <c>DB_UpdateCharacter</c>'s <c>IN_SUB_SUMMON</c> and <c>IN_REMAIN_SUMMON_TIME</c>: the second summon out and
+    /// the ticks left of its time, restored at the next login (docs/packet-specs/socle-duree-invocations.md).
+    /// </summary>
+    Task<bool> SaveSubSummonAsync(string characterName, long? subSummonId, int remainTicks) => Task.FromResult(false);
 
     /// <summary>
     /// <c>ProcTame</c>'s commit: one card of the taming stack is consumed; on success a new bound card (summon flag,
@@ -332,7 +340,14 @@ public readonly record struct PetRecord(string Name, bool WasNameChanged);
 public sealed record CreatureCardRecord(ItemEntity Card, SummonEntity Summon);
 
 /// <summary>What world entry needs of the creatures: the cards, the formation slots and the main summon.</summary>
-public sealed record CreatureState(IReadOnlyList<CreatureCardRecord> Cards, long[] Slots, long? MainSummonId);
+public sealed record CreatureState(IReadOnlyList<CreatureCardRecord> Cards, long[] Slots, long? MainSummonId)
+{
+    /// <summary>The second summon saved out with its master, null for none.</summary>
+    public long? SubSummonId { get; init; }
+
+    /// <summary>What was left of the second summon's time, in ticks; negative once it was up.</summary>
+    public int RemainSummonTime { get; init; }
+}
 
 public sealed record SummonSkillRecord(long SummonId, int SkillId, byte Level);
 

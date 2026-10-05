@@ -28,6 +28,7 @@ public class SkillPassiveCatalog : ISkillPassiveCatalog
     private readonly ILogger _logger = Log.ForContext<SkillPassiveCatalog>();
     private readonly FrozenDictionary<int, PassiveEntry> _passives;
     private readonly FrozenDictionary<int, StateEffectTemplate> _summonSp;
+    private readonly FrozenDictionary<int, decimal> _firstVars;
 
     public SkillPassiveCatalog(ISkillResourceRepository repository)
     {
@@ -48,8 +49,14 @@ public class SkillPassiveCatalog : ISkillPassiveCatalog
 
         _passives = passives.ToFrozenDictionary();
         _summonSp = summonSp.ToFrozenDictionary();
+        _firstVars = (repository.GetSkillRows(new[] { Creatures.DoubleSummonRules.TechnicalCreatureControlSkill })
+                      ?? Array.Empty<DataAccess.Repositories.Interfaces.CastableSkillRow>())
+            .Where(row => row.Vars is { Length: > 0 })
+            .ToFrozenDictionary(row => row.SkillId, row => row.Vars[0]);
         _logger.Debug("Loaded {count} stat passive skills", _passives.Count);
     }
+
+    public decimal FirstVar(int skillId) => _firstVars.GetValueOrDefault(skillId);
 
     public IReadOnlyList<StatEffect> ResolveSummonSp(int skillId, int skillLevel) =>
         skillLevel > 0 && _summonSp.TryGetValue(skillId, out var template)

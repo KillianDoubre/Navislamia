@@ -100,8 +100,11 @@ porte déjà les conditions et peut servir de base commune.
 - Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion.
 - Le filtre de ramassage du familier (355) est lu et gardé, jamais appliqué.
 - Les objets au sol ne s'ouvrent jamais aux autres joueurs (l'officiel les ouvre au groupe puis à tous après un délai).
-- Les invocations n'ont pas de durée : `TS_SC_REMOVE_SUMMON_INFO` (302) et `TS_SC_UNSUMMON_NOTICE` (306) n'ont pas
-  d'appelant.
+- ~~Les invocations n'ont pas de durée : 302 et 306 n'ont pas d'appelant~~ : double invocation et cartes qui
+  quittent le sac, 2026-10-05 (`socle-duree-invocations.md`).
+- Une carte formée ou dont la créature est dehors peut encore être échangée, vendue ou rangée : l'officiel la
+  refuse (`StructPlayer::IsErasable`) ; ici la créature est renvoyée et l'emplacement vidé. L'équipement d'une
+  créature cédée reste chez l'ancien propriétaire.
 - Les groupes vivent en mémoire et disparaissent au redémarrage du serveur.
 - `EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources` (`socle-zones-evenement.md`).
 - `/passist` envoie aussi `TS_SC_TARGET` (512), que l'officiel n'envoie jamais (`SendTargetMsg` sans appelant) : ajout

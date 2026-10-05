@@ -151,6 +151,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
     private readonly Casting.ICastInterrupts _castInterrupts;
     private readonly Stats.IItemStatCatalog _itemStats;
     private readonly IEtherealWear _ethereal;
+    private readonly IStateCatalog _states;
 
     public CreatureService(ICreatureCatalog catalog, ICharacterService characters, MonsterWorldState world,
         ICombatService combat, SummonWorldService summons, IPlayerVisibilityService players = null,
@@ -159,9 +160,16 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         ISkillPassiveCatalog passives = null, Rates.IRateService rates = null, IPkFieldService pkFields = null,
         Progression.ITitleService titles = null, IItemWearCatalog wearCatalog = null,
         IItemMatchCatalog itemMatch = null, Stats.IItemStatCatalog itemStats = null,
-        Casting.ICastInterrupts castInterrupts = null, IEtherealWear ethereal = null)
+        Casting.ICastInterrupts castInterrupts = null, IEtherealWear ethereal = null, IStateCatalog states = null,
+        Weight.IInventoryChangeFeed inventory = null)
     {
         _ethereal = ethereal;
+        _states = states;
+        if (inventory is not null)
+        {
+            inventory.Changed += OnInventoryChanged;
+        }
+
         _wearCatalog = wearCatalog;
         _castInterrupts = castInterrupts;
         _itemMatch = itemMatch;
@@ -252,7 +260,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             equipment = Array.Empty<ItemEntity>();
         }
 
-        CreatureCard main = null;
+        CreatureCard main = null, sub = null;
         lock (info.SummonLock)
         {
             info.CreatureCards.Clear();
@@ -281,6 +289,13 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             {
                 main = info.CreatureCards.Values.FirstOrDefault(c => c.SummonId == mainId);
             }
+
+            if (state.SubSummonId is { } subId)
+            {
+                sub = info.CreatureCards.Values.FirstOrDefault(c => c.SummonId == subId);
+            }
+
+            info.CreatureCardsLoaded = true;
         }
 
         // SendCharacterInfo: the creature window gets every formed summon, then the formation.
@@ -301,14 +316,177 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             }
         }
 
-        // The main summon comes back with its master (StructPlayer::onLogin, AddNoise 50).
-        if (main is not null && main.HasSummon && Array.IndexOf(info.SummonSlots, main.ItemId) >= 0)
+        // The main summon comes back with its master (StructPlayer::onLogin, AddNoise 50), and so does the second one,
+        // with a 306 carrying what is left of its time (DB_Login, SendCharacterInfo).
+        if (main is not null && main.HasSummon && Array.IndexOf(info.SummonSlots, main.ItemId) >= 0
+            && EnterWorld(client, main, SummonWorldService.LoginNoiseRange))
         {
-            EnterWorld(client, main, SummonWorldService.LoginNoiseRange);
+            info.MainSummonCardId = main.ItemId;
+            if (sub is not null && sub != main && sub.HasSummon && Array.IndexOf(info.SummonSlots, sub.ItemId) >= 0
+                && EnterWorld(client, sub, SummonWorldService.LoginNoiseRange))
+            {
+                var now = ServerClock.Now;
+                info.SubSummonCardId = sub.ItemId;
+                info.NextUnsummonTick = unchecked(now + (uint)state.RemainSummonTime);
+                info.InfiniteSummonTime = InfiniteSummonGrace(info, out var grace);
+                info.InfiniteSummonGrace = grace;
+                SendUnsummonNotice(client, sub.ItemId, DoubleSummonRules.LoginNotice(state.RemainSummonTime));
+            }
         }
 
         // DB_Login: the formation and the cards held count for the titles once they are loaded.
         _ = _titles?.RefreshAsync(client);
+    }
+
+    // ---- cards entering and leaving the bag (301 / 302) ---------------------------------------------------------
+
+    private void OnInventoryChanged(string characterName)
+    {
+        var client = _players?.Registry?.Clients.FirstOrDefault(candidate =>
+            string.Equals(candidate.ConnectionInfo.CharacterName, characterName, StringComparison.Ordinal));
+        if (client is not null && client.ConnectionInfo.CreatureCardsLoaded)
+        {
+            _ = RefreshCardsAsync(client);
+        }
+    }
+
+    /// <summary>
+    /// <c>StructPlayer::onAdd</c>/<c>onRemove</c> for the creature cards, after each announced inventory change: one read
+    /// of the bag at a time per session, rerun when a change arrives during it (docs/packet-specs/socle-duree-invocations.md).
+    /// </summary>
+    public async Task RefreshCardsAsync(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        if (Interlocked.Exchange(ref info.CreatureCardRefreshState, 2) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            do
+            {
+                Volatile.Write(ref info.CreatureCardRefreshState, 1);
+                var name = info.CharacterName;
+                if (string.IsNullOrEmpty(name) || !info.CreatureCardsLoaded)
+                {
+                    break;
+                }
+
+                var state = await _characters.GetCreatureStateAsync(name, _catalog.CardIds);
+                if (state is null || info.CharacterName != name)
+                {
+                    break;
+                }
+
+                bool newSummon;
+                lock (info.SummonLock)
+                {
+                    newSummon = state.Cards.Any(r => r.Summon is not null && !info.CreatureCards.ContainsKey(r.Card.Id));
+                }
+
+                var skills = newSummon
+                    ? await _characters.GetSummonSkillsAsync(name) ?? Array.Empty<SummonSkillRecord>()
+                    : Array.Empty<SummonSkillRecord>();
+                if (info.CharacterName == name)
+                {
+                    ApplyCardChanges(client, state.Cards, skills);
+                }
+            }
+            while (Interlocked.CompareExchange(ref info.CreatureCardRefreshState, 0, 1) != 1);
+        }
+        catch (Exception exception)
+        {
+            Volatile.Write(ref info.CreatureCardRefreshState, 0);
+            _logger.Error(exception, "Could not re-read the creature cards of {clientTag}", client.ClientTag);
+        }
+    }
+
+    /// <summary>
+    /// The bag's creature cards against the session's. A card gone with its summon (a trade, a booth, the storage, an
+    /// auction, a drop, its destruction) takes it off the creature window with <c>TS_SC_REMOVE_SUMMON_INFO</c> (302,
+    /// <c>RemoveSummon</c>); a card come in with its summon brings it with 301, its stats and skills (<c>AddSummon</c>,
+    /// <c>SendSkillMessage</c>). A stack of blank cards only changes its amount.
+    /// </summary>
+    public void ApplyCardChanges(GameClient client, IReadOnlyList<CreatureCardRecord> held,
+        IReadOnlyList<SummonSkillRecord> skills)
+    {
+        var info = client.ConnectionInfo;
+        var byId = new Dictionary<long, CreatureCardRecord>();
+        foreach (var record in held.Where(r => r.Card.Amount > 0))
+        {
+            byId[record.Card.Id] = record;
+        }
+
+        List<CreatureCard> gone;
+        lock (info.SummonLock)
+        {
+            gone = info.CreatureCards.Values.Where(card => !byId.ContainsKey(card.ItemId)).ToList();
+        }
+
+        // IsErasable keeps a card whose summon is out, or a formed card, in the bag. One that left anyway (nothing
+        // here refuses it yet) has its summon sent back and its slot emptied before it goes.
+        foreach (var card in gone.Where(card => IsCardInWorld(info, card.ItemId)))
+        {
+            Unsummon(client, card.Handle);
+        }
+
+        var added = new List<CreatureCard>();
+        var unformed = false;
+        lock (info.SummonLock)
+        {
+            foreach (var card in gone)
+            {
+                info.CreatureCards.Remove(card.ItemId);
+                var slot = Array.IndexOf(info.SummonSlots, card.ItemId);
+                if (slot >= 0)
+                {
+                    var slots = (long[])info.SummonSlots.Clone();
+                    slots[slot] = 0;
+                    info.SummonSlots = slots;
+                    unformed = true;
+                }
+            }
+
+            if (gone.Any(card => card.ItemId == info.MainSummonCardId))
+            {
+                info.MainSummonCardId = 0;
+            }
+
+            foreach (var record in byId.Values)
+            {
+                if (info.CreatureCards.TryGetValue(record.Card.Id, out var known))
+                {
+                    known.Amount = record.Card.Amount;
+                    continue;
+                }
+
+                var card = ToCard(record);
+                foreach (var skill in skills.Where(s => card.HasSummon && s.SummonId == card.SummonId))
+                {
+                    card.Skills[skill.SkillId] = skill.Level;
+                }
+
+                info.CreatureCards[card.ItemId] = card;
+                added.Add(card);
+            }
+        }
+
+        foreach (var card in gone.Where(card => card.HasSummon))
+        {
+            client.Connection.Send(GameSummonPackets.BuildRemoveSummonInfo(card.Handle));
+        }
+
+        if (unformed)
+        {
+            client.Connection.Send(GameCharacterPackets.BuildEquipSummon(info.SummonSlots));
+            _ = SaveFormationAsync(info);
+        }
+
+        foreach (var card in added.Where(card => card.HasSummon))
+        {
+            SendSummonInfo(client, card);
+        }
     }
 
     public void OnWorldExit(GameClient client)
@@ -357,6 +535,25 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         if (cards.Count > 0 && !string.IsNullOrEmpty(info.CharacterName))
         {
             _ = SaveProgressAsync(info, cards);
+
+            // DB_UpdateCharacter: the second summon out and what is left of its time, cleared when there is none.
+            var sub = info.SubSummonCardId != 0 && IsCardInWorld(info, info.SubSummonCardId)
+                ? cards.FirstOrDefault(c => c.ItemId == info.SubSummonCardId)
+                : null;
+            _ = SaveSubSummonAsync(info.CharacterName, sub?.SummonId,
+                sub is null ? 0 : DoubleSummonRules.Remaining(ServerClock.Now, info.NextUnsummonTick));
+        }
+    }
+
+    private async Task SaveSubSummonAsync(string characterName, long? subSummonId, int remainTicks)
+    {
+        try
+        {
+            await _characters.SaveSubSummonAsync(characterName, subSummonId, remainTicks);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not save the second summon of {name}", characterName);
         }
     }
 
@@ -2015,8 +2212,10 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         var inWorld = IsCardInWorld(info, card.ItemId);
         if (summon)
         {
-            // PrepareSummon: one of the formation's cards, its summon not already in the world.
+            // PrepareSummon: one of the formation's cards, its summon not already in the world, and no second summon
+            // out (StructSkill's EF_SUMMON check: GetSubSummon() refuses the cast).
             return Array.IndexOf(info.SummonSlots, card.ItemId) < 0 || inWorld
+                   || info.SubSummonCardId != 0 && IsCardInWorld(info, info.SubSummonCardId)
                 ? ResultCode.NotActable
                 : ResultCode.Success;
         }
@@ -2038,20 +2237,159 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             card = info.CreatureCards.GetValueOrDefault(cardHandle);
         }
 
-        // Player::DoSummon: the main summon in the world goes back first.
-        if (info.MainSummonCardId != 0 && info.MainSummonCardId != card.ItemId)
-        {
-            Unsummon(client, (uint)info.MainSummonCardId);
-        }
-
+        // StructPlayer::Summon: with a main summon out, the new one is the second summon, which stays only
+        // m_nDoubleSummonTime (docs/packet-specs/socle-duree-invocations.md). NGemity sent the main one back instead.
+        var mainOut = info.MainSummonCardId != 0 && info.MainSummonCardId != card.ItemId
+                      && IsCardInWorld(info, info.MainSummonCardId);
         if (!EnterWorld(client, card, SummonWorldService.SummonNoiseRange))
         {
             return false;
         }
 
-        info.MainSummonCardId = card.ItemId;
+        if (mainOut)
+        {
+            BeginSubSummon(client, card.ItemId);
+        }
+        else
+        {
+            info.MainSummonCardId = card.ItemId;
+        }
+
         _ = SaveFormationAsync(info);
         return true;
+    }
+
+    /// <summary>
+    /// The second summon is out: <c>SetMainAndSubSummon</c> decides which of the two is the main one, then the second
+    /// one gets its 306 and its deadline (<c>StructPlayer::Summon</c>).
+    /// </summary>
+    private void BeginSubSummon(GameClient client, long newCardId)
+    {
+        var info = client.ConnectionInfo;
+        var (main, sub) = DoubleSummonRules.Order(info.SummonSlots, info.MainSummonCardId, newCardId,
+            info.LearnedSkills.GetValueOrDefault(CreatureRules.CreatureControlSkill));
+        info.MainSummonCardId = main;
+        info.SubSummonCardId = sub;
+
+        var infinite = InfiniteSummonGrace(info, out var grace);
+        info.InfiniteSummonTime = infinite;
+        info.InfiniteSummonGrace = grace;
+        var duration = DoubleSummonRules.NoticeDuration(infinite, DoubleSummonTime(info));
+        info.NextUnsummonTick = unchecked(ServerClock.Now + duration);
+        SendUnsummonNotice(client, sub, duration);
+    }
+
+    /// <summary><c>m_nDoubleSummonTime</c> from the master's Technical Creature Control and creature parameter states.</summary>
+    private uint DoubleSummonTime(ConnectionInfo info)
+    {
+        var level = info.LearnedSkills.GetValueOrDefault(DoubleSummonRules.TechnicalCreatureControlSkill);
+        var var0 = _passives?.FirstVar(DoubleSummonRules.TechnicalCreatureControlSkill) ?? 0m;
+        return DoubleSummonRules.DoubleSummonTime(level, var0,
+            StatesWithEffect(info, DoubleSummonRules.CreatureParameterAmpEffect, 4));
+    }
+
+    /// <summary>
+    /// Whether an <c>EF_INFINITE_SUMMON_TIME</c> state holds the second summon, and the <c>value_0</c> seconds its end
+    /// leaves it (<c>onAfterRemoveState</c>), in ticks.
+    /// </summary>
+    private bool InfiniteSummonGrace(ConnectionInfo info, out uint graceTicks)
+    {
+        var states = StatesWithEffect(info, DoubleSummonRules.InfiniteSummonTimeEffect, 0);
+        graceTicks = states.Count == 0 ? 0 : (uint)Math.Clamp(states[0].Value * 100m, 0m, int.MaxValue);
+        return states.Count > 0;
+    }
+
+    private List<(int Level, decimal Value)> StatesWithEffect(ConnectionInfo info, int effectType, int valueIndex)
+    {
+        var found = new List<(int, decimal)>();
+        if (_states is null)
+        {
+            return found;
+        }
+
+        lock (info.BuffLock)
+        {
+            foreach (var buff in info.ActiveBuffs)
+            {
+                var rule = _states.GetRule(buff.StateId);
+                if (rule.EffectType == effectType)
+                {
+                    found.Add((buff.StateLevel,
+                        rule.Values is { } values && values.Length > valueIndex ? values[valueIndex] : 0m));
+                }
+            }
+        }
+
+        return found;
+    }
+
+    private void SendUnsummonNotice(GameClient client, long cardId, uint duration)
+    {
+        CreatureCard card;
+        lock (client.ConnectionInfo.SummonLock)
+        {
+            card = client.ConnectionInfo.CreatureCards.GetValueOrDefault(cardId);
+        }
+
+        if (card is not null && card.SummonHandle != 0)
+        {
+            client.Connection.Send(GameSummonPackets.BuildUnsummonNotice(card.SummonHandle, duration));
+        }
+    }
+
+    /// <summary>
+    /// <c>StructPlayer::OnUpdate</c> for the second summons: one goes back once its time is up, unless an infinite
+    /// summon state holds it. Such a state turning on announces 0 (<c>applyState</c>); turning off, it leaves its
+    /// <c>value_0</c> seconds (<c>onAfterRemoveState</c>). The official server reads both on its stat passes; they are
+    /// polled here every second.
+    /// </summary>
+    public void ProcessSubSummons(uint now)
+    {
+        var clients = _players?.Registry?.Clients;
+        if (clients is null)
+        {
+            return;
+        }
+
+        foreach (var master in clients)
+        {
+            var info = master.ConnectionInfo;
+            var sub = info.SubSummonCardId;
+            if (sub == 0)
+            {
+                continue;
+            }
+
+            if (!IsCardInWorld(info, sub))
+            {
+                info.SubSummonCardId = 0;
+                continue;
+            }
+
+            var infinite = InfiniteSummonGrace(info, out var grace);
+            if (infinite != info.InfiniteSummonTime)
+            {
+                info.InfiniteSummonTime = infinite;
+                var duration = infinite ? 0 : info.InfiniteSummonGrace;
+                if (!infinite)
+                {
+                    info.NextUnsummonTick = unchecked(now + duration);
+                }
+
+                SendUnsummonNotice(master, sub, duration);
+            }
+
+            if (infinite)
+            {
+                info.InfiniteSummonGrace = grace;
+                continue;
+            }
+
+            if (DoubleSummonRules.IsDue(now, info.NextUnsummonTick))
+            {
+                Unsummon(master, (uint)sub);
+            }
+        }
     }
 
     public bool Unsummon(GameClient client, uint cardHandle)
@@ -2090,9 +2428,18 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
 
         _summons.Leave(info, client.ClientTag, client.Connection, card.SummonHandle, client);
-        if (info.MainSummonCardId == card.ItemId)
+        // StructPlayer::unSummon: the second summon going back ends its time; the main one going back leaves the
+        // second one as the main summon, its time no longer counted.
+        if (info.SubSummonCardId == card.ItemId)
         {
-            info.MainSummonCardId = 0;
+            info.SubSummonCardId = 0;
+            info.NextUnsummonTick = 0;
+        }
+        else if (info.MainSummonCardId == card.ItemId)
+        {
+            info.MainSummonCardId = info.SubSummonCardId;
+            info.SubSummonCardId = 0;
+            info.NextUnsummonTick = 0;
             _ = SaveFormationAsync(info);
         }
 
@@ -2459,6 +2806,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
                     {
                         ProcessTamings(ServerClock.Now);
                         ProcessDeadSummons(ServerClock.Now);
+                        ProcessSubSummons(ServerClock.Now);
                     }
 
                     if (ticks % 30 == 0)

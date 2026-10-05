@@ -246,6 +246,27 @@ public class ConnectionInfo
     /// <summary>The card item id of the summon <c>m_pMainSummon</c> names (in the world or to re-enter at login), 0 for none.</summary>
     public long MainSummonCardId { get; set; }
 
+    /// <summary>
+    /// The card item id of the second summon out (<c>m_pSubSummon</c>, the double summon), 0 for none. It goes back
+    /// at <see cref="NextUnsummonTick"/> unless an infinite-summon state holds it (docs/packet-specs/socle-duree-invocations.md).
+    /// </summary>
+    public long SubSummonCardId { get; set; }
+
+    /// <summary><c>m_nNextUnSummonTime</c>: the ar_time tick the second summon goes back at.</summary>
+    public uint NextUnsummonTick { get; set; }
+
+    /// <summary>Whether an <c>EF_INFINITE_SUMMON_TIME</c> state was seen on the last check, to notice its changes.</summary>
+    public bool InfiniteSummonTime { get; set; }
+
+    /// <summary>The ticks the infinite-summon state leaves the second summon when it ends (its <c>value_0</c> × 100).</summary>
+    public uint InfiniteSummonGrace { get; set; }
+
+    /// <summary>The creature cards were loaded at world entry: inventory changes may be diffed against them.</summary>
+    public bool CreatureCardsLoaded { get; set; }
+
+    /// <summary>0 idle, 1 re-reading the creature cards, 2 re-reading and asked again (see <see cref="WeightRefreshState"/>).</summary>
+    public int CreatureCardRefreshState;
+
     /// <summary>The card a taming in progress marked (<c>ITEM_FLAG_TAMING</c>, kept in memory), 0 for none.</summary>
     public long TamingCardItemId { get; set; }
 
@@ -784,6 +805,11 @@ public class ConnectionInfo
         }
 
         MainSummonCardId = 0;
+        SubSummonCardId = 0;
+        NextUnsummonTick = 0;
+        InfiniteSummonTime = false;
+        InfiniteSummonGrace = 0;
+        CreatureCardsLoaded = false;
         TamingCardItemId = 0;
         TamingTargetInstanceId = -1;
         RideHandle = 0;

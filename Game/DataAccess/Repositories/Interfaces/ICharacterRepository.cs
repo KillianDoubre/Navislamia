@@ -60,6 +60,9 @@ public interface ICharacterRepository : IDisposable
 
     void AddSummon(SummonEntity summon);
 
+    /// <summary>The summon rows bound to these card items, whoever owns them, tracked.</summary>
+    Task<List<SummonEntity>> GetSummonsOfCardsAsync(IReadOnlyCollection<long> cardItemIds);
+
     /// <summary>The skills of every summon of a character, tracked.</summary>
     Task<List<SummonSkillEntity>> GetSummonSkillsAsync(long characterId);
 

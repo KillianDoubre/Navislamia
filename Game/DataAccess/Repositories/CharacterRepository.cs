@@ -134,6 +134,12 @@ public sealed class CharacterRepository : ICharacterRepository
         _context.Summons.Add(summon);
     }
 
+    public Task<List<SummonEntity>> GetSummonsOfCardsAsync(IReadOnlyCollection<long> cardItemIds)
+    {
+        var ids = cardItemIds.ToArray();
+        return _context.Summons.Where(summon => ids.Contains(summon.CardItemId)).ToListAsync();
+    }
+
     public Task<List<SummonSkillEntity>> GetSummonSkillsAsync(long characterId)
     {
         return _context.SummonSkills.Where(skill => skill.Summon.CharacterId == characterId).ToListAsync();

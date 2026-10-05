@@ -149,7 +149,7 @@ The summon socle's server-to-client layouts live in `GameSummonPackets`, sized f
 characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
 301 and 305 are emitted by `CreatureService` (formation, login, summon, unsummon; see *Apprivoisement et
 invocation des créatures*); 307, 320 and 321 by evolution and riding (`socle-invocations-progression.md`); 302 and
-306 still have no caller. `BuildAddSummonInfo` takes `code`
+306 by the card and double-summon rules (`socle-duree-invocations.md`). `BuildAddSummonInfo` takes `code`
 and `summon_handle` from its caller instead of inventing either.
 
 A summon enters the world as `TS_SC_ENTER` (`3`) with `type = ET_NPC (1)` and `objType = EOT_Summon (4)` — the
@@ -177,8 +177,10 @@ bounded jitter (`AddNoise` in integer arithmetic: `raw % range - range/2`, 70 on
 warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `z`, never set, is 0 — and the
 region-cancel step of `AddNoise` is not portable either, since nothing resolves a position to a location id
 here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summon.cpp:35,88-91`), supplied by
-the caller. 302 and 306 still have no caller: their trigger is untranched game policy (unbind rule, summon
-duration). `CharacterService` writes `MainSummonId` and
+the caller. **306 is the double summon, 302 a bound card leaving the bag** (`docs/packet-specs/socle-duree-invocations.md`):
+a second summon called while the main one is out stays `1000 + 1881 level × 700 + 112-state level × value_4 × 100` ticks
+(306 on its handle, 0 under state 3121), then goes back; a card gone from the bag sends 302, one come in 301, both from a
+re-read after `IInventoryChangeFeed`, and the `Summons` row follows its card. `CharacterService` writes `MainSummonId` and
 `SummonSlotItemIds`, and those six columns hold *summon* sids like the official character row, not card ids:
 the session and the 303 speak card handles, `CharacterService` translates both ways.
 
