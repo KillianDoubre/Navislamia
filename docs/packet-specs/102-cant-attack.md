@@ -336,6 +336,33 @@ Tests ajoutés (14 cas, tous verts) :
 0 échec, 0 ignoré. Enum et dispatch inchangés : 102 est déjà refusé et journalisé par la branche
 « server-only » de `GameClient.Receive` (`GameClient.cs:3004-3008`), donc rien n'atteint le `switch` final.
 
+## 10. Relecture du 2026-10-05 (Claude) — cas B livré
+
+La source officielle 2015 (`Game/Message/GameMessage.cpp`, `onAttackRequest`) est lisible en clair et tranche les
+points laissés ouverts par le désassemblage :
+
+```
+IsDead() → rien ; handle inconnu → 3 NOT_OWN ; cible absente → EndAttack ou 1 NOT_EXIST ;
+!IsEnemy → EndAttack ou 5 NOT_ACTABLE ; (arc || arbalète) && IsPlayer() && GetBulletCount() < 1 → 32 ;
+assis → StandUp() + BroadcastStatusMessage ; !IsAttackable() → 6 ACCESS_DENIED ; StartAttack.
+```
+
+- **Cas B porté** (`CombatService.RefuseNotAttackable`, `IsAttackable`, `AttackMechanics.BlocksAttack`) : un joueur
+  assis se relève (500 à lui et ses observateurs) puis l'attaque continue ; `IsAttackable` est faux en monture
+  (`StructPlayer::IsAttackable`), pendant une incantation (`IsUsingSkill`), pendant la chute de monture (9001), ou
+  sous un état qui retire `STATUS_ATTACKABLE` (`CalculateStat.cpp:2679-2730, 2905-2978`) : `EF_MEZZ` (82) avec
+  `value_0` ou `value_2`, `EF_TRANSFORMATION` (104) avec `value_2`, et les `EF_MISC` 13601, 6006, 6005, 999990,
+  999991, 9007, 9001, 6012, 6019, 6009, 314113, 201085, 6016, 201084, plus la peur 6008 (`IsActable`). Réponse 102
+  code **6**, envoyée quel que soit l'état de session, comme le 32.
+- **Réponses aux questions** : (a) `IsImmortal` n'entre pas dans `IsAttackable` (c'est un drapeau de MJ sur les
+  dégâts reçus) ; (b) être assis n'est pas un refus, on se relève ; (c) la cible morte reste 5 (refus d'`IsEnemy`) ;
+  (d) **l'invocation n'est pas concernée par le refus de flèches** (`&& pAttacker->IsPlayer()`), donc
+  `CreatureService.SummonAttack` n'a pas à le porter.
+- La chute de monture refusait jusqu'ici en silence ; elle répond maintenant 6 comme l'officiel. Un attaquant mort
+  reste ignoré sans réponse.
+- Tests : `CombatMechanicsTests` (mezz `value_0`/`value_2`, mezz de déplacement seul accepté, transformation,
+  étourdissement, monture, état `EF_MISC` hors liste accepté, peur, joueur assis qui se relève et attaque).
+
 ## Bloc pour CLAUDE.md
 
 À recopier dans la description de la MR (le dev n'écrit pas `CLAUDE.md`) :

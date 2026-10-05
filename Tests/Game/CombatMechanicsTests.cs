@@ -351,4 +351,76 @@ public class CombatMechanicsTests
         BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should().Be(32);
         Sessions(combat).Should().Be(1, "step 6 sends the refusal instead of an EndAttack");
     }
+
+    // ---- IsAttackable, the last step of onAttackRequest (102-cant-attack.md §10, case B) ----
+
+    private static decimal[] Values(params decimal[] head)
+    {
+        var values = new decimal[20];
+        head.CopyTo(values, 0);
+        return values;
+    }
+
+    [TestCase(82, 1, 0, true, TestName = "EF_MEZZ value_0: no action at all")]
+    [TestCase(82, 0, 1, true, TestName = "EF_MEZZ value_2: no attack")]
+    [TestCase(82, 0, 0, false, TestName = "EF_MEZZ movement only: the attack stays")]
+    [TestCase(104, 0, 1, true, TestName = "EF_TRANSFORMATION value_2: no normal attack")]
+    public void A_state_that_forbids_the_attack_is_answered_access_denied(int effectType, int value0, int value2,
+        bool refused)
+    {
+        var (combat, client, info, _) = Defender(new StateRule(77, Array.Empty<int>(), 0, 0, effectType,
+            Values(value0, 0, value2)), 1);
+        info.CharacterHandle = 0x11223344;
+        // A permanent state: the harness's uint.MaxValue - 1 reads as already over in wrapping tick arithmetic.
+        lock (info.BuffLock) { info.ActiveBuffs.Clear(); info.ActiveBuffs.Add(new ActiveBuff(1, 77, 0, 1, 0, uint.MaxValue)); }
+
+        combat.StartAttack(client, 0x40000001);
+
+        if (!refused)
+        {
+            CantAttackFrames(client).Should().BeEmpty();
+            Sessions(combat).Should().Be(1);
+            return;
+        }
+
+        Sessions(combat).Should().Be(0);
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should()
+            .Be((int)Navislamia.Game.Network.Packets.ResultCode.AccessDenied, "IsAttackable is false: ACCESS_DENIED (6)");
+    }
+
+    [Test]
+    public void Stun_riding_and_the_listed_misc_states_refuse_and_an_unlisted_one_does_not()
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        lock (info.BuffLock) info.ActiveBuffs.Add(new ActiveBuff(2, 6006, 0, 1, 0, uint.MaxValue));
+        combat.StartAttack(client, 0x40000001);
+        BinaryPrimitives.ReadInt32LittleEndian(CantAttackFrames(client).Single().AsSpan(15)).Should().Be(6, "stun");
+
+        lock (info.BuffLock) info.ActiveBuffs.RemoveAll(b => b.StateId == 6006);
+        info.RideHandle = 0x50000001;
+        combat.StartAttack(client, 0x40000001);
+        BinaryPrimitives.ReadInt32LittleEndian(CantAttackFrames(client).Last().AsSpan(15)).Should().Be(6, "riding");
+
+        info.RideHandle = 0;
+        combat.StartAttack(client, 0x40000001);
+        Sessions(combat).Should().Be(1, "state 77 is EF_MISC but not one of the listed codes");
+
+        AttackMechanics.BlocksAttack(6008, 0, Values()).Should().BeTrue("fear clears IsActable");
+        AttackMechanics.BlocksAttack(6008, 82, Values()).Should().BeFalse("the code list is EF_MISC's switch only");
+    }
+
+    [Test]
+    public void A_sitting_player_stands_up_and_attacks()
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.IsSitting = true;
+
+        combat.StartAttack(client, 0x40000001);
+
+        info.IsSitting.Should().BeFalse("onAttackRequest: StandUp then BroadcastStatusMessage");
+        ((StorageTestHarness.FrameConnection)client.Connection).Sent
+            .Any(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 500).Should().BeTrue();
+        Sessions(combat).Should().Be(1);
+    }
 }
