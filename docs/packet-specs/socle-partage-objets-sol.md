@@ -304,6 +304,41 @@ après l'échéance.
   comparaison est non signée (`ja`), un `drop_time` futur donnerait un écoulé énorme et un objet
   immédiatement « à tous ». Non observé.
 
+## 10. Ce que cette branche livre (implémentation)
+
+Le paquet n'a **pas bougé d'un octet** : les trois points du §7.1 sont dans le service, plus la règle de
+fenêtre extraite pour être testable et une horloge injectable pour l'atteindre en test.
+
+| Livré | Où | Ce que ça fait |
+|---|---|---|
+| Instant de chute mémorisé | `Game/Services/GroundItem.cs` (`DropTime`, `uint`, ticks serveur) | Fixé à la création de l'objet, il ne bouge plus |
+| `drop_time` réel | `GroundItemService.ShowTo` | `unchecked(item.DropTime + info.ClientClockOffset)` : le décalage du destinataire, jamais l'instant d'envoi — `Sync` et un retour de warp rejouent donc le même instant |
+| Horloge injectable | constructeur `GroundItemService(..., Func<uint> clock = null)` | `() => ServerClock.Now` par défaut ; même couture que `FieldPropStates` et `HuntaholicService`, c'est ce qui permet aux tests d'atteindre 30 s sans dormir |
+| Règle de fenêtre | `Game/Services/GroundItemPickupRules.cs` | La boucle de `onTakeItem` : slot vide ou nommé → accepté ; slot occupé non-correspondant → refus tant que `elapsed < 3000 + 1000 × (slots déjà sautés)` ; ordre épuisé → accepté. Le local ne remplit que le slot 0, donc `occupiedSlots` vaut 0 ou 1 en production |
+| Refus | `GroundItemService.TakeAsync` | `TS_RESULT_ACCESS_DENIED` (6) hors fenêtre ; `NOT_EXIST` (1) reste pour l'objet absent, `TOO_FAR` (2) pour la portée, `TOO_HEAVY` (11) pour le poids |
+| Même règle pour l'animal | `TryFindNearest` / `TakeForPetAsync` | Les deux passent par le même `CanTake` : rien à viser avant l'échéance, l'objet après |
+
+Vérification : `dotnet build Navislamia.sln -c Debug` code 0 ; `dotnet test Tests/Tests.csproj` code 0,
+3751 tests (base `b2b260c` : 3732, aucun perdu). Nouveaux fichiers de test :
+
+| Fichier | Ce qu'il épingle |
+|---|---|
+| `Tests/Game/GroundItemEnterItemTests.cs` | 70 octets, id 3, `type`/`handle`/`x`/`y`/`z`/`layer`/`objType` en 7/8/12/16/20/24/25, `code` en 26 (`EncodedInt` : mots à 26/30, moitiés à 28/32), `count` en 34 (64 bits), `drop_time` en 42, `hPlayer` en 46/50/54, `nPartyID` en 58/62/66 |
+| `Tests/Game/GroundItemPickupRulesTests.cs` | Les paliers 3000/4000/5000 ticks, soit 30/40/50 s, un cran d'écart (2999/3999/4999 refusés) ; ordre vide et slot nommé acceptés à t=0 |
+| `Tests/Game/GroundItemTakeWindowTests.cs` | Étranger refusé en `ACCESS_DENIED` (6) à 29,99 s puis accepté à 30,00 s ; propriétaire et membre de groupe acceptés à t=0 ; `drop_time` identique après un `LeaveWorld`/`Sync` à +250 ticks ; décalage d'horloge appliqué par destinataire |
+
+**Réserve propre à l'implémentation.** La fenêtre s'applique à **tout** objet au sol, y compris le jet
+d'inventaire et l'objet de quête : leur entrée remplit elle aussi `hPlayer[0]` avec le personnage et laisse
+`nPartyID[0]` à zéro, donc la boucle les ouvre à tout le monde au-delà de 30 s. Le verrou « le
+propriétaire seul, indéfiniment » que le local appliquait à ces deux cas disparaît. C'est la lecture fidèle
+des références, mais c'est un changement visible — point 7 ci-dessous.
+
+Le slot 0 est nommé par le **handle du fil** (`hPlayer[0]`), comme le client le compare, et par l'identité
+de l'objet client : une reconnexion du même personnage reste donc ayant droit, là où l'ancienne règle ne
+connaissait que l'objet. `PetPickupTests` donnait le même `CharacterHandle` à ses deux personnages ; sa
+fixture en reçoit un distinct (`0x80000002`), l'assertion « le butin n'est qu'à son tueur » étant conservée
+et devenant enfin réelle.
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Le chiffre public des paliers.** `203-drop-item.md:285` et `CLAUDE.md:1931` annoncent un
@@ -322,6 +357,15 @@ après l'échéance.
    non établie ? Aucun des deux n'est mesuré sur le client 7.3.
 6. **Objets de quête** au sol : l'officiel refuse `ACCESS_DENIED` à qui n'a pas la quête active.
    Politique à valider (le local accepte aujourd'hui tout membre du groupe).
+7. **La fenêtre ouvre aussi les jets qui ne sont pas des butins** (ajouté par le dev, §10). Un objet lâché
+   par `TM_CS_DROP_ITEM` (203) et un objet de quête portent `hPlayer[0]` = leur propriétaire et
+   `nPartyID[0]` = 0 : la boucle les ouvre donc à tout le monde après 30 s, alors que le local n'acceptait
+   jusque-là que le propriétaire, indéfiniment. C'est la lecture fidèle des deux références, mais c'est un
+   changement visible : confirmer, ou restreindre la fenêtre aux butins de monstre (`MonsterDrop`).
+8. **`NOT_OWN` (3) n'est pas émis** (ajouté par le dev, §10). L'officiel répond `NOT_OWN` pour « déjà pris
+   ou pas propriétaire » avant d'entrer dans la boucle ; ce lot ne l'a pas porté, aucun test ne l'exigeait,
+   et il répond `NOT_EXIST` (1) pour l'objet absent comme pour l'objet en cours de ramassage, la fenêtre
+   restant seule en `ACCESS_DENIED` (6). À trancher si la fiche du 210 doit porter `NOT_OWN`.
 
 ## Bloc pour CLAUDE.md
 
@@ -340,6 +384,21 @@ après l'échéance.
   boucle (`onTakeItem` 0x140134080, `ry = 3000 + 1000` par emplacement occupé non-correspondant) et
   accepte tout de suite l'emplacement qui nomme le joueur. Le chiffre « 3 s/4 s/5 s » de
   `203-drop-item.md` était faux d'un facteur 10.
+```
+
+### Bloc à coller — implémentation (ajouté par le dev, §10)
+
+```
+- **Objets au sol — l'instant de chute et la fenêtre de ramassage.** `drop_time` (entrée d'objet
+  `TM_SC_ENTER` 3, offset 42) porte l'instant où l'objet est tombé, en ticks serveur de 10 ms, décalé dans
+  la base d'horloge du destinataire (`GroundItem.DropTime`, `GroundItemService.ShowTo`) : un `Sync` ou un
+  retour de warp ne le redate **jamais**, sans quoi un arrivant tardif verrait l'objet reverrouillé 30 s.
+  Côté serveur, `GroundItemPickupRules` rejoue la boucle de `onTakeItem` : le slot 0 nommé (le tueur ou son
+  groupe) prend tout de suite, un tiers est refusé en `TS_RESULT_ACCESS_DENIED` (6) tant que
+  `GetArTime() - drop_time < 3000` puis accepté — 30 s avec un slot rempli, 40/50 s avec deux ou trois, et
+  l'ordre vide est à tous. Le local ne remplit que le slot 0 : la priorité aux trois parties contributrices
+  reste une carte séparée. `Func<uint> clock` au constructeur de `GroundItemService` est la couture
+  d'horloge des tests, comme dans `FieldPropStates`.
 ```
 
 ## Commits épinglés

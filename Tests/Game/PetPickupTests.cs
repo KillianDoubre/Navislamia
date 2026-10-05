@@ -32,12 +32,13 @@ public class PetPickupTests
             rates, A.Fake<Navislamia.Game.Services.Interfaces.IPlayerVisibilityService>());
     }
 
-    private (GameClient Client, StorageTestHarness.FrameConnection Connection) NewMaster(string name)
+    private (GameClient Client, StorageTestHarness.FrameConnection Connection) NewMaster(string name,
+        uint handle = 0x80000001)
     {
         var connection = new StorageTestHarness.FrameConnection(Array.Empty<byte>());
         var client = StorageTestHarness.NewGameClient(connection);
         var info = StorageTestHarness.Session(client);
-        info.CharacterHandle = 0x80000001;
+        info.CharacterHandle = handle;
         info.CharacterName = name;
         info.X = 1000;
         info.Y = 1000;
@@ -63,7 +64,9 @@ public class PetPickupTests
     public async Task TryFindNearest_SeesOnlyTheMastersLootWithinRangeOnItsLayer()
     {
         var (master, masterConnection) = NewMaster("Master");
-        var (other, _) = NewMaster("Other");
+        // Two players never share a handle: the entry's hPlayer[0] is what names the killer on the wire, so
+        // a distinct handle is what makes "somebody else" somebody else.
+        var (other, _) = NewMaster("Other", 0x80000002);
         var handle = await DropOne(master, masterConnection);
 
         _service.TryFindNearest(master, 1030, 1000, 0, 60, out var spot).Should().BeTrue();
