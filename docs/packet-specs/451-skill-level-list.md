@@ -43,6 +43,13 @@ tampon officiel. `SummonSkillTests` et `CreatureTests.SmallPackets` : données r
 liste vide et refus de handle absent. En jeu : retourner une carte apprivoisée avec des compétences
 apprises, puis une carte vide ; vérifier le contenu et les niveaux affichés.
 
+## Carte d'un autre joueur (relecture du 2026-10-05)
+
+`onSummonCardSkillList` trouve l'objet par `StructItem::FindItem`, qui est global : une carte montrée dans une fenêtre
+d'échange ou un étal se retourne comme une carte possédée. `CreatureService.SendCardSkillList` cherche donc la carte
+chez le joueur, puis chez les joueurs en ligne. Une carte d'un propriétaire hors ligne (enchère) n'est pas en mémoire
+et répond `NotExist`.
+
 ## NON ÉTABLI
 
 - Aucun constructeur ni traitement actif de 450 n'a été établi : le lien fonctionnel prouvé

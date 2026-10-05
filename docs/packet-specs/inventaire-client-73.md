@@ -66,13 +66,20 @@ regarder ; une ligne traitée se barre ici et se documente dans la fiche du syst
 
 ### Paquets que le client lit et que le serveur n'envoie jamais
 
-| Id | Paquet | Ce qui manque |
-|---|---|---|
-| 322 | `TS_SC_SHOW_SUMMON_NAME_CHANGE` | la fenêtre de renommage d'une invocation (objet de renommage, `StructSummon`) |
-| 450 / 451 | `TM_CS/SC_SKILL_LEVEL_LIST` | la demande et la liste des niveaux de compétences |
-| 512 | `TS_SC_TARGET` | la cible d'un acteur, diffusée aux observateurs |
-| 514 | `TS_SC_SP` | les SP des invocations |
-| 3003 / 3004 | `TS_SC_SHOW_WINDOW` / `TS_SC_GENERAL_MESSAGE_BOX` | les fenêtres et boîtes ouvertes par les scripts Lua (`show_window`, `message_box`) |
+Tous livrés le 2026-10-05 (lot de Codex relu) : ~~322~~, ~~451~~ (réponse à 452 ; 450 est commenté chez l'officiel),
+~~512~~, ~~514~~, ~~3003 / 3004~~. Restent :
+
+- **Fenêtres de confirmation ouvertes par le C++ officiel** : `secret_dungeon_confirm_window`
+  (`warp_to_secret_dungeon`), `instance_dungeon_confirm_window` et `…_window2` (`warp_to_instance_dungeon`,
+  `exit_indun`), `dungeon_raid_confirm_window` (`begin_dungeon_raid`), `recall_feather_confirm_window` et
+  `number_input_window` (`on_channel_set`), `ScriptPlayer.cpp:2578-3203`, `StructCreature.cpp:4908`. Le serveur passe
+  aujourd'hui par des pages de dialogue. Le rappel de ces fenêtres porte des paramètres ajoutés par le client
+  (l'officiel l'accepte par `strstr`) : leur format n'est pas établi, il faut le lire dans `SFrame.exe`.
+- La 451 d'une carte dont le propriétaire est hors ligne (vue aux enchères) répond `NotExist` : l'officiel la trouve
+  par `StructItem::FindItem`, ici seules les cartes des joueurs en ligne sont en mémoire.
+- Le menu du gestionnaire de siège (`NpcDialogService.TryShow`, `NPC_dungeon_siege_manager_contact`) envoie des
+  libellés **en français écrits en dur** (« Entrer dans le donjon », « Commencer le raid de guilde »…) au lieu
+  d'identifiants de chaîne du client.
 
 ### Effets déclenchés au combat (`m_vProcBy*`, `CalculateStat.cpp`)
 

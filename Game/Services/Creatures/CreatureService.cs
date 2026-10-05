@@ -1250,17 +1250,39 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
     /// <summary>onSummonCardSkillList: 451 with base levels, or an empty list for an unbound card.</summary>
     public void SendCardSkillList(GameClient client, uint itemHandle)
     {
-        var info = client.ConnectionInfo;
-        CreatureCard card;
-        lock (info.SummonLock)
-            card = info.CreatureCards.Values.FirstOrDefault(c => c.Handle == itemHandle && c.Amount > 0);
+        // StructItem::FindItem is global: the card may be another player's, shown in a trade window or a booth. The
+        // cards of the players online are the ones this server holds in memory; an offline owner's card (an auction)
+        // is not resolved (451-skill-level-list.md).
+        var owner = client.ConnectionInfo;
+        var card = OwnedCard(owner, itemHandle);
+        if (card is null && _players?.Registry is { } registry)
+        {
+            foreach (var other in registry.Clients)
+            {
+                if (ReferenceEquals(other, client) || OwnedCard(other.ConnectionInfo, itemHandle) is not { } found)
+                {
+                    continue;
+                }
+
+                owner = other.ConnectionInfo;
+                card = found;
+                break;
+            }
+        }
+
         if (card is null)
         {
             client.SendResult((ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST, (ushort)ResultCode.NotExist);
             return;
         }
-        client.Connection.Send(GameSmallPackets.SkillLevels(card.HasSummon ? SkillsOf(info, card)
+        client.Connection.Send(GameSmallPackets.SkillLevels(card.HasSummon ? SkillsOf(owner, card)
             : Array.Empty<KeyValuePair<int, byte>>()));
+    }
+
+    private static CreatureCard OwnedCard(ConnectionInfo info, uint itemHandle)
+    {
+        lock (info.SummonLock)
+            return info.CreatureCards.Values.FirstOrDefault(c => c.Handle == itemHandle && c.Amount > 0);
     }
 
     private static SkillListEntry[] SkillEntriesOf(ConnectionInfo info, CreatureCard card)

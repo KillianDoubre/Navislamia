@@ -125,4 +125,22 @@ public partial class CreatureTests
         BinaryPrimitives.ReadUInt16LittleEndian(refusal.AsSpan(9)).Should().Be((ushort)ResultCode.NotExist);
         h.Ids.Should().NotContain((ushort)403).And.NotContain((ushort)301);
     }
+
+    [Test]
+    public void Card_flip_finds_the_card_of_another_player_online_like_the_global_FindItem()
+    {
+        var h = new Harness();
+        var other = StorageTestHarness.NewGameClient(new StorageTestHarness.FrameConnection(Array.Empty<byte>()));
+        var otherInfo = StorageTestHarness.Session(other);
+        otherInfo.CharacterHandle = 8;
+        var card = new CreatureCard { ItemId = 77, Amount = 1, SummonId = 300, SummonCode = SummonId };
+        card.Skills[40011] = 4;
+        otherInfo.CreatureCards[77] = card;
+        h.Registry.Register(8, other);
+
+        h.Service.SendCardSkillList(h.Client, 77);
+
+        h.Sent.Single().Should().Equal(GameSmallPackets.SkillLevels(card.Skills.ToArray()),
+            "a card shown in a trade window or a booth is flipped like an owned one");
+    }
 }
