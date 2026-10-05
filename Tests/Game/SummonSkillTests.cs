@@ -170,11 +170,11 @@ public class SummonSkillTests
     }
 
     [Test]
-    public void The_card_flip_lists_the_summon_skills()
+    public async Task The_card_flip_lists_the_summon_skills()
     {
         var h = new Harness();
         h.Card.Skills[Bite] = 2;
-        h.Service.SendCardSkillList(h.Client, 60);
+        await h.Service.SendCardSkillListAsync(h.Client, 60);
         var list = h.Last(GamePackets.TM_SC_SKILL_LEVEL_LIST);
         list.Should().HaveCount(14);
         BinaryPrimitives.ReadUInt16LittleEndian(list.AsSpan(7, 2)).Should().Be(1);

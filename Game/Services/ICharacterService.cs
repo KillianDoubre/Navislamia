@@ -301,6 +301,14 @@ public interface ICharacterService
         Task.FromResult<IReadOnlyList<SummonSkillRecord>>(Array.Empty<SummonSkillRecord>());
 
     /// <summary>
+    /// The base skill levels of the summon a card item holds, read from the database whoever holds the card — the
+    /// part of the global <c>StructItem::FindItem</c> the online sessions cannot answer (an auction, an offline
+    /// owner). Null when the item does not exist, empty when the card holds no summon.
+    /// </summary>
+    Task<KeyValuePair<int, byte>[]> GetCardSkillsAsync(uint itemHandle) =>
+        Task.FromResult<KeyValuePair<int, byte>[]>(null);
+
+    /// <summary>
     /// A summon learned a skill level: the row is inserted or raised and the summon's JP set to what is left, in one
     /// save (<c>StructSummon::onRegisterSkill</c>). False when the summon is not the character's.
     /// </summary>

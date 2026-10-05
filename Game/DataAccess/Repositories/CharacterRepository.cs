@@ -144,6 +144,17 @@ public sealed class CharacterRepository : ICharacterRepository
         _context.SummonSkills.Add(skill);
     }
 
+    public async Task<List<SummonSkillEntity>> GetCardSkillsAsync(long cardItemId)
+    {
+        if (!await _context.Items.AnyAsync(item => item.Id == cardItemId && item.Amount > 0))
+        {
+            return null;
+        }
+
+        return await _context.SummonSkills.AsNoTracking().Where(skill => skill.Summon.CardItemId == cardItemId)
+            .OrderBy(skill => skill.SkillId).ToListAsync();
+    }
+
     private IQueryable<CharacterQuestEntity> QuestsOf(string characterName)
     {
         return from quest in _context.CharacterQuests

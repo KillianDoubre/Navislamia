@@ -72,7 +72,7 @@ public interface ICreatureService
     Task<bool> TryLearnSkillAsync(GameClient client, GameActionPackets.LearnSkillRequest request);
 
     /// <summary>452: the skills of a card's summon.</summary>
-    void SendCardSkillList(GameClient client, uint itemHandle);
+    Task SendCardSkillListAsync(GameClient client, uint itemHandle);
 
     /// <summary><c>/ride &lt;handle&gt;</c>: the master mounts its summon.</summary>
     bool Mount(GameClient client, uint summonHandle);
@@ -1248,11 +1248,37 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
     }
 
     /// <summary>onSummonCardSkillList: 451 with base levels, or an empty list for an unbound card.</summary>
-    public void SendCardSkillList(GameClient client, uint itemHandle)
+    public async Task SendCardSkillListAsync(GameClient client, uint itemHandle)
     {
-        // StructItem::FindItem is global: the card may be another player's, shown in a trade window or a booth. The
-        // cards of the players online are the ones this server holds in memory; an offline owner's card (an auction)
-        // is not resolved (451-skill-level-list.md).
+        // StructItem::FindItem is global: the card may be another player's, shown in a trade window, a booth or an
+        // auction. The cards of the players online are held in memory and read first; any other card (an auction, an
+        // offline owner) is read from the database (451-skill-level-list.md).
+        if (TryFindOnlineCard(client, itemHandle, out var skills))
+        {
+            client.Connection.Send(GameSmallPackets.SkillLevels(skills));
+            return;
+        }
+
+        try
+        {
+            skills = await _characters.GetCardSkillsAsync(itemHandle);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Summon card skill list of item {itemHandle} could not be read", itemHandle);
+            skills = null;
+        }
+
+        if (skills is null)
+        {
+            client.SendResult((ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST, (ushort)ResultCode.NotExist);
+            return;
+        }
+        client.Connection.Send(GameSmallPackets.SkillLevels(skills));
+    }
+
+    private bool TryFindOnlineCard(GameClient client, uint itemHandle, out KeyValuePair<int, byte>[] skills)
+    {
         var owner = client.ConnectionInfo;
         var card = OwnedCard(owner, itemHandle);
         if (card is null && _players?.Registry is { } registry)
@@ -1270,13 +1296,9 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             }
         }
 
-        if (card is null)
-        {
-            client.SendResult((ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST, (ushort)ResultCode.NotExist);
-            return;
-        }
-        client.Connection.Send(GameSmallPackets.SkillLevels(card.HasSummon ? SkillsOf(owner, card)
-            : Array.Empty<KeyValuePair<int, byte>>()));
+        skills = card is null ? null
+            : card.HasSummon ? SkillsOf(owner, card) : Array.Empty<KeyValuePair<int, byte>>();
+        return card is not null;
     }
 
     private static CreatureCard OwnedCard(ConnectionInfo info, uint itemHandle)

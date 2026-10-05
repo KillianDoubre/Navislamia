@@ -1673,6 +1673,13 @@ public partial class CharacterService : ICharacterService
             .Select(skill => new SummonSkillRecord(skill.SummonId, skill.SkillId, skill.Level)).ToList();
     }
 
+    public async Task<KeyValuePair<int, byte>[]> GetCardSkillsAsync(uint itemHandle)
+    {
+        using var repository = _repositories.Create();
+        var skills = await repository.GetCardSkillsAsync(itemHandle);
+        return skills?.Select(skill => new KeyValuePair<int, byte>(skill.SkillId, skill.Level)).ToArray();
+    }
+
     public Task<bool> SaveSummonSkillAsync(string characterName, long summonId, int skillId, byte level, int remainingJp)
     {
         return RunExclusiveAsync(characterName, async repository =>

@@ -75,8 +75,8 @@ Tous livrés le 2026-10-05 (lot de Codex relu) : ~~322~~, ~~451~~ (réponse à 4
   `number_input_window` (`on_channel_set`), `ScriptPlayer.cpp:2578-3203`, `StructCreature.cpp:4908`. Le serveur passe
   aujourd'hui par des pages de dialogue. Le rappel de ces fenêtres porte des paramètres ajoutés par le client
   (l'officiel l'accepte par `strstr`) : leur format n'est pas établi, il faut le lire dans `SFrame.exe`.
-- La 451 d'une carte dont le propriétaire est hors ligne (vue aux enchères) répond `NotExist` : l'officiel la trouve
-  par `StructItem::FindItem`, ici seules les cartes des joueurs en ligne sont en mémoire.
+- ~~La 451 d'une carte dont le propriétaire est hors ligne (vue aux enchères) répond `NotExist`~~ : lue en base depuis
+  le 2026-10-05 (`451-skill-level-list.md`).
 - Le menu du gestionnaire de siège (`NpcDialogService.TryShow`, `NPC_dungeon_siege_manager_contact`) envoie des
   libellés **en français écrits en dur** (« Entrer dans le donjon », « Commencer le raid de guilde »…) au lieu
   d'identifiants de chaîne du client.

@@ -357,6 +357,33 @@ public partial class CreatureTests
     }
 
     [Test]
+    public async Task A_card_on_sale_reads_its_summon_skills_from_the_database()
+    {
+        var options = new DbContextOptionsBuilder<TelecasterContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString(), o => o.EnableNullChecks(false)).Options;
+        await using (var db = new TelecasterContext(options))
+        {
+            // An auction lot is an item row without character or account (socle-encheres-mecanique.md).
+            db.Items.Add(new ItemEntity { Id = 70, ItemResourceId = CardId, Amount = 1 });
+            db.Items.Add(new ItemEntity { Id = 71, ItemResourceId = CardId, Amount = 1 });
+            db.Items.Add(new ItemEntity { Id = 72, ItemResourceId = CardId, Amount = 0 });
+            db.Summons.Add(new SummonEntity { Id = 9, CharacterId = 1, CardItemId = 70, SummonResourceId = SummonId });
+            db.SummonSkills.Add(new SummonSkillEntity { Id = 1, SummonId = 9, SkillId = 40012, Level = 1 });
+            db.SummonSkills.Add(new SummonSkillEntity { Id = 2, SummonId = 9, SkillId = 40011, Level = 3 });
+            await db.SaveChangesAsync();
+        }
+
+        var service = new CharacterService(A.Fake<IStarterItemsRepository>(), new CharacterRepositoryFactory(options),
+            new CharacterGate(), NullLogger<CharacterService>.Instance);
+
+        (await service.GetCardSkillsAsync(70)).Should().Equal(new KeyValuePair<int, byte>(40011, 3),
+            new KeyValuePair<int, byte>(40012, 1));
+        (await service.GetCardSkillsAsync(71)).Should().BeEmpty("a card without a summon is a 451 with no entry");
+        (await service.GetCardSkillsAsync(72)).Should().BeNull("a used-up stack is no item");
+        (await service.GetCardSkillsAsync(73)).Should().BeNull();
+    }
+
+    [Test]
     public async Task A_taming_commit_consumes_one_card_and_creates_the_bound_card_and_its_summon()
     {
         var options = new DbContextOptionsBuilder<TelecasterContext>()

@@ -66,6 +66,12 @@ public interface ICharacterRepository : IDisposable
     void AddSummonSkill(SummonSkillEntity skill);
 
     /// <summary>
+    /// The skills of the summon bound to a card item, whoever holds the card (a bag, an auction, an offline player),
+    /// read no-tracking: null when no item with stock has that id, empty when the card holds no summon.
+    /// </summary>
+    Task<List<SummonSkillEntity>> GetCardSkillsAsync(long cardItemId);
+
+    /// <summary>
     /// Avoid using SaveChanges directly from context as it applies modifications directly to the database.
     /// Finish all required operations for a step then call this method
     /// </summary>

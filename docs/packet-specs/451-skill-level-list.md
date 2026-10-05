@@ -28,7 +28,7 @@ et Capstone. rzu `TS_SC_SKILL_LEVEL_LIST.h:18-21` : disponible depuis 7.3, id 45
 invocation liée → 451 avec ses compétences ; carte sans invocation → 451 vide ; objet absent
 → `TS_SC_RESULT(452, RESULT_NOT_EXIST)`. `CreatureService` utilise les cartes détenues dans
 `ConnectionInfo.CreatureCards` et leurs compétences réellement chargées dans `SummonSkills`.
-Il limite la résolution aux cartes du demandeur, au lieu de la recherche globale d'objet du C++.
+La résolution est globale comme celle du C++ (section suivante).
 
 `SendMessage.cpp:2290-2335` écrit les **niveaux de base**, sans bonus de carte de compétence,
 et borne les entrées au tampon officiel de 4096 octets : au plus 817 entrées, trame de 4094 octets.
@@ -46,9 +46,19 @@ apprises, puis une carte vide ; vérifier le contenu et les niveaux affichés.
 ## Carte d'un autre joueur (relecture du 2026-10-05)
 
 `onSummonCardSkillList` trouve l'objet par `StructItem::FindItem`, qui est global : une carte montrée dans une fenêtre
-d'échange ou un étal se retourne comme une carte possédée. `CreatureService.SendCardSkillList` cherche donc la carte
-chez le joueur, puis chez les joueurs en ligne. Une carte d'un propriétaire hors ligne (enchère) n'est pas en mémoire
-et répond `NotExist`.
+d'échange ou un étal se retourne comme une carte possédée. `CreatureService.SendCardSkillListAsync` cherche donc la carte
+chez le joueur, puis chez les joueurs en ligne.
+
+**Carte hors ligne (correction du 2026-10-05, carte Trello `4Q0cCCsj`).** L'officiel garde en mémoire les objets des
+enchères, si bien que `FindItem` les trouve ; ici, une carte qu'aucune session ne tient (lot d'enchère : ligne `Items` sans
+personnage ni compte ; carte d'un joueur hors ligne) est lue en base par `ICharacterService.GetCardSkillsAsync` :
+`Items.Id == handle` avec `Amount > 0`, puis `SummonSkills` de l'invocation dont `CardItemId` est cette carte (lecture
+sans suivi, sans verrou de personnage). Mêmes trois issues que la mémoire : liste des niveaux de base, liste vide pour une
+carte sans invocation, `TS_SC_RESULT(452, NotExist)` pour un objet absent ou une pile épuisée. Une erreur de lecture est
+journalisée et répond `NotExist`. Le handle d'un objet est `(uint)ItemEntity.Id` partout (`ItemFixedInfoWriter`), donc le
+handle montré par la 1301 est celui que la 452 renvoie. Tests : `CreatureTests.A_card_on_sale_reads_its_summon_skills_from_the_database`
+(base en mémoire : carte liée, carte vide, pile épuisée, id absent) et
+`Card_flip_reads_the_card_of_an_offline_owner_from_the_database` (service).
 
 ## NON ÉTABLI
 

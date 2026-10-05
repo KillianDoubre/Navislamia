@@ -871,7 +871,10 @@ public class GameClient : Client
         }
 
         // 451 lists base levels; 403 remains the bootstrap/learned-skill packet.
-        _networkService.CreatureService?.SendCardSkillList(this, itemHandle);
+        if (_networkService.CreatureService is { } creatures)
+        {
+            _ = creatures.SendCardSkillListAsync(this, itemHandle);
+        }
     }
 
     private void SyncVisibleObjects()
