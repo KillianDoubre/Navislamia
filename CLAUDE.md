@@ -1721,6 +1721,9 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
 - The client clock is synchronized and `game_time` carries Unix time, but movement still applies
   `ClientClockOffset` by hand rather than trusting the sync
 - Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
+- **Known gaps are listed in one place**: `docs/packet-specs/inventaire-client-73.md`, *Trous connus* — the packets the
+  client reads and the server never sends, the combat procs still missing, small gaps, open decisions and what a public
+  server still needs. Strike a line there when it is done.
 - Features beyond login, character handling, world entry, movement, chat, stats and object streaming
   remain POC work
 

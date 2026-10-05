@@ -58,3 +58,58 @@ Trois sources ont été croisées.
 - **Titres (625-636)** : le client ne les aiguille pas, ce qui confirme les commandes `/titles`, `/title` et
   `/subtitle`.
 - `TS_SC_SKIN_INFO` (224) est émis alors que le client ne l'aiguille pas : sans effet, mais sans danger.
+
+## Trous connus (état au 2026-10-05)
+
+Ce qui reste pour un émulateur 7.3 complet, une fois tous les systèmes du client couverts. Chaque ligne dit où
+regarder ; une ligne traitée se barre ici et se documente dans la fiche du système.
+
+### Paquets que le client lit et que le serveur n'envoie jamais
+
+| Id | Paquet | Ce qui manque |
+|---|---|---|
+| 322 | `TS_SC_SHOW_SUMMON_NAME_CHANGE` | la fenêtre de renommage d'une invocation (objet de renommage, `StructSummon`) |
+| 450 / 451 | `TM_CS/SC_SKILL_LEVEL_LIST` | la demande et la liste des niveaux de compétences |
+| 512 | `TS_SC_TARGET` | la cible d'un acteur, diffusée aux observateurs |
+| 514 | `TS_SC_SP` | les SP des invocations |
+| 3003 / 3004 | `TS_SC_SHOW_WINDOW` / `TS_SC_GENERAL_MESSAGE_BOX` | les fenêtres et boîtes ouvertes par les scripts Lua (`show_window`, `message_box`) |
+
+### Effets déclenchés au combat (`m_vProcBy*`, `CalculateStat.cpp`)
+
+Seuls les passifs d'énergie 32262/32263 sont branchés (`Combat/EnergyProcs.cs`). Manquent :
+
+- les passifs qui posent un état sur un coup, un coup reçu, un critique, une esquive, un blocage ou une mort
+  (`EF_ADD_STATE_ON_*`, 32001 et suivants) ;
+- les temps de recharge modifiés sur attaque, coup reçu ou mort (`IncSkillCoolTimeOn*`, 10063-10065) ;
+- la maîtrise du bouclier (`IncreaseExtensionAttribute`, 10009) et l'expertise d'esquive (10011, sans valeurs) ;
+- les passifs des invocations (`AmplifySummonHpMpSp` 10032, `HuntingTraining` 10013).
+
+Ces effets partagent une seule mécanique officielle (`_ATTACK_TAG`, `CheckProcByAttack`) : `EnergyProcs.Applies` en
+porte déjà les conditions et peut servir de base commune.
+
+### Petits manques
+
+- `TS_SC_CANT_ATTACK` (102) n'est pas envoyé pour `NOT_ENOUGH_BULLET` (flèches) ni `ACCESS_DENIED` (`IsAttackable`).
+- Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion.
+- Le filtre de ramassage du familier (355) est lu et gardé, jamais appliqué.
+- Les objets au sol ne s'ouvrent jamais aux autres joueurs (l'officiel les ouvre au groupe puis à tous après un délai).
+- Les invocations n'ont pas de durée : `TS_SC_REMOVE_SUMMON_INFO` (302) et `TS_SC_UNSUMMON_NOTICE` (306) n'ont pas
+  d'appelant.
+- Les groupes vivent en mémoire et disparaissent au redémarrage du serveur.
+- `EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources` (`socle-zones-evenement.md`).
+
+### Décisions laissées à Killian
+
+- Numéro de sécurité (9002-9011) : stockage et vérification du code, transport vers le serveur d'authentification.
+- Boutique payante et coffre commercial (10001 et suivants, 9000/9001).
+- Ferme de créatures (6000-6008) : volontairement non implémentée.
+
+### Avant d'ouvrir à de vrais joueurs
+
+- **Anti-triche** : le serveur croit les positions du client (`TM_CS_MOVE_REQUEST`, `TM_CS_REGION_UPDATE`, 900) sans
+  contrôle de vitesse ni d'obstacles ; les paquets 54, 57 et 59 sont lus et ignorés.
+- **Exploitation** : PostgreSQL démarre à la main avec les droits administrateur, aucune sauvegarde automatique des
+  bases, aucun test de charge à plusieurs dizaines de joueurs.
+- **Validation en jeu** : la plupart des systèmes à plusieurs joueurs (échange, étals, enchères, groupe, guildes,
+  sièges, duel, PvP, buffs de groupe) et les contenus (artisanat, quêtes, HuntaHolic, donjons) ne sont validés que
+  par les tests automatiques.
