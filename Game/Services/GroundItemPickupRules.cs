@@ -73,4 +73,21 @@ public static class GroundItemPickupRules
 
         return true;
     }
+
+    /// <summary>
+    /// The client's own gate, <c>SGameItem::IsPickable</c> (7.3 <c>0x6CA270</c>; named in the December 2011 PDB
+    /// client at <c>0x6C2950</c>), whose only caller is <c>SGameLocalPet::CmdIdle</c>: it decides what the pet
+    /// collects, never what the player may click. <c>SGameItem::Process</c> raises a state with the time since the
+    /// fall — 1 past 3000 ticks, 2 past 4000, 3 past 5000, 3 at once for an empty order — and slot <c>i</c> is
+    /// honoured when <c>i &lt; state</c>; state 3 is everybody. So the pet takes its master's loot at 30 s and anybody
+    /// else's at 50 s.
+    /// </summary>
+    public static bool PetMayCollect(uint elapsedTicks, int occupiedSlots, bool firstSlotNamesMe)
+    {
+        if (occupiedSlots <= 0) return true;
+        var state = elapsedTicks > FirstDeadlineTicks + 2 * SlotStepTicks ? 3
+            : elapsedTicks > FirstDeadlineTicks + SlotStepTicks ? 2
+            : elapsedTicks > FirstDeadlineTicks ? 1 : 0;
+        return state == 3 || firstSlotNamesMe && state >= 1;
+    }
 }

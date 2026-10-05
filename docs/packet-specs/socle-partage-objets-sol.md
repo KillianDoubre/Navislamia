@@ -346,6 +346,35 @@ emplacement est rempli (§5.2, §5.4). Ce point reste ouvert au **point 2** ci-d
 pour le client, il faudra ouvrir à 50 s en toutes circonstances, ce qui ne change qu'une constante de la
 règle et la sortie de `GroundItemPickupRules`.
 
+## 11. Relecture du 2026-10-05 (Claude), contre la source officielle 2015
+
+La source `Game/Message/GameMessage.cpp` (`onTakeItem`) et `Game/Rule/GameRule.h:480`
+(`GetPickupOrderTime(idx) = 3000 + idx × 1000`) confirment la boucle et les paliers 30/40/50 s. Quatre corrections :
+
+1. **Le client ne bloque pas les clics.** `SGameItem::IsPickable` (`0x6C2950` dans le client PDB de décembre 2011)
+   n'a **qu'un appelant : `SGameLocalPet::CmdIdle`**, le ramassage automatique du familier. Le joueur clique librement
+   et c'est le serveur qui juge. Conséquences : le §5.2 décrit le familier, pas le joueur ; au protocole de la MR,
+   l'étape 2 est fausse (le tueur ramasse **tout de suite**), l'étape 4 aussi (un tiers ramasse dès **30 s**) et le
+   refus `ACCESS_DENIED` (6) **est** observable en jeu : un tiers qui clique avant 30 s le reçoit.
+2. **Le familier suit le client** (`GroundItemPickupRules.PetMayCollect`) : ce que son maître a droit de prendre
+   passé 30 s, tout le reste passé 50 s, tout de suite pour un ordre vide. Il ramassait jusqu'ici le butin de son
+   maître immédiatement, et la branche lui aurait fait prendre celui des autres à 30 s.
+3. **Ordre des refus** : `TOO_FAR` (2) est jugé avant l'ordre de ramassage, comme `onTakeItem`.
+4. **Quels objets ont un ordre** : seul un butin de monstre en reçoit un (`StructMonster.cpp:1673, 1768`). Un objet
+   **jeté par un joueur** (203) part avec un ordre **vide** (`hPlayer[0] = 0` sur le fil) : n'importe qui le prend
+   tout de suite — ce qui tranche le point 7 ci-dessous. Un **objet de quête** reste à son propriétaire quel que soit
+   le temps (`IsTakeableQuestItem`, approché par « son propriétaire ») — la branche l'ouvrait à tous après 30 s.
+   `GroundItem.QuestItem`, `GroundItem.HasPickupOrder`.
+
+Points tranchés de la liste ci-dessous : 2 (la cadence du serveur est l'officielle ; celle du client ne concerne que
+le familier), 6 (objet de quête), 7 (jet d'inventaire : ordre vide). Restent ouverts : 3 (portée 300 contre
+20 + demi-taille), 4 (emplacements 1-2), 5 (durée de vie), 8 (`NOT_OWN`, qui chez l'officiel vise un objet déjà dans
+un inventaire).
+
+Tests ajoutés : `GroundItemTakeWindowTests` (objet de quête gardé, portée avant l'ordre, familier 30/50 s ; le harnais
+utilise un tas d'or de monstre, qui porte un ordre), `PetPickupTests.A_dropped_object_has_an_empty_order_and_anybody_takes_it_at_once`,
+`MonsterRewardIntegrationTests` (le familier attend 30 s pour l'or de son maître).
+
 ## A VERIFIER PAR KILLIAN
 
 1. **Le chiffre public des paliers.** `203-drop-item.md:285` et `CLAUDE.md:1931` annoncent un

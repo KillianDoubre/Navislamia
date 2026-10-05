@@ -150,7 +150,7 @@ public class GroundItemService : IGroundItemService
         {
             Handle = WorldObjectHandle.Next(), ItemCode = itemId, Count = 1,
             X = x, Y = y, Z = z, Layer = owner.ConnectionInfo.Layer,
-            Owner = owner, OwnerHandle = owner.ConnectionInfo.CharacterHandle,
+            Owner = owner, OwnerHandle = owner.ConnectionInfo.CharacterHandle, QuestItem = true,
             DropTime = _clock(),
             ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
         };
@@ -253,18 +253,18 @@ public class GroundItemService : IGroundItemService
             return;
         }
 
-        // A slot that names nobody in the order refuses until its deadline, and the official onTakeItem
-        // answers ACCESS_DENIED (6) there, not NOT_EXIST: the object is there, its order just does not name
-        // the asker yet (see GroundItemPickupRules for the 30/40/50 s pacing).
-        if (!CanTake(client, item))
-        {
-            client.SendResult(TakeRequestId, (ushort)ResultCode.AccessDenied, 0);
-            return;
-        }
-
+        // onTakeItem's order: the range (TOO_FAR) is judged before the quest item and the pick-up order, which
+        // refuse with ACCESS_DENIED (6): the object is there, its order just does not name the asker yet (see
+        // GroundItemPickupRules for the 30/40/50 s pacing).
         if (!WithinPickupRange(client.ConnectionInfo, item))
         {
             client.SendResult(TakeRequestId, (ushort)ResultCode.TooFar, 0);
+            return;
+        }
+
+        if (!CanTake(client, item))
+        {
+            client.SendResult(TakeRequestId, (ushort)ResultCode.AccessDenied, 0);
             return;
         }
 
@@ -278,7 +278,7 @@ public class GroundItemService : IGroundItemService
         var best = float.MaxValue;
         foreach (var item in _items.Values)
         {
-            if (!CanTake(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0)
+            if (!PetMayCollect(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0)
             {
                 continue;
             }
@@ -298,7 +298,7 @@ public class GroundItemService : IGroundItemService
 
     public async Task<bool> TakeForPetAsync(GameClient owner, uint itemHandle, uint petHandle)
     {
-        if (!_items.TryGetValue(itemHandle, out var item) || !CanTake(owner, item))
+        if (!_items.TryGetValue(itemHandle, out var item) || !PetMayCollect(owner, item))
         {
             return false;
         }
@@ -316,8 +316,18 @@ public class GroundItemService : IGroundItemService
     /// remaining slots being empty.
     /// </summary>
     private bool CanTake(GameClient picker, GroundItem item) =>
-        GroundItemPickupRules.CanPickUp(unchecked(_clock() - item.DropTime), OccupiedSlots(item),
-            FirstSlotNamesPicker(picker, item));
+        // IsTakeableQuestItem: a quest item stays its owner's, whatever the time since the fall.
+        item.QuestItem ? FirstSlotNamesPicker(picker, item)
+            : GroundItemPickupRules.CanPickUp(unchecked(_clock() - item.DropTime), OccupiedSlots(item),
+                FirstSlotNamesPicker(picker, item));
+
+    /// <summary>
+    /// What the master's pet may collect: the client's <c>SGameItem::IsPickable</c>, which drives the official pet,
+    /// on top of the server's own rule (<see cref="GroundItemPickupRules.PetMayCollect"/>).
+    /// </summary>
+    private bool PetMayCollect(GameClient owner, GroundItem item) => CanTake(owner, item)
+        && GroundItemPickupRules.PetMayCollect(unchecked(_clock() - item.DropTime), OccupiedSlots(item),
+            FirstSlotNamesPicker(owner, item));
 
     /// <summary>
     /// How many slots of the order are filled. Slots 1 and 2 are never filled here (see
@@ -325,7 +335,7 @@ public class GroundItemService : IGroundItemService
     /// this repository is — or 1.
     /// </summary>
     private static int OccupiedSlots(GroundItem item) =>
-        item.OwnerHandle != 0 || (item.PartyId ?? 0) != 0 ? 1 : 0;
+        item.HasPickupOrder && (item.OwnerHandle != 0 || (item.PartyId ?? 0) != 0) ? 1 : 0;
 
     /// <summary>
     /// Whether slot 0 designates <paramref name="picker"/>: first its <c>hPlayer[0]</c> — the handle the
@@ -560,7 +570,7 @@ public class GroundItemService : IGroundItemService
             // locked 30 s longer than it is.
             var dropTime = unchecked(item.DropTime + info.ClientClockOffset);
             client.Connection.Send(GameSpawnPackets.BuildEnterItem(item.Handle, item.X, item.Y, item.Z,
-                item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle,
+                item.Layer, item.ItemCode, item.Count, dropTime, item.HasPickupOrder ? item.OwnerHandle : 0,
                 item.MonsterDrop ? (uint)(item.PartyId ?? 0) : 0));
         }
     }

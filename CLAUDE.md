@@ -506,9 +506,13 @@ injects the service, so taking the client list from it creates a DI cycle that o
 Each `GroundItem` holds its owning `GameClient` the same way `CombatService.PendingLeave` does, and takes
 the player list from `IPlayerVisibilityService` instead. **A ground item is visible to every player within
 the 540-unit view** (same handle for all; `ConnectionInfo.SpawnedGroundItems` under
-`GroundItemVisibilityLock`, re-synced on move, region update, warp and world entry), **but only its owner
-can take it** — the owner is the first `pick_up_order` handle, and the reference's timed opening to the
-others is not modelled.
+`GroundItemVisibilityLock`, re-synced on move, region update, warp and world entry). **Who may take it is the
+official `onTakeItem`** (`docs/packet-specs/socle-partage-objets-sol.md`): a monster's drop carries a
+`pick_up_order` (slot 0 = the killer and their party), whose entitled players take at once and anybody else
+from **30 s** (`GetPickupOrderTime(i)` = 3000 + 1000 × i ticks), refused `ACCESS_DENIED` (6) before; a quest item
+stays its owner's; what a player drops has an **empty order**, anybody takes it at once. `drop_time` is the
+instant of the fall, never of the send. The client's `SGameItem::IsPickable` (state 0-3 at 30/40/50 s) only
+drives the **pet**: its master's loot past 30 s, anybody's past 50 s.
 
 ## Monster movement
 
@@ -1945,10 +1949,9 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   section exclusive** que le retrait (un équipement traité entre deux ne peut pas s'intercaler), et
   renvoie ce qui a réellement été retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
   `popItem` a échoué — défaut à ne pas répliquer). Aucun `TS_SC_RESULT` de succès, aucun 254/255.
-- L'objet lâché n'est **visible et ramassable que par le joueur qui l'a lâché** :
-  `TakeAsync` exige `ReferenceEquals(item.Owner, client)` et `ConnectionInfo` ne suit aucun objet au
-  sol (pas de `SpawnedItems`). L'écart avec NGemity (diffusion à la région, ordre de ramassage 3/4/5 s)
-  est assumé et documenté dans `docs/packet-specs/203-drop-item.md`.
+- L'objet lâché est vu des joueurs alentour et a un **ordre de ramassage vide**, comme chez l'officiel (seul un butin
+  de monstre reçoit un ordre, `StructMonster::SetPickupOrder`) : n'importe qui le prend tout de suite
+  (`socle-partage-objets-sol.md`, relecture du 2026-10-05).
 - **Réserves vérifiables** (fiche §7) : l'émission du 203 par le client 7.3 n'est pas prouvée (table
   d'annotation partielle) ; le geste d'émission (aucune classe `SInput*Drop*`) ; le flag de jetabilité
   (`flag_drop` / `item_use_flag` bit 15) n'est pas exploitable dans le dépôt et **aucun refus « non

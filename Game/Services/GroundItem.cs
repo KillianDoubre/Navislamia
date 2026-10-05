@@ -19,6 +19,16 @@ public class GroundItem
     public long? PartyId { get; init; }
     public bool MonsterDrop { get; init; }
 
+    /// <summary>A quest item dropped for one player: theirs alone (<c>onTakeItem</c>'s <c>IsTakeableQuestItem</c>).</summary>
+    public bool QuestItem { get; init; }
+
+    /// <summary>
+    /// Whether the object carries a <c>pick_up_order</c>. Only a monster's drop does
+    /// (<c>StructMonster.cpp:1673, 1768</c>, <c>SetPickupOrder</c>); an object a player drops has an empty order,
+    /// which anybody takes at once and the client shows as open to all (state 3).
+    /// </summary>
+    public bool HasPickupOrder => MonsterDrop || QuestItem;
+
     /// <summary>
     /// The instant the object fell, in <c>ar_time</c> ticks of the <b>server</b> clock
     /// (<see cref="ServerClock"/>), fixed once when the object is created. Two readers depend on it and

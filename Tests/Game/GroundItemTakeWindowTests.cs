@@ -61,8 +61,32 @@ public class GroundItemTakeWindowTests
         A.CallTo(() => _characters.AddItemAsync(A<string>._, A<int>._, A<long>._))
             .Returns(new ItemEntity { Id = 9, ItemResourceId = 603002, Amount = 1 });
 
-        _ground.DropQuestItem(_owner, 603002, 1100, 1000, 0);
+        // A monster's gold pile: the kind of object that carries a pick_up_order (StructMonster::SetPickupOrder).
+        _ground.DropGoldForMonster(_owner, 100, 1100, 1000, 0);
         _handle = BinaryPrimitives.ReadUInt32LittleEndian(Enter(_owner).AsSpan(8, 4));
+    }
+
+    /// <summary><c>IsTakeableQuestItem</c>: a quest item stays its owner's, whatever the time since the fall.</summary>
+    [Test]
+    public async Task Take_KeepsAQuestItemToItsOwnerAfterTheWindow()
+    {
+        _ground.DropQuestItem(_owner, 603002, 1100, 1000, 0);
+        var quest = BinaryPrimitives.ReadUInt32LittleEndian(Enter(_owner).AsSpan(8, 4));
+        _now += 10 * GroundItemPickupRules.FirstDeadlineTicks;
+
+        await _ground.TakeAsync(_stranger, quest);
+        Result(_stranger).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.AccessDenied));
+        await _ground.TakeAsync(_owner, quest);
+        Result(_owner).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.Success));
+    }
+
+    /// <summary>The range is judged before the order, like <c>onTakeItem</c>: far and early is <c>TOO_FAR</c>.</summary>
+    [Test]
+    public async Task Take_JudgesTheRangeBeforeTheOrder()
+    {
+        var far = NewPlayer("far", 3000, 5000);
+        await _ground.TakeAsync(far, _handle);
+        Result(far).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.TooFar));
     }
 
     /// <summary>The order's first slot names the character who dropped it, and it takes at once.</summary>
@@ -137,9 +161,13 @@ public class GroundItemTakeWindowTests
     [Test]
     public void TryFindNearest_HoldsTheObjectBackUntilTheDeadline()
     {
-        _ground.TryFindNearest(_stranger, 1100, 1000, 0, 300, out _).Should().BeFalse("inside the window");
+        // The pet follows the client's SGameItem::IsPickable: its master's loot past 30 s, anybody's past 50 s.
+        _ground.TryFindNearest(_owner, 1100, 1000, 0, 300, out _).Should().BeFalse("the pet waits even for its master");
+        _now += GroundItemPickupRules.FirstDeadlineTicks + 1;
+        _ground.TryFindNearest(_owner, 1100, 1000, 0, 300, out _).Should().BeTrue("state 1: slot 0");
+        _ground.TryFindNearest(_stranger, 1100, 1000, 0, 300, out _).Should().BeFalse("a stranger's pet waits for state 3");
 
-        _now += GroundItemPickupRules.FirstDeadlineTicks;
+        _now += 2 * GroundItemPickupRules.SlotStepTicks;
 
         _ground.TryFindNearest(_stranger, 1100, 1000, 0, 300, out var spot).Should().BeTrue();
         spot.Handle.Should().Be(_handle);
