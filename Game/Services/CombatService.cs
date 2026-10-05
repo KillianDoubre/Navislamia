@@ -510,6 +510,7 @@ public partial class CombatService : ICombatService
             // costs experience (StructPlayer::procDecreaseEXPAndDropItem). No death packet exists here.
             StopAttack(target);
             _casts?.Interrupt(target);
+            Movement.PlayerMoves.Stop(target, _players);
             _levelingService.ApplyDeathPenalty(target);
             if (info.ImmoralPoint > 0m) MoralityRules.Set(target, MoralityRules.AfterDeath(info.ImmoralPoint, info.PkCount));
             if (_deathDrops is not null)
@@ -894,6 +895,7 @@ public partial class CombatService : ICombatService
         {
             StopAttack(target);
             _casts?.Interrupt(target);
+            Movement.PlayerMoves.Stop(target, _players);
             NotifyDeath(new Combat.CombatActor(attacker, summonHandle), new Combat.CombatActor(target));
             if (competing)
             {

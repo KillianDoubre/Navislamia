@@ -148,3 +148,20 @@ Les tests couvrent le catalogue régional, les bornes horaires et le fuseau, les
 les accès de guilde, l'isolation des groupes, les sorties/déconnexions, les clés et leur remboursement,
 les dialogues autorisés, les pages d'information, les monstres/renforts, les réapparitions et le
 nettoyage du butin. Les compétences de zone et multi-coups sont aussi testées sur une couche privée.
+
+## Libellés du gestionnaire (xHHwc9Z2, 2026-10-05)
+
+Tous les libellés transmis utilisent les chaînes officielles, sous `GameServer/Resource/Script/` :
+`NPC_QuestClient.lua:1469-1477` (informations et fermeture), `:1836` (`@90010116`, or),
+`:1839` (`@90010125`, lak), `:1955` (`@90010119`, taxe +), `:1957` (`@90010120`, taxe -).
+`NPC_TeleportTown.lua:210` établit `@90605270` pour le secret possédé.
+`NPC_Dungeon.lua:46,55,64` établit respectivement `@1090600104` (130000), `@1060600104`
+(130300), `@1070500104` (130200). Aucun identifiant générique de siège n'est extrapolé.
+Ces raccourcis restent une présentation aplatie du Lua ; les contrôles de sélection restent actifs.
+
+**NON ÉTABLI** : libellés de menu `enter_dungeon`, `begin_dungeon_raid`, inscription et annulation
+au raid chez ce gestionnaire, et accès au siège des autres donjons. Ces entrées françaises ajoutées
+par Navislamia ne sont plus annoncées ici. Les commandes `/graid` et `/graidcancel` restent disponibles,
+et les accès officiels par props/téléporteurs conservent leur chemin. Ne pas inventer de chaîne.
+Tests : quatre variantes de `DungeonTests.Siege_manager_emits_only_official_client_labels`.
+Vérifier en jeu les textes localisés, les taxes et le téléporteur du siège pendant ses horaires.

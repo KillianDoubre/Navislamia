@@ -122,7 +122,7 @@ Les probabilités doivent être observées sur plusieurs essais, pas sur un seul
 
 - Les effets produits sont exécutés suivant les familles déjà portées par le moteur d'états.
   Par exemple, le déclencheur officiel **314084 → 314085** est posé à la mort avec au moins
-  60 % de MP ; l'effet **3321** de 314085 (résurrection différée) n'est pas porté dans ce lot.
+  60 % de MP ; l'effet **3321** de 314085 (résurrection différée) est porté depuis le 2026-10-05 (section suivante).
   La pose d'un état ne garantit pas que son effet particulier est déjà exécuté.
 - Les modifications de cooldown et les procs de soin/vol/absorption sont d'autres familles.
   Les effets directement portés par l'équipement ne sont pas chargés par ce catalogue ;
@@ -134,3 +134,27 @@ Les probabilités doivent être observées sur plusieurs essais, pas sur un seul
 - Le résultat visuel en client réel et les cas de scripts attribuant une compétence passive
   directement à un monstre sans passer par un état restent à vérifier. Aucun catalogue
   fictif de compétences apprises par les monstres n'a été ajouté.
+
+## Résurrection différée — `EF_AUTO_RESURRECTION_AFTER_REMOVE_STATE` (3321), 2026-10-05
+
+Source : `StructPlayer::onAfterRemoveState` (`StructPlayer.cpp:12023-12028`) et `StructCreature::Resurrect`
+(`StructCreature.cpp:6505-6549`). Quand un état d'effet 3321 quitte un joueur **mort** — fin de durée, annulation
+408 ou `RemoveState` —, il revient là où il est tombé :
+
+- MP dépensés `(value_0 + value_1 × niveau) × MP`, PV gagnés `(value_2 + value_3 × niveau) × ce coût`, tronqués
+  comme l'`int` C++, au moins 1 PV, dans les maxima (`ResurrectionRules.VitalsByAutoResurrection`) ;
+- **toute** l'expérience perdue à la mort revient (`GetLastDecreasedEXP()`, `RestoreDeathExperience(client, 1)`) ;
+- `hp` et `mp` partent au joueur et à ses observateurs (509), comme `BroadcastHPMPMsg`.
+
+Un joueur déjà vivant n'est pas touché (`Resurrect` refuse). Données : 314085 = `1, 0, 0.1, 0.25` (tous les MP
+dépensés, PV = (0,1 + 0,25 × niveau) × MP), posé 3 s par 314084 à la mort. Branché dans
+`SkillCastService.AfterPlayerStatesRemoved` (tick d'expiration, `RemoveState`, 408) ; garde
+`ResurrectionInProgress` contre une potion concurrente.
+
+**NON ÉTABLI** : `RestoreRemovedStateByDead` (états retirés à la mort) est sans objet, ce dépôt n'en retire aucun ;
+la fermeture de la fenêtre de mort du client par la seule propriété `hp` n'est pas vérifiée (c'est aussi tout ce
+que l'officiel envoie). Tests : `StateProcsTests.The_resurrection_spends_the_MP_and_turns_a_share_of_it_into_HP`,
+`A_dead_player_comes_back_when_its_auto_resurrection_state_ends`, `A_living_player_is_not_touched_when_the_state_ends`.
+
+En jeu : un personnage avec la compétence qui donne 314084, au moins 60 % de MP, meurt → 3 s plus tard il se relève
+sur place, MP à 0.

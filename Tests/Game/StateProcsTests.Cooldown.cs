@@ -20,6 +20,10 @@ public partial class StateProcsTests
         { 0, 0, 0, 3492, -3, 0, 3815, -3, 0, 0, 10, 99, 0, 23, 0, 0, 0, 0, 99, 0 };
 
     private const uint MagicHarm = EnergyProcs.MagicalSkill | EnergyProcs.Harmful;
+    private static readonly decimal[] OnSkillOfId = // 41309, 32281: skill 3901 -1 s × level when 41306 lands, 3 % × level
+        { 0, 0, 0, 3901, 0, -1, 0, 0, 0, 0, 3, 41306, 0, 0, 0, 0, 0, 0, 0, 0 };
+    private static readonly decimal[] OnTwoSkillsOfId = // 41331, 32281: skill 3751 -6 s × level when 63441 or 63442 lands
+        { 0, 0, 0, 3751, 0, -6, 0, 0, 0, 100, 0, 63441, 63442, 0, 0, 0, 0, 0, 0, 0 };
 
     [Test]
     public void Cooldown_procs_read_their_own_var_layout()
@@ -111,5 +115,48 @@ public partial class StateProcsTests
         Info(c).SkillCooldowns[100].Should().Be(now + 500, "the master did not learn the passive");
         var list = h.Wires[c].Sent.Single(p => BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4)) == 403);
         BinaryPrimitives.ReadUInt32LittleEndian(list.AsSpan(7)).Should().Be(10u, "the 403 names the summon");
+    }
+
+    /// <summary>EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID (32281): keyed by var11..13, judged by chance and HP only.</summary>
+    [Test]
+    public void A_skill_of_id_proc_fires_on_its_listed_skills_only()
+    {
+        var procs = new CooldownProcs(new[] { (41309, 32281, OnSkillOfId), (41331, 32281, OnTwoSkillsOfId) });
+        var learned = new Dictionary<int, byte> { [41309] = 2, [41331] = 1 };
+
+        procs.ListensTo(41306).Should().BeTrue();
+        procs.ListensTo(63442).Should().BeTrue();
+        procs.ListensTo(41307).Should().BeFalse();
+        procs.ResolveForSkill(learned, 41306, 100, 100, Draw(5)).Should()
+            .Equal(new[] { new CooldownProc(41309, false, 0, 3901, -2, 0, 0) }, "3 % × level 2 = 6 > 5");
+        procs.ResolveForSkill(learned, 41306, 100, 100, Draw(6)).Should().BeEmpty();
+        procs.ResolveForSkill(learned, 63441, 100, 100, Draw(99)).Should()
+            .Equal(new CooldownProc(41331, false, 0, 3751, -6, 0, 0));
+        procs.ResolveForSkill(new Dictionary<int, byte> { [41331] = 0 }, 63441, 100, 100, Draw()).Should()
+            .BeEmpty("an unlearned passive does nothing");
+        procs.Resolve(learned, StateProcEvent.Attack, 0, MagicHarm, 0, 100, 100, 0, 100, Draw()).Should()
+            .BeEmpty("32281 listens to no combat event");
+    }
+
+    [Test]
+    public void A_listed_skill_landing_shortens_the_named_skill_of_its_caster()
+    {
+        var h = new Harness((41331, 32281, OnTwoSkillsOfId));
+        var c = h.Client(1);
+        var now = ServerClock.Now;
+        Info(c).LearnedSkills[41331] = 1;
+        Info(c).LearnedSkills[3751] = 1;
+        Info(c).SkillCooldowns[3751] = now + 1000;
+
+        h.Combat.NotifyHit(new CombatActor(c), new CombatActor(c, MonsterId: h.Monster),
+            new HitResult(10, HitFlags.Miss), MagicHarm, skillId: 63442);
+        Info(c).SkillCooldowns[3751].Should().Be(now + 1000, "OnAttack is not called on a miss");
+        h.Combat.NotifyHit(new CombatActor(c), new CombatActor(c, MonsterId: h.Monster),
+            new HitResult(10, HitFlags.None), MagicHarm);
+        Info(c).SkillCooldowns[3751].Should().Be(now + 1000, "a swing names no skill");
+
+        h.Combat.NotifyHit(new CombatActor(c), new CombatActor(c, MonsterId: h.Monster),
+            new HitResult(10, HitFlags.None), MagicHarm, skillId: 63442);
+        Info(c).SkillCooldowns[3751].Should().Be(now + 400);
     }
 }

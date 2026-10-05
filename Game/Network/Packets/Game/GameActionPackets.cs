@@ -303,15 +303,20 @@ public static class GameActionPackets
         return true;
     }
 
-    public static bool TryReadTakeItem(ReadOnlySpan<byte> packet, out uint itemHandle)
+    public static bool TryReadTakeItem(ReadOnlySpan<byte> packet, out uint itemHandle) =>
+        TryReadTakeItem(packet, out _, out itemHandle);
+
+    /// <summary><c>TM_CS_TAKE_ITEM</c> (204): <c>taker_handle</c> @7 (the player, or its pet), <c>item_handle</c> @11.</summary>
+    public static bool TryReadTakeItem(ReadOnlySpan<byte> packet, out uint takerHandle, out uint itemHandle)
     {
         const int packetLength = HeaderSize + 8;
         if (packet.Length < packetLength)
         {
-            itemHandle = 0;
+            takerHandle = itemHandle = 0;
             return false;
         }
 
+        takerHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize, 4));
         itemHandle = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(HeaderSize + 4, 4));
         return true;
     }

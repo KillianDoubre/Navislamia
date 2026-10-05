@@ -113,13 +113,16 @@ public partial class GmCommandService
         var old = info.CharacterName; var handle = info.CharacterHandle;
         var refusal = NameChangeRules.Check(old, newName, _characterService.NameReformat(newName));
         if (refusal is not null) { Notice(client, refusal); return; }
-        var renamed = await _characterService.RenameCharacterAsync(old, newName);
+        var renamed = _auctions is null ? await _characterService.RenameCharacterAsync(old, newName)
+            : await _auctions.RenameCharacterAsync(handle, newName, () => _characterService.RenameCharacterAsync(old, newName));
         if (info.CharacterHandle != handle || info.CharacterName != old) return;
         if (renamed != ResultCode.Success) { Notice(client, NameChangeRules.Refusal(renamed)); return; }
         info.CharacterName = newName;
         info.CharacterList.Remove(old); info.CharacterList.Add(newName);
         client.SendToSelfAndObservers(GamePetPackets.BuildChangeName(handle, newName));
         _parties?.OnNameChanged(client);
+        // Official Db/DB_CreateCharacter.cpp:345-358: every community registry follows the committed rename.
+        if (_guildService is not null) await _guildService.OnNameChangedAsync(client, old);
         if (_friends is not null) await _friends.OnRenamedAsync(client);
         Notice(client, NameChangeRules.Success);
     }

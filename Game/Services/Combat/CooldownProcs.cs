@@ -19,7 +19,14 @@ public readonly record struct CooldownProc(int SkillId, bool AllSkills, int Inc,
 /// </summary>
 public sealed class CooldownProcs
 {
-    public static readonly int[] SkillEffects = Enumerable.Range(10063, 8).ToArray();
+    public static readonly int[] SkillEffects = Enumerable.Range(10063, 8).Append(OnSkillOfId).ToArray();
+
+    /// <summary>
+    /// <c>EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID</c> (<c>CalculateStat.cpp:1184-1203</c>): the same proc, keyed by the
+    /// skills <c>var11..13</c> (until a 0) in <c>m_mapProcBySkillId</c>, fired by <c>StructCreature::ProcBySkillId</c>
+    /// when one of them lands (<c>OnAttack</c> with its id, <c>StructSkill.cpp:2828</c>).
+    /// </summary>
+    public const int OnSkillOfId = 32281;
 
     /// <summary><c>SKILL_GRACE</c>: never touched (<c>StructCreature::AddRemainCoolTime</c>).</summary>
     public const int Grace = 50401;
@@ -32,8 +39,61 @@ public sealed class CooldownProcs
     public CooldownProcs(ISkillResourceRepository repository) : this(repository.GetSkillRowsByEffectType(SkillEffects)
         .Select(r => (r.SkillId, r.EffectType, r.Vars))) { }
 
-    public CooldownProcs(IEnumerable<(int SkillId, int Effect, decimal[] Values)> skills) =>
+    private readonly FrozenSet<int> _triggerSkills;
+
+    public CooldownProcs(IEnumerable<(int SkillId, int Effect, decimal[] Values)> skills)
+    {
         _skills = skills.ToFrozenDictionary(s => s.SkillId, s => (s.Effect, s.Values ?? Array.Empty<decimal>()));
+        _triggerSkills = _skills.Values.Where(s => s.Effect == OnSkillOfId).SelectMany(s => TriggerSkills(s.Values))
+            .ToFrozenSet();
+    }
+
+    /// <summary>The skills whose hit fires a 32281 passive: <c>var11..13</c>, the list ending at the first 0.</summary>
+    public static IEnumerable<int> TriggerSkills(decimal[] values)
+    {
+        for (var i = 11; i < 14; i++)
+        {
+            var id = (int)AttackProcConditions.Var(values, i);
+            if (id == 0) yield break;
+            yield return id;
+        }
+    }
+
+    /// <summary>Whether some 32281 passive listens to <paramref name="skillId"/>: most hits skip the lookup.</summary>
+    public bool ListensTo(int skillId) => _triggerSkills.Contains(skillId);
+
+    /// <summary>
+    /// <c>ProcBySkillId</c>: the owner's 32281 passives naming <paramref name="castSkillId"/>, each judged by its
+    /// <c>_PROC_TAG</c> — chance <c>var9 + var10 × lvl</c>, own HP <c>var14..15</c>, target HP <c>var16..17</c> — then
+    /// <c>StructCooldownProc</c> from <c>var0..8</c>, the same as the event procs.
+    /// </summary>
+    public IReadOnlyList<CooldownProc> ResolveForSkill(IEnumerable<KeyValuePair<int, byte>> learned, int castSkillId,
+        int hp, int otherHp, ICombatRandom random)
+    {
+        var result = new List<CooldownProc>();
+        if (!ListensTo(castSkillId)) return result;
+        foreach (var (skillId, level) in learned)
+        {
+            if (level <= 0 || !_skills.TryGetValue(skillId, out var skill) || skill.Effect != OnSkillOfId) continue;
+            foreach (var trigger in TriggerSkills(skill.Values))
+            {
+                // One _PROC_TAG per listed id: a passive naming the cast skill twice would fire twice.
+                if (trigger != castSkillId
+                    || !AttackProcConditions.Check(Conditions(skill.Values, kill: false), level, hp, otherHp,
+                        random.Next(100))) continue;
+                result.Add(Build(skillId, skill.Values, level));
+            }
+        }
+
+        return result;
+    }
+
+    private static CooldownProc Build(int skillId, decimal[] v, int level)
+    {
+        int Amount(int baseIndex) => (int)(AttackProcConditions.Var(v, baseIndex) + AttackProcConditions.Var(v, baseIndex + 1) * level);
+        return new CooldownProc(skillId, AttackProcConditions.Var(v, 0) != 0, Amount(1),
+            (int)AttackProcConditions.Var(v, 3), Amount(4), (int)AttackProcConditions.Var(v, 6), Amount(7));
+    }
 
     /// <summary>The event each effect listens to: the attack and kill ones on the attacker, the others on the target.</summary>
     public static bool Describe(int effect, out StateProcEvent trigger)
@@ -92,10 +152,7 @@ public sealed class CooldownProcs
                     dead: false)
                 : AttackProcConditions.Attack(c, level, weapon, type, element, hp, otherHp, random.Next(100));
             if (!applies) continue;
-            var v = skill.Values;
-            int Amount(int baseIndex) => (int)(AttackProcConditions.Var(v, baseIndex) + AttackProcConditions.Var(v, baseIndex + 1) * level);
-            result.Add(new CooldownProc(skillId, AttackProcConditions.Var(v, 0) != 0, Amount(1),
-                (int)AttackProcConditions.Var(v, 3), Amount(4), (int)AttackProcConditions.Var(v, 6), Amount(7)));
+            result.Add(Build(skillId, skill.Values, level));
         }
 
         return result;

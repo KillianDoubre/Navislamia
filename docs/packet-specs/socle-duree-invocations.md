@@ -74,9 +74,8 @@ client du dump). Données Epic 7 : 1881 a `var1 = 7` (7 s par niveau) ; l'état 
 3. `SetMainAndSubSummon` sans emplacement trouvé : l'officiel `assert` (et viderait la principale en release) ;
    ici la paire est gardée.
 4. La 302/301 suit la relecture en base après l'opération, pas l'opération elle-même.
-5. `IsErasable` (`StructPlayer.cpp:12498-12534`) interdit de céder une carte formée ou dont la créature est
-   dehors ; **rien ne l'interdit encore ici**. Si cela arrive, la créature est renvoyée et l'emplacement vidé
-   (303 renvoyée) avant la 302. Le refus lui-même reste à porter (trous connus).
+5. ~~`IsErasable` n'est pas porté~~ : porté le 2026-10-05, voir §6. Le renvoi de la créature et le vidage de
+   l'emplacement avant la 302 restent comme filet (une carte détruite par l'artisanat, une opération future).
 6. La garde de niveau en donjon de `StructPlayer::Summon` 2012 (`bLimitDungeonEnterableLevel`) n'est pas portée.
 
 ## 4. Vérifications
@@ -95,3 +94,48 @@ apparaît, avec sa créature, chez le receveur.
 - Le rendu exact de la 306 dans le client 7.3 (compte à rebours affiché, sens d'une durée 0).
 - Ce que le client fait du compte à rebours d'une seconde devenue principale (l'officiel n'envoie rien).
 - L'équipement porté par une créature cédée reste dans le sac de l'ancien propriétaire (`EquippedBySummonId`).
+
+## 6. Ce qui ne quitte pas le sac — `IsErasable` (2026-10-05)
+
+Source : `StructPlayer::IsErasable` (`StructPlayer.cpp:12498-12557`), dont partent `IsTradable` (`:12635`),
+`IsSellable` (`:12622`), `IsDropable` (`:12656`), `IsMixable` (`:12465`), `MoveInventoryToStorage` (`:3458`) et
+`EraseItem_` (`:2792`). La partie que seule la session connaît est `Creatures/HeldItemRules.IsErasable` :
+
+- une **carte formée** (`m_aBindSummonCard`, `ConnectionInfo.SummonSlots`) ;
+- une carte **dont la créature est dans le monde** (`GetSummonStruct()->IsInWorld()`) ;
+- ce qui est sur une **ceinture** (`m_aBeltSlotCard`, cartes et équipement de ceinture, `BeltItemIds`) ;
+- la **cage du familier dehors** (`IsPetCage() && GetPetStruct()->IsInWorld()`).
+
+Le reste (porté, dans l'entrepôt, à quelqu'un d'autre) est déjà jugé à chaque site. Sites et réponses, ceux de
+l'officiel :
+
+| Site | Réponse |
+|---|---|
+| Échange 280 (`onAddItem`) | `NotActable` ; **une carte apprivoisée ni formée ni dehors s'échange** (la garde « carte liée » du dépôt, sans source, est retirée) ; la carte d'un apprivoisement en cours non plus (`ITEM_FLAG_TAMING`) |
+| Vente 252 (`IsSellable`) | `NotExist`, comme les autres refus de ce site ; carte d'apprivoisement en cours aussi |
+| Étal 705 (objets du propriétaire, `GameMessage.cpp:9181`) et 706 (objets offerts) | `NotActable` |
+| Enchère (`AuctionManager.cpp:573`) | `NotActable` (remplace le seul test de formation) |
+| Entrepôt 212 mode 0 | rien : `MoveInventoryToStorage` rend `false`, `onStorage` n'y répond pas |
+| Destruction 208 | l'objet est sauté, comme `onEraseItem` ; `NotExist` si rien n'a été détruit |
+| Lâcher 203 | `205 { handle, 0 }` |
+| Artisanat 256 (cible et matériaux, `GameMessage.cpp:8075`) | `NotExist` avec le handle ; enchanter une carte formée exige donc de la retirer de la formation, comme l'officiel |
+
+**L'équipement d'une créature cédée.** Les objets d'une invocation sont dans le sac du maître avec leur
+emplacement ; `SetMaster` ne les déplace pas. À la connexion suivante de l'ancien maître,
+`DB_Login::readEquipItemList` (`DB_Login.cpp:1623-1640`) ne trouve plus l'invocation (`GetSummon`, qui ne cherche
+que dans le sac) et saute l'objet : il revient au sac, non porté. Ici, `CreatureService.OnWorldEntryAsync` fait de
+même : un objet dont `EquippedBySummonId` n'est aucune des invocations du personnage est déséquipé
+(`UnwearItemsAsync`, qui efface désormais aussi `EquippedBySummonId`). Il restait sinon « porté » pour toujours,
+ni utilisable ni cessible.
+
+**Écarts.** La garde NGemity du lâcher (carte liée refusée, `GroundItemDropRules`) est gardée : l'officiel
+laisserait tomber une carte apprivoisée non formée. Une carte de compétence liée à une créature
+(`GetBindedCreatureHandle`) et une carte de la ferme (`ITEM_FLAG_FARMED_SUMMON`) ne sont pas modélisées.
+La consommation par quête (`EraseItem_`) ne lit pas encore la règle.
+
+Tests : `HeldItemRulesTests` (règle, échange, entrepôt, destruction, déséquipement),
+`CreatureTests.World_entry_unwears_the_items_of_a_summon_that_is_no_longer_the_characters`.
+
+En jeu : former une créature puis la proposer à l'échange → refusée ; la retirer de la formation → acceptée ;
+l'autre joueur la reçoit dans sa fenêtre de créatures. Si elle portait un objet, il revient au sac du donneur à sa
+prochaine connexion.

@@ -15,7 +15,7 @@ public partial class SkillCastService
         _combatService.NotifyHit(source, target, hit,
             (fields.IsHarmful ? EnergyProcs.Harmful : EnergyProcs.Helpful)
                 | (fields.Kind == SkillCastKind.PhysicalAttack ? EnergyProcs.PhysicalSkill : EnergyProcs.MagicalSkill),
-            fields.ElementalType);
+            fields.ElementalType, skillId: fields.SkillId);
 
     /// <summary>StructStateProc::Proc: AddState from the proc owner, then subtract MP even if stacking refuses.</summary>
     public void ApplyCombatState(CombatActor target, CombatActor source, StateProc proc)

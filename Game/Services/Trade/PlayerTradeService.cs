@@ -30,9 +30,6 @@ public sealed class PlayerTradeService : IPlayerTradeService
 {
     private const ushort TradeId = (ushort)GamePackets.TM_TRADE;
 
-    /// <summary><c>ITEM_FLAG_SUMMON</c>: a bound creature card stays with its tamer.</summary>
-    private const uint BoundSummonCard = 0x8000_0000u;
-
     private readonly ILogger _logger = Log.ForContext<PlayerTradeService>();
     private readonly ICharacterService _characters;
     private readonly IPlayerVisibilityService _players;
@@ -201,7 +198,7 @@ public sealed class PlayerTradeService : IPlayerTradeService
                 return;
             }
 
-            if (!IsTradable(item))
+            if (!IsTradable(client.ConnectionInfo, item))
             {
                 client.SendResult(TradeId, (ushort)ResultCode.NotActable);
                 return;
@@ -538,8 +535,14 @@ public sealed class PlayerTradeService : IPlayerTradeService
     /// Worn items and bound creature cards stay; <c>StructPlayer::IsTradable</c>'s other rules (item flags,
     /// <c>item_use_flag</c>) are not read.
     /// </summary>
-    private static bool IsTradable(ItemEntity item) =>
-        item.WearInfo == ItemWearType.None && (unchecked((uint)item.Flag) & BoundSummonCard) == 0;
+    /// <summary>
+    /// <c>StructPlayer::IsTradable</c> (<c>StructPlayer.cpp:12635</c>): <c>IsErasable</c> — not worn by the character or
+    /// a summon, not held by a creature or the pet out (<see cref="Creatures.HeldItemRules"/>) — and not the card of a
+    /// taming in progress. A tamed card is tradable: its summon follows it (socle-duree-invocations.md §2).
+    /// </summary>
+    private static bool IsTradable(ConnectionInfo info, ItemEntity item) =>
+        item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null
+        && Creatures.HeldItemRules.IsErasable(info, item.Id) && info.TamingCardItemId != item.Id;
 
     private sealed class TradeSide
     {

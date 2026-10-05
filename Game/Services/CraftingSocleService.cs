@@ -466,6 +466,16 @@ public class CraftingSocleService : ICraftingSocleService
             return null;
         }
 
+        // onMix: IsMixable is IsErasable (StructPlayer.cpp:12465, GameMessage.cpp:8075) — a formed card, a card whose
+        // summon is out or the cage of the pet out answers NOT_EXIST.
+        if (!Creatures.HeldItemRules.IsErasable(client.ConnectionInfo, item.Id))
+        {
+            _logger.Debug("Crafting packet {id} from {clientTag} names item {itemHandle} a creature or the pet holds, refused",
+                packetId, client.ClientTag, handle);
+            client.SendResult(packetId, (ushort)ResultCode.NotExist, unchecked((int)handle));
+            return null;
+        }
+
         if (!_itemCatalog.TryGetFields(item.ItemResourceId, out var fields))
         {
             _logger.Warning(

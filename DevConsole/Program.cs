@@ -68,6 +68,8 @@ public class Program
         // PartyManager::Init: the stored parties are back before the network opens.
         var parties = host.Services.GetRequiredService<Navislamia.Game.Services.Party.IPartyService>();
         await parties.LoadAsync();
+        // Official Community/PartyLoader.cpp:281-359: guild and linked attack parties return together.
+        await host.Services.GetRequiredService<Navislamia.Game.Services.Guilds.IGuildService>().LoadAsync();
 
         await host.RunAsync();
         await parties.FlushAsync();

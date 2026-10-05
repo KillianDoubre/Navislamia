@@ -28,6 +28,9 @@ public class CharacterCommandsTests
         {
             db.Characters.AddRange(new CharacterEntity { Id = 1, CharacterName = "Original" },
                 new CharacterEntity { Id = 2, CharacterName = "Existing" });
+            db.AuctionListings.AddRange(
+                new AuctionListingEntity { Id = 10, SellerId = 1, SellerName = "Original", HighestBidderId = 2, HighestBidderName = "Existing" },
+                new AuctionListingEntity { Id = 11, SellerId = 2, SellerName = "Existing", HighestBidderId = 1, HighestBidderName = "Original" });
             await db.SaveChangesAsync();
         }
         var banned = A.Fake<IBannedWordsRepository>();
@@ -43,6 +46,10 @@ public class CharacterCommandsTests
         await using var verify = new TelecasterContext(options);
         var saved = await verify.Characters.SingleAsync(c => c.Id == 1);
         saved.CharacterName.Should().Be("Renamed"); saved.WasNameChanged.Should().BeTrue();
+        (await verify.AuctionListings.FindAsync(10L))!.SellerName.Should().Be("Renamed");
+        (await verify.AuctionListings.FindAsync(10L))!.HighestBidderName.Should().Be("Existing");
+        (await verify.AuctionListings.FindAsync(11L))!.HighestBidderName.Should().Be("Renamed");
+        (await verify.AuctionListings.FindAsync(11L))!.SellerName.Should().Be("Existing");
         (await service.SaveChatBlockTimeAsync("Renamed", 120)).Should().BeTrue();
         await verify.Entry(saved).ReloadAsync(); saved.ChatBlockTime.Should().Be(120);
     }

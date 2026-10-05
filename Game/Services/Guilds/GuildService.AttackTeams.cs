@@ -19,6 +19,20 @@ public sealed partial class GuildService
     private sealed record AttackTeam(long PartyId, long EffectiveGuild, int DungeonId, int Type, long HeadParty);
     private readonly ConcurrentDictionary<long, AttackTeam> _teams = new();
     private readonly Dictionary<uint, Invitation> _teamInvitations = new();
+    public async Task LoadAsync()
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            await using var db = new TelecasterContext(_options);
+            await SyncAsync(db);
+            _teams.Clear();
+            // Official Community/PartyLoader.cpp:281-359, PartyManager.cpp:1452-1480.
+            foreach (var party in _parties?.AttackParties() ?? Array.Empty<Party.DungeonParty>())
+                _teams[party.Id] = new AttackTeam(party.Id, party.AttackGuild, party.DungeonId, party.Type, party.HeadParty);
+        }
+        finally { _gate.Release(); }
+    }
     private bool TeamMatches(long party, long guild, int dungeon) => _teams.TryGetValue(party, out var team)
         && team.EffectiveGuild == guild && team.DungeonId == dungeon;
     public bool SameAttackTeam(GameClient first, GameClient second) => first.ConnectionInfo.PartyId is { } a
@@ -47,6 +61,7 @@ public sealed partial class GuildService
             var id = _parties.CreateAttackParty(client, args[0], effective, type);
             if (id == 0) return false;
             _teams[id] = new AttackTeam(id, effective, dungeon.Id, type, id);
+            _parties.LinkAttackParty(id, dungeon.Id, id);
             return true;
         }
         if (command == "rp_ginvite")
@@ -75,6 +90,7 @@ public sealed partial class GuildService
         var newId = _parties.CreateAttackParty(client, $"Team{head}_{guild.Id}", effective, type);
         if (newId == 0) return false;
         _teams[newId] = new AttackTeam(newId, effective, dungeon.Id, type, head);
+        _parties.LinkAttackParty(newId, dungeon.Id, head);
         _teamInvitations.Remove((uint)member.Id);
         return true;
     }

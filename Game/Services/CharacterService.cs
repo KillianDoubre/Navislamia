@@ -556,9 +556,10 @@ public partial class CharacterService : ICharacterService
             var changed = false;
             foreach (var item in character?.Items ?? Enumerable.Empty<ItemEntity>())
             {
-                if (itemIds.Contains(item.Id) && item.WearInfo != ItemWearType.None)
+                if (itemIds.Contains(item.Id) && (item.WearInfo != ItemWearType.None || item.EquippedBySummonId is not null))
                 {
                     item.WearInfo = ItemWearType.None;
+                    item.EquippedBySummonId = null;
                     changed = true;
                 }
             }

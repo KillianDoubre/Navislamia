@@ -68,7 +68,13 @@ public class InventoryService : IInventoryService
 
         try
         {
-            var erased = await _characterService.EraseItemsAsync(client.ConnectionInfo.CharacterName, requests);
+            // EraseItem_ starts with IsErasable (StructPlayer.cpp:2792): what a creature or the pet out holds is not
+            // destroyed, and onEraseItem writes no record for it.
+            var info = client.ConnectionInfo;
+            requests = requests.Where(request => Creatures.HeldItemRules.IsErasable(info, request.ItemHandle)).ToArray();
+            var erased = requests.Length == 0
+                ? Array.Empty<(uint Handle, long Count)>()
+                : await _characterService.EraseItemsAsync(info.CharacterName, requests);
             if (erased.Count == 0)
             {
                 client.SendResult(requestId, (ushort)ResultCode.NotExist, target);

@@ -5,7 +5,7 @@ namespace Navislamia.Game.Services;
 public interface ICombatService
 {
     void NotifyHit(Combat.CombatActor attacker, Combat.CombatActor target, HitResult hit,
-        uint attackType = Combat.EnergyProcs.NormalAttack, int element = 0, bool attackProcs = true) { }
+        uint attackType = Combat.EnergyProcs.NormalAttack, int element = 0, bool attackProcs = true, int skillId = 0) { }
     void NotifyDeath(Combat.CombatActor killer, Combat.CombatActor victim) { }
 
     /// <summary>The duel/PK relation used to exclude hostile players from beneficial skills.</summary>

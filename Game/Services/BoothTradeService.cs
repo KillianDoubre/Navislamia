@@ -127,6 +127,13 @@ public class BoothTradeService : IBoothTradeService
                 {
                     return ResultCode.NotExist;
                 }
+
+                // onBuyFromBooth: pTarget->IsTradable (GameMessage.cpp:9181) — a formed card, a card whose summon is
+                // out or the cage of the pet out stays with the owner.
+                if (!Creatures.HeldItemRules.IsErasable(owner, item.Id))
+                {
+                    return ResultCode.NotActable;
+                }
             }
 
             var (reserved, reservation) = owner.UpdateBooth(booth =>
@@ -166,7 +173,8 @@ public class BoothTradeService : IBoothTradeService
                 return ResultCode.NotExist;
             }
 
-            if (offered.WearInfo != DataAccess.Entities.Enums.ItemWearType.None)
+            if (offered.WearInfo != DataAccess.Entities.Enums.ItemWearType.None
+                || !Creatures.HeldItemRules.IsErasable(seller.ConnectionInfo, offered.Id))
             {
                 return ResultCode.NotActable;
             }

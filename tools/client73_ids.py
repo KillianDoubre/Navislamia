@@ -64,3 +64,28 @@ def client_ids(directory):
     ids = {table: set(_records(directory / name, size)) for table, (name, size) in TABLES.items()}
     ids["MonsterResources"] = monster_ids(directory)
     return ids
+
+
+def string_ids(path):
+    """db_string: u32 name/text byte lengths, NUL strings, code i32 + five i32.
+
+    Only the header's declared records are read by the client. The pinned community
+    table has an ignored trailing 2804-byte fragment; it is not another client record.
+    """
+    data = pathlib.Path(path).read_bytes()
+    if len(data) < 132:
+        raise ValueError("Truncated db_string header")
+    count = struct.unpack_from("<I", data, 128)[0]
+    offset, result = 132, set()
+    for _ in range(count):
+        if offset + 8 > len(data):
+            raise ValueError("Truncated db_string lengths")
+        name_len, text_len = struct.unpack_from("<II", data, offset)
+        start, code_at = offset + 8, offset + 8 + name_len + text_len
+        if not name_len or not text_len or code_at + 24 > len(data):
+            raise ValueError("Invalid db_string record lengths")
+        if data[start + name_len - 1] != 0 or data[code_at - 1] != 0:
+            raise ValueError("db_string strings must end with NUL")
+        result.add(struct.unpack_from("<i", data, code_at)[0])
+        offset = code_at + 24
+    return result

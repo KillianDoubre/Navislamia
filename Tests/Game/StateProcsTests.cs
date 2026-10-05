@@ -191,7 +191,8 @@ public partial class StateProcsTests
                 .Invokes((GameClient c, CreatureCard card, int hp, int mp) =>
                 { card.Hp = hp; card.Mp = mp; var summon = Info(c).Summons.Single(s => s.Handle == card.SummonHandle); summon.Hp = hp; summon.Mp = mp; });
             Casts = new SkillCastService(Catalog, Stats, States, World, Combat,
-                A.Fake<IFieldPropCatalog>(), A.Fake<IWarpService>(), Players, interrupts: relay, runTicks: false, creatures: creatures);
+                A.Fake<IFieldPropCatalog>(), A.Fake<IWarpService>(), Players, interrupts: relay, runTicks: false, creatures: creatures,
+                leveling: Leveling);
         }
         public GameClient Client(uint handle)
         {

@@ -424,18 +424,20 @@ public class NpcDialogService : INpcDialogService
                 definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010121", Trigger = $"dungeon_information({dungeonId})" });
                 if (Dungeons.DungeonRules.SecretForOwner(dungeonId) != 0)
                     definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90019007", Trigger = $"secret_dungeon_information({dungeonId})" });
-                AddDungeonEntry("Entrer dans le donjon", $"enter_dungeon({dungeonId})");
-                AddDungeonEntry("Commencer le raid de guilde", $"begin_dungeon_raid({dungeonId})");
-                AddDungeonEntry("Entrer dans le siege", $"warp_to_siege_dungeon({dungeonId})");
-                AddDungeonEntry("Rejoindre le donjon secret de ma guilde", "scf_teleport_to_owned_secret_dungeon()");
+                // Official Resource/Script/NPC_Dungeon.lua:46,55,64; no generic siege label is established.
+                var siegeLabel = dungeonId switch { 130000 => "@1090600104", 130300 => "@1060600104", 130200 => "@1070500104", _ => null };
+                if (siegeLabel is not null) AddDungeonEntry(siegeLabel, $"warp_to_siege_dungeon({dungeonId})");
+                // Official Resource/Script/NPC_TeleportTown.lua:210.
+                AddDungeonEntry("@90605270", "scf_teleport_to_owned_secret_dungeon()");
+                // enter_dungeon, begin_dungeon_raid, register/cancel: no official menu string established.
+                // Keep these out of this dialog rather than assigning an unrelated client string.
+                // Official Resource/Script/NPC_QuestClient.lua:1836,1839,1955,1957.
                 if (_guilds is not null && info.GuildId is > 0)
                 {
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Inscrire ma guilde au raid", Trigger = $"guild_dungeon_register({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Annuler l'inscription", Trigger = $"guild_dungeon_cancel({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Augmenter la taxe", Trigger = $"guild_dungeon_taxup({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Diminuer la taxe", Trigger = $"guild_dungeon_taxdown({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Collecter l'or", Trigger = $"guild_dungeon_gold({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "Collecter les lak", Trigger = $"guild_dungeon_chaos({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010119", Trigger = $"guild_dungeon_taxup({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010120", Trigger = $"guild_dungeon_taxdown({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010116", Trigger = $"guild_dungeon_gold({dungeonId})" });
+                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010125", Trigger = $"guild_dungeon_chaos({dungeonId})" });
                 }
                 definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010002", Trigger = "" });
 
