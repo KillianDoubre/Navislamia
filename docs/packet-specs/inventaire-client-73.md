@@ -118,7 +118,7 @@ La résurrection différée 3321 produite par l'état de mort 314084 reste à po
   et 43001 en ont perdu une partie. Savoir si ces instances existent seulement en 7.3.
 - ~~134 lignes hors du jeu 7.3 gardées par littéral, à revoir une à une~~ : RlwjZDsY, audit individuel, 99 supprimées et 35 références typées conservées (`audit-litteraux-73.md`).
 - ~~`StringResources` (102 256 lignes) non filtrée~~ : RlwjZDsY, codes bornés à `db_string.rdb` ; les 102256 actuels sont déjà connus.
-- Un nouvel `import_epic7.py` réinsère les lignes Epic 7 hors client : rejouer `tools/prune_to_client73.py` après.
+- ~~Un nouvel `import_epic7.py` réinsère les lignes Epic 7 hors client sans rejouer le filtre~~ : lbQQRm8S, filtrage final obligatoire ; `--plan` vérifié en lecture seule.
 
 ### Décisions laissées à Killian
 

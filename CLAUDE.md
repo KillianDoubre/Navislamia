@@ -3023,3 +3023,11 @@ Ne jamais protéger une famille de ressources par tous les nombres du code ou du
 Les FK facultatives vers des chaînes supprimées sont mises à NULL dans la transaction ;
 une FK obligatoire inconnue bloque le filtre. Sauvegarde Arcadia puis restauration vérifiée
 avant un nouveau nettoyage des données. Le plan reste en lecture seule.
+
+
+### Import Epic 7 et filtre obligatoire (2026-10-05, lbQQRm8S)
+
+`tools/import_epic7.py` valide les fichiers client avant toute écriture puis rejoue le
+filtre 7.3 après résolution des FK, même pour un import partiel. Fournir `--client-dir`
+ou `NAVIS_CLIENT73`. `--plan` reste intégralement en lecture seule ; son filtre décrit
+la base actuelle. Ne pas ajouter d’option permettant un import réussi sans filtrage.

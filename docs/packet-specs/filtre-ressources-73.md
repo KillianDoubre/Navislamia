@@ -71,7 +71,7 @@ python tools/prune_to_client73.py <dossier> --apply    # une transaction
 ```
 
 `NAVIS_EPIC7` désigne le dossier `data/epic7` s'il n'est pas sous le dépôt courant. Après un nouvel
-`import_epic7.py`, qui réinsère les lignes Epic 7 hors client, rejouer le filtre. Sauvegardes du 2026-10-05 :
+`import_epic7.py`, le filtre est désormais exécuté automatiquement (§6). Sauvegardes du 2026-10-05 :
 `A:\Rappelz Kiff\backups\{Arcadia,Telecaster}-2026-10-05-avant-filtre-73.dump`.
 
 ## NON ÉTABLI
@@ -129,3 +129,28 @@ Base temporaire supprimée ensuite. Application dans une transaction ; second pl
 Les 35 objets hors client conservés suivent encore les fonctions publiées ; leur rendu
 côté 7.3 et les événements auxquels Killian souhaite réellement donner accès restent
 à vérifier en jeu. L’audit garantit leur référence sémantique, pas leur affichage client.
+
+## 6. Import suivi du filtre obligatoire (lbQQRm8S)
+
+`tools/import_epic7.py` appelle `prune_to_client73.main` après l’import, la résolution
+des FK et le retrait des tables intermédiaires, même si une seule table est importée.
+Les règles restent celles du §5, avec leurs références Lua officielles ; aucune règle
+issue d’un serveur tiers. Fournir `--client-dir` ou `NAVIS_CLIENT73` ; `NAVIS_EPIC7`
+sert aux deux étapes. Les RDB client et CSV StateResource/StatResource sont validés
+avant la première écriture. Une erreur du filtre fait échouer la commande ; il n’existe
+aucun chemin de succès sans filtrage. Attention : l’import historique effectue plusieurs
+transactions ; une erreur tardive ne les annule pas. Corriger puis rejouer après sauvegarde.
+
+```powershell
+python tools/import_epic7.py --client-dir <dossier-client-extrait> --plan
+python tools/import_epic7.py --client-dir <dossier-client-extrait>
+python tools/import_epic7.py --client-dir <dossier-client-extrait> SkillResources StateResources
+```
+
+`--plan` ne supprime aucune table intermédiaire, ne résout aucune FK et appelle le
+filtre sans `--apply`. Il décrit l’import puis le filtre **sur la base actuelle**, sans
+simuler les lignes qui seraient importées. Contrôle local sur les CSV Epic 7 et les
+RDB 7.3 : plan complet réussi, filtre final 0 suppression. Quatre tests supplémentaires
+vérifient l’ordre des étapes, l’import partiel, le rejet précoce d’un client invalide,
+l’échec du filtre et l’absence d’écriture en mode plan ; le test existant sur les tables
+intermédiaires vérifie aussi l’appel final sans `--apply`.
