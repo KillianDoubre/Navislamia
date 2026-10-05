@@ -17,8 +17,9 @@ import struct
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SQL = os.path.join(ROOT, 'data', 'sqlserver', 'Arcadia')
-EPIC7 = os.path.join(ROOT, 'data', 'epic7')
+DATA = os.environ.get('NAVIS_DATA', os.path.join(ROOT, 'data'))
+SQL = os.path.join(DATA, 'sqlserver', 'Arcadia')
+EPIC7 = os.path.join(DATA, 'epic7')
 OUT = os.path.join(ROOT, 'DevConsole', 'auction-catalog.73.json')
 csv.field_size_limit(10 ** 9)
 
@@ -35,14 +36,16 @@ def client_items(path):
     return {struct.unpack_from('<i', data, 132 + i * stride)[0] for i in range(count)}
 
 
-def automatic_auctions(names):
+def automatic_auctions(names, allowed=None):
+    """The 9.4 AutoAuctionResource rows, an item the 7.3 client does not know left out like the other items."""
     return [{'Id': int(r['id']), 'ItemCode': int(r['item_id']),
              'SellerName': names.get(r['auctionseller_id'], '@AUCTION'), 'Price': int(r['price']),
              'SecrouteOnly': r['secroute_apply'] == '1', 'LocalFlag': int(r['local_flag']),
              'EnrollmentTime': r['auction_enrollment_time'].replace(' ', 'T'),
              'Repeat': r['repeat_apply'] == '1', 'RepeatDays': int(r['repeat_term']),
              'DurationType': int(r['auctiontime_type'])}
-            for r in rows(os.path.join(SQL, 'AutoAuctionResource.csv'))]
+            for r in rows(os.path.join(SQL, 'AutoAuctionResource.csv'))
+            if allowed is None or int(r['item_id']) in allowed]
 
 
 def main(argv):
@@ -60,7 +63,7 @@ def main(argv):
                       'Group': int(r['group'] or 0), 'Class': int(r['class'] or 0)})
     with open(OUT, 'w', encoding='utf-8') as stream:
         json.dump({'AuctionCatalog': {'Categories': categories, 'Items': items,
-                                     'AutomaticAuctions': automatic_auctions(names)}}, stream, ensure_ascii=False,
+                                     'AutomaticAuctions': automatic_auctions(names, allowed)}}, stream, ensure_ascii=False,
                   separators=(',', ':'))
     named = sum(1 for i in items if i['Name'])
     print(f'{os.path.basename(OUT)}: {len(categories)} categories, {len(items)} items ({named} named)')

@@ -1720,7 +1720,9 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   server's comparator
 - The client clock is synchronized and `game_time` carries Unix time, but movement still applies
   `ClientClockOffset` by hand rather than trusting the sync
-- Remaining 9.4 resource data has not all been globally filtered for 7.3 compatibility
+- **Arcadia holds only what the 7.3 client knows** (2026-10-05, `docs/packet-specs/filtre-ressources-73.md`): items,
+  skills, monsters, NPCs, summons and quests filtered against the client's own `db_*.rdb`, states and stats against the
+  Epic 7 dump, a row still referenced kept; replay `tools/prune_to_client73.py` after any new `import_epic7.py`
 - **Known gaps are listed in one place**: `docs/packet-specs/inventaire-client-73.md`, *Trous connus* — the packets the
   client reads and the server never sends, the combat procs still missing, small gaps, open decisions and what a public
   server still needs. Strike a line there when it is done.
@@ -2899,6 +2901,13 @@ refuses an array holding a NULL). Foreign keys are written last, only when the t
 `tools/Import-CraftingResources.ps1 -SourceDirectory data\epic7`: 20 percentages at that epic, and the
 test row `enhance_id 100` (`fail_result = '-'`) is left out. Datetimes in an `.rdu` are OLE `DATE`
 doubles. `pg_dump` Arcadia before re-running: the import cannot be undone row by row.
+
+**The 9.4-only rows are then removed** (`tools/prune_to_client73.py`, `filtre-ressources-73.md`): the 7.3 set is the
+client's own table where it has one (`tools/client73_ids.py` reads `db_item`, `db_skill`, `db_monster`, `db_npcresource`,
+`db_creature`, `db_quest`), the Epic 7 dump for states and stats. A row something still points at stays (Telecaster, a
+kept row, a catalogue, the Lua, a literal of the code). The counts above are before it: 9 908 rows went, leaving
+`ItemResources` 28 254, `SkillResources` 2 171, `MonsterResources` 6 581, `NpcResources` 1 195, `StateResources` 1 579,
+`StatResources` 920.
 
 ## Logging
 

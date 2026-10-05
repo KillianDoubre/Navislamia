@@ -117,6 +117,8 @@ def main():
     parser.add_argument('--lua', default=DEFAULT_LUA, help='the Epic 7 ETC_dungeon_prop.lua')
     parser.add_argument('--random-respawn-lua', default=DEFAULT_RANDOM_RESPAWN_LUA,
                         help="the official random_respawn.lua (the Epic 7 dump has none; the 2015 server's)")
+    parser.add_argument('--client-monsters', help="the 7.3 client's db_monster.rdb: a respawn of a monster it does "
+                        "not know (it would be an invisible monster) is left out (docs/packet-specs/filtre-ressources-73.md)")
     args = parser.parse_args()
     data = {
         'Dungeons': select('DungeonResource', dict(Id='id', LocalFlag='local_flag', Kind='dungeon_type',
@@ -170,6 +172,12 @@ def main():
         'MinLevel': int(props[str(prop_id)]['limit_min_level']),
         'MaxLevel': int(props[str(prop_id)]['limit_max_level'])} for prop_id in used if str(prop_id) in props]
     data['VulcanusRewards'] = vulcanus_rewards(args.lua)
+    if args.client_monsters:
+        import sys
+        sys.path.insert(0, str(ROOT / 'tools'))
+        import client73_ids
+        known = client73_ids.monster_ids(Path(args.client_monsters).parent)
+        data['Respawns'] = [r for r in data['Respawns'] if r['MonsterId'] in known]
     target = ROOT / 'Game/Services/Dungeons/dungeon-resources.json'
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n', encoding='utf-8')
