@@ -156,4 +156,8 @@ public interface ISkillResourceRepository
     /// learns (<c>EF_PHYSICAL_SINGLE_DAMAGE_T1</c> 101, <c>EF_MAGIC_SINGLE_DAMAGE_T1_OLD</c> 201…).
     /// </summary>
     IReadOnlyList<CastableSkillRow> GetSkillRows(IReadOnlyCollection<int> ids);
+
+    /// <summary>The rows of the given effect types (the energy passives 32262/32263).</summary>
+    IReadOnlyList<CastableSkillRow> GetSkillRowsByEffectType(IReadOnlyCollection<int> effectTypes) =>
+        System.Array.Empty<CastableSkillRow>();
 }

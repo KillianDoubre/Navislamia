@@ -46,14 +46,16 @@ public partial class GmCommandService : IGmCommandService
     private readonly Creatures.ICreatureService _creatures;
     private readonly Party.IPartyService _parties;
     private readonly IResurrectionService _resurrection;
+    private readonly Friends.IFriendService _friends;
 
     public GmCommandService(IWarpService warpService, ICombatService combatService,
         ILevelingService levelingService, IStatService statService, ICharacterService characterService,
         IItemSortCatalog itemCatalog, MonsterWorldState monsterState, SkillCatalog skillCatalog,
         ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService,
         Progression.ITitleService titles = null, Creatures.ICreatureService creatures = null, Party.IPartyService parties = null,
-        IResurrectionService resurrection = null)
+        IResurrectionService resurrection = null, Friends.IFriendService friends = null)
     {
+        _friends = friends;
         _creatures = creatures;
         _parties = parties; _resurrection = resurrection;
         _rateService = rateService;

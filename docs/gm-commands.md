@@ -68,6 +68,15 @@ rzu et NGemity) — la convention de NGemity pour ses réponses de commande.
 | `/rate reset [type]` | oui | Navislamia | fin anticipée, d'un type ou de tous |
 | `/rates` | non | Navislamia | rates effectifs, en lecture seule |
 | `/gametime [heures]` | oui | Navislamia | décale l'heure du monde (`TS_SC_GAME_TIME`) pour tous et la renvoie ; `0` remet l'heure réelle, sans argument affiche l'heure |
+| `/change_name <nom>` | non | officiel `onChangeName` | renomme le personnage une fois : `@128` nom invalide ou interdit, `@118` même nom, `@734` casse à corriger, `@130` déjà renommé, `@18` nom pris, `@131` réussi ; `TS_SC_CHANGE_NAME` (30) à la région, groupe mis à jour, retiré des listes d'amis et de blocage des autres |
+| `/passist <handle>` | non | officiel `onPartyAssist` | ligne `@PARTY` `ASSIST|cible|` : la cible d'un membre du groupe (handle de monstre traduit pour l'appelant) |
+| `/block_chat <nom> [minutes]` | oui | officiel (grade D) | coupe le chat d'un joueur (0 à 144 000 min, 0 lève), gardé en base ; sans durée, affiche le reste ; un chat bloqué répond `BlockChat` |
+| `/check_auto_user <nom>` | oui | officiel (grade B) | drapeau anti-bot du joueur |
+| `/force_warp <nom> \| <x> <y> [nom]` | oui | officiel (grade C) | rejoint un joueur, ou téléporte soi-même ou un autre |
+| `/invisible [1\|2]` | oui | officiel (grade C) | 1 invisible (bit de statut, plus d'aggro), 2 visible ; sans argument, l'état |
+| `/kick <nom>` | oui | officiel (grade B) | déconnecte le joueur par le chemin ordinaire (sauvegarde comprise) |
+| `/rebirth` | oui | officiel (grade C) | ajoute les PV max aux PV et aux PM, sur place (`ScriptPlayer.cpp:5294`) |
+| `/lv <niveau>` | oui | officiel | fixe le niveau, vers le haut comme vers le bas (expérience du seuil) |
 
 Le nom est insensible à la casse (`/Position` marche), contrairement à la comparaison exacte de
 NGemity : rien dans le client ne distingue les deux, et un refus ne ferait que ressembler à une panne.

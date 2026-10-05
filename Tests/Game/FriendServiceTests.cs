@@ -47,6 +47,12 @@ public class FriendServiceTests
             Rows.RemoveAll(r => r == (ownerId, targetId, isDenial));
             return Task.CompletedTask;
         }
+
+        public Task RemoveFromOthersAsync(long targetId)
+        {
+            Rows.RemoveAll(r => r.Target == targetId);
+            return Task.CompletedTask;
+        }
     }
 
     private MemoryStore _store = null!;
@@ -291,6 +297,29 @@ public class FriendServiceTests
         _service.OnCharacterDeleted(3);
 
         Texts(connection).Should().Equal("FLIST|", "DLIST|");
+    }
+
+    [Test]
+    public async Task ARename_TakesTheCharacterOffEveryOtherList_AndKeepsItsOwn()
+    {
+        _store.Rows.Add((2, 1, false)); // Bobby lists Alice
+        _store.Rows.Add((3, 1, true));  // Carol blocks Alice
+        _store.Rows.Add((1, 3, false)); // Alice lists Carol
+        var (alice, aliceConnection) = await Enter(1, "Alice");
+        var (_, bobbyConnection) = await Enter(2, "Bobby");
+        var (_, carolConnection) = await Enter(3, "Carol");
+        aliceConnection.Sent.Clear();
+        bobbyConnection.Sent.Clear();
+        carolConnection.Sent.Clear();
+        StorageTestHarness.Session(alice).CharacterName = "Alicia";
+
+        await _service.OnRenamedAsync(alice);
+
+        _store.Rows.Should().Equal((1L, 3L, false));
+        Texts(bobbyConnection).Should().Equal("FLIST|");
+        Texts(carolConnection).Should().Equal("DLIST|");
+        Texts(aliceConnection).Should().Equal(new[] { "FSTATUS|Carol|1|" }, "Carol no longer blocks her: she is seen online");
+        _service.Blocks(alice, alice).Should().BeFalse();
     }
 
     [Test]

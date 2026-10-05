@@ -85,8 +85,9 @@ public partial class SkillCastService : ISkillCastService
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
         Creatures.ICreatureService creatures = null, Dungeons.IDungeonService dungeons = null,
         Huntaholic.IHuntaholicEvents huntaholic = null, IDynamicFieldProps dynamicProps = null, IEtherealWear ethereal = null,
-        Compete.ICompeteService compete = null, IFieldPropUse propUse = null)
+        Compete.ICompeteService compete = null, IFieldPropUse propUse = null, Combat.EnergyProcs energyProcs = null)
     {
+        _energyProcs = energyProcs;
         _propUse = propUse;
         _compete = compete;
         _ethereal = ethereal;
@@ -1084,8 +1085,8 @@ public partial class SkillCastService : ISkillCastService
     }
 
     /// <summary>
-    /// The kinds whose target is a monster rather than the caster. Taming is one of them since Ã©tape 0 of
-    /// the socle (docs/packet-specs/socle-apprivoisement-invocation.md Â§11): the creature spell 4003 is
+    /// The kinds whose target is a monster rather than the caster. Taming is one of them since étape 0 of
+    /// the socle (docs/packet-specs/socle-apprivoisement-invocation.md §11): the creature spell 4003 is
     /// cast at a monster, so an unresolvable handle must answer <c>NotExist</c> rather than land on the
     /// caster.
     /// </summary>
@@ -1300,6 +1301,7 @@ public partial class SkillCastService : ISkillCastService
             _ethereal?.Hit(client, true, playerHit.Damage, EtherealHit.Skill, competing: competing);
             var hp = _combatService.DamagePlayerByPlayer(client, player, playerHit.Damage, magical);
             ProduceAttackEnergy(client, fields, skillLevel);
+            SkillHitProcs(client, player, playerHit.Flags, magical, fields.ElementalType);
             return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, targetHandle, hp,
                 playerHit.Damage, (byte)playerHit.Flags, ElementalType: (byte)fields.ElementalType);
         }
@@ -1312,9 +1314,28 @@ public partial class SkillCastService : ISkillCastService
         var hate = HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, hit.Damage);
         var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage, hate);
         _ethereal?.Hit(client, true, hit.Damage, EtherealHit.Skill);
+        SkillHitProcs(client, null, hit.Flags, magical, fields.ElementalType);
         var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
 
         return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType);
+    }
+
+    private readonly Combat.EnergyProcs _energyProcs;
+
+    /// <summary><c>StructSkill::ProcSkill</c> calls <c>OnAttack</c> for each damage result that did not miss.</summary>
+    private void SkillHitProcs(GameClient client, GameClient victim, HitFlags flags, bool magical, int element)
+    {
+        if ((flags & HitFlags.Miss) != 0 || _energyProcs is null)
+        {
+            return;
+        }
+
+        var type = Combat.EnergyProcs.Harmful | (magical ? Combat.EnergyProcs.MagicalSkill : Combat.EnergyProcs.PhysicalSkill);
+        _energyProcs.OnAttack(client, type, element, -1);
+        if (victim is not null)
+        {
+            _energyProcs.OnBeingAttacked(victim, type, element, -1);
+        }
     }
 
     private static void ProduceAttackEnergy(GameClient client, CastableBuffFields fields, int skillLevel)
@@ -1424,6 +1445,7 @@ public partial class SkillCastService : ISkillCastService
                         ? _combatService.DamagePlayerByPlayer(client, victim, hit.Damage, magical)
                         : _combatService.ApplyDamage(client, target.Id, handle, hit.Damage,
                             HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, level, hit.Damage));
+                    SkillHitProcs(client, target.Player, hit.Flags, magical, fields.ElementalType);
                     hits.Add((target.Id, new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage,
                         handle, hp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType)));
                     if (hp <= 0) break;

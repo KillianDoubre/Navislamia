@@ -34,8 +34,41 @@ public partial class GmCommandServiceTests
         A.CallTo(() => _characters.RenameCharacterAsync("Tester", "Renamed")).Returns(ResultCode.Success);
         await _service.HandleAsync(client, "/change_name Renamed", Array.Empty<GameClient>());
         info.CharacterName.Should().Be("Renamed"); info.CharacterList.Should().Contain("Renamed").And.NotContain("Tester");
-        connection.Sent.Should().ContainSingle().Which.Should().Equal(GamePetPackets.BuildChangeName(CharacterHandle, "Renamed"));
+        connection.Sent[0].Should().Equal(GamePetPackets.BuildChangeName(CharacterHandle, "Renamed"));
+        Replies(connection).Should().Equal(("@NOTICE", (byte)Navislamia.Game.Network.Packets.Enums.ChatType.Notice, "@131"));
         A.CallTo(() => _parties.OnNameChanged(client)).MustHaveHappenedOnceExactly();
+    }
+
+    [TestCase("Tester", "@118")]
+    [TestCase("Abc", "@128")]
+    [TestCase("Bad!Name", "@128")]
+    public async Task A_name_change_is_judged_before_the_database_with_the_official_lines(string name, string line)
+    {
+        var (client, connection) = NewClient(0);
+        await _service.HandleAsync(client, "/change_name " + name, Array.Empty<GameClient>());
+        A.CallTo(() => _characters.RenameCharacterAsync(A<string>._, A<string>._)).MustNotHaveHappened();
+        Replies(connection).Single().Text.Should().Be(line);
+    }
+
+    [Test]
+    public async Task A_name_the_rules_would_write_otherwise_is_offered_back_with_734()
+    {
+        var (client, connection) = NewClient(0);
+        A.CallTo(() => _characters.NameReformat("RENAMED")).Returns("Renamed");
+        await _service.HandleAsync(client, "/change_name RENAMED", Array.Empty<GameClient>());
+        A.CallTo(() => _characters.RenameCharacterAsync(A<string>._, A<string>._)).MustNotHaveHappened();
+        Replies(connection).Single().Text.Should().Be("@734\v#@correct_name@#\vRenamed");
+    }
+
+    [TestCase(ResultCode.AccessDenied, "@130")]
+    [TestCase(ResultCode.AlreadyExist, "@18")]
+    [TestCase(ResultCode.InvalidText, "@128")]
+    public async Task The_database_refusals_answer_the_official_lines(ResultCode code, string line)
+    {
+        var (client, connection) = NewClient(0);
+        A.CallTo(() => _characters.RenameCharacterAsync("Tester", "Renamed")).Returns(code);
+        await _service.HandleAsync(client, "/change_name Renamed", Array.Empty<GameClient>());
+        Replies(connection).Single().Text.Should().Be(line);
     }
 
     [Test]

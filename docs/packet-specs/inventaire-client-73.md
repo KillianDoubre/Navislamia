@@ -21,10 +21,10 @@ Trois sources ont été croisées.
 
 | id | paquet | rôle chez l'officiel | priorité |
 |---|---|---|---|
-| 406 | `TS_SC_STATE_RESULT` | dégâts et soins périodiques d'un état (poison, régénération) affichés au tick, `StructCreature.cpp:872` | haute |
-| 515 | `TS_SC_ENERGY` | compte d'énergie diffusé (`StructPlayer::onEnergyChange`) | haute, voir *Énergie* |
+| 406 | `TS_SC_STATE_RESULT` | dégâts et soins périodiques d'un état (poison, régénération) affichés au tick, `StructCreature.cpp:872` | **livré le 2026-10-05** (`socle-etats-periodiques-energie.md`) |
+| 515 | `TS_SC_ENERGY` | compte d'énergie diffusé (`StructPlayer::onEnergyChange`) | **livré le 2026-10-05** |
 | 901 | `TS_SC_CHANGE_LOCATION` | réponse à `TM_CS_CHANGE_LOCATION` (900) : lieu précédent et lieu courant | **livré le 2026-10-04** avec la météo (`901-change-location.md`) |
-| 102 | `TS_SC_CANT_ATTACK` | attaque impossible | basse |
+| 102 | `TS_SC_CANT_ATTACK` | attaque impossible | **livré le 2026-10-05** |
 | 30 | `TS_SC_CHANGE_NAME` | changement de nom (personnage, familier) | avec `/change_name` |
 | 322 | `TS_SC_SHOW_SUMMON_NAME_CHANGE` | fenêtre de renommage d'une invocation | basse |
 | 451 | `TS_SC_SKILL_LEVEL_LIST` | niveaux de compétences (réponse à 450) | à étudier |
@@ -40,10 +40,10 @@ Trois sources ont été croisées.
 ## Systèmes absents
 
 - **Amis et liste de blocage** : livrés le 2026-10-04 (`socle-amis.md`).
-- **Énergie.** Quinze compétences jouables coûtent de l'énergie (`CostEnergy`, effets 301, 505 et 30001-30016), et
+- **Énergie** (livrée le 2026-10-05, `socle-etats-periodiques-energie.md`). Quinze compétences jouables coûtent de l'énergie (`CostEnergy`, effets 301, 505 et 30001-30016), et
   d'autres en produisent (`StructSkill.cpp:6420`, `7023`). L'officiel refuse le lancement sans énergie
   (`RESULT_NOT_ENOUGH_ENERGY`). Ici, ces compétences partent gratuitement et le compteur n'existe pas.
-- **Commandes de chat officielles non traitées** :
+- **Commandes de chat officielles** (livrées le 2026-10-05 : `/passist`, `/change_name` et les commandes MJ ci-dessous) :
   - `/passist` (assistance de groupe) et `/change_name` ;
   - côté MJ : `block_chat`, `check_auto_user`, `force_warp`, `invisible`, `kick`, `rebirth` et `lv`.
   - Les commandes de guilde `gicon`, `gupdateicon`, `gbanner`, `glist`, `change_guild_name` et

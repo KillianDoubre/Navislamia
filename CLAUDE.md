@@ -1866,7 +1866,7 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
 
 - **Aucun opcode**, comme le groupe : `/add_friend`, `/del_friend`, `/add_denial`, `/del_denial`, et des `TS_SC_CHAT`
   d'émetteur `@FRIEND`, type **140** pour `FLIST|nom|statut|…` (1 en ligne, 0 hors ligne, **2 en ligne mais bloquant
-  le lecteur**), `DLIST|nom|…` et `FSTATUS|nom|1|`/`0|`, type **13** pour les messages (`@467#@friend_name@#Nom`).
+  le lecteur**), `DLIST|nom|…` et `FSTATUS|nom|1|`/`0|`, type **13** pour les messages (`@467\v#@friend_name@#\vNom`).
   Règles du serveur officiel (`GameMessage.cpp` `onAddFriend`…, `DB_Friends.cpp`) : 25 entrées, nom 4-18,
   `@482`/`@481`/`@478`/`@469`/`@473`, entrée en jeu = `FLIST` + `DLIST` + `FSTATUS` aux joueurs qui vous ont en ami
   (sauf ceux que vous bloquez), sortie = `FSTATUS 0`, chuchotement d'un joueur bloqué = `TS_SC_RESULT(AccessDenied)`.
@@ -2809,6 +2809,17 @@ officiels l'envoient. Les dialogues timbres/événements/cadeaux/`max_item_durab
 exécutent le **Lua officiel embarqué** dans un bac à sable (MoonSharp), sur déclencheur annoncé seulement.
 **`EnableRetryOnFailure` refuse les transactions ouvertes à la main** : un service qui en ouvre prend
 `TelecasterOptions.WithoutRetry` (enchères, guildes), sinon il échoue sur la vraie base alors que les tests passent.
+
+## États périodiques, énergie, attaque impossible, commandes officielles (lot Codex du 2026-10-04)
+
+`docs/packet-specs/socle-etats-periodiques-energie.md`. **406** (36 octets) : un état dont `base_effect_id` est non nul
+frappe ou soigne toutes les `fire_interval × 100` ticks, dégâts de base **figés à la pose**, par le chemin de dégâts
+ordinaire, persistés (`CharacterStates.PeriodicBaseDamage`/`RemainingFireTicks`, `Version0024`). **515** (13 octets) :
+énergie 10 au plus, capacité = niveau de 1082, 30 min chacune ; coût `cost_energy`, refus `NotEnoughEnergy` ; produite par
+2631, les dégâts 125/30003 et les passifs 32262/32263 (`EnergyProcs`, sur chaque coup qui touche). **102** (19 octets) :
+refus de `onAttackRequest` (`NotOwn`, `NotExist`, `NotActable`). Commandes `/passist`, `/change_name` (messages officiels,
+retiré des listes d'amis des autres) et MJ `block_chat`, `check_auto_user`, `force_warp`, `invisible`, `kick`, `rebirth`,
+`lv` (`docs/gm-commands.md`).
 
 ## Donjons, guildes, alliances, raids et sièges (lot Codex du 2026-10-03)
 

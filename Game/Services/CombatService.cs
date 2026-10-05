@@ -70,8 +70,10 @@ public class CombatService : ICombatService
         Microsoft.Extensions.Options.IOptionsMonitor<Navislamia.Configuration.Options.GameRuleOptions> rules = null,
         bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null,
         Creatures.ICreatureEvents creatures = null, Guilds.GuildRuntime guilds = null, Guilds.GuildCombatEvents guildEvents = null,
-        Huntaholic.IHuntaholicEvents huntaholic = null, Dungeons.DungeonEvents dungeons = null, IEtherealWear ethereal = null)
+        Huntaholic.IHuntaholicEvents huntaholic = null, Dungeons.DungeonEvents dungeons = null, IEtherealWear ethereal = null,
+        Combat.EnergyProcs energyProcs = null)
     {
+        _energyProcs = energyProcs;
         _ethereal = ethereal;
         _dungeons = dungeons;
         _huntaholic = huntaholic;
@@ -97,6 +99,8 @@ public class CombatService : ICombatService
         _groundItemService = groundItemService;
         if (runTicks) _ = RunAsync();
     }
+
+    private readonly Combat.EnergyProcs _energyProcs;
 
     public void StartAttack(GameClient client, uint targetHandle)
     {
@@ -323,6 +327,11 @@ public class CombatService : ICombatService
             // A miss still lands as an attack: the monster turns on the player either way.
             targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, damage);
             _ethereal?.Hit(client, true, hit.Damage, left ? EtherealHit.LeftHand : EtherealHit.Normal);
+            // StructCreature::OnAttack on a hit that landed; the additional swing of a double attack fires nothing.
+            if ((hit.Flags & HitFlags.Miss) == 0 && (!doubleAttack || i < count / 2))
+            {
+                _energyProcs?.OnAttack(client, Combat.EnergyProcs.NormalAttack, 0, -1);
+            }
             hits.Add(new AttackHit(damage, (byte)hit.Flags, targetHp, elemental));
         }
 
@@ -526,6 +535,9 @@ public class CombatService : ICombatService
         if (damage > 0)
         {
             _compete?.OnDamagedByOther(target, null);
+            // The monster's hit landed: the player's energy passives on being attacked.
+            _energyProcs?.OnBeingAttacked(target, magical
+                ? Combat.EnergyProcs.Harmful | Combat.EnergyProcs.MagicalSkill : Combat.EnergyProcs.NormalAttack, 0, -1);
         }
 
         if (hp <= 0 || damage <= 0 || attackerInstanceId < 0)
@@ -707,6 +719,11 @@ public class CombatService : ICombatService
                 }
         var targetHp = DamagePlayerByPlayer(client, target, damage);
         _ethereal?.Hit(client, true, hit.Damage, competing: _compete?.AreCompeting(client, target) == true);
+        if ((hit.Flags & HitFlags.Miss) == 0)
+        {
+            _energyProcs?.OnAttack(client, Combat.EnergyProcs.NormalAttack, 0, -1);
+            _energyProcs?.OnBeingAttacked(target, Combat.EnergyProcs.NormalAttack, 0, -1);
+        }
 
         var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
         var frame = GameAttackPackets.BuildAttackEvent(info.CharacterHandle, targetInfo.CharacterHandle, intervalMs,

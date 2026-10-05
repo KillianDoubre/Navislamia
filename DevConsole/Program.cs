@@ -514,6 +514,8 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Friends.IFriendStore, Navislamia.Game.Services.Friends.FriendStore>();
         services.AddSingleton<Navislamia.Game.Services.Friends.IFriendService, Navislamia.Game.Services.Friends.FriendService>();
         services.AddSingleton<IPlayerLocationService, PlayerLocationService>();
+        services.AddSingleton<Navislamia.Game.Services.Combat.EnergyProcs>(provider =>
+            new Navislamia.Game.Services.Combat.EnergyProcs(provider.GetRequiredService<Navislamia.Game.DataAccess.Repositories.Interfaces.ISkillResourceRepository>()));
         services.AddSingleton<Navislamia.Game.Services.Trade.IPlayerTradeService, Navislamia.Game.Services.Trade.PlayerTradeService>();
         services.AddSingleton<IBoothTradeService, BoothTradeService>();
         services.AddSingleton<ISoulstoneCraftCatalog, SoulstoneCraftCatalog>();

@@ -28,6 +28,9 @@ public partial class CharacterService
             return ResultCode.Success;
         });
 
+    public string NameReformat(string name) =>
+        _nameCodePage is 1252 or 1250 or 1254 ? CharacterNameRules.Reformat(name) : null;
+
     public Task<bool> SaveChatBlockTimeAsync(string name, int remainingSeconds) =>
         RunExclusiveAsync(name, async repository =>
         {

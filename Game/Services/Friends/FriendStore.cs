@@ -24,6 +24,12 @@ public interface IFriendStore
     Task AddAsync(long ownerId, long targetId, bool isDenial);
 
     Task RemoveAsync(long ownerId, long targetId, bool isDenial);
+
+    /// <summary>
+    /// <c>smp_update_character_name</c> with <c>IN_REMOVE_FROM_FRIEND_DENIAL</c>: the character leaves every other
+    /// player's friend and block lists.
+    /// </summary>
+    Task RemoveFromOthersAsync(long targetId);
 }
 
 public sealed class FriendStore : IFriendStore
@@ -61,6 +67,14 @@ public sealed class FriendStore : IFriendStore
     {
         await using var db = new TelecasterContext(_options);
         db.CharacterFriends.Add(new CharacterFriendEntity { OwnerId = ownerId, TargetId = targetId, IsDenial = isDenial });
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RemoveFromOthersAsync(long targetId)
+    {
+        await using var db = new TelecasterContext(_options);
+        var rows = await db.CharacterFriends.Where(f => f.TargetId == targetId).ToListAsync();
+        db.CharacterFriends.RemoveRange(rows);
         await db.SaveChangesAsync();
     }
 

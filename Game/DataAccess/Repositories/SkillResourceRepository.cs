@@ -115,6 +115,16 @@ public class SkillResourceRepository : ISkillResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<CastableSkillRow> GetSkillRowsByEffectType(IReadOnlyCollection<int> effectTypes)
+    {
+        var wanted = effectTypes.ToArray();
+        var ids = _context.SkillResources.AsNoTracking()
+            .Where(skill => wanted.Contains((int)skill.EffectType))
+            .Select(skill => (int)skill.Id)
+            .ToList();
+        return GetSkillRows(ids);
+    }
+
     public IReadOnlyList<CastableSkillRow> GetSkillRows(IReadOnlyCollection<int> ids)
     {
         if (ids.Count == 0)

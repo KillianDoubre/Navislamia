@@ -42,6 +42,9 @@ public interface ICharacterService
 
     Task<CharacterEntity> CreateCharacterAsync(CharacterEntity character, bool withStarterItems = false);
 
+    /// <summary><c>GameRule::ReformatName</c> for the server's code page; null when the code page reformats nothing.</summary>
+    string NameReformat(string name) => null;
+
     Task<Navislamia.Game.Network.Packets.ResultCode> RenameCharacterAsync(string oldName, string newName) => Task.FromResult(Navislamia.Game.Network.Packets.ResultCode.AccessDenied);
     Task<bool> SaveChatBlockTimeAsync(string name, int remainingSeconds) => Task.FromResult(false);
 

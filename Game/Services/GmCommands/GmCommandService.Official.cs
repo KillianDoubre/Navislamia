@@ -101,18 +101,53 @@ public partial class GmCommandService
             default: return false;
         }
     }
+    /// <summary>
+    /// <c>StructPlayer::ChangeName</c> then <c>DB_ChangeCharacterName</c>: the official checks and <c>@NOTICE</c>
+    /// lines, <c>TS_SC_CHANGE_NAME</c> to the region, and the renamed character taken off every friend and block list
+    /// (<c>IN_REMOVE_FROM_FRIEND_DENIAL</c>, which <c>onChangeName</c> sets).
+    /// </summary>
     private async Task RenameAndPublishAsync(GameClient client, string newName, Task previous)
     {
         await previous;
         var info = client.ConnectionInfo;
         var old = info.CharacterName; var handle = info.CharacterHandle;
+        var refusal = NameChangeRules.Check(old, newName, _characterService.NameReformat(newName));
+        if (refusal is not null) { Notice(client, refusal); return; }
         var renamed = await _characterService.RenameCharacterAsync(old, newName);
         if (info.CharacterHandle != handle || info.CharacterName != old) return;
-        if (renamed != ResultCode.Success)
-        { Reply(client, $"Name change refused: {renamed}."); return; }
+        if (renamed != ResultCode.Success) { Notice(client, NameChangeRules.Refusal(renamed)); return; }
         info.CharacterName = newName;
         info.CharacterList.Remove(old); info.CharacterList.Add(newName);
         client.SendToSelfAndObservers(GamePetPackets.BuildChangeName(handle, newName));
         _parties?.OnNameChanged(client);
+        if (_friends is not null) await _friends.OnRenamedAsync(client);
+        Notice(client, NameChangeRules.Success);
     }
+
+    private static void Notice(GameClient client, string text) => client.Connection.Send(
+        GameChatPackets.BuildChat("@NOTICE", (byte)Network.Packets.Enums.ChatType.Notice, text));
+}
+
+/// <summary>The checks and lines of <c>StructPlayer::ChangeName</c> and <c>DB_ChangeCharacterName</c>.</summary>
+public static class NameChangeRules
+{
+    public const string Invalid = "@128", SameName = "@118", AlreadyChanged = "@130", Taken = "@18", Success = "@131";
+
+    /// <summary>The checks before the database, in the official order; null when the name may be tried.</summary>
+    public static string Check(string current, string requested, string reformatted)
+    {
+        if (string.IsNullOrEmpty(requested) || requested.Length is < 4 or > 18 || !CharacterNameRules.Valid(requested))
+            return Invalid;
+        if (requested == current) return SameName;
+        // GameRule::ReformatName: the name the rules would write, offered back with @734.
+        return !string.IsNullOrEmpty(reformatted) && reformatted != requested ? $"@734\v#@correct_name@#\v{reformatted}" : null;
+    }
+
+    /// <summary>The database's refusals: a banned word is @128, a second change @130, anything else @18.</summary>
+    public static string Refusal(ResultCode code) => code switch
+    {
+        ResultCode.InvalidText => Invalid,
+        ResultCode.AccessDenied => AlreadyChanged,
+        _ => Taken
+    };
 }

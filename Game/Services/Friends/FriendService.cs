@@ -34,6 +34,12 @@ public interface IFriendService
 
     /// <summary>A character was deleted: it leaves the lists of the players online (<c>DB_DeleteCharacter</c>).</summary>
     void OnCharacterDeleted(long characterId);
+
+    /// <summary>
+    /// <c>/change_name</c> succeeded (<c>StructPlayer::OnChangeName</c> with <c>bRemoveFromFriendAndDenial</c>): the
+    /// character leaves every other list and keeps its own under the new name.
+    /// </summary>
+    Task OnRenamedAsync(GameClient client) => Task.CompletedTask;
 }
 
 public sealed class FriendService : IFriendService
@@ -340,6 +346,54 @@ public sealed class FriendService : IFriendService
         {
             return _books.TryGetValue(target.ConnectionInfo.CharacterHandle, out var book)
                 && book.Denials.Any(d => d.Id == sender.ConnectionInfo.CharacterHandle);
+        }
+    }
+
+    public async Task OnRenamedAsync(GameClient client)
+    {
+        var id = (long)client.ConnectionInfo.CharacterHandle;
+        try
+        {
+            await _store.RemoveFromOthersAsync(id);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not take {name} off the friend lists after a rename",
+                client.ConnectionInfo.CharacterName);
+        }
+
+        lock (_gate)
+        {
+            if (!_books.TryGetValue(id, out var renamed) || !ReferenceEquals(renamed.Client, client))
+            {
+                return;
+            }
+
+            var book = new Book(client, id, client.ConnectionInfo.CharacterName,
+                new FriendLists(renamed.Friends, renamed.Denials));
+            _books[id] = book;
+            foreach (var other in _books.Values)
+            {
+                if (other.Id == id)
+                {
+                    continue;
+                }
+
+                // The block lists first, so an unblocked friend shows online again.
+                if (other.Denials.RemoveAll(d => d.Id == id) > 0)
+                {
+                    SendDenials(other);
+                    if (book.Friends.Any(f => f.Id == other.Id))
+                    {
+                        SendStatus(book, other.Name, online: true);
+                    }
+                }
+
+                if (other.Friends.RemoveAll(f => f.Id == id) > 0)
+                {
+                    SendFriends(other);
+                }
+            }
         }
     }
 
