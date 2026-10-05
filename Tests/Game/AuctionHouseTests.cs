@@ -618,7 +618,7 @@ public class AuctionHouseTests
     }
 
     [Test]
-    public void AllThirtyNineDefinitionsAreImportedAndOnlyCompatibleRegionalItemsCanBePublished()
+    public void OnlyTheDefinitionsOfItemsTheClientKnowsAreImported_AndOnlyCompatibleRegionalItemsCanBePublished()
     {
         var root = new System.IO.DirectoryInfo(TestContext.CurrentContext.TestDirectory);
         while (root is not null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "DevConsole", "auction-catalog.73.json")))
@@ -626,7 +626,8 @@ public class AuctionHouseTests
         root.Should().NotBeNull();
         using var json = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(System.IO.Path.Combine(root!.FullName, "DevConsole", "auction-catalog.73.json")));
         var options = System.Text.Json.JsonSerializer.Deserialize<AuctionCatalogOptions>(json.RootElement.GetProperty("AuctionCatalog").GetRawText())!;
-        options.AutomaticAuctions.Select(r => r.Id).Should().Equal(Enumerable.Range(1, 39));
+        // 39 rows in AutoAuctionResource; the 35 whose item db_item.rdb lacks are left out (filtre-ressources-73.md).
+        options.AutomaticAuctions.Select(r => r.Id).Should().Equal(1, 14, 15, 39);
         var catalog = new AuctionCatalog(Options.Create(options));
         catalog.AutomaticAuctions.Where(r => catalog.TryGetItem(r.ItemCode, out _)).Select(r => r.Id).Should().Equal(14, 15, 39);
     }

@@ -82,7 +82,8 @@ public class DungeonTests
         _catalog.Dungeons.Should().HaveCount(21);
         _catalog.Instances.Should().HaveCount(9);
         _catalog.Types.Should().HaveCount(37);
-        _catalog.Respawns.Should().HaveCount(1654);
+        // 1 654 rows, of which 894 name a monster the 7.3 client does not know (filtre-ressources-73.md).
+        _catalog.Respawns.Should().HaveCount(760);
         _catalog.Secrets.Should().HaveCount(6);
         _catalog.NpcDungeons.Should().HaveCount(12);
         _catalog.Dungeons[130000].LocalFlag.Should().Be(1);
