@@ -3012,3 +3012,14 @@ Au démarrage, charger les groupes puis `IGuildService.LoadAsync()` avant le ré
 `_teams` et les guildes doivent revenir ensemble. Fiche : `socle-equipes-attaque-persistance.md`.
 Pour les dialogues de siège, les libellés viennent du Lua officiel ; une entrée sans identifiant
 établi est omise et consignée NON ÉTABLI (`socle-donjons-instances-secrets.md`, xHHwc9Z2).
+
+
+### Filtre 7.3 : références sémantiques et chaînes (2026-10-05, RlwjZDsY)
+
+Ne jamais protéger une famille de ressources par tous les nombres du code ou du Lua.
+`tools/resource_reachability.py` suit les points d’entrée publiés et arguments typés ;
+`docs/packet-specs/audit-litteraux-73.md` cite les 134 décisions et leurs sources.
+`StringResources` est borné aux codes déclarés de `db_string.rdb`, sans exception hors client.
+Les FK facultatives vers des chaînes supprimées sont mises à NULL dans la transaction ;
+une FK obligatoire inconnue bloque le filtre. Sauvegarde Arcadia puis restauration vérifiée
+avant un nouveau nettoyage des données. Le plan reste en lecture seule.
