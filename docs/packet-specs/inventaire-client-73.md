@@ -93,7 +93,8 @@ Manquent :
 
 `Combat/AttackProcConditions.cs` porte maintenant les conditions communes aux états et à l'énergie
 (`_ATTACK_TAG`, `CheckProcByAttack`) ; les événements de mort utilisent `_KILL_TAG`.
-La résurrection différée 3321 produite par l'état de mort 314084 reste à porter : le déclencheur pose déjà 314085.
+~~La résurrection différée 3321 produite par l'état de mort 314084 reste à porter~~ : portée le 2026-10-05
+(`socle-passifs-etats-combat.md`).
 
 ### Petits manques
 

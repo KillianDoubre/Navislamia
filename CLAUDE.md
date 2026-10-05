@@ -2180,7 +2180,7 @@ de dégâts et de récompenses existants. Conditions communes avec l'énergie da
 `AttackProcConditions` : arme, probabilité entière, PV, masque, élément ; `_KILL_TAG` pour la mort.
 `CastInterrupts.ApplyCombatState` rejoint le moteur de cumul, statistiques et diffusion existant,
 avec source/pulse corrects et coût MP officiel. Pas de cycle DI, de migration ni de nouvel opcode.
-Le déclencheur 314084 pose 314085 ; son effet de résurrection différée 3321 reste à porter.
+Le déclencheur 314084 pose 314085, dont la fin relève le joueur mort sur place (3321, `AfterPlayerStatesRemoved`).
 Fiche et limites : `docs/packet-specs/socle-passifs-etats-combat.md`. Tests : `StateProcsTests`,
 `EnergyProcsTests`, `ServiceGraphTests`.
 
