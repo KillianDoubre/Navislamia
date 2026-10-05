@@ -9,7 +9,7 @@ public readonly record struct RateStatus(RateType Type, double Base, double Even
 
 /// <summary>
 /// The server rates: the configured base (the <c>Rates</c> section, re-read on every call so an edit of the
-/// settings applies live) multiplied by the running <c>/rate</c> event, if any. See docs/gm-commands.md.
+/// settings applies live) multiplied by the running <c>/rate</c> event, if any. See docs/gm-commands.en.md.
 /// </summary>
 public interface IRateService
 {

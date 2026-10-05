@@ -106,8 +106,7 @@ porte déjà les conditions et peut servir de base commune.
 - `EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources` (`socle-zones-evenement.md`).
 - `/passist` envoie aussi `TS_SC_TARGET` (512), que l'officiel n'envoie jamais (`SendTargetMsg` sans appelant) : ajout
   de Codex, gardé car sans danger, à confirmer en jeu (`512-target.md`).
-- `docs/gm-commands.md` (français) est en partie dépassé : `/level` seul monte, `/lv` monte et descend, et les groupes
-  existent ; la liste à jour est `docs/gm-commands.en.md`.
+- ~~`docs/gm-commands.md` (français) dépassé~~ : supprimé le 2026-10-05, la seule liste est `docs/gm-commands.en.md`.
 
 ### Données après le filtre 7.3 (`filtre-ressources-73.md`)
 

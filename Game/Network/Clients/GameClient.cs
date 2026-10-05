@@ -1231,7 +1231,7 @@ public class GameClient : Client
 
         // A line starting with '/' is a GM command, never relayed as chat (NGemity's rule,
         // WorldSession::onChatRequest). The handler awaits the database for /item, so it is fired and not
-        // awaited here: the receive loop must not wait on it. See docs/gm-commands.md.
+        // awaited here: the receive loop must not wait on it. See docs/gm-commands.en.md.
         if (GmCommandParser.IsCommand(type, message))
         {
             _ = _networkService.GmCommandService.HandleAsync(this, message,

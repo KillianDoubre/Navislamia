@@ -1589,7 +1589,7 @@ never relayed as chat (NGemity's `WorldSession::onChatRequest` rule). The 7.3 cl
 such a line — `/position` came back as an echo before this module. `GameClient.HandleChatRequest`
 hands it to `GmCommandService` (`Game/Services/GmCommands/`), whose parser, catalogue and argument
 rules are pure and tested. Full list, sources and what is deliberately not ported:
-`docs/gm-commands.md`.
+`docs/gm-commands.en.md`.
 
 **Privileged commands need `Characters.Permission >= 100`**, NGemity's threshold, read into
 `ConnectionInfo.CharacterPermission` at world entry. Without it a privileged command answers exactly
@@ -1625,7 +1625,7 @@ The server rates are the `Rates` section of `DevConsole/appsettings.{env}.json` 
 server, and **read live through `IOptionsMonitor`**, so an edit applies without a restart — multiplied by
 the `/rate` event running on that type. A x5 server in a x2 event runs at x10. `IRateService`
 (`Game/Services/Rates/`) is the only reader; the keys, their NGemity origin and the GM commands are in
-`docs/gm-commands.md`, *Rates*.
+`docs/gm-commands.en.md`, *Rates*.
 
 - **What they touch**: EXP/JP amounts and gold/chaos chances per kill (`CombatService.AwardKill`), the drop chance and the
   summon-card factor (`GroundItemService.DropForMonster` → `DropRoll.Roll`), the monster respawn delay,
@@ -2848,7 +2848,7 @@ ordinaire, persistés (`CharacterStates.PeriodicBaseDamage`/`RemainingFireTicks`
 2631, les dégâts 125/30003 et les passifs 32262/32263 (`EnergyProcs`, sur chaque coup qui touche). **102** (19 octets) :
 refus de `onAttackRequest` (`NotOwn`, `NotExist`, `NotActable`). Commandes `/passist`, `/change_name` (messages officiels,
 retiré des listes d'amis des autres) et MJ `block_chat`, `check_auto_user`, `force_warp`, `invisible`, `kick`, `rebirth`,
-`lv` (`docs/gm-commands.md`).
+`lv` (`docs/gm-commands.en.md`).
 
 ## Donjons, guildes, alliances, raids et sièges (lot Codex du 2026-10-03)
 

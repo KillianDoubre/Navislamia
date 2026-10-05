@@ -393,7 +393,7 @@ public class ConnectionInfo
     /// <summary>
     /// <c>Characters.Permission</c>, read on world entry. A value of
     /// <see cref="Navislamia.Game.Services.GmCommands.GmCommandRules.GmPermission"/> or more unlocks the
-    /// privileged GM commands — NGemity's own threshold (docs/gm-commands.md).
+    /// privileged GM commands — NGemity's own threshold (docs/gm-commands.en.md).
     /// </summary>
     public int CharacterPermission { get; set; }
     public bool AutoUsed { get; set; }

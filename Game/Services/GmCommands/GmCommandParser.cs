@@ -15,7 +15,7 @@ public readonly record struct GmCommandLine(string Name, string[] Args, string R
 /// (<c>WorldSession::onChatRequest</c>): any line whose first character is <c>/</c> and whose chat type is
 /// not a whisper is a command and is never echoed as chat. The 7.3 client forwards such a line to the
 /// server — typing <c>/position</c> came back as an echo before this module existed. See
-/// docs/gm-commands.md.
+/// docs/gm-commands.en.md.
 /// </summary>
 public static class GmCommandParser
 {

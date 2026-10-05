@@ -272,7 +272,7 @@ ne rend que les deux en-têtes `CS`, et NSL n'a rien à inventer. L'état PK ne 
 Le geste attendu est **exactement celui de la commande `/pk` déjà livrée** par
 `hermes/packet-socle-mode-pk` : `Game/Services/GmCommands/GmCommandService.cs:289-300`
 (`case GmCommand.Pk`: bascule, `info.PkMode = pk`, `SendStatus(client)`, réponse texte au joueur),
-déclarée en `GmCommandCatalog.cs:29` et `:80`, documentée en `docs/gm-commands.md:54` et `:114`
+déclarée en `GmCommandCatalog.cs:29` et `:80`, documentée dans `docs/gm-commands.en.md`
 (*« `/pk` : `ConnectionInfo.PkMode` et le masque de statut, exactement ce que feront 800/801 »*).
 Le dev ne réinvente donc pas la logique : il la **branche sur le protocole**. Comme `SendStatus`
 est `private static` dans `GmCommandService.cs:632`, il faut soit l'extraire dans un helper partagé,

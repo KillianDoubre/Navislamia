@@ -3,7 +3,7 @@ namespace Navislamia.Configuration.Options;
 /// <summary>
 /// The <c>Rates</c> section of the game server's settings, read through <c>IOptionsMonitor</c> so an edit
 /// of the file applies without a restart. Every multiplier defaults to 1, the authentic rate; a key is only
-/// declared here once something in the server actually reads it (docs/gm-commands.md, <c>/rate</c>).
+/// declared here once something in the server actually reads it (docs/gm-commands.en.md, <c>/rate</c>).
 /// </summary>
 public class RatesOptions
 {

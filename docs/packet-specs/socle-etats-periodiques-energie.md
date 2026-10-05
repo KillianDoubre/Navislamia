@@ -56,7 +56,7 @@ d'envoyer la 102, comme l'officiel. `target = 0` arrête l'attaque. Un mort n'at
 
 ## 5. Commandes
 
-Voir `docs/gm-commands.md`. `/passist`, `/change_name` (joueur) ; `block_chat`, `check_auto_user`, `force_warp`,
+Voir `docs/gm-commands.en.md`. `/passist`, `/change_name` (joueur) ; `block_chat`, `check_auto_user`, `force_warp`,
 `invisible`, `kick`, `rebirth`, `lv` (MJ, `Permission >= 100`).
 
 **`/change_name`, corrigé à la relecture** : les messages sont ceux de `StructPlayer::ChangeName` et

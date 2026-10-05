@@ -20,7 +20,7 @@ namespace Navislamia.Game.Services.GmCommands;
 /// <see cref="ICombatService"/> for a kill, <see cref="ILevelingService"/> for a level-up,
 /// <see cref="ICharacterService"/> for an item — so a command can never take a path the game itself does
 /// not take. Every answer is a system chat line from <c>@SYSTEM</c>, NGemity's convention.
-/// See docs/gm-commands.md.
+/// See docs/gm-commands.en.md.
 /// </summary>
 public partial class GmCommandService : IGmCommandService
 {

@@ -177,7 +177,7 @@ première passe en `+0x684c14-+0x684c1b`, avant que l'id soit écrit (le résult
 
 Autrement dit : **déclarer 801 sans lui donner de bras est pire que ne rien faire**, et un 801
 aujourd'hui est consommé puis ignoré en silence — le mode PK ne s'éteint par le protocole dans aucun
-cas (`/pk off` reste le seul chemin, `docs/gm-commands.md:54`).
+cas (`/pk off` reste le seul chemin, `docs/gm-commands.en.md`).
 
 ### 3.3 Piège des trames à en-tête seul
 

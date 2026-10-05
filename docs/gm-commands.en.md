@@ -4,8 +4,7 @@ Every command is typed in the in-game chat. A line whose first character is `/`,
 is a command: the server runs it and never relays it as a chat message. Answers come back on the system chat line,
 sender `@SYSTEM`.
 
-Code: `Game/Services/GmCommands/` (`GmCommandCatalog` lists every command). French reference with implementation
-notes: `docs/gm-commands.md`.
+Code: `Game/Services/GmCommands/` (`GmCommandCatalog` lists every command).
 
 ## Permissions
 
@@ -122,7 +121,7 @@ These go through the same command handler but need no permission.
 | `/subtitle <slot 1-5> <id\|0>` | Sets a secondary title in a slot (up to your rank); it grants 10 % of the title's bonuses. |
 | `/change_name <name>` | Renames your character, once: 4 to 18 letters or digits, no banned word, capitalised like the rules require. You leave every other player's friend and block list. |
 
-Party (`/pcreate`, `/pinvite`, `/passist`…), guild (`/g…`, `/ga…`, `/rp…`) and friend (`/add_friend`, `/add_denial`…)
+Party (`/pcreate`, `/pinvite`…; `/passist <handle>` takes the target of the party member clicked in the party window), guild (`/g…`, `/ga…`, `/rp…`) and friend (`/add_friend`, `/add_denial`…)
 commands are sent by the client's own windows and are documented with their systems
 (`docs/packet-specs/socle-groupe.md`, `socle-guildes-alliances-sieges.md`, `socle-amis.md`).
 

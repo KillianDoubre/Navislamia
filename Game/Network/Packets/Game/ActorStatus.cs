@@ -20,7 +20,7 @@ public static class ActorStatus
     /// A player's mask. <paramref name="pkModeOn"/> is <c>TCS_FlagPkOn</c>
     /// (<see cref="CreatureStatus.PlayerPkOn"/>); <paramref name="sitting"/>, <paramref name="battleMode"/>
     /// and <paramref name="walking"/> are the three states the GM commands <c>/sitdown</c>, <c>/battle</c>
-    /// and <c>/walk</c> toggle (docs/gm-commands.md). <paramref name="boothType"/> is the open booth's
+    /// and <c>/walk</c> toggle (docs/gm-commands.en.md). <paramref name="boothType"/> is the open booth's
     /// type — 1 sells (<see cref="CreatureStatus.PlayerSellBooth"/>), 2 buys
     /// (<see cref="CreatureStatus.PlayerBuyBooth"/>), 0 none (docs/packet-specs/705-buy-from-booth.md §4).
     /// Bloody and demoniac states start at 100 and 1000 immoral points. Every flag is passed on every

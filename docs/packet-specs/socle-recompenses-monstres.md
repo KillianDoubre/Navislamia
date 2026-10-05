@@ -356,7 +356,7 @@ authentiques), les étapes 2 et 3 sont des suites motivées. Rien n'oblige à cr
    `TM_SC_ITEM_DROP_INFO = 282` **avec** leurs bras de dispatch (aucun membre ne doit atteindre le `switch`
    final), et les constructeurs correspondants (27/25/15 octets, écrits après `WriteChecksum`).
 6. `RateType`/`RatesOptions` — un taux de chaos (`GameRule::fChaosDropRate`).
-7. `docs/gm-commands.md` — la table *Rates* gagne la ligne chaos.
+7. `docs/gm-commands.en.md` — la table *Rates* gagne la ligne chaos.
 
 ## 11. Écarts assumés avec NGemity
 

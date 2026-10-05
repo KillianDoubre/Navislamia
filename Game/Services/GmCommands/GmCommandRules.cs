@@ -7,7 +7,7 @@ namespace Navislamia.Game.Services.GmCommands;
 
 /// <summary>
 /// The pure decisions behind the GM commands: who may run what, and how each argument list is read and
-/// bounded. The service is the I/O shell around these (docs/gm-commands.md).
+/// bounded. The service is the I/O shell around these (docs/gm-commands.en.md).
 /// </summary>
 public static class GmCommandRules
 {
