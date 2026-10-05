@@ -26,10 +26,12 @@ public static class EventAreaActivation
             return false;
         if (row.CountLimit > 0 && long.TryParse(flags.GetValueOrDefault(CountKey(row.Id)), out var count) && count >= row.CountLimit)
             return false;
+        // GameContent.cpp:86-150: both checks are switches without a default, so a race or a job outside the official
+        // lists is not refused.
         var raceBit = info.CharacterRace switch { 3 => 1L, 4 => 2L, 5 => 4L, _ => 0L };
-        if ((row.RaceJobLimit & 7L) != 0 && (raceBit == 0 || (row.RaceJobLimit & raceBit) == 0)) return false;
+        if ((row.RaceJobLimit & 7L) != 0 && raceBit != 0 && (row.RaceJobLimit & raceBit) == 0) return false;
         var jobIndex = Array.IndexOf(Jobs, info.CharacterJob);
-        if ((row.RaceJobLimit & ~7L) != 0 && (jobIndex < 0 || (row.RaceJobLimit & (1L << (3 + jobIndex))) == 0)) return false;
+        if ((row.RaceJobLimit & ~7L) != 0 && jobIndex >= 0 && (row.RaceJobLimit & (1L << (3 + jobIndex))) == 0) return false;
         var inventory = (character.Items ?? Array.Empty<ItemEntity>()).Where(i => i.Amount > 0 && i.AccountId == null
             && i.AuctionId == null && i.StorageId == null).ToArray();
         for (var i = 0; i < row.Conditions.Length; i++)

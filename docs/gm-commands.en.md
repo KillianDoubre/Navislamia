@@ -54,6 +54,9 @@ its author and arguments.
 | `/jp <amount>` | Adds or removes job points (never below 0). |
 | `/joblevel <level>` | Raises your job level to the given level without spending JP; stops where the job tier is capped. |
 | `/learn <skill> [level]` | Learns a skill without spending JP, at its maximum level by default. Ignores the job restriction; a skill outside your job tree may not show in the skill window. |
+| `/job <job id>` | Changes your job to any job of your race's tree, at any depth (`/job 220` makes a Deva a master class), without the NPC, the level or the quest. The jobs on the way are recorded as left behind at job level 10, 40 and 49 (or the level you already had there). The new job starts at job level 1; skills and JP are kept. Becoming a master class grants its 2 talent points, like the real job change. A job of another race is refused: change the race first. |
+| `/race <deva\|asura\|gaia>` | Changes your race, like the official race change without its stone: you go back to the new race's base job, every skill is removed and its JP is given back, with the JP of the job levels. Reconnect to see the new body. The race id also works (Gaia 3, Deva 4, Asura 5). |
+| `/maxskills` | Raises every skill of your job trees (the current job and the jobs left behind) to the highest level those trees allow, in one go, without spending JP and whatever the level, job level or prerequisites. Run it again after `/job` to fill the new tree. |
 | `/buff <state> [level] [seconds]` | Applies a state (buff or debuff) to you: level 1 and 300 seconds by default, one day at most. The state id must exist. |
 | `/gold <amount>` | Adds or removes gold (`/gold -500`), never below 0. |
 | `/chaos <amount>` | Adds or removes chaos, between 0 and the maximum. |

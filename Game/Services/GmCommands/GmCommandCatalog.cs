@@ -40,7 +40,8 @@ public enum GmCommand
     Ride,
     Unride,
     Speed,
-    SubTitle, ChangeName, BlockChat, CheckAutoUser, ForceWarp, Invisible, Kick, Rebirth, Lv
+    SubTitle, ChangeName, BlockChat, CheckAutoUser, ForceWarp, Invisible, Kick, Rebirth, Lv,
+    Job, Race, MaxSkills
 }
 
 /// <summary>
@@ -97,6 +98,9 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Exp, "exp", true, "/exp <amount>", FromRepository),
         new GmCommandDefinition(GmCommand.Jp, "jp", true, "/jp <amount>", FromRepository),
         new GmCommandDefinition(GmCommand.JobLevel, "joblevel", true, "/joblevel <level>", FromRepository),
+        new GmCommandDefinition(GmCommand.Job, "job", true, "/job <job id>", FromRepository),
+        new GmCommandDefinition(GmCommand.Race, "race", true, "/race <deva|asura|gaia>", FromRepository),
+        new GmCommandDefinition(GmCommand.MaxSkills, "maxskills", true, "/maxskills", FromRepository),
         new GmCommandDefinition(GmCommand.Learn, "learn", true, "/learn <skill> [level]", FromLua),
         new GmCommandDefinition(GmCommand.Buff, "buff", true, "/buff <state> [level] [seconds]", FromLua),
         new GmCommandDefinition(GmCommand.Immortal, "immortal", true, "/immortal [on|off]", FromRepository),

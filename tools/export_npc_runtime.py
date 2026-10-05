@@ -66,6 +66,7 @@ props = json.loads((Path(__file__).resolve().parents[1] / 'DevConsole/field-prop
 prop_roots = {re.match(r'\s*(\w+)', template['LuaScript'])[1]
               for template in props['FieldPropCatalog']['Templates'] if template.get('LuaScript')} & set(functions)
 pending = set(prop_roots)
+pending.add('on_channel_set')
 while pending:
     name = pending.pop()
     if name not in selected:

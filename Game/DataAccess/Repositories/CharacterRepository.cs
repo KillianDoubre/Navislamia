@@ -134,6 +134,12 @@ public sealed class CharacterRepository : ICharacterRepository
         _context.Summons.Add(summon);
     }
 
+    public Task<List<SummonEntity>> GetSummonsOfCardsAsync(IReadOnlyCollection<long> cardItemIds)
+    {
+        var ids = cardItemIds.ToArray();
+        return _context.Summons.Where(summon => ids.Contains(summon.CardItemId)).ToListAsync();
+    }
+
     public Task<List<SummonSkillEntity>> GetSummonSkillsAsync(long characterId)
     {
         return _context.SummonSkills.Where(skill => skill.Summon.CharacterId == characterId).ToListAsync();
@@ -142,6 +148,17 @@ public sealed class CharacterRepository : ICharacterRepository
     public void AddSummonSkill(SummonSkillEntity skill)
     {
         _context.SummonSkills.Add(skill);
+    }
+
+    public async Task<List<SummonSkillEntity>> GetCardSkillsAsync(long cardItemId)
+    {
+        if (!await _context.Items.AnyAsync(item => item.Id == cardItemId && item.Amount > 0))
+        {
+            return null;
+        }
+
+        return await _context.SummonSkills.AsNoTracking().Where(skill => skill.Summon.CardItemId == cardItemId)
+            .OrderBy(skill => skill.SkillId).ToListAsync();
     }
 
     private IQueryable<CharacterQuestEntity> QuestsOf(string characterName)

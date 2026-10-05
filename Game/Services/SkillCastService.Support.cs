@@ -148,9 +148,16 @@ public partial class SkillCastService
                 var end = unchecked(now + BuffCurve.DurationTicks(fields, level));
                 if (ApplySupportState(target, fields.StateId, fields.SkillId,
                     BuffCurve.StateLevel(fields, level), now, end, caster.ConnectionInfo.CharacterHandle))
+                {
                     RefreshSupportStats(target);
+                    NotifySkillHit(new Combat.CombatActor(caster), new Combat.CombatActor(target.Owner, target.Summon?.Handle ?? 0), fields);
+                }
             }
-            else hits.Add(HealSupport(caster, target, fields, level));
+            else
+            {
+                hits.Add(HealSupport(caster, target, fields, level));
+                NotifySkillHit(new Combat.CombatActor(caster), new Combat.CombatActor(target.Owner, target.Summon?.Handle ?? 0), fields);
+            }
         }
         return hits;
     }
@@ -225,11 +232,11 @@ public partial class SkillCastService
     }
 
     private bool ApplySupportState(SupportTarget target, int stateId, int skillId, int level, uint now, uint end,
-        uint source, bool projection = false)
+        uint source, bool projection = false, StatePulse suppliedPulse = null)
     {
-        if (target.Summon is null) return ApplyState(target.Owner, stateId, skillId, level, now, end, source, projection);
+        if (target.Summon is null) return ApplyState(target.Owner, stateId, skillId, level, now, end, source, projection, suppliedPulse);
         var summon = target.Summon; var rule = _stateCatalog.GetRule(stateId);
-        var pulse = NewStatePulse(stateId, now, source, target.Owner);
+        var pulse = suppliedPulse ?? NewStatePulse(stateId, now, source, target.Owner);
         var removed = new List<ActiveBuff>(); ActiveBuff applied;
         lock (summon.BuffLock)
         {

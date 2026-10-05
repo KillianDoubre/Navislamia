@@ -131,7 +131,7 @@ public class JobResetTests
             {
                 Written = write;
                 return Task.FromResult(new SkillResetCommit(true,
-                    write.Race is null ? null : new ItemEntity { Id = 90, ItemResourceId = SkillResetRules.RaceChangeItem, Amount = 0 }));
+                    write.Race is not { StoneResourceId: not 0 } ? null : new ItemEntity { Id = 90, ItemResourceId = SkillResetRules.RaceChangeItem, Amount = 0 }));
             });
             Service = new JobChangeService(Characters, Stats, A.Fake<IWarpService>(), skills: Catalog(), leveling: Leveling,
                 casts: Casts);
@@ -237,5 +237,78 @@ public class JobResetTests
         (await h.Service.SelectAsync(h.Client, DevaJobNpc, SkillResetRules.SetRace, "NPC_JobChange_set_race(4)"))
             .Page.Text.Should().Be("@90010259", "already a Deva");
         A.CallTo(() => h.Characters.ApplySkillResetAsync(A<string>._, A<SkillResetWrite>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task The_gm_race_change_is_the_npc_one_without_the_stone()
+    {
+        var h = new Harness(stones: 0);
+
+        (await h.Service.ForceRaceAsync(h.Client, 5)).Should().Be(GmJobChange.Done);
+
+        h.Info.CharacterRace.Should().Be(5);
+        h.Info.CharacterJob.Should().Be(300);
+        h.Info.PreviousJobs.Should().BeEmpty();
+        h.Info.LearnedSkills.Should().BeEmpty();
+        h.Info.CharacterJp.Should().Be(1_000 + 546 + 40 + 90 + 390 + 480, "the same refund as the NPC's change");
+        h.Written.Race.Should().Be(new RaceChangeWrite(5, 300, 0), "stone 0: none is taken");
+        h.Sent.Select(p => BitConverter.ToUInt16(p, 4)).Should().NotContain((ushort)GamePackets.TM_SC_DESTROY_ITEM);
+        (await h.Service.ForceRaceAsync(h.Client, 5)).Should().Be(GmJobChange.AlreadyThere);
+        (await h.Service.ForceRaceAsync(h.Client, 7)).Should().Be(GmJobChange.UnknownRace);
+    }
+
+    [Test]
+    public async Task The_gm_job_change_rebuilds_the_path_from_the_base_job()
+    {
+        var h = new Harness();
+        h.Info.CharacterJob = 201;
+        h.Info.CharacterJobLevel = 45;
+        h.Info.PreviousJobs.Clear();
+        h.Info.PreviousJobs.Add((200, 12));
+        IReadOnlyList<(int Job, int JobLevel)> saved = null;
+        var grant = -1;
+        A.CallTo(() => h.Characters.ChangeJobAsync("Ana", 220, A<IReadOnlyList<(int, int)>>._, A<int>._))
+            .ReturnsLazily((string _, int _, IReadOnlyList<(int Job, int JobLevel)> previous, int tp) =>
+            {
+                saved = previous;
+                grant = tp;
+                return Task.FromResult<int?>(tp);
+            });
+
+        (await h.Service.ForceJobAsync(h.Client, 220)).Should().Be(GmJobChange.Done);
+
+        saved.Should().Equal((200, 12), (201, 45), (210, 49));
+        grant.Should().Be(JobChangeRules.MasterClassTalentPoints, "reaching the master class grants its talent points");
+        h.Info.CharacterJob.Should().Be(220);
+        h.Info.CharacterJobLevel.Should().Be(1);
+        h.Info.PreviousJobs.Should().Equal((200, 12), (201, 45), (210, 49));
+        h.Info.LearnedSkills.Should().HaveCount(3, "the skills stay");
+        h.Properties.Should().Contain(("job", 220)).And.Contain(("job_depth", 3)).And.Contain(("job_2", 210));
+    }
+
+    [Test]
+    public async Task The_gm_job_change_can_go_back_to_the_base_job_and_refuses_another_race()
+    {
+        var h = new Harness();
+        A.CallTo(() => h.Characters.ChangeJobAsync("Ana", 200, A<IReadOnlyList<(int, int)>>._, 0)).Returns(0);
+
+        (await h.Service.ForceJobAsync(h.Client, 200)).Should().Be(GmJobChange.Done);
+        h.Info.PreviousJobs.Should().BeEmpty();
+        h.Properties.Should().Contain(("job_depth", 0));
+
+        (await h.Service.ForceJobAsync(h.Client, 301)).Should().Be(GmJobChange.NotInRaceTree, "an Asura job for a Deva");
+        (await h.Service.ForceJobAsync(h.Client, 200)).Should().Be(GmJobChange.AlreadyThere);
+    }
+
+    [Test]
+    public void The_path_to_a_job_follows_the_official_tree()
+    {
+        JobChangeRules.PathTo(4, 200).Should().Equal(200);
+        JobChangeRules.PathTo(4, 213).Should().Equal(200, 202, 213);
+        JobChangeRules.PathTo(3, 124).Should().Equal(100, 103, 114, 124);
+        JobChangeRules.PathTo(4, 110).Should().BeNull();
+        JobChangeRules.PathTo(9, 100).Should().BeNull();
+        JobChangeRules.LeftJobLevel(1, 12).Should().Be(40);
+        JobChangeRules.LeftJobLevel(0, 25).Should().Be(25);
     }
 }

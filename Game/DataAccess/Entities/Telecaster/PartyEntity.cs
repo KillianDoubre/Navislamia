@@ -12,7 +12,8 @@ public class PartyEntity : Entity
     public PartyItemShareMode ShareMode { get; set; }
     public PartyType PartyType { get; set; }
     
-    public long LeadPartyId { get; set; }
+    /// <summary>The attack team a party is linked to (<c>lead_party_id</c>); null for a party of its own.</summary>
+    public long? LeadPartyId { get; set; }
     public virtual PartyEntity LeadParty { get; set; } // Attackteams/raids
 
     public virtual ICollection<CharacterEntity> PartyMembers { get; set; }

@@ -36,7 +36,8 @@ Sources du serveur officiel, sous `program/server/GameServer/Game` :
    entrées ; une entrée ou une sortie n'est pas répétée par une seconde notification identique.
 4. Sous `CharacterGate`, le script d'entrée vérifie les horaires locaux, les niveaux, les masques
    race/classe et les six conditions : quantité d'objet, progression de quête, compétence,
-   objet équipé, invocation active, état actif. Conditions inconnues refusées.
+   objet équipé, invocation active, état actif. Une condition inconnue est ignorée, une race ou un métier
+   hors des listes officielles n'est pas refusé (`IsActivatable` n'a pas de cas par défaut, §Relecture).
 5. Le compteur `event_area_<id>_count` est enregistré dans `Character.FlagList`, comme compteur
    persistant par joueur/zone. Il est incrémenté uniquement si l'exécution réussit.
 6. Le script officiel s'exécute dans une VM Lua neuve, sans `io`/`os`, avec un budget de 100 000
@@ -55,6 +56,25 @@ du monde, avec durée en ticks ; cette forme de compatibilité diffère du `SCRI
 arguments de la copie C++ disponible, qui crée un PNJ. Les scripts exportés utilisent des codes
 de monstres dans cette forme à cinq arguments. Les spawns arrivent après sauvegarde et disparaissent
 à expiration ; les objets de terrain sont retirés à l'usage ou à expiration.
+
+## Relecture du 2026-10-05 (carte Trello `qnvX3BU6`)
+
+La carte demandait l'import, les conditions, les scripts et le compteur : tout était déjà livré par ce lot. La relecture
+contre `GameContent.cpp:72-230` a corrigé deux écarts (`EventAreaActivation`) : une race hors Gaïa/Déva/Asura et un
+métier hors des 42 listés étaient refusés, alors que les deux `switch` officiels n'ont pas de cas par défaut ; une
+condition inconnue est ignorée (déjà corrigé le 2026-10-04). `EventAreaActivationTests` couvre maintenant chaque
+condition : fenêtre horaire, progression de quête (la seule condition des données : 31 lignes), compétence, objet
+porté, invocation, état (présent 1 / absent 2), première pile d'objet, condition inconnue, race et métier hors listes.
+
+**Données confrontées aux cartes 7.3** (`DevConsole/Maps/*.nfe`, 183 identifiants) : **167** zones ont un polygone et
+une ligne, et sont donc actives. Les **18 scripts introuvables** (`10110`-`10119`, `10126`-`10129`, `10146`-`10149`)
+n'ont **aucun polygone** dans les cartes 7.3 — la numérotation des polygones saute exactement aux mêmes endroits — et
+n'existent dans aucune arborescence officielle cherchée (Lua 2015 `Resource/Script`, Epic 7 Part 4 à Epic 9 Part 1,
+`Rappelz_Release`) : ces lignes ne se déclenchent jamais, ce n'est pas un manque. Restent sans polygone 20
+(`Quest_Link_18_1`) et 10152 ; restent sans ligne, donc sans effet, les polygones 1000, 9000, 9001 et 120101-120113.
+
+À tester en jeu : la zone **10101** (vers x 20568, y 30037, carte m001_001) avec la quête 3217 en cours (statut 1) :
+l'entrée valide l'objectif et affiche `@91000797`, une seule fois (`count_limit` 1).
 
 ## Limites de données explicites
 

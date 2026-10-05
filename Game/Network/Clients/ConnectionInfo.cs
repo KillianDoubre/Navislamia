@@ -29,6 +29,9 @@ public class ConnectionInfo
     public uint MainTitleLockedUntil { get; set; }
     public ItemType? EquippedWeapon { get; set; }
 
+    /// <summary><c>IsWearShield</c>: a shield (class 210) in the shield slot, what shield-only passives ask for.</summary>
+    public bool WearsShield { get; set; }
+
     /// <summary>
     /// What the shield slot holds when it is not a shield: a second weapon (dual wield) or the arrows of an archer,
     /// with its handle and count (docs/packet-specs/socle-mecaniques-combat.md). Seeded with the stats.
@@ -245,6 +248,27 @@ public class ConnectionInfo
 
     /// <summary>The card item id of the summon <c>m_pMainSummon</c> names (in the world or to re-enter at login), 0 for none.</summary>
     public long MainSummonCardId { get; set; }
+
+    /// <summary>
+    /// The card item id of the second summon out (<c>m_pSubSummon</c>, the double summon), 0 for none. It goes back
+    /// at <see cref="NextUnsummonTick"/> unless an infinite-summon state holds it (docs/packet-specs/socle-duree-invocations.md).
+    /// </summary>
+    public long SubSummonCardId { get; set; }
+
+    /// <summary><c>m_nNextUnSummonTime</c>: the ar_time tick the second summon goes back at.</summary>
+    public uint NextUnsummonTick { get; set; }
+
+    /// <summary>Whether an <c>EF_INFINITE_SUMMON_TIME</c> state was seen on the last check, to notice its changes.</summary>
+    public bool InfiniteSummonTime { get; set; }
+
+    /// <summary>The ticks the infinite-summon state leaves the second summon when it ends (its <c>value_0</c> × 100).</summary>
+    public uint InfiniteSummonGrace { get; set; }
+
+    /// <summary>The creature cards were loaded at world entry: inventory changes may be diffed against them.</summary>
+    public bool CreatureCardsLoaded { get; set; }
+
+    /// <summary>0 idle, 1 re-reading the creature cards, 2 re-reading and asked again (see <see cref="WeightRefreshState"/>).</summary>
+    public int CreatureCardRefreshState;
 
     /// <summary>The card a taming in progress marked (<c>ITEM_FLAG_TAMING</c>, kept in memory), 0 for none.</summary>
     public long TamingCardItemId { get; set; }
@@ -732,6 +756,7 @@ public class ConnectionInfo
 
     public uint SummonNameChangeTarget { get; set; }
     public string ScriptWindowTrigger { get; set; } = string.Empty;
+    public Navislamia.Game.Services.ScriptWindow ScriptWindow { get; set; }
     public object NameChangeLock { get; } = new();
     public System.Threading.Tasks.Task NameChangeCompletion { get; set; } = System.Threading.Tasks.Task.CompletedTask;
     public bool IsInvisible { get; set; }
@@ -744,7 +769,7 @@ public class ConnectionInfo
     {
         LocationId = 0;
         Energy.Clear();
-        SummonNameChangeTarget = 0; ScriptWindowTrigger = string.Empty;
+        SummonNameChangeTarget = 0; ScriptWindowTrigger = string.Empty; ScriptWindow = null;
         NameChangeCompletion = System.Threading.Tasks.Task.CompletedTask;
         IsInvisible = false; ChatBlockUntil = 0;
         CharacterHandle = 0;
@@ -784,6 +809,11 @@ public class ConnectionInfo
         }
 
         MainSummonCardId = 0;
+        SubSummonCardId = 0;
+        NextUnsummonTick = 0;
+        InfiniteSummonTime = false;
+        InfiniteSummonGrace = 0;
+        CreatureCardsLoaded = false;
         TamingCardItemId = 0;
         TamingTargetInstanceId = -1;
         RideHandle = 0;

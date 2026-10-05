@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Threading.Channels;
+using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Enums;
@@ -68,6 +70,15 @@ public interface IPartyService
 
     /// <summary><c>onInstanceGameEnter</c>: the player leaves (or, alone, destroys) the party they are in.</summary>
     void LeaveForInstanceGame(GameClient client) { }
+
+    /// <summary>
+    /// <c>PartyManager::Init</c> at startup, before the first login: the stored parties come back with their members,
+    /// offline until they enter the world (LOGIN then PINFO).
+    /// </summary>
+    Task LoadAsync() => Task.CompletedTask;
+
+    /// <summary>At shutdown: the party writes still queued reach the database.</summary>
+    Task FlushAsync() => Task.CompletedTask;
 }
 
 public sealed partial class PartyService : IPartyService
@@ -130,9 +141,16 @@ public sealed partial class PartyService : IPartyService
     private readonly Dictionary<long, int> _partyOf = new();
     private int _nextPartyId;
 
+    private readonly IPartyStore _store;
+    private readonly Channel<PartySnapshot> _writes = Channel.CreateUnbounded<PartySnapshot>(
+        new UnboundedChannelOptions { SingleReader = true });
+    private readonly Task _writer;
+
     public PartyService(IPlayerVisibilityService players, IStatService stats, IBannedWordsRepository bannedWords,
-        Guilds.GuildRuntime guilds = null, Huntaholic.IHuntaholicCatalog huntaholics = null)
+        Guilds.GuildRuntime guilds = null, Huntaholic.IHuntaholicCatalog huntaholics = null, IPartyStore store = null)
     {
+        _store = store;
+        _writer = store is null ? Task.CompletedTask : Task.Run(WriteAsync);
         _guilds = guilds;
         _huntaholics = huntaholics;
         _players = players;
@@ -393,6 +411,7 @@ public sealed partial class PartyService : IPartyService
 
         Reply(client, PartyMessages.Create(name, info.CharacterName, type));
         SendPartyInfo(client, created);
+        Persist(created);
         _logger.Debug("{name} created party {party} ({id})", info.CharacterName, name, created.Id);
     }
 
@@ -473,6 +492,7 @@ public sealed partial class PartyService : IPartyService
         Reply(client, PartyMessages.Join(party.Name));
         SendPartyInfo(client, party);
         BroadcastMemberInfo(party, client);
+        Persist(party);
     }
 
     private void Leave(GameClient client)
@@ -529,6 +549,7 @@ public sealed partial class PartyService : IPartyService
 
         SendToParty(party, PartyMessages.Promote(target.ConnectionInfo.CharacterName));
         party.LeaderId = target.ConnectionInfo.CharacterHandle;
+        Persist(party);
     }
 
     private void Destroy(GameClient client)
@@ -569,6 +590,7 @@ public sealed partial class PartyService : IPartyService
 
         party.ShareMode = mode.Value;
         SendToParty(party, PartyMessages.Mode(mode.Value));
+        Persist(party);
     }
 
     private void SendPartyInfo(GameClient client)
@@ -638,6 +660,88 @@ public sealed partial class PartyService : IPartyService
         if (party.Members.Count == 0)
         {
             _parties.Remove(party.Id);
+        }
+
+        Persist(party);
+    }
+
+    // ---- persistence (socle-groupe.md, *Persistance*) -----------------------------------------------------------
+
+    /// <summary>
+    /// Only an ordinary party is stored. The official server stores every type and destroys the HuntaHolic and arena
+    /// parties at load; the attack teams are not stored here because their guild side lives in memory. Called under
+    /// <see cref="_gate"/>, so the snapshots queue in the order the changes happened.
+    /// </summary>
+    private void Persist(PartyState party)
+    {
+        if (_store is null || party.Type != 0)
+        {
+            return;
+        }
+
+        var members = _parties.ContainsKey(party.Id)
+            ? party.Members.Select(m => m.CharacterId).ToArray()
+            : Array.Empty<long>();
+        _writes.Writer.TryWrite(new PartySnapshot(party.Id, party.Name, party.LeaderId, party.ShareMode, party.Type,
+            members));
+    }
+
+    private async Task WriteAsync()
+    {
+        await foreach (var snapshot in _writes.Reader.ReadAllAsync())
+        {
+            try
+            {
+                await _store.SaveAsync(snapshot);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Could not save party {id}", snapshot.Id);
+            }
+        }
+    }
+
+    public async Task FlushAsync()
+    {
+        _writes.Writer.TryComplete();
+        await _writer;
+    }
+
+    public async Task LoadAsync()
+    {
+        if (_store is null)
+        {
+            return;
+        }
+
+        var (stored, maxId) = await _store.LoadAsync();
+        lock (_gate)
+        {
+            _nextPartyId = Math.Max(_nextPartyId, maxId);
+            foreach (var row in stored)
+            {
+                // PartyManager::loadPartyList: no member, a leader who is not one of them, a HuntaHolic or arena party
+                // is destroyed. An attack team is too (its guild side is not stored), and so is a party whose members
+                // already belong to an earlier one.
+                if (!PartyRules.Restorable(row) || row.Members.Any(m => _partyOf.ContainsKey(m.CharacterId)))
+                {
+                    _writes.Writer.TryWrite(new PartySnapshot(row.Id, row.Name, row.LeaderId, row.ShareMode, row.Type,
+                        Array.Empty<long>()));
+                    continue;
+                }
+
+                var party = new PartyState(row.Id, row.Name, NewPassword(), row.LeaderId) { ShareMode = row.ShareMode };
+                foreach (var member in row.Members.Take(MaxMembers))
+                {
+                    party.Members.Add(new PartyMember(member.CharacterId, member.Name)
+                        { Level = member.Level, Job = member.Job, Race = member.Race });
+                    _partyOf[member.CharacterId] = party.Id;
+                }
+
+                _parties[party.Id] = party;
+            }
+
+            _logger.Information("Restored {count} parties", _parties.Count);
         }
     }
 
@@ -731,4 +835,11 @@ public static class PartyRules
     /// </summary>
     public static bool IsValidName(string name) =>
         !string.IsNullOrEmpty(name) && name.Length <= PartyService.MaxNameLength && name.All(char.IsAsciiLetterOrDigit);
+
+    /// <summary>
+    /// <c>PartyManager::loadPartyList</c>'s destruction rule: members, a leader among them, and an ordinary party (the
+    /// HuntaHolic and arena parties never survive a restart; attack teams are not restored here).
+    /// </summary>
+    public static bool Restorable(StoredParty party) =>
+        party.Type == 0 && party.Members.Count > 0 && party.Members.Any(m => m.CharacterId == party.LeaderId);
 }

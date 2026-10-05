@@ -149,7 +149,7 @@ The summon socle's server-to-client layouts live in `GameSummonPackets`, sized f
 characters plus the nul terminator — and `bool` one byte, which is what fixes the 320 size.
 301 and 305 are emitted by `CreatureService` (formation, login, summon, unsummon; see *Apprivoisement et
 invocation des créatures*); 307, 320 and 321 by evolution and riding (`socle-invocations-progression.md`); 302 and
-306 still have no caller. `BuildAddSummonInfo` takes `code`
+306 by the card and double-summon rules (`socle-duree-invocations.md`). `BuildAddSummonInfo` takes `code`
 and `summon_handle` from its caller instead of inventing either.
 
 A summon enters the world as `TS_SC_ENTER` (`3`) with `type = ET_NPC (1)` and `objType = EOT_Summon (4)` — the
@@ -177,8 +177,10 @@ bounded jitter (`AddNoise` in integer arithmetic: `raw % range - range/2`, 70 on
 warp, 0 = exact position); the `z` stays the caller's — NGemity's own summon `z`, never set, is 0 — and the
 region-cancel step of `AddNoise` is not portable either, since nothing resolves a position to a location id
 here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summon.cpp:35,88-91`), supplied by
-the caller. 302 and 306 still have no caller: their trigger is untranched game policy (unbind rule, summon
-duration). `CharacterService` writes `MainSummonId` and
+the caller. **306 is the double summon, 302 a bound card leaving the bag** (`docs/packet-specs/socle-duree-invocations.md`):
+a second summon called while the main one is out stays `1000 + 1881 level × 700 + 112-state level × value_4 × 100` ticks
+(306 on its handle, 0 under state 3121), then goes back; a card gone from the bag sends 302, one come in 301, both from a
+re-read after `IInventoryChangeFeed`, and the `Summons` row follows its card. `CharacterService` writes `MainSummonId` and
 `SummonSlotItemIds`, and those six columns hold *summon* sids like the official character row, not card ids:
 the session and the 303 speak card handles, `CharacterService` translates both ways.
 
@@ -804,8 +806,14 @@ Supported effect types (`SkillPassiveCatalog.SlotTargets`), deliberately only th
 | effect type | pair 1 | pair 2 |
 |---|---|---|
 | `WeaponMastery` (10001) | P. Atk | P. Atk Speed |
-| `IncreaseBaseAttribute` (10008) | P. Def | M. Def |
 | `IncreaseHpMp` (10021) | MAX HP | MAX MP |
+
+**`IncreaseBaseAttribute` (10008), `IncreaseExtensionAttribute` (10009) and `AmplifyBaseAttribute` (10011) are not
+pairs**: the official `CalculateStat.cpp:681-765` reads ten single values, `var[i] × level` — 10008 and 10011 onto
+P.Atk, P.Def, M.Atk, M.Def, Atk Spd, Mov Spd, Accuracy, M.Acc, Avoid, M.Avoid (10011 as `m_AttributeAmplifier`
+ratios), 10009 onto HP/MP regeneration (% and points), Block chance and defence, Critical rate and power, Cast speed
+and Cool time speed (subtracted). The pair reading of 10008 matched Defense/Mind Defense Training by luck and misread
+19 rows (2026-10-05, `socle-passifs-combat-recharge-bouclier.md` §2).
 
 `WeaponMastery`'s **pair 2 is the attack speed**, proven three times with distinct values: Fighter's
 Combat Skill has `var3 = 5` and reads "Lv 1 also increases P. Atk. Spd. **by 5**", Archery Practice has
@@ -826,8 +834,9 @@ its 21 skills are unconditional (Offense Training among them) and 16 are gated.
 refreshed on equip/unequip. **`vf_axe` is the two-handed axe**: there are three axe flags for the three
 axe `ItemType`s, exactly as `vf_spear` maps to `TwohandSpear`. Confirmed by the tooltips — Fighter's
 Combat Skill flags swords plus all three axes and reads "equipped **swords and axe**", while Kahuna's
-flags axes plus staves and reads "equipped **staff and axe**". `vf_shield_only` maps to nothing: no
-mastery sets it, and Shield Mastery is `IncreaseExtensionAttribute` (10009), which is unsupported.
+flags axes plus staves and reads "equipped **staff and axe**". `vf_shield_only` is `SkillWeaponFlag.Shield`: a passive
+that needs a weapon and is usable with a shield needs a **shield (class 210) in the shield slot**, whatever the weapon
+(`applyStatByPassiveSkill`, `IsWearShield`; `ConnectionInfo.WearsShield`). Shield Mastery (1211) is that case.
 `DoubleSword`, `DoubleAxe` and `DoubleDagger` have **no items at all** in the 9.4 data, so those flags
 can never match.
 
@@ -865,12 +874,16 @@ passives** (the other 34 have `var1 >= 1000`, a state id — they apply a state 
 - **`WeaponMastery` (10001) — all 21 are supported**, the 5 unconditional ones and the 16 gated on the
   equipped weapon, see above. Three of the 5 unconditional ones (Natural Sorcery twice, Magical Training
   Mastery) have all-zero vars and so resolve to nothing.
-- **`IncreaseExtensionAttribute` (10009), Shield Mastery — not supported.** Conditional on a shield.
-- **`AmplifyBaseAttribute` (10011), Avoidance Expert — cannot be supported.** Its tooltip says "Increases
-  evasion" but **every one of its 20 vars is zero**; there is no value to read.
-- `AmplifySummonHpMpSp` (10032) and `HuntingTraining` (10013), 5 skills, target the summon, not the
-  character.
-- `IncSkillCoolTimeOnAttack/OnBeingAttacked/OnKill` (10063-10065), 10 skills, are event triggers.
+- **`IncreaseExtensionAttribute` (10009)**: Shield Mastery (1211, block +1 × level with a shield) and the creatures'
+  regeneration passives.
+- **`AmplifyBaseAttribute` (10011)**: Avoidance Expert (1221, avoid +2 % × level). Its vars were zero in the 9.4
+  import; the Epic 7 import filled them.
+- `IncreaseSummonHpMpSp`/`AmplifySummonHpMpSp` (10031/10032) are the master's and reach **its summons**
+  (`ResolveForSummon`: max HP, MP, SP, HP/MP regeneration), refreshed when the master learns one.
+  `HuntingTraining` (10013) is **a summon's own** passive: damage dealt to and taken from a creature type
+  (`CreatureExpertise`, monster `grp` → `MonsterInstance.CreatureGroup`), applied to the raw damage.
+- `IncSkillCoolTimeOn*` (10063-10070) are event triggers on the combat procs (`Combat/CooldownProcs`): the owner's
+  cooling skills gain or lose seconds, then a 403.
 
 `SkillPassiveCatalog` is frozen at startup like every other catalog. **117 skill rows** carry a supported
 effect type (101 unconditional plus the 16 weapon-gated masteries), and it holds the **87** whose vars are
@@ -1618,6 +1631,9 @@ The `&`-prefixed command lists found online do not exist in this client: none of
 the session's stat move speed (`ConnectionInfo.MoveSpeedOverride`, read by `StatService.Compute(info)`, so the
 client's own walk, the echo and the peers follow; bounded by the wire byte, 255 × 7); no value resets it.
 `/ride`, `/unride`, `/titles`, `/title` and `/subtitle` are player commands.
+`/job <id>` and `/race <name>` go through `IJobChangeService.ForceJobAsync`/`ForceRaceAsync` (the NPC's saves and
+frames; `/race` is `SetRace` with a stone id of 0, which `ApplySkillResetAsync` reads as "no stone"), and `/maxskills`
+raises the current and left-behind trees to their maximum through `SaveLearnedSkillsAsync`, one save.
 
 ## Rates
 
@@ -1691,7 +1707,8 @@ hard-code; `InitialCatalog` is still overridden by them. A second game server se
   times, one caster at a time with the prop's own casting time, drops into the bag, item/quest/skill/worn/
   nearby-monster conditions, and the Epic 7 Lua script through the NPC script sandbox
 - Skill learning, persistence and the **passive stat effects** work, including the 21 `WeaponMastery`
-  skills gated on the equipped main-hand weapon; Shield Mastery needs the shield slot
+  skills gated on the equipped main-hand weapon, Shield Mastery (shield worn), Avoidance Expert, the master's summon
+  passives and the summons' hunting expertise
 - **Casting works for buffs, toggle auras, heals, monster debuffs and single-target offensive skills**
   (physical 30001 and magic 231): MP cost, cooldown, cast delay, duration, expiry, damage, death and
   reward, including region/multi-hit offensive skills and timed ground damage 271.
@@ -1858,9 +1875,11 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   `LOGOUT`. Règles : chef seul pour inviter/exclure/promouvoir/dissoudre/partager, **le chef ne peut pas
   partir**, 8 membres, `/pjoin` exige le mot de passe de l'invitation. PV/PM en pourcentage tronqué à
   l'octet, **1 tant que non nul** ; `MINFO` rediffusé quand un pourcentage change (PV, PM, régénération).
-- **En mémoire** : un groupe survit à la sortie de ses membres (LOGOUT, puis LOGIN et PINFO au retour),
-  pas au redémarrage. `ConnectionInfo.PartyId` vient du service, **plus de `Characters.PartyId`** (la table
-  `Parties` n'a pas le mot de passe et son `LeadPartyId` auto-référent est obligatoire). Les membres
+- **Persistés** (`socle-groupe.md` §6) : un groupe survit à la sortie de ses membres (LOGOUT, puis LOGIN et PINFO
+  au retour) **et au redémarrage** : `Parties` + `Characters.PartyId` comme la table `Party` et `Character.party_id`
+  de l'officiel, écrits par une file unique après chaque changement (`IPartyStore`), relus avant l'ouverture du réseau
+  (`IPartyService.LoadAsync`, règles de `PartyManager::loadPartyList`). Seuls les groupes ordinaires sont stockés ; le
+  mot de passe d'invitation est retiré au rechargement. `ConnectionInfo.PartyId` vient toujours du service. Les membres
   en ligne à 540 unités du monstre partagent l'expérience, les JP et le chaos. L'or se partage au
   ramassage entre membres à 400 unités du ramasseur, indépendamment du mode. Les membres du groupe
   peuvent ramasser le butin du monstre ; `monopoly` l'attribue au ramasseur, `random` tire un
@@ -2147,6 +2166,19 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
 - Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
 
+### Passifs qui posent un état au combat (2026-10-05)
+
+`Combat/StateProcs` charge les effets de compétence 10048..10062 et lit les déclencheurs des
+états actifs 26, 36..39, 3201..3211 et 3311. `CombatService.NotifyHit` reçoit coups, critiques,
+esquives et blocages des joueurs, invocations et monstres ; mort/meurtre restent dans les chemins
+de dégâts et de récompenses existants. Conditions communes avec l'énergie dans
+`AttackProcConditions` : arme, probabilité entière, PV, masque, élément ; `_KILL_TAG` pour la mort.
+`CastInterrupts.ApplyCombatState` rejoint le moteur de cumul, statistiques et diffusion existant,
+avec source/pulse corrects et coût MP officiel. Pas de cycle DI, de migration ni de nouvel opcode.
+Le déclencheur 314084 pose 314085 ; son effet de résurrection différée 3321 reste à porter.
+Fiche et limites : `docs/packet-specs/socle-passifs-etats-combat.md`. Tests : `StateProcsTests`,
+`EnergyProcsTests`, `ServiceGraphTests`.
+
 ### Paquets 450/451/452 — niveaux de compétences des cartes
 
 452 (11 octets, handle de carte à +7) répond désormais **451**, depuis
@@ -2187,6 +2219,13 @@ Fonctions officielles `dlg_special(window, trigger, argument[, name])` et
 consommé une fois, utilisable sans PNJ. Une fenêtre de saisie ajoutant des paramètres au
 callback exige encore sa validation spécifique. Fiches : `3003-show-window.md`,
 `3004-general-message-box.md`. Ce SFrame 7.3 route 3004 malgré la note « Since 7.4 » de rzu.
+
+**Fenêtres natives** (`socle-fenetres-script.md`, `ScriptWindows`) : `secret_dungeon_confirm_window`,
+`instance_dungeon_confirm_window`(2), `dungeon_raid_confirm_window`, `recall_feather_confirm_window` (objet 112,
+`RecallFeatherService`) et `number_input_window` (`show_channel_set`), rappels mesurés dans `SFrame.exe` et acceptés
+par égalité stricte, une fois. **`warp_to_instance_dungeon`/`warp_to_secret_dungeon` téléportent sans fenêtre** ;
+seules `enter_instance_dungeon`, `enter_secret_dungeon`, `leave_instance_dungeon` et le raid de `enter_dungeon` en
+ouvrent une (`NpcDialogService.OpensConfirmation`), et aucun Lua Epic 7 n'appelle les trois premières.
 
 ### Apprivoisement et invocation des créatures — étape 0 (fiche `docs/packet-specs/socle-apprivoisement-invocation.md`)
 

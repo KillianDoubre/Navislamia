@@ -39,7 +39,7 @@ version et l'ordre des champs ; NGemity pour le comportement.
 | 303 | TM_EQUIP_SUMMON | C→S **et** S→C | :105 | `TS_EQUIP_SUMMON.h:11-15` | 303 / 1303 | déclaré, géré (les deux sens) |
 | 304 | TM_CS_SUMMON | C→S | :106 | `TS_CS_SUMMON.h:10-12` | 304 / 1304 | déclaré, **aucun gestionnaire** |
 | 305 | TM_SC_UNSUMMON | S→C | :107 | `TS_SC_UNSUMMON.h:10-12` | 305 / 1305 | déclaré, émis |
-| 306 | TM_SC_UNSUMMON_NOTICE | S→C | :108 | `TS_SC_UNSUMMON_NOTICE.h:9-11` | 306 / 1306 | déclaré, **jamais émis** |
+| 306 | TM_SC_UNSUMMON_NOTICE | S→C | :108 | `TS_SC_UNSUMMON_NOTICE.h:9-11` | 306 / 1306 | déclaré, émis (double invocation, [socle-duree-invocations.md](socle-duree-invocations.md)) |
 | 307 | TM_SC_SUMMON_EVOLUTION | S→C | :109 | `TS_SC_SUMMON_EVOLUTION.h:13-15` | 307 / 1307 | déclaré, émis |
 | 310 | TM_SC_TAMING_INFO | S→C | :116 | `TS_SC_TAMING_INFO.h:10-12` | 310 / 1310 | déclaré, émis |
 | 320 | TM_SC_MOUNT_SUMMON | S→C | :111 | `TS_SC_MOUNT_SUMMON.h:12-14` | 320 / 1320 | déclaré, **jamais émis** |

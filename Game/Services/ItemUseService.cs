@@ -25,13 +25,15 @@ public class ItemUseService : IItemUseService
     private readonly IPetSummonService _petSummon;
     private readonly ISkillCastService _states;
     private readonly IStatService _stats;
+    private readonly IRecallFeatherService _recall;
 
     private readonly Progression.ITitleService _titles;
     private readonly Huntaholic.IHuntaholicCatalog _huntaholics;
 
     public ItemUseService(ICharacterService characterService, IItemUseCatalog catalog,
         IPetSummonService petSummon, ISkillCastService states, IStatService stats,
-        Progression.ITitleService titles = null, Huntaholic.IHuntaholicCatalog huntaholics = null)
+        Progression.ITitleService titles = null, Huntaholic.IHuntaholicCatalog huntaholics = null,
+        IRecallFeatherService recall = null)
     {
         _huntaholics = huntaholics;
         _titles = titles;
@@ -40,6 +42,7 @@ public class ItemUseService : IItemUseService
         _petSummon = petSummon;
         _states = states;
         _stats = stats;
+        _recall = recall;
     }
 
     /// <summary>The cool-time groups <c>TS_SC_ITEM_COOL_TIME</c> carries at Epic 7.3 (<c>&gt;= EPIC_6_2</c>).</summary>
@@ -139,6 +142,15 @@ public class ItemUseService : IItemUseService
         // before anything is spent.
         if (hasFields)
         {
+            foreach (var count in RecallSlots(fields))
+            {
+                var check = _recall?.Check(client, request.TargetHandle, count) ?? ResultCode.NotActable;
+                if (check != ResultCode.Success)
+                {
+                    client.SendResult(UseItemRequestId, (ushort)check, value);
+                    return;
+                }
+            }
             foreach (var skillId in SkillSlots(fields))
             {
                 var check = _states.CheckItemSkillTarget(client, skillId, request.TargetHandle);
@@ -218,6 +230,15 @@ public class ItemUseService : IItemUseService
         ApplySlots(client, fields.OptTypes, fields.OptVar1, fields.OptVar2, fields, targetHandle);
     }
 
+    private static System.Collections.Generic.IEnumerable<int> RecallSlots(
+        Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
+    {
+        foreach (var (types, values) in new[] { (fields.BaseTypes, fields.BaseVar1), (fields.OptTypes, fields.OptVar1) })
+            if (types is not null && values is not null)
+                for (var i = 0; i < Math.Min(types.Length, values.Length); i++)
+                    if (types[i] == (short)ItemEffectInstant.Recall) yield return (int)values[i];
+    }
+
     /// <summary>The skill ids an item's <c>Skill</c> slots cast.</summary>
     private static System.Collections.Generic.IEnumerable<int> SkillSlots(Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
     {
@@ -248,6 +269,9 @@ public class ItemUseService : IItemUseService
             var amount = (int)values[i];
             switch ((ItemEffectInstant)types[i])
             {
+                case ItemEffectInstant.Recall:
+                    _recall?.Offer(client, targetHandle, amount);
+                    break;
                 case ItemEffectInstant.AddImmoralPoint:
                     MoralityRules.Set(client, Math.Max(0m, info.ImmoralPoint + values[i]));
                     break;

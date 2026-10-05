@@ -78,21 +78,25 @@ public partial class CharacterService : ICharacterService
             ItemEntity stone = null;
             if (write.Race is { } race)
             {
-                // The same context: the items join the tracked character.
-                await repository.GetCharacterByNameWithItemsAsync(characterName);
-                stone = character.Items?.Where(item => item.ItemResourceId == race.StoneResourceId && item.Amount > 0
-                        && item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null)
-                    .OrderBy(item => item.Idx).FirstOrDefault();
-                if (stone is null)
+                // A stone id of 0 is the GM command /race, which takes no stone.
+                if (race.StoneResourceId != 0)
                 {
-                    return new SkillResetCommit(false);
-                }
+                    // The same context: the items join the tracked character.
+                    await repository.GetCharacterByNameWithItemsAsync(characterName);
+                    stone = character.Items?.Where(item => item.ItemResourceId == race.StoneResourceId && item.Amount > 0
+                            && item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null)
+                        .OrderBy(item => item.Idx).FirstOrDefault();
+                    if (stone is null)
+                    {
+                        return new SkillResetCommit(false);
+                    }
 
-                stone.Amount -= 1;
-                if (stone.Amount == 0)
-                {
-                    character.Items.Remove(stone);
-                    repository.DeleteItem(stone);
+                    stone.Amount -= 1;
+                    if (stone.Amount == 0)
+                    {
+                        character.Items.Remove(stone);
+                        repository.DeleteItem(stone);
+                    }
                 }
 
                 // ResetJob(0) then ChangeJob(base job of the race): the base job of the new race, depth 0, no history.
@@ -302,6 +306,40 @@ public partial class CharacterService : ICharacterService
 
     public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp) =>
         SaveLearnedSkillAsync(characterName, skillId, level, remainingJp, null);
+
+    public Task<bool> SaveLearnedSkillsAsync(string characterName, IReadOnlyDictionary<int, byte> skills)
+    {
+        if (skills is null || skills.Count == 0)
+        {
+            return Task.FromResult(false);
+        }
+
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithSkillsAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            character.Skills ??= new List<CharacterSkillEntity>();
+            foreach (var (skillId, level) in skills)
+            {
+                var skill = character.Skills.FirstOrDefault(entry => entry.SkillId == skillId);
+                if (skill is null)
+                {
+                    character.Skills.Add(new CharacterSkillEntity { SkillId = skillId, Level = level });
+                }
+                else
+                {
+                    skill.Level = level;
+                }
+            }
+
+            await repository.SaveChangesAsync();
+            return true;
+        });
+    }
 
     public Task<bool> SaveLearnedSkillAsync(string characterName, int skillId, byte level, long remainingJp,
         int remainingTalentPoint) =>
@@ -1414,18 +1452,40 @@ public partial class CharacterService : ICharacterService
         });
     }
 
-    public async Task<CreatureState> GetCreatureStateAsync(string characterName, IReadOnlyCollection<int> cardIds)
+    public Task<CreatureState> GetCreatureStateAsync(string characterName, IReadOnlyCollection<int> cardIds)
     {
         if (string.IsNullOrEmpty(characterName) || cardIds is null)
         {
-            return null;
+            return Task.FromResult<CreatureState>(null);
         }
 
-        using var repository = _repositories.Create();
+        return RunExclusiveAsync(characterName, repository => ReadCreatureStateAsync(repository, characterName, cardIds));
+    }
+
+    private static async Task<CreatureState> ReadCreatureStateAsync(ICharacterRepository repository,
+        string characterName, IReadOnlyCollection<int> cardIds)
+    {
         var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
         if (character is null)
         {
             return null;
+        }
+
+        // StructPlayer::onAdd -> AddSummon -> DB_UpdateSummon: the summon row follows its card. A card that came by a
+        // trade, a booth or the storage still names its former owner, which hid its creature from the new one.
+        var held = (character.Items ?? new List<ItemEntity>())
+            .Where(item => cardIds.Contains((int)item.ItemResourceId)).Select(item => item.Id).ToList();
+        var moved = held.Count == 0 ? new List<SummonEntity>()
+            : (await repository.GetSummonsOfCardsAsync(held)).Where(s => s.CharacterId != character.Id).ToList();
+        foreach (var summon in moved)
+        {
+            summon.CharacterId = character.Id;
+            summon.AccountId = character.AccountId;
+        }
+
+        if (moved.Count > 0)
+        {
+            await repository.SaveChangesAsync();
         }
 
         var summons = await repository.GetSummonsAsync(character.Id);
@@ -1446,7 +1506,28 @@ public partial class CharacterService : ICharacterService
             }
         }
 
-        return new CreatureState(cards, slots, character.MainSummonId);
+        return new CreatureState(cards, slots, character.MainSummonId)
+        {
+            SubSummonId = character.SubSummonId,
+            RemainSummonTime = character.RemainSummonTime
+        };
+    }
+
+    public Task<bool> SaveSubSummonAsync(string characterName, long? subSummonId, int remainTicks)
+    {
+        return RunExclusiveAsync(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameAsync(characterName);
+            if (character is null)
+            {
+                return false;
+            }
+
+            character.SubSummonId = subSummonId;
+            character.RemainSummonTime = subSummonId is null ? 0 : remainTicks;
+            await repository.SaveChangesAsync();
+            return true;
+        });
     }
 
     public Task<TamingCommit> CommitTamingAsync(string characterName, long cardItemId, bool success, int summonCode,
@@ -1633,6 +1714,13 @@ public partial class CharacterService : ICharacterService
 
         return (await repository.GetSummonSkillsAsync(character.Id))
             .Select(skill => new SummonSkillRecord(skill.SummonId, skill.SkillId, skill.Level)).ToList();
+    }
+
+    public async Task<KeyValuePair<int, byte>[]> GetCardSkillsAsync(uint itemHandle)
+    {
+        using var repository = _repositories.Create();
+        var skills = await repository.GetCardSkillsAsync(itemHandle);
+        return skills?.Select(skill => new KeyValuePair<int, byte>(skill.SkillId, skill.Level)).ToArray();
     }
 
     public Task<bool> SaveSummonSkillAsync(string characterName, long summonId, int skillId, byte level, int remainingJp)

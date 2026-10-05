@@ -381,7 +381,13 @@ public class CraftingSocleService : ICraftingSocleService
 
             if (change.Enhance < 0)
             {
+                // The card is destroyed: its summon leaves the creature window (onRemove -> RemoveSummon, 302).
                 info.CreatureCards.Remove(change.CardHandle);
+                if (card.HasSummon)
+                {
+                    client.Connection.Send(GameSummonPackets.BuildRemoveSummonInfo(card.Handle));
+                }
+
                 return;
             }
 

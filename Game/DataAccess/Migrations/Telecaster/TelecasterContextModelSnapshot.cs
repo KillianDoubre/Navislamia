@@ -1431,7 +1431,7 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.Property<DateTime?>("DeletedOn")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<long>("LeadPartyId")
+                    b.Property<long?>("LeadPartyId")
                         .HasColumnType("bigint");
 
                     b.Property<long>("LeaderId")
@@ -1453,8 +1453,7 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
                     b.HasIndex("LeadPartyId");
 
-                    b.HasIndex("LeaderId")
-                        .IsUnique();
+                    b.HasIndex("LeaderId");
 
                     b.ToTable("Parties");
                 });
@@ -1952,13 +1951,11 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                 {
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.PartyEntity", "LeadParty")
                         .WithMany("RaidParties")
-                        .HasForeignKey("LeadPartyId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("LeadPartyId");
 
                     b.HasOne("Navislamia.Game.DataAccess.Entities.Telecaster.CharacterEntity", "Leader")
-                        .WithOne("LeadersParty")
-                        .HasForeignKey("Navislamia.Game.DataAccess.Entities.Telecaster.PartyEntity", "LeaderId")
+                        .WithMany()
+                        .HasForeignKey("LeaderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -2017,8 +2014,6 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
                     b.Navigation("ItemStorage");
 
                     b.Navigation("Items");
-
-                    b.Navigation("LeadersParty");
 
                     b.Navigation("Quests");
 

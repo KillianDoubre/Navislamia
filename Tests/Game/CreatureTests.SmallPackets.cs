@@ -112,14 +112,15 @@ public partial class CreatureTests
     }
 
     [Test]
-    public void Card_flip_returns_base_levels_empty_for_an_unbound_card_and_not_exist_for_unknown_handles()
+    public async Task Card_flip_returns_base_levels_empty_for_an_unbound_card_and_not_exist_for_unknown_handles()
     {
         var h = new Harness(); var card = RenameCard(h); card.Skills[40011] = 2; card.Skills[40012] = 3;
-        h.Service.SendCardSkillList(h.Client, card.Handle);
+        A.CallTo(() => h.Characters.GetCardSkillsAsync(A<uint>._)).Returns((KeyValuePair<int, byte>[])null);
+        await h.Service.SendCardSkillListAsync(h.Client, card.Handle);
         h.Sent.Single().Should().Equal(GameSmallPackets.SkillLevels(card.Skills.ToArray()));
-        card.SummonId = 0; h.Service.SendCardSkillList(h.Client, card.Handle);
+        card.SummonId = 0; await h.Service.SendCardSkillListAsync(h.Client, card.Handle);
         h.Sent.Last().Should().Equal(GameSmallPackets.SkillLevels(Array.Empty<KeyValuePair<int, byte>>()));
-        h.Service.SendCardSkillList(h.Client, 999);
+        await h.Service.SendCardSkillListAsync(h.Client, 999);
         var refusal = h.Sent.Last();
         BinaryPrimitives.ReadUInt16LittleEndian(refusal.AsSpan(7)).Should().Be(452);
         BinaryPrimitives.ReadUInt16LittleEndian(refusal.AsSpan(9)).Should().Be((ushort)ResultCode.NotExist);
@@ -127,7 +128,7 @@ public partial class CreatureTests
     }
 
     [Test]
-    public void Card_flip_finds_the_card_of_another_player_online_like_the_global_FindItem()
+    public async Task Card_flip_finds_the_card_of_another_player_online_like_the_global_FindItem()
     {
         var h = new Harness();
         var other = StorageTestHarness.NewGameClient(new StorageTestHarness.FrameConnection(Array.Empty<byte>()));
@@ -138,9 +139,28 @@ public partial class CreatureTests
         otherInfo.CreatureCards[77] = card;
         h.Registry.Register(8, other);
 
-        h.Service.SendCardSkillList(h.Client, 77);
+        await h.Service.SendCardSkillListAsync(h.Client, 77);
 
         h.Sent.Single().Should().Equal(GameSmallPackets.SkillLevels(card.Skills.ToArray()),
             "a card shown in a trade window or a booth is flipped like an owned one");
+        A.CallTo(() => h.Characters.GetCardSkillsAsync(A<uint>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task Card_flip_reads_the_card_of_an_offline_owner_from_the_database()
+    {
+        var h = new Harness();
+        var stored = new[] { new KeyValuePair<int, byte>(40011, 3), new KeyValuePair<int, byte>(40012, 1) };
+        A.CallTo(() => h.Characters.GetCardSkillsAsync(4242u)).Returns(stored);
+        A.CallTo(() => h.Characters.GetCardSkillsAsync(4243u)).Returns(Array.Empty<KeyValuePair<int, byte>>());
+
+        await h.Service.SendCardSkillListAsync(h.Client, 4242);
+        await h.Service.SendCardSkillListAsync(h.Client, 4243);
+
+        h.Sent.Should().HaveCount(2);
+        h.Sent[0].Should().Equal(GameSmallPackets.SkillLevels(stored),
+            "a card on sale at the auction house, its owner offline, shows its summon's skills");
+        h.Sent[1].Should().Equal(GameSmallPackets.SkillLevels(Array.Empty<KeyValuePair<int, byte>>()),
+            "a stored card without a summon flips to an empty list, not a refusal");
     }
 }

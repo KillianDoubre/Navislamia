@@ -60,10 +60,19 @@ public interface ICharacterRepository : IDisposable
 
     void AddSummon(SummonEntity summon);
 
+    /// <summary>The summon rows bound to these card items, whoever owns them, tracked.</summary>
+    Task<List<SummonEntity>> GetSummonsOfCardsAsync(IReadOnlyCollection<long> cardItemIds);
+
     /// <summary>The skills of every summon of a character, tracked.</summary>
     Task<List<SummonSkillEntity>> GetSummonSkillsAsync(long characterId);
 
     void AddSummonSkill(SummonSkillEntity skill);
+
+    /// <summary>
+    /// The skills of the summon bound to a card item, whoever holds the card (a bag, an auction, an offline player),
+    /// read no-tracking: null when no item with stock has that id, empty when the card holds no summon.
+    /// </summary>
+    Task<List<SummonSkillEntity>> GetCardSkillsAsync(long cardItemId);
 
     /// <summary>
     /// Avoid using SaveChanges directly from context as it applies modifications directly to the database.
