@@ -2916,6 +2916,11 @@ retiré des listes d'amis des autres) et MJ `block_chat`, `check_auto_user`, `fo
   `Version0017_GuildsAndSieges`) : création chez un officier (fenêtres 650/660, 100 000 or), commandes `/g*`, rangs,
   alliances (`/ga*`, trois guildes), équipes d'attaque (`/rp*`), inscription et classement des raids, sièges (cœur,
   titres), taxes du donjon possédé. Lignes `@GUILD`/`@ALLIANCE`/`@RAID`. **À vérifier en jeu.**
+- **Officiers de guilde et gestionnaires de siège : Lua officiel** (`docs/packet-specs/socle-dialogues-guilde-siege.md`,
+  `GuildService.Lua.cs`) — `NPC_CreateGuild.lua` et `NPC_QuestClient.lua` d'Epic 7 (`tools/export_guild_dialogs.py` →
+  `guild_dialogs.json`), fonctions moteur de `ScriptGuild.cpp`/`ScriptPlayer.cpp`. Exécuté sous le verrou de guilde puis
+  celui du personnage, en une transaction ; `NpcDialogService` rend la page. **Ne pas y revenir avec un menu écrit dans le
+  code** ; un nom de guilde ou d'alliance créé par un officier suit `IsValidName` (1-16 lettres ou chiffres).
 - `WarpService.Warp(…, layer)` passe par `DungeonRooms.OnWarp` puis prend la couche : les salles HuntaHolic (couche = numéro
   de salle, autre zone) et les salles de donjon cohabitent.
 

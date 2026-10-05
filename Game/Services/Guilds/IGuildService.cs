@@ -15,8 +15,17 @@ public interface IGuildService
     Task OnWorldEntryAsync(GameClient client);
     Task OnWorldExitAsync(GameClient client);
     void OnVitalsChanged(GameClient client);
-    bool Contact(GameClient client, uint npcHandle, int npcId);
-    bool Select(GameClient client, uint npcHandle, string trigger);
+
+    /// <summary>
+    /// The guild officers' and siege managers' official Lua (GuildService.Lua.cs): runs a contact, an advertised trigger
+    /// or a window callback and returns what the dialog service shows.
+    /// </summary>
+    Task<GuildDialogResult> RunDialogAsync(GameClient client, uint npcHandle, long revision, string call) =>
+        Task.FromResult<GuildDialogResult>(null);
+
+    /// <summary>The dialog service's renderer for window callbacks, and the quest progress the scripts read.</summary>
+    void AttachDialogs(System.Func<GameClient, uint, long, string, Task> runner,
+        System.Func<GameClient, int, int> questProgress = null) { }
     Task TickAsync();
     long EffectiveGuild(long? guildId);
     bool SameAttackTeam(GameClient first, GameClient second);

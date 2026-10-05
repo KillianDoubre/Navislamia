@@ -76,31 +76,6 @@ public partial class DungeonTests
             A.CallTo(() => _party.DungeonParty(client)).Returns(snapshot);
     }
 
-    [TestCase(130000, "@1090600104")]
-    [TestCase(130300, "@1060600104")]
-    [TestCase(130200, "@1070500104")]
-    [TestCase(130800, null)]
-    public void Siege_manager_emits_only_official_client_labels(int dungeon, string? siegeLabel)
-    {
-        var player = Player(guild: 7); var info = StorageTestHarness.Session(player);
-        var npc = 999999; _catalog.NpcDungeons[npc] = dungeon;
-        info.SpawnedNpcIdsByHandle[77] = npc;
-        var access = A.Fake<IDungeonService>();
-        A.CallTo(() => access.Check(player, A<PropAction>._)).Returns(ResultCode.Success);
-        var dialogOptions = new NpcDialogOptions();
-        dialogOptions.Npcs.Add(npc, "NPC_dungeon_siege_manager_contact");
-        var service = new NpcDialogService(Options.Create(dialogOptions), _warp, A.Fake<IStorageService>(), A.Fake<IMarketService>(),
-            dungeons: access, dungeonCatalog: _catalog, guilds: A.Fake<Navislamia.Game.Services.Guilds.IGuildService>());
-        var packet = new byte[11]; System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(7), 77);
-        service.Contact(player, packet);
-        var frames = ((StorageTestHarness.FrameConnection)player.Connection).Sent;
-        var wire = string.Join("", frames.Select(p => System.Text.Encoding.ASCII.GetString(p)));
-        foreach (var label in new[] { "@90010119", "@90010120", "@90010116", "@90010125", "@90605270" }) wire.Should().Contain(label);
-        if (siegeLabel is not null) wire.Should().Contain(siegeLabel);
-        info.NpcDialogTriggers.Should().NotContain(t => t.StartsWith("enter_dungeon") || t.StartsWith("begin_dungeon_raid") || t.StartsWith("guild_dungeon_register") || t.StartsWith("guild_dungeon_cancel"));
-        info.NpcDialogTriggers.Contains($"warp_to_siege_dungeon({dungeon})").Should().Be(siegeLabel is not null);
-    }
-
     [Test]
     public void Imported_resources_preserve_regions_levels_and_all_difficulties()
     {

@@ -26,7 +26,7 @@ using Navislamia.Game.Services.Stats;
 namespace Tests.Game;
 
 [TestFixture]
-public class GuildTests
+public partial class GuildTests
 {
     internal sealed class Clock : TimeProvider
     {
@@ -96,14 +96,22 @@ public class GuildTests
             member!.GuildId = guild.Id; member.GuildPermission = 7;
             await db.SaveChangesAsync(); await Guilds.OnWorldEntryAsync(leader); return guild.Id;
         }
+        /// <summary>
+        /// The officer's confirmation page of the official Lua (create_guild_main / createalliance), as the window callback
+        /// on_create_guild / on_create_alliance advertises it: true when this character founded it.
+        /// </summary>
         public async Task<bool> Create(GameClient leader, string name, bool alliance = false)
         {
-            Info(leader).SpawnedNpcIdsByHandle[77] = 1012;
-            Guilds.Contact(leader, 77, 1012);
-            Guilds.Select(leader, 77, alliance ? "show_alliance_create()" : "show_guild_create()");
-            if (!await Guilds.ExecuteCommandAsync(leader, (alliance ? "/gacreate " : "/gcreate ") + name)) return false;
-            var trigger = Info(leader).NpcDialogTriggers.Single();
-            return await Guilds.CreateConfirmedAsync(leader, 77, trigger, name, alliance);
+            var info = Info(leader);
+            info.SpawnedNpcIdsByHandle[77] = 1012;
+            info.ClearNpcDialog(); info.NpcDialogHandle = 77;
+            await Guilds.RunDialogAsync(leader, 77, info.NpcDialogRevision,
+                alliance ? $"createalliance( '{name}' )" : $"create_guild_main( '{name}' )");
+            await using var db = Db();
+            var normalized = GuildRules.Normalize(name);
+            return alliance
+                ? await db.Alliances.AnyAsync(a => a.NormalizedName == normalized && a.LeadGuildId == info.GuildId)
+                : await db.Guilds.AnyAsync(g => g.NormalizedName == normalized && g.LeaderId == info.CharacterHandle);
         }
         public string[] Invitation(GameClient target, bool alliance = false) => Frames[Info(target).CharacterHandle].Sent
             .Where(p => p.Length > 31 && p[30] == (byte)(alliance ? ChatType.AllianceSystem : ChatType.GuildSystem))
@@ -202,8 +210,7 @@ public class GuildTests
     {
         var h = new Harness(); var leader = await h.Player(1);
         (await h.Guilds.ExecuteCommandAsync(leader, "/gcreate NoNpc")).Should().BeFalse();
-        (await h.Create(leader, "First Guild")).Should().BeTrue();
-        h.Frames[1].Sent.Should().Contain(p => BitConverter.ToUInt16(p, 4) == 650 && p.Length == 7);
+        (await h.Create(leader, "FirstGuild")).Should().BeTrue();
         Info(leader).CharacterGold.Should().Be(400000); Info(leader).GuildPermission.Should().Be(7);
         await using var db = h.Db();
         var guild = await db.Guilds.SingleAsync(); guild.LeaderId.Should().Be(1); guild.AllianceId.Should().BeNull();
@@ -219,10 +226,12 @@ public class GuildTests
         (await h.Create(leader, "Unique")).Should().BeTrue();
         (await h.Create(duplicate, "unique")).Should().BeFalse(); Info(duplicate).CharacterGold.Should().Be(500000);
         (await h.Create(poor, "Poor")).Should().BeFalse(); Info(poor).CharacterGold.Should().Be(1);
-        Info(duplicate).SpawnedNpcIdsByHandle[77] = 1012; h.Guilds.Contact(duplicate, 77, 1012);
-        h.Guilds.Select(duplicate, 77, "show_guild_create()"); await h.Guilds.ExecuteCommandAsync(duplicate, "/gcreate Stale");
-        var trigger = Info(duplicate).NpcDialogTriggers.Single(); Info(duplicate).ClearNpcDialog();
-        (await h.Guilds.CreateConfirmedAsync(duplicate, 77, trigger, "Stale", false)).Should().BeFalse();
+        // The window opened from an officer's page answers only while that page is current (onGuildCreate's last contact).
+        var info = Info(duplicate);
+        info.SpawnedNpcIdsByHandle[77] = 1012; info.ClearNpcDialog(); info.NpcDialogHandle = 77;
+        await h.Guilds.RunDialogAsync(duplicate, 77, info.NpcDialogRevision, "show_guild_create()");
+        info.ClearNpcDialog();
+        (await h.Guilds.ExecuteCommandAsync(duplicate, "/gcreate Stale")).Should().BeFalse();
         await using var db = h.Db(); (await db.Guilds.CountAsync()).Should().Be(1);
     }
 

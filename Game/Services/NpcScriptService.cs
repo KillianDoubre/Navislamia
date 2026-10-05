@@ -163,7 +163,8 @@ public sealed class NpcScriptService : INpcScriptService
                     ?? throw new InvalidOperationException("NPC item handle is no longer carried");
                 bool Erasable(ItemEntity item) => item.WearInfo == ItemWearType.None && item.EquippedBySummonId is null
                     && item.Summon is null && !(character.BeltItemIds ?? Array.Empty<long>()).Contains(item.Id)
-                    && !(character.SummonSlotItemIds ?? Array.Empty<long>()).Contains(item.Id);
+                    && !(character.SummonSlotItemIds ?? Array.Empty<long>()).Contains(item.Id)
+                    && Creatures.HeldItemRules.IsErasable(info, item.Id);
                 int MaxDurability(ItemEntity item) => _items.TryGetFields(item.ItemResourceId, out var row)
                     ? Math.Max(0, row.Mix?.MaxEtherealDurability ?? 0) : 0;
                 void Mutate(long handle, Action<ItemEntity> mutation) { var item = Item(handle); mutation(item); changed.Add(item); dirty = true; }

@@ -17,10 +17,10 @@ guilde reste en mémoire (`GuildRuntime`). Essai PostgreSQL : `GuildPostgreSqlTe
 
 ## 2. Guilde
 
-- **Création** : chez un officier de guilde (PNJ 1012, 2012, 4012, 6012, 7037), `show_guild_create()` ouvre la
-  fenêtre de saisie (trame 650 ; 660 pour une alliance), le client renvoie `/gcreate nom`, le serveur demande
-  confirmation, puis crée : niveau 20, 100 000 or, nom unique (1-30 lettres, chiffres ou espaces). Rien n'est
-  débité si la confirmation est périmée ou refusée.
+- **Création** : chez un officier de guilde (PNJ 1012, 2012, 4012, 6012, 7037), **le Lua officiel** (2026-10-05,
+  `socle-dialogues-guilde-siege.md`) : `show_guild_create()` ouvre la saisie (650 ; 660 pour une alliance), `/gcreate nom`
+  lance `on_create_guild('nom')`, puis `create_guild_main` crée (niveau 20, nom de 1 à 16 lettres ou chiffres, unique) et
+  débite 100 000 or. Le menu et la confirmation écrits dans le code (en français) sont retirés.
 - Commandes de chat : `/ginvite`, `/gjoin` (invitation liée au destinataire, à durée limitée, consommée une fois),
   `/gkick`, `/gleave` (sept jours avant de rejoindre une guilde), `/gpromote`, `/gpermission`, `/gpermissionset`,
   `/gpermissionname`, `/gnotice`, `/gurl`, `/gmemo`, `/ginfo`, `/gdestroy`. 200 membres au plus ; le rang protège le
@@ -41,7 +41,8 @@ possède un donjon. En mode PK, les alliés sont amis ; un duel l'emporte.
   guilde qui abat le cœur, la fin règle la défense ; titres crédités une fois, hors ligne compris. Un joueur tué en
   siège ne perd ni expérience ni moralité.
 - **Taxe** : `/gtax 1..10` (gestion du donjon), prélevée sur l'or et le chaos tirés dans le donjon avant partage ;
-  `/gwithdraw gold|chaos` une fois ; `/gdropdungeon` (chef) abandonne le donjon, sept jours de blocage.
+  `/gwithdraw gold|chaos` une fois ; `/gdropdungeon` (chef) abandonne le donjon, sept jours de blocage. Le gestionnaire de siège propose les mêmes
+  opérations par son Lua officiel (gestion, taxe, collecte, abandon : `socle-dialogues-guilde-siege.md`).
 
 ## 5. À vérifier en jeu / NON ÉTABLI
 

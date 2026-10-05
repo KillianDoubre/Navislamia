@@ -57,6 +57,8 @@ public class NpcDialogService : INpcDialogService
         _quests = quests;
         _contacts = CompileContacts(options.Value.Npcs);
         _dialogs = CompileDialogs(options.Value.Dialogs);
+        _guilds?.AttachDialogs(RunGuildDialogAsync, quests is null ? null
+            : (client, code) => quests.GetQuestProgressAsync(client, code).GetAwaiter().GetResult());
         _logger.Information("Loaded {npcCount} NPC dialog links and {dialogCount} dialog definitions",
             _contacts.Count, _dialogs.Count);
     }
@@ -81,7 +83,26 @@ public class NpcDialogService : INpcDialogService
             }
         }
 
-        if (_guilds?.Contact(client, handle, (int)npcId) == true) return;
+        // The guild officers and the siege managers run their official Lua (GuildService.Lua.cs): the contact call carries the
+        // manager's dungeon (NPC_dungeon_siege_manager_contact( dungeon_id )), the catalogue keeps the function name only.
+        if (_guilds is not null && _contacts.TryGetValue((int)npcId, out var guildContact)
+            && Guilds.GuildService.IsDialogFunction(guildContact))
+        {
+            var dungeonId = 0;
+            _dungeonCatalog?.NpcDungeons.TryGetValue((int)npcId, out dungeonId);
+            if (guildContact == SiegeManagerContact && dungeonId == 0) return;
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                info.ClearNpcDialog();
+                info.NpcDialogHandle = handle;
+                revision = info.NpcDialogRevision;
+            }
+
+            _ = RunGuildDialogAsync(client, handle, revision,
+                guildContact == SiegeManagerContact ? $"{guildContact}( {dungeonId} )" : guildContact + "()");
+            return;
+        }
 
         // The master-class NPC's contact is a job change page of its own (NPC_master_partdevil_contact), absent
         // from the catalogue's contact list.
@@ -216,7 +237,20 @@ public class NpcDialogService : INpcDialogService
         // A teleport trigger carries its destination in the trigger itself, so it is resolved rather
         // than looked up as a follow-up dialog page. The guard above already proved the current
         // dialog advertised it.
-        if (_guilds?.Select(client, npcHandle, trigger) == true) return;
+        if (_guilds is not null && Guilds.GuildService.IsDialogFunction(ReadFunctionName(trigger)))
+        {
+            long revision;
+            lock (info.NpcVisibilityLock)
+            {
+                // Claim this exact action once. The fresh page advertises any repeatable action again.
+                if (info.NpcDialogHandle != npcHandle || !info.NpcDialogTriggers.Remove(trigger)) return;
+                revision = info.NpcDialogRevision;
+            }
+
+            _ = RunGuildDialogAsync(client, npcHandle, revision, trigger);
+            return;
+        }
+
         var action = PropScript.Parse(trigger);
         if (_dungeons is not null && Dungeons.DungeonService.Handles(action.Kind))
         {
@@ -418,36 +452,7 @@ public class NpcDialogService : INpcDialogService
             var dungeonId = 0;
             _dungeonCatalog?.NpcDungeons.TryGetValue((int)npcId, out dungeonId);
             NpcDialogDefinition definition;
-            if (function == "NPC_dungeon_siege_manager_contact" && dungeonId != 0)
-            {
-                definition = new NpcDialogDefinition { Title = "@90408501", Text = "@90408502" };
-                definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010121", Trigger = $"dungeon_information({dungeonId})" });
-                if (Dungeons.DungeonRules.SecretForOwner(dungeonId) != 0)
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90019007", Trigger = $"secret_dungeon_information({dungeonId})" });
-                // Official Resource/Script/NPC_Dungeon.lua:46,55,64; no generic siege label is established.
-                var siegeLabel = dungeonId switch { 130000 => "@1090600104", 130300 => "@1060600104", 130200 => "@1070500104", _ => null };
-                if (siegeLabel is not null) AddDungeonEntry(siegeLabel, $"warp_to_siege_dungeon({dungeonId})");
-                // Official Resource/Script/NPC_TeleportTown.lua:210.
-                AddDungeonEntry("@90605270", "scf_teleport_to_owned_secret_dungeon()");
-                // enter_dungeon, begin_dungeon_raid, register/cancel: no official menu string established.
-                // Keep these out of this dialog rather than assigning an unrelated client string.
-                // Official Resource/Script/NPC_QuestClient.lua:1836,1839,1955,1957.
-                if (_guilds is not null && info.GuildId is > 0)
-                {
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010119", Trigger = $"guild_dungeon_taxup({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010120", Trigger = $"guild_dungeon_taxdown({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010116", Trigger = $"guild_dungeon_gold({dungeonId})" });
-                    definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010125", Trigger = $"guild_dungeon_chaos({dungeonId})" });
-                }
-                definition.Menu.Add(new NpcDialogMenuEntry { Label = "@90010002", Trigger = "" });
-
-                void AddDungeonEntry(string label, string trigger)
-                {
-                    if (_dungeons?.Check(client, PropScript.Parse(trigger)) == Navislamia.Game.Network.Packets.ResultCode.Success)
-                        definition.Menu.Add(new NpcDialogMenuEntry { Label = label, Trigger = trigger });
-                }
-            }
-            else if (!string.IsNullOrEmpty(function) && _dialogs.TryGetValue(function, out var dialog))
+            if (!string.IsNullOrEmpty(function) && _dialogs.TryGetValue(function, out var dialog))
                 definition = dialog.Definition;
             else return false;
 
@@ -677,6 +682,46 @@ public class NpcDialogService : INpcDialogService
         {
             _logger.Error(exception, "Could not handle job change dialog {function}", function);
         }
+    }
+
+    private const string SiegeManagerContact = "NPC_dungeon_siege_manager_contact";
+
+    /// <summary>
+    /// Renders what a guild officer's or siege manager's script produced: the warp of an abandoned dungeon, a quest page
+    /// (<c>show_quest_info_without_npc</c>) or the dialog, with the NPC's quest offers on a <c>dlg_text</c> page.
+    /// </summary>
+    private async Task RunGuildDialogAsync(GameClient client, uint handle, long revision, string call)
+    {
+        try
+        {
+            var result = await _guilds.RunDialogAsync(client, handle, revision, call);
+            if (result is null) return;
+            if (result.Warp is { } warp) _warpService.Warp(client, warp.X, warp.Y, warp.Layer);
+            int npcId;
+            lock (client.ConnectionInfo.NpcVisibilityLock)
+            {
+                if (!client.ConnectionInfo.SpawnedNpcIdsByHandle.TryGetValue(handle, out var id)) return;
+                npcId = (int)id;
+            }
+
+            if (result.QuestInfo != 0 && _quests is not null)
+            {
+                var quest = await _quests.GetQuestDialogAsync(client, npcId, result.QuestInfo, result.Page?.Dialog.Title ?? string.Empty);
+                if (quest is not null)
+                {
+                    var type = quest.Menu.Any(m => m.Label == "START") ? 3 : quest.Menu.Any(m => m.Label == "REWARD") ? 8 : 7;
+                    ShowDynamic(client, handle, revision, quest, type, result.QuestInfo);
+                }
+
+                return;
+            }
+
+            if (result.Page is not { } page) return;
+            if (page.IncludeQuests && _quests is not null)
+                page.Dialog.Menu.InsertRange(0, await _quests.GetNpcOffersAsync(client, npcId));
+            ShowDynamic(client, handle, revision, page.Dialog, 0, 0);
+        }
+        catch (Exception exception) { _logger.Error(exception, "Guild dialogue failed for {Client}", client.ClientTag); }
     }
 
     private async Task RunNpcScriptAsync(GameClient client, uint handle, long revision, string trigger)

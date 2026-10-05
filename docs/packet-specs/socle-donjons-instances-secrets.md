@@ -151,6 +151,8 @@ nettoyage du butin. Les compétences de zone et multi-coups sont aussi testées 
 
 ## Libellés du gestionnaire (xHHwc9Z2, 2026-10-05)
 
+*Remplacé le même jour* : le gestionnaire exécute son Lua officiel (`socle-dialogues-guilde-siege.md`) ; la section ci-dessous décrit le menu écrit qu'il remplace.
+
 Tous les libellés transmis utilisent les chaînes officielles, sous `GameServer/Resource/Script/` :
 `NPC_QuestClient.lua:1469-1477` (informations et fermeture), `:1836` (`@90010116`, or),
 `:1839` (`@90010125`, lak), `:1955` (`@90010119`, taxe +), `:1957` (`@90010120`, taxe -).

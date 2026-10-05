@@ -74,7 +74,8 @@ Tous livrés le 2026-10-05 (lot de Codex relu) : ~~322~~, ~~451~~ (réponse à 4
 - ~~La 451 d'une carte dont le propriétaire est hors ligne (vue aux enchères) répond `NotExist`~~ : lue en base depuis
   le 2026-10-05 (`451-skill-level-list.md`).
 - ~~Le menu du gestionnaire de siège envoie des libellés français écrits en dur~~ : xHHwc9Z2,
-  chaînes Lua officielles ; raccourcis sans identifiant établi retirés (`socle-donjons-instances-secrets.md`).
+  chaînes Lua officielles ; raccourcis sans identifiant établi retirés (`socle-donjons-instances-secrets.md`). Depuis,
+  officiers de guilde et gestionnaires de siège exécutent leur Lua officiel (g2ZL9GqD, `socle-dialogues-guilde-siege.md`).
 
 ### Effets déclenchés au combat (`m_vProcBy*`, `CalculateStat.cpp`)
 

@@ -451,20 +451,4 @@ public sealed partial class GuildService
         var leader = target is null ? null : await db.Characters.Where(c => c.Id == target.LeaderId).Select(c => c.CharacterName).FirstOrDefaultAsync();
         Send(client, $"GRAIDSIEGETIP|{(raiding ? 1 : state?.OwnerGuildId == effective ? 2 : 3)}|{(raiding ? raid?.BestTime ?? 0 : state?.BestRaidTime ?? 0)}|{target?.Name ?? " "}|{leader ?? " "}|{(target is null ? 0 : await db.Characters.CountAsync(c => c.GuildId == target.Id))}|{dungeonId}|");
     }
-    private async Task SelectDungeonManagementAsync(GameClient client, uint handle, string trigger, string action, int dungeon)
-    {
-        var info = client.ConnectionInfo;
-        lock (info.NpcVisibilityLock)
-            if (info.NpcDialogHandle != handle || !info.NpcDialogTriggers.Contains(trigger)
-                || !info.SpawnedNpcIdsByHandle.TryGetValue(handle, out var npc) || !_catalog.NpcDungeons.TryGetValue((int)npc, out var linked) || linked != dungeon) return;
-        var command = action switch
-        {
-            "register" => $"/graid {dungeon}", "cancel" => "/graidcancel", "gold" => "/gwithdraw gold", "chaos" => "/gwithdraw chaos",
-            "drop" => "/gdropdungeon", _ => null
-        };
-        if (command is not null) { await ExecuteCommandAsync(client, command); return; }
-        await using var db = new TelecasterContext(_options);
-        var rate = await db.Dungeons.Where(d => d.Id == dungeon).Select(d => d.TaxRate).FirstOrDefaultAsync();
-        await ExecuteCommandAsync(client, $"/gtax {rate + (action == "taxup" ? 1 : -1)}");
-    }
 }

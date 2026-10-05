@@ -12,6 +12,7 @@
     <EmbeddedResource Include="Scripting/Scripts/event_area_functions.json" LogicalName="Navislamia.EventAreaFunctions.json" />
     <EmbeddedResource Include="DataAccess/Migrations/Arcadia/EventAreaResources.sql" LogicalName="Navislamia.EventAreaResources.sql" />
     <EmbeddedResource Include="Scripting/Scripts/npc_dialogs.json" LogicalName="Navislamia.NpcDialogs.json" />
+    <EmbeddedResource Include="Scripting/Scripts/guild_dialogs.json" LogicalName="Navislamia.GuildDialogs.json" />
     <EmbeddedResource Include="Services/Dungeons/dungeon-resources.json" LogicalName="Navislamia.DungeonResources.json" />
     <ProjectReference Include="..\Configuration\Configuration.csproj" />
   </ItemGroup>

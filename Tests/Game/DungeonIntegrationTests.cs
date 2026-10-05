@@ -78,38 +78,6 @@ public class DungeonIntegrationTests
     public void Only_the_official_window_entries_confirm_a_menu_choice(string trigger, bool confirms) =>
         NpcDialogService.OpensConfirmation(trigger, PropScript.Parse(trigger)).Should().Be(confirms);
 
-    [Test]
-    public void Secret_information_keeps_dungeon_context_and_never_warps()
-    {
-        var options = new NpcDialogOptions();
-        options.Npcs[4089] = "NPC_dungeon_siege_manager_contact(130300)";
-        options.Dialogs["secret_dungeon_information"] = new NpcDialogDefinition
-        {
-            Title = "Info", Text = "Details", Menu = { new NpcDialogMenuEntry
-                { Label = "How to enter", Trigger = "question_secret_dungeon_enter(" } }
-        };
-        options.Dialogs["question_secret_dungeon_enter"] = new NpcDialogDefinition
-        {
-            Title = "Info", Text = "Instructions", Menu = { new NpcDialogMenuEntry
-                { Label = "Back", Trigger = "NPC_dungeon_siege_manager_contact(" } }
-        };
-        var catalog = new DungeonCatalog(Options.Create(new DungeonOptions()));
-        var service = A.Fake<IDungeonService>();
-        var warp = A.Fake<IWarpService>();
-        var dialogs = new NpcDialogService(Options.Create(options), warp, A.Fake<IStorageService>(),
-            A.Fake<IMarketService>(), dungeons: service, dungeonCatalog: catalog);
-        var player = Player();
-        var info = StorageTestHarness.Session(player);
-        info.SpawnedNpcIdsByHandle[50] = 4089;
-        dialogs.Contact(player, Contact(50));
-        info.NpcDialogTriggers.Should().Contain("secret_dungeon_information(130300)");
-        dialogs.Select(player, Select("secret_dungeon_information(130300)"));
-        info.NpcDialogTriggers.Should().ContainSingle().Which.Should().Be("question_secret_dungeon_enter(130300)");
-        dialogs.Select(player, Select("question_secret_dungeon_enter(130300)"));
-        info.NpcDialogTriggers.Should().ContainSingle().Which.Should().Be("NPC_dungeon_siege_manager_contact(130300)");
-        A.CallTo(() => service.ExecuteAsync(A<GameClient>._, A<PropAction>._)).MustNotHaveHappened();
-        A.CallTo(() => warp.Warp(A<GameClient>._, A<float>._, A<float>._)).MustNotHaveHappened();
-    }
 
     private static MonsterWorldState World()
     {
