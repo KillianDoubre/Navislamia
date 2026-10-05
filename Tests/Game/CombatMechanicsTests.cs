@@ -259,4 +259,96 @@ public class CombatMechanicsTests
         BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(59)).Should().Be(world.GetHp(monsterId));
         combat.StopAttack(client);
     }
+
+    // ---- the arrow refusal of onAttackRequest (docs/packet-specs/102-cant-attack.md §5.6, case A) ----
+
+    private static StateRule NoStateRule => new(77, Array.Empty<int>(), 0, 0, 0, new decimal[20]);
+
+    private static int Sessions(CombatService combat) => ((System.Collections.IDictionary)typeof(CombatService)
+        .GetField("_sessions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .GetValue(combat)!).Count;
+
+    private static List<byte[]> CantAttackFrames(GameClient client) =>
+        ((StorageTestHarness.FrameConnection)client.Connection).Sent
+            .Where(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 102).ToList();
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void A_ranged_weapon_without_an_arrow_is_refused_with_not_enough_bullet(bool emptyReserve)
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.CharacterHandle = 0x11223344;
+        info.EquippedWeapon = ItemType.Crossbow;
+        info.LeftHand = emptyReserve ? new LeftHandItem(7, 1201, null, 0, Array.Empty<StatEffect>()) : null;
+
+        combat.StartAttack(client, 0x40000001);
+
+        Sessions(combat).Should().Be(0, "the arrow refusal opens no attack session");
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        frame.Length.Should().Be(19);
+        BinaryPrimitives.ReadUInt32LittleEndian(frame).Should().Be(19);
+        BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4)).Should().Be(102);
+        frame[6].Should().Be(StorageTestHarness.Checksum(frame));
+        BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(7)).Should().Be(0x11223344);
+        BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(11)).Should().Be(0x40000001);
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should()
+            .Be((int)Navislamia.Game.Network.Packets.ResultCode.NotEnoughBullet,
+                "NOT_ENOUGH_BULLET (32), the only 102 code the 7.3 client turns into its own message");
+    }
+
+    [TestCase(ItemType.LightBow, true)]
+    [TestCase(ItemType.HeavyBow, true)]
+    [TestCase(ItemType.Crossbow, true)]
+    [TestCase(ItemType.OnehandSword, false)]
+    public void A_ranged_weapon_with_an_arrow_and_any_melee_weapon_open_the_attack(ItemType weapon, bool arrows)
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.EquippedWeapon = weapon;
+        info.LeftHand = arrows ? new LeftHandItem(7, 1201, null, 3, Array.Empty<StatEffect>()) : null;
+
+        combat.StartAttack(client, 0x40000001);
+
+        CantAttackFrames(client).Should().BeEmpty();
+        Sessions(combat).Should().Be(1);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void A_refused_target_keeps_its_own_code_with_an_empty_quiver(bool deadMonster)
+    {
+        var (combat, client, info, monsterId) = Defender(NoStateRule, 0);
+        info.CharacterHandle = 0x11223344;
+        info.EquippedWeapon = ItemType.LightBow;
+        info.LeftHand = null;
+        var world = (MonsterWorldState)typeof(CombatService).GetField("_worldState",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(combat)!;
+        if (deadMonster)
+        {
+            world.ApplyDamage(monsterId, int.MaxValue);
+        }
+
+        combat.StartAttack(client, deadMonster ? 0x40000001u : 0x40000099u);
+
+        Sessions(combat).Should().Be(0);
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should()
+            .Be(deadMonster ? 5 : 1, "the target's refusal comes first: NOT_ACTABLE for the dead, NOT_EXIST for the unknown");
+    }
+
+    [Test]
+    public void The_arrow_refusal_of_a_live_session_is_sent_without_ending_it()
+    {
+        var (combat, client, info, _) = Defender(NoStateRule, 0);
+        info.EquippedWeapon = ItemType.LightBow;
+        info.LeftHand = new LeftHandItem(7, 1201, null, 1, Array.Empty<StatEffect>());
+        combat.StartAttack(client, 0x40000001);
+        Sessions(combat).Should().Be(1);
+
+        info.LeftHand = null;
+        combat.StartAttack(client, 0x40000001);
+
+        var frame = CantAttackFrames(client).Should().ContainSingle().Subject;
+        BinaryPrimitives.ReadInt32LittleEndian(frame.AsSpan(15)).Should().Be(32);
+        Sessions(combat).Should().Be(1, "step 6 sends the refusal instead of an EndAttack");
+    }
 }

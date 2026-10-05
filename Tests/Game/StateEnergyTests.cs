@@ -65,6 +65,23 @@ public class StateEnergyTests
         BinaryPrimitives.ReadInt32LittleEndian(c.AsSpan(15)).Should().Be((int)ResultCode.NotOwn);
     }
 
+    [TestCase(ResultCode.NotOwn, 3)]
+    [TestCase(ResultCode.NotExist, 1)]
+    [TestCase(ResultCode.NotActable, 5)]
+    [TestCase(ResultCode.NotEnoughBullet, 32)]
+    public void The_cant_attack_frame_keeps_the_same_19_bytes_for_every_refusal_code(ResultCode reason, int code)
+    {
+        var c = GameStateResultPackets.CantAttack(0x11223344, 0x55667788, reason);
+        c.Length.Should().Be(19);
+        BinaryPrimitives.ReadUInt32LittleEndian(c).Should().Be(19);
+        BinaryPrimitives.ReadUInt16LittleEndian(c.AsSpan(4)).Should().Be(102);
+        c[6].Should().Be(StorageTestHarness.Checksum(c));
+        BinaryPrimitives.ReadUInt32LittleEndian(c.AsSpan(7)).Should().Be(0x11223344);
+        BinaryPrimitives.ReadUInt32LittleEndian(c.AsSpan(11)).Should().Be(0x55667788);
+        BinaryPrimitives.ReadInt32LittleEndian(c.AsSpan(15)).Should().Be(code,
+            "reason is a signed 32-bit code at @15, not a short");
+    }
+
     [Test]
     public void Energy_capacity_is_passive_1082_capped_at_ten()
     {

@@ -125,6 +125,13 @@ public class CombatService : ICombatService
             return;
         }
 
+        // onAttackRequest's own order (official 0x140110970): the target's refusals come first, so a target the
+        // server refuses keeps its own code even with an empty quiver; step 6 only then refuses the bow itself.
+        if (RefuseWithoutBullets(client, targetHandle))
+        {
+            return;
+        }
+
         lock (_lock)
         {
             _sessions[client] = new AttackSession
@@ -256,11 +263,13 @@ public class CombatService : ICombatService
         // remaining 0.2, one arrow per shot from the shield slot. No arrow, no attack.
         if (ranged)
         {
-            if (info.LeftHand is not { WeaponType: null } arrows || arrows.Amount < 1)
+            if (!Combat.AttackMechanics.HasArrows(info.LeftHand))
             {
                 StopAttack(client);
                 return;
             }
+
+            var arrows = info.LeftHand;
 
             if (!session.Aimed)
             {
@@ -638,6 +647,26 @@ public class CombatService : ICombatService
         else client.Connection.Send(GameStateResultPackets.CantAttack(client.ConnectionInfo.CharacterHandle, targetHandle, reason));
     }
 
+    /// <summary>
+    /// The arrow refusal of <c>onAttackRequest</c> (step 6, official <c>0x140110c75</c>): a bow or crossbow whose
+    /// shield slot holds no arrow, or an empty reserve, is answered with 102 and
+    /// <see cref="Network.Packets.ResultCode.NotEnoughBullet"/> (32) and opens no session. Unlike the target
+    /// refusals it is sent whatever the session state — the official step has no <c>EndAttack</c>, and 32 is the
+    /// only code the 7.3 client turns into its own interface message.
+    /// </summary>
+    private bool RefuseWithoutBullets(GameClient client, uint targetHandle)
+    {
+        var info = client.ConnectionInfo;
+        if (!Combat.AttackMechanics.IsRanged(info.EquippedWeapon) || Combat.AttackMechanics.HasArrows(info.LeftHand))
+        {
+            return false;
+        }
+
+        client.Connection.Send(GameStateResultPackets.CantAttack(info.CharacterHandle, targetHandle,
+            Network.Packets.ResultCode.NotEnoughBullet));
+        return true;
+    }
+
     private void StartPlayerAttack(GameClient client, uint targetHandle)
     {
         var info = client.ConnectionInfo;
@@ -651,6 +680,10 @@ public class CombatService : ICombatService
         { CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotExist); return; }
         if (!MonsterAiRules.IsAlive(target.ConnectionInfo.CharacterHp) || !IsEnemy(client, target))
         { CantAttackOrEnd(client, targetHandle, Network.Packets.ResultCode.NotActable); return; }
+        if (RefuseWithoutBullets(client, targetHandle))
+        {
+            return;
+        }
 
         lock (_lock)
         {

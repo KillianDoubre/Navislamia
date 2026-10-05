@@ -290,6 +290,52 @@ pas identifié (`NON ÉTABLI` 5) ; c'est le seul code pour lequel le client 7.3 
 | `reference/client73/SFrame.exe` | `sha256 41e0af2efafd35fc798ad4649b1a12ca5b27452d2015e5a63d6485b29fb9500e` | ce que le client 7.3 fait de la trame |
 | `epic7part4/client-pdb/2011-12-14-part4-design/SFrame_Release.exe` | `sha256 77329d514d44a763c1bd71b692348249511039c3567c9b6ab8276c5ae983bb0b` | recoupement du gestionnaire client (PDB) |
 
+## 9. Livraison de la branche (`navis-dev`, `hermes/packet-102-cant-attack`)
+
+**Périmètre livré : le cas A seul (code 32 `NOT_ENOUGH_BULLET`).** Le cas B (code 6 `ACCESS_DENIED`) n'est
+**pas** implémenté : la liste des états locaux valant « non attaquable » est en arbitrage (voir
+`## A VERIFIER PAR KILLIAN` point 1, `NON ÉTABLI` 1 à 3). Aucun champ ni code n'a été deviné.
+
+- `Game/Services/Combat/AttackMechanics.cs:66` — `HasArrows(LeftHandItem)` : la réserve d'un arc
+  (`GetBulletCount()`) est le `LeftHandItem` de la main gauche **et seulement** s'il ne porte pas d'arme
+  (`WeaponType` non renseigné, groupe `Bullet`). `CombatService.ProcessSwing` (`:266`) et le nouveau refus
+  lisent désormais la même règle : l'expression `LeftHand is not { WeaponType: null } arrows || arrows.Amount < 1`
+  qui y vivait est remplacée par elle, sans changement de comportement.
+- `Game/Services/CombatService.cs:657-671` — `RefuseWithoutBullets(client, targetHandle)` : si
+  `AttackMechanics.IsRanged(info.EquippedWeapon)` est vrai et `HasArrows(info.LeftHand)` faux, envoie
+  `GameStateResultPackets.CantAttack(info.CharacterHandle, targetHandle, ResultCode.NotEnoughBullet)` et
+  rend `true`. Le paquet part **directement par `client.Connection.Send`**, jamais par `CantAttackOrEnd` :
+  l'étape 6 de l'officiel n'a pas d'`EndAttack`, donc la trame part même si une session est tenue.
+- Appelé aux deux endroits où une session peut s'ouvrir, et **après** les refus de cible de l'officiel :
+  `StartAttack` (`:130`, après le contrôle « cible vivante » de l'étape 4/5 du monstre, avant
+  `_sessions[client] = …`) et `StartPlayerAttack` (`:683`, après `NotExist` et `NotActable`). Un chemin de
+  serviteur (`CreatureService.SummonAttack`) n'est pas couvert : voir la réserve 3.
+- Le refus ne touche pas la réserve d'objets : il ne consomme ni ne déplace une flèche, et il n'ouvre ni ne
+  ferme de session. En pleine volée, la règle de §5.3 reste celle du dépôt (`ProcessSwing` `:264-269` :
+  réserve épuisée → `StopAttack` muet, aucun 102), conformément à l'officiel.
+
+Tests ajoutés (14 cas, tous verts) :
+
+- `Tests/Game/StateEnergyTests.cs:72` `The_cant_attack_frame_keeps_the_same_19_bytes_for_every_refusal_code`
+  — offsets de la trame pour chaque code de refus envoyé par le dépôt : 19 octets, id 102 @4, `checksum`,
+  `attacker_handle` @7, `target_handle` @11, `reason` **i32** @15 (3, 1, 5, 32).
+- `Tests/Game/CombatMechanicsTests.cs:277` — arc/arbalète sans flèche (réserve absente **et** réserve à zéro)
+  : une seule trame 102/19, `reason = 32`, aucun `attacker_handle` inventé (celui du personnage) et
+  **aucune session ouverte** (`_sessions` vide, lu par réflexion comme les tests voisins).
+- `:303` — contrôle inverse : les trois armes à distance avec une flèche, et une arme de mêlée sans rien,
+  ouvrent bien la session et n'envoient aucun 102 (le refus ne déborde pas).
+- `:317` — ordre officiel : cible morte (5 `NOT_ACTABLE`) et cible inconnue (1 `NOT_EXIST`) gardent leur
+  code **même avec un carquois vide** ; c'est ce qui fixe la place du test après les étapes 3 à 5.
+- `:339` — une session vivante qui redemande l'attaque avec un carquois vide reçoit le 102/32 **sans** que
+  la session soit fermée (pas d'`EndAttack`), ce qui épingle la décision de ne pas passer par
+  `CantAttackOrEnd`.
+- `Tests/Game/PvpTests.cs:225` — même refus sur le chemin joueur/joueur (`StartPlayerAttack`) : trame
+  102/19, `reason = 32`, et aucun dégât au tick suivant.
+
+`dotnet build Navislamia.sln -c Debug` : 0 erreur. `dotnet test Tests/Tests.csproj` : 3791 passés,
+0 échec, 0 ignoré. Enum et dispatch inchangés : 102 est déjà refusé et journalisé par la branche
+« server-only » de `GameClient.Receive` (`GameClient.cs:3004-3008`), donc rien n'atteint le `switch` final.
+
 ## Bloc pour CLAUDE.md
 
 À recopier dans la description de la MR (le dev n'écrit pas `CLAUDE.md`) :
@@ -312,6 +358,10 @@ pas identifié (`NON ÉTABLI` 5) ; c'est le seul code pour lequel le client 7.3 
   tracés (`case MSG_CANT_ATTACK`, `SFrame.exe 0x63c98a`).
 - Ne pas porter NGemity (`WorldSession.cpp:1195,1200`) : il envoie `reason = 0` là où l'officiel écrit 5 et
   32, et n'a pas l'étape `IsAttackable`.
+- Navislamia n'émet pour l'instant que 3, 1, 5 et 32 (`CombatService.RefuseWithoutBullets`) : l'étape
+  `IsAttackable` (**6**) n'est pas portée, la liste des états locaux valant « non attaquable » restant à
+  trancher. Le 32 part par `client.Connection.Send` et non par `CantAttackOrEnd`, donc il est émis même si
+  une session est tenue ; il ne consomme aucune flèche.
 
 Voir `docs/packet-specs/102-cant-attack.md`.
 ```

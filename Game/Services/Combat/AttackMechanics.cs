@@ -59,6 +59,13 @@ public static class AttackMechanics
     public static bool IsRanged(ItemType? weapon) => IsBow(weapon) || IsCrossbow(weapon);
 
     /// <summary>
+    /// The arrow reserve a bow or crossbow shoots, <c>GetBulletCount()</c> of <c>onAttackRequest</c>: the shield
+    /// slot's left hand, and only when it holds no weapon of its own (<see cref="LeftHandItem.WeaponType"/> unset
+    /// for the <c>Bullet</c> group).
+    /// </summary>
+    public static bool HasArrows(LeftHandItem left) => left is { WeaponType: null } arrows && arrows.Amount >= 1;
+
+    /// <summary>
     /// Two weapons are in use when the shield slot holds a weapon and the main hand is not a bow (the shield slot
     /// of an archer holds the arrows).
     /// </summary>
