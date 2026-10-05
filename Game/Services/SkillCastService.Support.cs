@@ -217,6 +217,7 @@ public partial class SkillCastService
     {
         if (target.Summon is null) { SendStatRefresh(target.Owner, target.Owner.ConnectionInfo); return; }
         SummonBuffStats.Refresh(target.Summon, _stateCatalog);
+        _creatures?.SyncSp(target.Owner, target.Handle, SupportAmount(target.Summon.Stats.MaxSp));
         target.Owner.Connection.Send(GameStatPackets.BuildStatInfo(target.Handle, target.Summon.Stats, StatInfoType.Total));
         SendSupportProperty(target, "max_hp", SupportAmount(target.Summon.Stats.MaxHp));
         SendSupportProperty(target, "max_mp", SupportAmount(target.Summon.Stats.MaxMp));

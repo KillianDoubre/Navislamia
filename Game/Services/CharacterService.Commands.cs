@@ -28,6 +28,24 @@ public partial class CharacterService
             return ResultCode.Success;
         });
 
+    public Task<ResultCode> RenameSummonAsync(string characterName, long summonId, string name, long gold) =>
+        RunExclusiveAsync(characterName, async repository =>
+        {
+            if (!CharacterNameRules.Valid(name) || _bannedWords?.ContainsBannedWord(name) == true)
+                return ResultCode.InvalidText;
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            if (character is null) return ResultCode.NotExist;
+            var summon = (await repository.GetSummonsAsync(character.Id)).FirstOrDefault(s => s.Id == summonId);
+            if (summon is null || !character.Items.Any(i => i.Id == summon.CardItemId && i.Amount > 0
+                && i.AccountId is null && i.StorageId is null && i.AuctionId is null)) return ResultCode.NotExist;
+            if (string.Equals(name, summon.Name, StringComparison.OrdinalIgnoreCase)) return ResultCode.AlreadyExist;
+            summon.Name = name;
+            character.Gold = gold;
+            try { await repository.SaveChangesAsync(); }
+            catch (DbUpdateException) { return ResultCode.DBError; }
+            return ResultCode.Success;
+        });
+
     public string NameReformat(string name) =>
         _nameCodePage is 1252 or 1250 or 1254 ? CharacterNameRules.Reformat(name) : null;
 

@@ -175,10 +175,11 @@ public class SummonSkillTests
         var h = new Harness();
         h.Card.Skills[Bite] = 2;
         h.Service.SendCardSkillList(h.Client, 60);
-        var list = h.Last(GamePackets.TM_SC_SKILL_LIST);
-        BinaryPrimitives.ReadUInt32LittleEndian(list.AsSpan(7, 4)).Should().Be(0x50000001u);
-        BinaryPrimitives.ReadUInt16LittleEndian(list.AsSpan(11, 2)).Should().Be(1);
-        BinaryPrimitives.ReadInt32LittleEndian(list.AsSpan(14, 4)).Should().Be(Bite);
+        var list = h.Last(GamePackets.TM_SC_SKILL_LEVEL_LIST);
+        list.Should().HaveCount(14);
+        BinaryPrimitives.ReadUInt16LittleEndian(list.AsSpan(7, 2)).Should().Be(1);
+        BinaryPrimitives.ReadInt32LittleEndian(list.AsSpan(9, 4)).Should().Be(Bite);
+        list[13].Should().Be(2);
     }
 
     [Test]

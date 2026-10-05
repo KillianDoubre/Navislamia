@@ -730,6 +730,8 @@ public class ConnectionInfo
         }
     }
 
+    public uint SummonNameChangeTarget { get; set; }
+    public string ScriptWindowTrigger { get; set; } = string.Empty;
     public object NameChangeLock { get; } = new();
     public System.Threading.Tasks.Task NameChangeCompletion { get; set; } = System.Threading.Tasks.Task.CompletedTask;
     public bool IsInvisible { get; set; }
@@ -742,6 +744,7 @@ public class ConnectionInfo
     {
         LocationId = 0;
         Energy.Clear();
+        SummonNameChangeTarget = 0; ScriptWindowTrigger = string.Empty;
         NameChangeCompletion = System.Threading.Tasks.Task.CompletedTask;
         IsInvisible = false; ChatBlockUntil = 0;
         CharacterHandle = 0;

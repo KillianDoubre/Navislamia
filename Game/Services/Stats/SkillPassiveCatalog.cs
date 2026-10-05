@@ -15,7 +15,7 @@ public class SkillPassiveCatalog : ISkillPassiveCatalog
     public const int IncreaseElementalResistance = 10006;
     public const int IncreaseHpMp = 10021;
 
-    public static readonly int[] SupportedEffectTypes = { WeaponMastery, IncreaseBaseAttribute, IncreaseHpMp, IncreaseElementalResistance };
+    public static readonly int[] SupportedEffectTypes = { WeaponMastery, IncreaseBaseAttribute, IncreaseHpMp, IncreaseElementalResistance, 10031, 10032 };
 
     private static readonly FrozenDictionary<int, StatTarget[]> SlotTargets =
         new Dictionary<int, StatTarget[]>
@@ -27,12 +27,17 @@ public class SkillPassiveCatalog : ISkillPassiveCatalog
 
     private readonly ILogger _logger = Log.ForContext<SkillPassiveCatalog>();
     private readonly FrozenDictionary<int, PassiveEntry> _passives;
+    private readonly FrozenDictionary<int, StateEffectTemplate> _summonSp;
 
     public SkillPassiveCatalog(ISkillResourceRepository repository)
     {
         var passives = new Dictionary<int, PassiveEntry>();
+        var summonSp = new Dictionary<int, StateEffectTemplate>();
         foreach (var passive in repository.GetStatPassives())
         {
+            if (passive.EffectType is 10031 or 10032 && passive.Vars is { Length: > 5 })
+                summonSp[passive.SkillId] = new StateEffectTemplate(StatTarget.MaxSp,
+                    (float)passive.Vars[4], (float)passive.Vars[5], passive.EffectType == 10032);
             var templates = BuildTemplates(passive);
             if (templates.Count > 0)
             {
@@ -42,8 +47,13 @@ public class SkillPassiveCatalog : ISkillPassiveCatalog
         }
 
         _passives = passives.ToFrozenDictionary();
+        _summonSp = summonSp.ToFrozenDictionary();
         _logger.Debug("Loaded {count} stat passive skills", _passives.Count);
     }
+
+    public IReadOnlyList<StatEffect> ResolveSummonSp(int skillId, int skillLevel) =>
+        skillLevel > 0 && _summonSp.TryGetValue(skillId, out var template)
+            ? new[] { template.Resolve(skillLevel) } : Array.Empty<StatEffect>();
 
     public IReadOnlyList<StatEffect> Resolve(int skillId, int skillLevel, ItemType? equippedWeapon)
     {

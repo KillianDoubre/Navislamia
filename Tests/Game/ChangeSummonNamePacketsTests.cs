@@ -98,13 +98,12 @@ public class ChangeSummonNamePacketsTests
     }
 
     [Test]
-    public void TheServerToClientTwin322_IsNotDeclared()
+    public void TheServerToClientTwin322_IsDeclaredForTheOfficialWindow()
     {
-        // 322 TM_SC_SHOW_SUMMON_NAME_CHANGE is the S→C twin (one handle, 11 bytes). The 7.3 client only
-        // receives it and nothing emits it yet, so declaring it would add a member no branch claims — the
-        // very thing the dispatch rule forbids. See fiche §3.4 and §7(b).
-        Enum.IsDefined(typeof(GamePackets), (ushort)322).Should().BeFalse(
-            "the twin is server to client and the repository emits it nowhere");
+        // The official Lua now opens 322 and retains the target for the following 323.
+        // See docs/packet-specs/322-show-summon-name-change.md.
+        Enum.IsDefined(typeof(GamePackets), (ushort)322).Should().BeTrue(
+            "the official rename window now emits 322");
     }
 
     [Test]

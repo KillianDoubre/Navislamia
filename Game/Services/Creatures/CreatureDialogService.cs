@@ -207,6 +207,7 @@ public sealed class CreatureDialogService : ICreatureDialogService
                 mp = maxMp;
                 break;
             case "Recover_SP":
+                _creatures.SetSp(client, card, card.MaxSp);
                 break;
         }
 

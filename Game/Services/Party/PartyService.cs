@@ -214,6 +214,7 @@ public sealed partial class PartyService : IPartyService
         // Monster handles are allocated per viewer; translate the official shared handle here.
         if (member.ConnectionInfo.TryResolveMonster(target, out var instance))
             target = client.ConnectionInfo.GetMonsterHandle(instance);
+        client.SetTarget(target);
         Reply(client, $"ASSIST|{target}|");
     }
 

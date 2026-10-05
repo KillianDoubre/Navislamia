@@ -23,7 +23,7 @@ using NUnit.Framework;
 namespace Tests.Game;
 
 [TestFixture]
-public class NpcScriptTests
+public partial class NpcScriptTests
 {
     private sealed class Items : IItemMatchCatalog
     {

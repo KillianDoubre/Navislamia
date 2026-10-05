@@ -2,6 +2,15 @@ namespace Navislamia.Game.Network.Packets.Enums;
 
 public enum GamePackets : ushort
 {
+    TM_SC_SHOW_SUMMON_NAME_CHANGE = 322,
+    // Legacy request commented out in the official server; only 452 has an established handler.
+    TM_CS_SKILL_LEVEL_LIST = 450,
+    TM_SC_SKILL_LEVEL_LIST = 451,
+    TM_SC_TARGET = 512,
+    TM_SC_SP = 514,
+    TM_SC_SHOW_WINDOW = 3003,
+    TM_SC_GENERAL_MESSAGE_BOX = 3004,
+
     TM_SC_STATE_RESULT = 406,
     TM_SC_ENERGY = 515,
     TM_SC_CANT_ATTACK = 102,
@@ -179,12 +188,8 @@ public enum GamePackets : ushort
     TM_CS_REQUEST_REMOVE_STATE = 408,
     TM_CS_JOB_LEVEL_UP = 410,
 
-    // TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to a
-    // creature card, 11 bytes — a 7 byte header plus a single uint32 item_handle at offset 7. rzu gates
-    // the id to 452 below EPIC_9_6_3 (1452 only from 9.6.3 on), so 1452 must not be declared here. The
-    // server reads and logs the frame and answers nothing: no reference implements 452, and the
-    // card -> summon resolution its hypothetical answer (TM_SC_SKILL_LIST, 403) would need is not
-    // established. See docs/packet-specs/452-summon-card-skill-list.md.
+    // 452 -> 451, onSummonCardSkillList in the official GameMessage.cpp:9919-9945.
+    // Epic 7.3 keeps 452 (1452 belongs to >=9.6.3); see 451-skill-level-list.md.
     TM_CS_SUMMON_CARD_SKILL_LIST = 452,
 
     // Player booths (docs/packet-specs/socle-booths.md). Epic 7.3 ids: the 9.6.3 remap (1700/1701)

@@ -1,5 +1,7 @@
 # 323 — `TM_CS_CHANGE_SUMMON_NAME`
 
+**Mise à jour du 2026-10-05 :** le cycle 322 → 323 → 507/30 est désormais porté depuis le serveur officiel 2015. La cible de session, la règle de nom, le tarif Lua et la publication sont établis dans [322-show-summon-name-change.md](322-show-summon-name-change.md). Les conclusions historiques « lecture seule » ci-dessous sont remplacées par cette implémentation ; elles restent comme historique de recherche.
+
 Fiche d'archéologie de protocole, Epic 7.3. Écrite en lecture seule sur les références
 (`reference/rzu`, `reference/ngemity`, `reference/client73`) : aucun Lua, aucun script client,
 aucun exécutable client n'a été lancé. Le client 7.3 tranche ; rzu tranche la forme, la taille et

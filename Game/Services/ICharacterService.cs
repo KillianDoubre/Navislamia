@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Network.Packets;
 
 namespace Navislamia.Game.Services;
 
@@ -284,6 +285,10 @@ public interface ICharacterService
     /// <c>DB_UpdateSummon</c>: each summon's level, exp, JP, max reached level, vitals, resource (an evolution) and
     /// former forms, written in one save. Rows of another character are ignored.
     /// </summary>
+    /// <summary>change_summon_name: write the owned summon name and the paid gold balance together.</summary>
+    Task<ResultCode> RenameSummonAsync(string characterName, long summonId, string name, long gold) =>
+        Task.FromResult(ResultCode.NotExist);
+
     Task<bool> SaveSummonProgressAsync(string characterName, IReadOnlyList<SummonProgress> summons) =>
         Task.FromResult(false);
 
@@ -321,7 +326,7 @@ public sealed record SummonSkillRecord(long SummonId, int SkillId, byte Level);
 
 /// <summary>What <see cref="ICharacterService.SaveSummonProgressAsync"/> writes for one summon.</summary>
 public sealed record SummonProgress(long SummonId, int SummonResourceId, int Level, long Exp, int Jp, int MaxLevel,
-    int Hp, int Mp, long LastDecreasedExp, long[] PreviousSummonResourceIds, int[] PreviousLevels, string Name);
+    int Hp, int Mp, long LastDecreasedExp, long[] PreviousSummonResourceIds, int[] PreviousLevels, string Name, int Sp = 0);
 
 /// <summary>
 /// A taming committed: the taming card left with <see cref="RemainingAmount"/> units (0 = deleted), and on success

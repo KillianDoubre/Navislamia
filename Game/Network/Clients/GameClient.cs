@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -851,15 +851,8 @@ public class GameClient : Client
     }
 
     /// <summary>
-    /// TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to a
-    /// creature card (click on the card window's <c>button_flip</c>). The frame is 11 bytes — a 7 byte
-    /// header plus a single uint32 <c>item_handle</c> at offset 7. It is read and bounded, and the
-    /// handle is logged so that a client capture tells what the field carries; nothing is answered.
-    /// No reference implements 452: NGemity declares it and has no handler, rzu only ships the client
-    /// side, and neither the client's incoming dispatcher nor op_codes.md names a server answer. The
-    /// hypothetical one (TM_SC_SKILL_LIST, 403) would need the card -> summon resolution the spec leaves
-    /// open, which is not established, so no table is invented and the received handle is not echoed
-    /// back as a target. See docs/packet-specs/452-summon-card-skill-list.md §5.4, §5.5, §7a §7c.
+    /// 452: the 11-byte card flip request. The official onSummonCardSkillList answers with 451
+    /// (base skill levels, no actor handle). See docs/packet-specs/451-skill-level-list.md.
     /// </summary>
     private void HandleSummonCardSkillList(byte[] buffer)
     {
@@ -877,7 +870,7 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST, buffer.Length, itemHandle, ClientTag);
         }
 
-        // The skills of the card's summon, on the summon's handle (docs/packet-specs/socle-invocations-progression.md).
+        // 451 lists base levels; 403 remains the bootstrap/learned-skill packet.
         _networkService.CreatureService?.SendCardSkillList(this, itemHandle);
     }
 
@@ -889,8 +882,16 @@ public class GameClient : Client
         _networkService.GroundItemService.Sync(this);
     }
 
+    /// <summary>TS_SC_TARGET applies to this client's controlled player, and contains only the target.</summary>
+    public void SetTarget(uint target)
+    {
+        ConnectionInfo.TargetHandle = target;
+        Connection.Send(GameSmallPackets.Target(target));
+    }
+
     private void HandleTargeting(byte[] buffer)
     {
+        if (buffer.Length != 11) return;
         var target = GameActionPackets.ReadTargetHandle(buffer);
         ConnectionInfo.TargetHandle = target;
 
@@ -2648,35 +2649,14 @@ public class GameClient : Client
                 continue;
             }
 
-            // TM_CS_CHANGE_SUMMON_NAME (323), the summon rename request. The 7.3 client does send it: its
-            // only frame builder writes the id 0x143 and the length 0x1a in hard (SFrame.exe 0x48c5e0,
-            // fiche §2.1), and the frame carries the new name and nothing else — no handle, no slot index,
-            // so no target travels with it (fiche §3.3). This lot reads and journals the frame, and stops
-            // there on purpose:
-            //   * nothing is answered — none of rzu, NGemity and the client's incoming dispatcher holds a
-            //     reply to 323, so neither a refusal nor a re-publication is invented (fiche §7(c));
-            //   * no summon row is written — which of a character's two summons (MainSummon / SubSummon) a
-            //     rename targets is not settled (fiche §7(d)), and neither the accepted length of a name nor
-            //     its uniqueness is (fiche §7(e)), so no rename policy is applied rather than guessed;
-            //   * the id is declared and routed all the same, so that a real frame is read and can never
-            //     reach the "Unknown Packet Type" throw below.
-            // The arm sits at the head of the chain rather than in the summon region of the tail, whose
-            // insertion zone the sibling summon branches already share.
-            // See docs/packet-specs/323-change-summon-name.md.
+            // The 322 selected the owned summon; 323 carries only its new name.
             if (header.ID == (ushort)GamePackets.TM_CS_CHANGE_SUMMON_NAME)
             {
                 if (GameActionPackets.TryReadChangeSummonName(msgBuffer, out var summonName))
-                {
-                    _logger.Debug(
-                        "TM_CS_CHANGE_SUMMON_NAME ({id}) Length: {length} received from {clientTag}: name=\"{name}\" (read only: target and name policy not established)",
-                        header.ID, header.Length, ClientTag, summonName);
-                }
+                    _ = _networkService.CreatureService?.ChangeNameAsync(this, summonName);
                 else
-                {
                     _logger.Warning("Malformed TM_CS_CHANGE_SUMMON_NAME ({id}) Length: {length} received from {clientTag}",
                         header.ID, header.Length, ClientTag);
-                }
-
                 continue;
             }
 
@@ -3011,6 +2991,13 @@ public class GameClient : Client
                 continue;
             }
 
+            // Server-only frames are consumed without accepting client-authored UI or actor changes.
+            if (header.ID is (ushort)GamePackets.TM_SC_SHOW_SUMMON_NAME_CHANGE
+                or (ushort)GamePackets.TM_SC_SKILL_LEVEL_LIST or (ushort)GamePackets.TM_SC_TARGET
+                or (ushort)GamePackets.TM_SC_SP or (ushort)GamePackets.TM_SC_SHOW_WINDOW
+                or (ushort)GamePackets.TM_SC_GENERAL_MESSAGE_BOX or (ushort)GamePackets.TM_CS_SKILL_LEVEL_LIST)
+                continue;
+
             if (header.ID is (ushort)GamePackets.TM_SC_STATE_RESULT or (ushort)GamePackets.TM_SC_ENERGY or (ushort)GamePackets.TM_SC_CANT_ATTACK)
             {
                 _logger.Warning("Server-only state/energy/attack packet {id} received from {clientTag}", header.ID, ClientTag);
@@ -3039,11 +3026,7 @@ public class GameClient : Client
                 continue;
             }
 
-            // TM_CS_SUMMON_CARD_SKILL_LIST (452): the client asks for the skill list of the summon tied to
-            // a creature card. The frame is read, bounded and logged, and nothing is answered — no
-            // reference implements 452 and the card -> summon resolution its answer would need is not
-            // established. It must stay before the throwing switch below: a member of GamePackets that
-            // reaches it breaks the receive loop. See docs/packet-specs/452-summon-card-skill-list.md.
+            // Card window skill levels, through the existing owned card/summon mapping (451).
             if (header.ID == (ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST)
             {
                 HandleSummonCardSkillList(msgBuffer);

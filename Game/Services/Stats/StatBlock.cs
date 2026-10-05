@@ -61,6 +61,7 @@ public class StatBlock
 
     public float MaxHp { get; set; }
     public float MaxMp { get; set; }
+    public float MaxSp { get; set; }
     public float MaxStamina { get; set; }
     public float MaxChaos { get; set; }
 
@@ -109,6 +110,7 @@ public class StatBlock
             case StatTarget.MpRegenPercentage: MpRegenPercentage += value; break;
             case StatTarget.MaxHp: MaxHp += value; break;
             case StatTarget.MaxMp: MaxMp += value; break;
+            case StatTarget.MaxSp: MaxSp += value; break;
             case StatTarget.MaxStamina: MaxStamina += value; break;
             case StatTarget.MaxChaos: MaxChaos += value; break;
         }
@@ -162,6 +164,7 @@ public class StatBlock
         StatTarget.MpRegenPercentage => MpRegenPercentage,
         StatTarget.MaxHp => MaxHp,
         StatTarget.MaxMp => MaxMp,
+        StatTarget.MaxSp => MaxSp,
         StatTarget.MaxStamina => MaxStamina,
         StatTarget.MaxChaos => MaxChaos,
         _ => 0f

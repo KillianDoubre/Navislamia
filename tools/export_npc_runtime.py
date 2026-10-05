@@ -52,6 +52,16 @@ for filename in ('NPC_Dungeon.lua', 'ETC_dungeon_prop.lua', 'NPC_Adventure_Guide
             functions.setdefault(match[1], '\n'.join(line.split('--', 1)[0].rstrip()
                                                      for line in block[:ends[-1].end()].splitlines()))
 
+text = (source / 'NPC_CreatureSetup.lua').read_text(encoding='cp949', errors='replace')
+starts = list(re.finditer(r'^function\s+(\w+)\s*\(', text, re.M))
+for index, match in enumerate(starts):
+    if match[1] not in ('Creature_name_change_Menu', 'Creature_name_change_gold'):
+        continue
+    block = text[match.start():starts[index + 1].start() if index + 1 < len(starts) else len(text)]
+    ends = list(re.finditer(r'^\s*end\s*(?:--[^\n]*)?$', block, re.M))
+    functions[match[1]] = '\n'.join(line.split('--', 1)[0].rstrip() for line in block[:ends[-1].end()].splitlines())
+    selected.add(match[1])
+
 props = json.loads((Path(__file__).resolve().parents[1] / 'DevConsole/field-props.73.json').read_text(encoding='utf-8'))
 prop_roots = {re.match(r'\s*(\w+)', template['LuaScript'])[1]
               for template in props['FieldPropCatalog']['Templates'] if template.get('LuaScript')} & set(functions)

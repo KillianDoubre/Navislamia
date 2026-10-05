@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -1605,13 +1605,11 @@ public partial class CharacterService : ICharacterService
                 row.MaxLevel = progress.MaxLevel;
                 row.Hp = progress.Hp;
                 row.Mp = progress.Mp;
+                row.Sp = progress.Sp;
                 row.LastDecreasedExp = progress.LastDecreasedExp;
                 row.PreviousSummonResourceIds = (long[])progress.PreviousSummonResourceIds.Clone();
                 row.PreviousLevel = (int[])progress.PreviousLevels.Clone();
-                if (!string.IsNullOrEmpty(progress.Name))
-                {
-                    row.Name = progress.Name;
-                }
+                // Names are written by RenameSummonAsync. A delayed progress snapshot must never undo a rename.
             }
 
             await repository.SaveChangesAsync();
@@ -1679,6 +1677,7 @@ public partial class CharacterService : ICharacterService
         SummonResourceId = summonCode,
         CardItemId = cardItemId,
         Name = Creatures.CreatureRules.TrimName(name),
+        Sp = 1000,
         Lv = 1,
         Jlv = 1,
         MaxLevel = 1,

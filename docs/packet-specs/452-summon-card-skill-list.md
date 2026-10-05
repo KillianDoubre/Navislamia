@@ -1,5 +1,7 @@
 # 452 — `TM_CS_SUMMON_CARD_SKILL_LIST`
 
+**Mise à jour du 2026-10-05 :** `GameMessage.cpp:9919-9945` du serveur officiel 2015 tranche la réponse : **451**, niveaux de base sans handle, liste vide pour une carte sans invocation, résultat NotExist pour un handle absent. [451-skill-level-list.md](451-skill-level-list.md) décrit le comportement livré. Les anciennes hypothèses 403 et « aucune réponse » ci-dessous sont conservées uniquement comme historique et ne décrivent plus le serveur.
+
 Fiche d'archéologie de protocole, Epic 7.3. Écrite en lecture seule sur les références
 (`reference/rzu`, `reference/ngemity`, `reference/client73`) — aucun Lua, aucun script ni
 exécutable client n'a été lancé, aucune base de données n'a été démarrée. Le client 7.3 tranche

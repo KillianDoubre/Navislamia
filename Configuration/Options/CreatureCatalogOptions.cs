@@ -54,4 +54,5 @@ public class SummonResourceOptions
 
     public int RidingSpeed { get; set; }
     public bool IsRidingOnly { get; set; }
+    public int RidingKind { get; set; }
 }

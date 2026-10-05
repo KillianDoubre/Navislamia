@@ -53,6 +53,11 @@ public interface ICreatureService
     /// <summary>An attack request naming a summon (target 0 stops it).</summary>
     void SummonAttack(GameClient client, uint summonHandle, uint targetHandle);
     bool HoldSummon(GameClient client, uint summonHandle, bool hold) => false;
+    bool ShowNameChange(GameClient client, uint summonOrSlot) => false;
+    int NameIdOf(CreatureCard card) => 0;
+    Task ChangeNameAsync(GameClient client, string name) => Task.CompletedTask;
+    void SetSp(GameClient client, CreatureCard card, int sp) { }
+    void SyncSp(GameClient client, uint summonHandle, int maxSp) { }
 
     /// <summary>After a warp the summons in the world follow their master.</summary>
     void FollowWarp(GameClient client);
@@ -112,7 +117,7 @@ public readonly record struct SummonTarget(uint Handle, float X, float Y, byte L
 /// <c>AllocNewSummon</c>), <c>StructPlayer::EquipSummon</c>/<c>DoSummon</c>/<c>DoUnSummon</c>,
 /// <c>StructSkill</c>'s taming checks and <c>BroadcastTamingMessage</c>.
 /// </summary>
-public sealed class CreatureService : ICreatureService, ICreatureEventListener, IDisposable
+public sealed partial class CreatureService : ICreatureService, ICreatureEventListener, IDisposable
 {
     private const int TamingSkill = BuffCatalog.TamingSkill;
     private const byte ChatPartySystem = (byte)ChatType.PartySystem;
@@ -425,6 +430,7 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
             (int)stats.MaxMp));
         client.Connection.Send(GameCharacterPackets.BuildLevelUpdate(card.SummonHandle, card.Level, card.Level));
         client.Connection.Send(GameCharacterPackets.BuildExpUpdate(card.SummonHandle, card.Exp, card.Jp));
+        SendSp(client, card, stats);
         // StructPlayer::AddSummon: SendSkillMessage after the summon's information.
         client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillEntriesOf(client.ConnectionInfo,
             card)));
@@ -452,12 +458,13 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
     private StatBlock StatsOf(ConnectionInfo info, CreatureCard card, SummonResourceInfo resource)
     {
         var block = CreatureRules.SummonStats(resource, card.Level, Context(info, card));
-        // StructSummon::CalculateStat: the worn items' options, like the master's.
-        var worn = ItemEffectsOf(info, card);
-        if (worn.Length > 0)
-        {
-            StatCalculator.ApplyEffects(block, worn);
-        }
+        block.MaxSp = 1000;
+        var masterSp = _passives is null ? Array.Empty<StatEffect>()
+            : info.LearnedSkills.SelectMany(s => _passives.ResolveSummonSp(s.Key, s.Value)).ToArray();
+        // StructSummon::CalculateStat: bit 23 means MaxSP here. Flat additions precede amplification.
+        var worn = ItemEffectsOf(info, card).Select(e => e.Target == StatTarget.MaxStamina
+            ? e with { Target = StatTarget.MaxSp } : e).ToArray();
+        StatCalculator.ApplyEffects(block, worn, masterSp);
 
         if (_passives is null)
         {
@@ -1237,33 +1244,23 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         }
 
         client.Connection.Send(GameStatPackets.BuildStatInfo(card.SummonHandle, stats, StatInfoType.Total));
+        SendSp(client, card, stats);
     }
 
-    /// <summary>
-    /// <c>TM_CS_SUMMON_CARD_SKILL_LIST</c> (452), the flip of a creature card: the skills of the card's summon (403 on
-    /// the summon's handle), after its 301 when the client does not know that summon yet.
-    /// </summary>
+    /// <summary>onSummonCardSkillList: 451 with base levels, or an empty list for an unbound card.</summary>
     public void SendCardSkillList(GameClient client, uint itemHandle)
     {
         var info = client.ConnectionInfo;
         CreatureCard card;
         lock (info.SummonLock)
-        {
-            card = info.CreatureCards.Values.FirstOrDefault(c => c.Handle == itemHandle && c.HasSummon);
-        }
-
+            card = info.CreatureCards.Values.FirstOrDefault(c => c.Handle == itemHandle && c.Amount > 0);
         if (card is null)
         {
+            client.SendResult((ushort)GamePackets.TM_CS_SUMMON_CARD_SKILL_LIST, (ushort)ResultCode.NotExist);
             return;
         }
-
-        if (!card.InfoSent)
-        {
-            SendSummonInfo(client, card);
-            return;
-        }
-
-        client.Connection.Send(GameCharacterPackets.BuildSkillList(card.SummonHandle, SkillEntriesOf(info, card)));
+        client.Connection.Send(GameSmallPackets.SkillLevels(card.HasSummon ? SkillsOf(info, card)
+            : Array.Empty<KeyValuePair<int, byte>>()));
     }
 
     private static SkillListEntry[] SkillEntriesOf(ConnectionInfo info, CreatureCard card)
@@ -2115,7 +2112,11 @@ public sealed class CreatureService : ICreatureService, ICreatureEventListener, 
         if (card.SkillCooldowns.Count > 0)
             client.Connection.Send(GameCharacterPackets.BuildSkillList(handle, SkillEntriesOf(info, card)));
         var presence = info.Summons.FirstOrDefault(s => s.Handle == handle);
-        if (presence is not null) presence.PositionProvider = tick => SummonPosition(handle, tick);
+        if (presence is not null)
+        {
+            presence.PositionProvider = tick => SummonPosition(handle, tick);
+            SendSp(client, card, presence.Stats);
+        }
         lock (_lock)
         {
             // StructPlayer::Summon: a dead summon summoned again is still dead, and is sent back after its hold.

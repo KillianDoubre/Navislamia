@@ -45,5 +45,6 @@ public enum StatTarget
     WindResistance,
     EarthResistance,
     LightResistance,
-    DarkResistance
+    DarkResistance,
+    MaxSp
 }

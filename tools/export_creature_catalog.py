@@ -67,6 +67,7 @@ def main():
             else [number(level_bonus[row['id']][key], float) for key in seven],
             'RidingSpeed': number(row['riding_speed']),
             'IsRidingOnly': number(row['is_riding_only']) != 0,
+            'RidingKind': number(row['is_riding_only']),
         })
 
     summon_exp = [number(row['normal_exp'])

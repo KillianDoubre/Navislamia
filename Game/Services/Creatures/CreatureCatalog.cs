@@ -12,7 +12,7 @@ namespace Navislamia.Game.Services.Creatures;
 /// <summary>What the official <c>GameContent</c> knows of a summon resource (<c>SummonResource</c> + its stat row).</summary>
 public sealed record SummonResourceInfo(int Id, string Name, int Type, int Rate, int Form, int CardId, int RunSpeed,
     float AttackRange, float Size, float Scale, StatBaseStats? BaseStats, int EvolveTarget = 0,
-    float[] LevelBonus = null, int RidingSpeed = 0, bool IsRidingOnly = false);
+    float[] LevelBonus = null, int RidingSpeed = 0, bool IsRidingOnly = false, int RidingKind = 0, int NameId = 0);
 
 /// <summary>A <c>CreatureEnhance</c> row: what a card's enhance level gives its summon.</summary>
 public sealed record CreatureEnhanceInfo(int Level, float StatAmplify, int CardDurability, int SlotAmount, int JpAddition);
@@ -64,7 +64,7 @@ public sealed class CreatureCatalog : ICreatureCatalog
             s.Stats is { Length: 7 } st
                 ? new StatBaseStats(s.StatId, st[0], st[1], st[2], st[3], st[4], st[5], st[6])
                 : null, s.EvolveTarget, s.LevelBonus is { Length: 7 } ? s.LevelBonus : null, s.RidingSpeed,
-            s.IsRidingOnly));
+            s.IsRidingOnly, s.RidingKind, s.NameId));
         _cards = value.Summons.Where(s => s.CardId != 0).Select(s => s.CardId).ToFrozenSet();
         _monsterNames = value.TamableMonsterNames
             .Where(pair => int.TryParse(pair.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))

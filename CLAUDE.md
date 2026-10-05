@@ -2147,22 +2147,46 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
 - Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
 
-### Paquet 452 — `TM_CS_SUMMON_CARD_SKILL_LIST` (client → serveur)
+### Paquets 450/451/452 — niveaux de compétences des cartes
 
-- Trame cliente de **11** octets : en-tête 7 + `item_handle` (`uint32`) à l'offset 7, toute autre longueur
-  refusée avant lecture (`GameActionPackets.TryReadSummonCardSkillList`).
-- Déclencheur : le bouton `button_flip` de la fenêtre de carte de créature (seul appelant du
-  constructeur de trame, `SFrame.exe 0x48EE20`), sous la garde `[fenêtre+0x4C8] ≠ 0` que pose au préalable
-  le message interne `SMSG_SUMMON_CARD_ITEM_INFO`.
-- **Aucune réponse.** NGemity le déclare sans gestionnaire, rzu ne fournit que le côté client. La seule
-  réponse déductible, `TM_SC_SKILL_LIST` (403) avec `target` = handle de l'invocation (NGemity
-  `Messages::SendSkillList`), exige la résolution carte → invocation — elle existe désormais
-  (`ConnectionInfo.CreatureCards`, `CreatureService`), mais les compétences d'une invocation ne sont pas
-  modélisées, donc rien n'est envoyé. **Ne pas réémettre `item_handle` comme `target`.**
-- `item_handle` est journalisé en `Debug` : c'est le relevé qui dira ce que le client y met.
-- Gating : 452 à l'Epic 7.3, `1452` seulement à partir d'`EPIC_9_6_3` (et `1452` n'a pas de sens en 7.3,
-  `op_codes.md`) : ne pas le déclarer.
-- Détail et réserves : `docs/packet-specs/452-summon-card-skill-list.md`.
+452 (11 octets, handle de carte à +7) répond désormais **451**, depuis
+`GameMessage.cpp:9919-9945` du serveur officiel 2015 : niveaux de base réellement appris,
+liste vide pour une carte sans invocation, résultat NotExist pour un handle absent.
+451 = **9 + 5 × count**, aucun handle ni cooldown ; 403 reste le chargement/apprentissage.
+**450 est commenté dans l'officiel** : déclaré et consommé sans effet, aucune structure ou
+réponse inventée. Détails : `docs/packet-specs/450-skill-level-list.md`,
+`451-skill-level-list.md`, mise à jour en tête de `452-summon-card-skill-list.md`.
+
+### Paquets 322/323 — renommage d'une invocation
+
+322 = **11 octets**, handle unique ; fenêtre ouverte par le Lua officiel du dompteur,
+cible détenue conservée en session, refus des montures prêtées (`RidingKind = 2`).
+323 = **26 octets**, nom seul, autorisation consommée une fois. Tarif `niveau × 1000`,
+nom de 4 à 18 caractères ASCII et mots interdits vérifiés ; nom/or sauvegardés ensemble,
+remboursement sur échec. Propriété 507 au maître, nom 30 à ses observateurs si l'invocation
+est sortie. Une sauvegarde de progression ancienne ne réécrit plus son nom.
+Détails et NON ÉTABLI : `docs/packet-specs/322-show-summon-name-change.md`.
+
+### Paquets 512/514 — cible et SP
+
+512 = **11 octets**, cible unique du joueur destinataire. `GameClient.SetTarget` envoie
+au joueur seul ; `/passist` l'utilise avec la traduction des handles de monstres et garde
+la ligne ASSIST officielle. Le C++ définit SendTargetMsg sans appelant retrouvé : ce
+raccordement est une adaptation explicite. Aucune boucle d'écho 511/512.
+514 = **15 octets**, handle + deux int16 (SP/maxSP), au maître seul : chargement,
+recalcul, évolution et changement de SP. Base 1000, bonus 10031/10032 du maître,
+options/états du bit 23 interprétés comme MaxSP sur l'invocation. SP sauvegardés dans
+Summons.Sp, setter Lua lié et borné. Fiches : `512-target.md`, `514-sp.md`.
+
+### Paquets 3003/3004 — fenêtres Lua
+
+Fonctions officielles `dlg_special(window, trigger, argument[, name])` et
+`dlg_general(text[, name])` liées au bac à sable NPC/props/zones. 3003 = **13 + W + A + T**,
+3004 = **9 + L** : longueurs UTF-8 en octets, aucun NUL transmis, limite totale 1024.
+Émissions après réussite du script et de sa sauvegarde ; callback 3001 annoncé exactement,
+consommé une fois, utilisable sans PNJ. Une fenêtre de saisie ajoutant des paramètres au
+callback exige encore sa validation spécifique. Fiches : `3003-show-window.md`,
+`3004-general-message-box.md`. Ce SFrame 7.3 route 3004 malgré la note « Since 7.4 » de rzu.
 
 ### Apprivoisement et invocation des créatures — étape 0 (fiche `docs/packet-specs/socle-apprivoisement-invocation.md`)
 
@@ -2205,7 +2229,7 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
 - **Suite livrée** (`socle-invocations-progression.md`) : stats officielles (`stat_id`, `CreatureEnhance`,
   `CreatureLevelBonus`, coefficient 0,7 + Creature Mastery, niveau de combat du maître), expérience de chasse
   partagée à 525 unités et JP par niveau, coups reçus, mort (pénalité, rappel après 60 s, morte jusqu'à sa
-  résurrection) et régénération ; arbres de compétences par invocation (402 sur son handle, 403/452, table
+  résurrection) et régénération ; arbres de compétences par invocation (402 sur son handle, 403 au chargement et 452→451 au flip, table
   `SummonSkills`) ; monture `/ride` (320/321, Creature Riding 11001, chute 30 %) ; miroir de carte
   d'apprivoisement ; évolution à 50/100 (307) ; pages du gardien des créatures. **Équipement** (200/201 sur un
   handle d'invocation, `socle-equipement-invocation.md`) : objets en forme de carte (bit 0), au niveau de

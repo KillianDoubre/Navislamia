@@ -36,4 +36,5 @@ public enum ChatType : byte
 
     /// <summary><c>CHAT_ITEM</c> (32): the item line, sender <c>@SYSTEM</c> (the official server's item messages).</summary>
     Item = 0x20,
+    Summon = 34,
 }

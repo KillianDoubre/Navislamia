@@ -26,10 +26,10 @@ Trois sources ont été croisées.
 | 901 | `TS_SC_CHANGE_LOCATION` | réponse à `TM_CS_CHANGE_LOCATION` (900) : lieu précédent et lieu courant | **livré le 2026-10-04** avec la météo (`901-change-location.md`) |
 | 102 | `TS_SC_CANT_ATTACK` | attaque impossible | **livré le 2026-10-05** |
 | 30 | `TS_SC_CHANGE_NAME` | changement de nom (personnage, familier) | avec `/change_name` |
-| 322 | `TS_SC_SHOW_SUMMON_NAME_CHANGE` | fenêtre de renommage d'une invocation | basse |
-| 451 | `TS_SC_SKILL_LEVEL_LIST` | niveaux de compétences (réponse à 450) | à étudier |
-| 512 / 514 | `TS_SC_TARGET` / `TS_SC_SP` | cible d'un acteur ; SP des invocations | basse |
-| 3003 / 3004 | `TS_SC_SHOW_WINDOW` / `TS_SC_GENERAL_MESSAGE_BOX` | fenêtre ou boîte ouverte par un script | basse |
+| 322 | `TS_SC_SHOW_SUMMON_NAME_CHANGE` | fenêtre de renommage d'une invocation | **livré le 2026-10-05** (`322-show-summon-name-change.md`) |
+| 451 | `TS_SC_SKILL_LEVEL_LIST` | niveaux de compétences (réponse officielle à **452** ; 450 commenté) | **livré le 2026-10-05** (`451-skill-level-list.md`) |
+| 512 / 514 | `TS_SC_TARGET` / `TS_SC_SP` | cible du joueur destinataire ; SP des invocations | **livré le 2026-10-05** (`512-target.md`, `514-sp.md`) |
+| 3003 / 3004 | `TS_SC_SHOW_WINDOW` / `TS_SC_GENERAL_MESSAGE_BOX` | fenêtre ou boîte ouverte par un script | **livré le 2026-10-05** (`3003-show-window.md`, `3004-general-message-box.md`) |
 | 650-652, 660 | fenêtres de guilde, icône de guilde | **lot de Codex** (emblème) | — |
 | 9000 / 9001 | `TS_SC_OPEN_URL` / `TS_SC_URL_LIST` | ouverture d'URL (boutique web) | hors périmètre |
 | 9002-9011 | numéro de sécurité | création, changement, effacement (le client envoie aussi 9006-9012) | hors périmètre (décision de Killian, 9005) |

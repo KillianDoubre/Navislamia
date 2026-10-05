@@ -21,6 +21,7 @@ public sealed class CreatureCard
     public int Level { get; set; } = 1;
     public long Exp { get; set; }
     public int Sp { get; set; }
+    public int MaxSp { get; set; } = 1000;
     public int Hp { get; set; }
     public int Mp { get; set; }
     public uint SummonHandle { get; set; }
@@ -54,7 +55,7 @@ public sealed class CreatureCard
     public uint CommonSkillReady { get; set; }
 
     public SummonProgress Progress() => new(SummonId, SummonCode, Level, Exp, Jp, MaxReachedLevel, Hp, Mp,
-        LastDecreasedExp, PreviousSummonIds, PreviousLevels, SummonName);
+        LastDecreasedExp, PreviousSummonIds, PreviousLevels, SummonName, Sp);
 
     /// <summary>Whether 301 has been sent this session (login for a slotted card, formation otherwise).</summary>
     public bool InfoSent { get; set; }

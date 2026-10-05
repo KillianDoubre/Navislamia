@@ -32,6 +32,7 @@ public interface INpcScriptService
 
     /// <summary>A field prop's <c>script_text</c>, run by <c>UseProp</c> with no dialogue around it.</summary>
     Task RunPropScriptAsync(GameClient client, string script) => Task.CompletedTask;
+    Task RunWindowScriptAsync(GameClient client, string script) => Task.CompletedTask;
 }
 
 /// <summary>Only the exact server-advertised trigger may reach this interpreter (NpcDialogService).</summary>
@@ -52,23 +53,24 @@ public sealed class NpcScriptService : INpcScriptService
     private readonly ILevelingService _leveling;
     private readonly IEventAreaWorldEffects _worldEffects;
     private readonly TimeProvider _time;
+    private readonly ICreatureService _summonService;
 
     public NpcScriptService(NpcScriptCatalog scripts, ICharacterRepositoryFactory repositories, CharacterGate gate,
         IItemMatchCatalog items, IAuctionCatalog names, IQuestService quests = null, IStatService stats = null,
         ICreatureEvents creatures = null, ICastInterrupts states = null, IWarpService warp = null,
         IInventoryChangeFeed feed = null, IOptions<NpcScriptOptions> options = null, ILevelingService leveling = null,
-        IEventAreaWorldEffects worldEffects = null, TimeProvider time = null)
+        IEventAreaWorldEffects worldEffects = null, TimeProvider time = null, ICreatureService summonService = null)
     {
         _scripts = scripts; _repositories = repositories; _gate = gate; _items = items; _names = names;
         _quests = quests; _stats = stats; _creatures = creatures; _states = states; _warp = warp; _feed = feed;
         _options = options?.Value ?? new NpcScriptOptions();
         _leveling = leveling;
-        _worldEffects = worldEffects; _time = time ?? TimeProvider.System;
+        _worldEffects = worldEffects; _time = time ?? TimeProvider.System; _summonService = summonService;
     }
 
     public bool Handles(string function) => _scripts.Handles(function)
         || function.StartsWith("NPC_all_2012_EnchantEvent_b_", StringComparison.Ordinal)
-        || function == "set_flag";
+        || function is "set_flag" or "dlg_general" or "dlg_special" or "creature_name_change_box";
 
     public Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger) =>
         RunCoreAsync(client, npcHandle, revision, trigger);
@@ -77,6 +79,8 @@ public sealed class NpcScriptService : INpcScriptService
         Handles(NpcDialogService.ReadFunctionName(script) ?? string.Empty)
             ? RunCoreAsync(client, 0, 0, script, prop: true)
             : Task.CompletedTask;
+
+    public Task RunWindowScriptAsync(GameClient client, string script) => RunPropScriptAsync(client, script);
 
     public async Task<bool> RunEventAreaAsync(GameClient client, EventAreaResourceEntity area, bool enter)
     {
@@ -134,11 +138,15 @@ public sealed class NpcScriptService : INpcScriptService
                 var dirty = area is not null && enter && area.CountLimit > 0;
                 var inventory = (character.Items ??= new List<ItemEntity>()).Where(i => i.AccountId == null
                     && i.AuctionId == null && i.StorageId == null && i.Amount > 0).ToList();
+                var summonRows = info.CreatureCards.Count == 0 ? new Dictionary<long, SummonEntity>()
+                    : (await repository.GetSummonsAsync(character.Id)).ToDictionary(s => s.Id);
+                var changedSp = new Dictionary<long, int>();
                 var changed = new HashSet<ItemEntity>();
                 var created = new List<ItemEntity>();
                 var messages = new List<string>();
                 var buffs = new List<(int Id, int Level, uint Duration)>();
                 var worldEffects = new List<Action>();
+                var uiEffects = new List<Action>();
                 (float X, float Y, byte Layer)? destination = null;
                 var goldBefore = info.CharacterGold;
                 var gold = goldBefore;
@@ -166,6 +174,55 @@ public sealed class NpcScriptService : INpcScriptService
                 Bind("dlg_text_without_quest_menu", a => { page.Text = Text(a, 0); includeQuests = false; return Nil(); });
                 Bind("dlg_menu", a => { page.Menu.Add(new NpcDialogMenuEntry { Label = Text(a, 0), Trigger = Text(a, 1).Trim() }); return Nil(); });
                 Bind("dlg_show", _ => { show = true; return Nil(); });
+                bool Recipient(CallbackArguments a, int index) => a.Count <= index || a[index].IsNil()
+                    || Text(a, index) == info.CharacterName;
+                Bind("dlg_general", a => {
+                    if (a.Count < 1 || !Recipient(a, 1)) return Nil();
+                    var frame = GameSmallPackets.GeneralMessageBox(Text(a, 0));
+                    if (frame is not null) uiEffects.Add(() => client.Connection.Send(frame));
+                    return Nil();
+                });
+                Bind("dlg_special", a => {
+                    if (a.Count < 3 || !Recipient(a, 3)) return Nil();
+                    var callback = Text(a, 1).Split('\0')[0].Trim();
+                    var frame = GameSmallPackets.ShowWindow(Text(a, 0), Text(a, 2), callback);
+                    if (frame is not null) uiEffects.Add(() => {
+                        lock (info.NpcVisibilityLock) info.ScriptWindowTrigger = callback;
+                        client.Connection.Send(frame);
+                    });
+                    return Nil();
+                });
+                CreatureCard Creature(long target) {
+                    lock (info.SummonLock)
+                        return target is >= 0 and < CreatureRules.MaxSlots
+                            ? target < info.SummonSlots.Length ? info.CreatureCards.GetValueOrDefault(info.SummonSlots[target]) : null
+                            : info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == target && c.HasSummon);
+                }
+                Bind("get_creature_handle", a => Numeric(Creature(Number(a, 0))?.SummonHandle ?? 0));
+                Bind("get_creature_value", a => {
+                    var card = Creature(Number(a, 0));
+                    if (card is null) return Numeric(0);
+                    return Text(a, 1) switch {
+                        "name" => DynValue.NewString(card.SummonName), "level" => Numeric(card.Level),
+                        "sp" => Numeric(changedSp.GetValueOrDefault(card.SummonId, card.Sp)), "max_sp" => Numeric(card.MaxSp), _ => Numeric(0) };
+                });
+                Bind("set_creature_value", a => {
+                    if (Text(a, 1) != "sp") throw new InvalidOperationException("Unsupported summon script property");
+                    var card = Creature(Number(a, 0));
+                    if (card is null || _summonService is null || !summonRows.TryGetValue(card.SummonId, out var row)) return Numeric(0);
+                    var sp = (int)Math.Clamp(Number(a, 2), 0, card.MaxSp);
+                    row.Sp = sp; changedSp[card.SummonId] = sp; dirty = true;
+                    uiEffects.Add(() => _summonService.SetSp(client, card, sp));
+                    return Numeric(sp);
+                });
+                Bind("get_creature_name_id", a => Numeric(Creature(Number(a, 0)) is { } card ? _summonService?.NameIdOf(card) ?? 0 : 0));
+                Bind("creature_name_change_box", a => {
+                    var card = Creature(Number(a, 0));
+                    if (card is null || _summonService is null) return Numeric(0);
+                    var target = card.SummonHandle;
+                    uiEffects.Add(() => _summonService.ShowNameChange(client, target));
+                    return Numeric(1);
+                });
                 foreach (var name in new[] { "cprint", "message" }) Bind(name, a => { messages.Add(Text(a, 0)); return Nil(); });
                 Bind("sconv", a => DynValue.NewString(string.Join("\v", Enumerable.Range(0, a.Count).Select(i => Text(a, i)))));
                 Bind("get_npc_id", _ => Numeric(npcId));
@@ -361,6 +418,7 @@ public sealed class NpcScriptService : INpcScriptService
                 foreach (var message in messages) client.Connection.Send(GameChatPackets.BuildChat("@SCRIPT", TownTeleportRules.ChatNpc, message));
                 foreach (var state in buffs) _states.ApplyState(client, state.Id, state.Level, state.Duration);
                 foreach (var effect in worldEffects) effect();
+                foreach (var effect in uiEffects) effect();
                 if (changed.Count > 0)
                 {
                     _creatures?.EquipmentDurabilityChanged(client, changed.ToArray());

@@ -161,11 +161,30 @@ public class NpcDialogService : INpcDialogService
         }
 
         var info = client.ConnectionInfo;
+        var special = false;
+        lock (info.NpcVisibilityLock)
+        {
+            var pending = info.ScriptWindowTrigger;
+            if (pending.Length > 0 && (trigger == pending || (ReadFunctionName(pending) == pending && trigger == pending + "()")))
+            {
+                info.ScriptWindowTrigger = string.Empty;
+                special = true;
+            }
+        }
+        if (special)
+        {
+            var windowAction = PropScript.Parse(trigger);
+            if (_dungeons is not null && Dungeons.DungeonService.Handles(windowAction.Kind))
+                _ = SelectDungeonAsync(client, windowAction);
+            else if (_npcScripts is not null) _ = _npcScripts.RunWindowScriptAsync(client, trigger);
+            return;
+        }
         if (trigger.Length == 0)
         {
             lock (info.NpcVisibilityLock)
             {
                 info.ClearNpcDialog();
+                info.ScriptWindowTrigger = string.Empty;
             }
             return;
         }

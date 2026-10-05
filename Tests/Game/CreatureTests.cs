@@ -28,7 +28,7 @@ namespace Tests.Game;
 
 /// <summary>Taming, formation and summoning (docs/packet-specs/socle-apprivoisement-invocation.md §15).</summary>
 [TestFixture]
-public class CreatureTests
+public partial class CreatureTests
 {
     private const int SummonId = 2201;
     private const int CardId = 540015;
