@@ -41,12 +41,13 @@ public class PetPickupTests
             rates, A.Fake<Navislamia.Game.Services.Interfaces.IPlayerVisibilityService>(), itemTypes: _itemTypes);
     }
 
-    private (GameClient Client, StorageTestHarness.FrameConnection Connection) NewMaster(string name)
+    private (GameClient Client, StorageTestHarness.FrameConnection Connection) NewMaster(string name,
+        uint handle = 0x80000001)
     {
         var connection = new StorageTestHarness.FrameConnection(Array.Empty<byte>());
         var client = StorageTestHarness.NewGameClient(connection);
         var info = StorageTestHarness.Session(client);
-        info.CharacterHandle = 0x80000001;
+        info.CharacterHandle = handle;
         info.CharacterName = name;
         info.X = 1000;
         info.Y = 1000;
@@ -72,7 +73,9 @@ public class PetPickupTests
     public async Task TryFindNearest_SeesOnlyTheMastersLootWithinRangeOnItsLayer()
     {
         var (master, masterConnection) = NewMaster("Master");
-        var (other, _) = NewMaster("Other");
+        // Two players never share a handle: the entry's hPlayer[0] is what names the killer on the wire, so
+        // a distinct handle is what makes "somebody else" somebody else.
+        var (other, _) = NewMaster("Other", 0x80000002);
         var handle = await DropOne(master, masterConnection);
 
         _service.TryFindNearest(master, 1030, 1000, 0, 60, out var spot).Should().BeTrue();
@@ -80,7 +83,31 @@ public class PetPickupTests
 
         _service.TryFindNearest(master, 1100, 1000, 0, 60, out _).Should().BeFalse("100 units is beyond 5 m");
         _service.TryFindNearest(master, 1000, 1000, 1, 60, out _).Should().BeFalse("another layer");
-        _service.TryFindNearest(other, 1000, 1000, 0, 60, out _).Should().BeFalse("the loot is its killer's alone");
+        _service.TryFindNearest(other, 1000, 1000, 0, 60, out _).Should().BeTrue(
+            "an object a player drops has an empty pick_up_order (only monsters set one): open to every pet");
+    }
+
+    /// <summary>
+    /// Only a monster's drop gets a pick_up_order (<c>StructMonster::SetPickupOrder</c>): what a player drops
+    /// goes out with an empty order, which the client shows open to all and anybody takes at once.
+    /// </summary>
+    [Test]
+    public async Task A_dropped_object_has_an_empty_order_and_anybody_takes_it_at_once()
+    {
+        var (master, masterConnection) = NewMaster("Master");
+        A.CallTo(() => _characters.RemoveItemAsync(A<string>._, A<uint>._, A<Func<ItemEntity, long>>._))
+            .Returns(new ItemRemoval(new ItemEntity { Id = 7, ItemResourceId = 603002, Amount = 1 }, 1));
+        await _service.DropFromInventoryAsync(master, 7, 1);
+        var enter = masterConnection.Sent.First(packet => Id(packet) == (ushort)GamePackets.TM_SC_ENTER);
+        BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(46, 4)).Should().Be(0u, "hPlayer[0]: no order");
+        var handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8, 4));
+
+        var (other, otherConnection) = NewMaster("Other", 0x80000002);
+        A.CallTo(() => _characters.AddItemAsync("Other", 603002, 1))
+            .Returns(new ItemEntity { Id = 9, ItemResourceId = 603002, Amount = 1 });
+        await _service.TakeAsync(other, handle);
+
+        otherConnection.Sent.Should().Contain(packet => Id(packet) == (ushort)GamePackets.TM_SC_TAKE_ITEM_RESULT);
     }
 
     /// <summary>The client's gather (SFrame.exe @0x473ea3): each bit is one item type, 0x3f is "All".</summary>

@@ -282,7 +282,8 @@ Réponse dans l'état actuel du dépôt : **non, le propriétaire seul**. Trois 
 Conséquence à assumer : l'objet lâché n'est ni vu ni ramassable par un tiers (écart avec NGemity,
 dont `World::AddItemToWorld`, `Chihiro/src/World/World.cpp:544`, diffuse l'entrée aux alentours et
 dont `onTakeItem` (`WorldSession.cpp:1226-1316`) gère un ordre de ramassage
-`m_pPickupOrder` (3 emplacements joueur/groupe, verrou de 3 s/4 s/5 s)). Étendre la visibilité
+`m_pPickupOrder` (3 emplacements joueur/groupe, verrou de 30 s/40 s/50 s — 3000/4000/5000 ticks de 10 ms ; ce
+paragraphe disait « 3 s/4 s/5 s », corrigé le 2026-10-05)). Étendre la visibilité
 supposerait un sous-système de streaming des objets au sol qui n'existe pas : **hors périmètre de
 cette tâche**, et à ne pas maquiller par une diffusion partielle non testable.
 
@@ -433,10 +434,9 @@ Deux observations de provenance, à ne pas confondre avec des preuves de protoco
   section exclusive** que le retrait (un équipement traité entre deux ne peut pas s'intercaler), et
   renvoie ce qui a réellement été retiré : on n'acquitte `isAccepted = true` que dans ce cas (NGemity acquitte `true` même quand
   `popItem` a échoué — défaut à ne pas répliquer). Aucun `TS_SC_RESULT` de succès, aucun 254/255.
-- L'objet lâché n'est **visible et ramassable que par le joueur qui l'a lâché** :
-  `TakeAsync` exige `ReferenceEquals(item.Owner, client)` et `ConnectionInfo` ne suit aucun objet au
-  sol (pas de `SpawnedItems`). L'écart avec NGemity (diffusion à la région, ordre de ramassage 3/4/5 s)
-  est assumé et documenté dans `docs/packet-specs/203-drop-item.md`.
+- *(Historique, remplacé le 2026-10-05.)* L'objet lâché était réservé au joueur qui l'avait lâché. Il est désormais
+  vu des joueurs alentour et, comme chez l'officiel, porte un ordre de ramassage **vide** : n'importe qui le prend
+  tout de suite (`socle-partage-objets-sol.md` §11).
 - **Réserves vérifiables** (fiche §7) : l'émission du 203 par le client 7.3 n'est pas prouvée (table
   d'annotation partielle) ; le geste d'émission (aucune classe `SInput*Drop*`) ; le flag de jetabilité
   (`flag_drop` / `item_use_flag` bit 15) n'est pas exploitable dans le dépôt et **aucun refus « non

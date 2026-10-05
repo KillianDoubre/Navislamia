@@ -80,11 +80,14 @@ public class MonsterRewardIntegrationTests
             Parties = new PartyService(Players, Stats, A.Fake<IBannedWordsRepository>());
             var rateService = new RateService(new StaticOptionsMonitor<RatesOptions>(rates ?? new RatesOptions { EventStatePath = "" }));
             Ground = new GroundItemService(A.Fake<IMonsterDropCatalog>(), Characters,
-                A.Fake<IItemGroupCatalog>(), rateService, Players, Weights, Parties);
+                A.Fake<IItemGroupCatalog>(), rateService, Players, Weights, Parties, clock: () => Now);
             var random = A.Fake<ICombatRandom>(); A.CallTo(() => random.Next(A<int>._)).Returns(0);
             Combat = new CombatService(World, A.Fake<IMonsterSpawnService>(), Leveling, Ground, rateService,
                 Stats, A.Fake<IStateCatalog>(), Parties, random: random, players: Players);
         }
+        /// <summary>The ground items' clock: a pet collects its master's loot past 30 s (SGameItem::IsPickable).</summary>
+        public uint Now = 1_000_000;
+
         public GameClient Player(uint handle, string name, float x = 1000, byte layer = 0)
         {
             var connection = new RewardConnection();
@@ -184,6 +187,7 @@ public class MonsterRewardIntegrationTests
         h.Kill(ana); var handle = BinaryPrimitives.ReadUInt32LittleEndian(h.GoldEnter(ana).AsSpan(8));
         await h.Ground.TakeAsync(ana, handle);
         StorageTestHarness.Session(ana).CharacterGold.Should().Be(0); StorageTestHarness.Session(bo).CharacterGold.Should().Be(GoldRules.MaxCarried);
+        h.Now += GroundItemPickupRules.FirstDeadlineTicks + 1;
         h.Ground.TryFindNearest(ana, 1000, 1000, 0, 300, out _).Should().BeTrue();
         var result = h.Connections[ana].Sent.Last(p => Harness.Id(p) == GamePackets.TM_SC_RESULT);
         BinaryPrimitives.ReadUInt16LittleEndian(result.AsSpan(9)).Should().Be((ushort)ResultCode.TooMuchMoney);
@@ -266,6 +270,8 @@ public class MonsterRewardIntegrationTests
     {
         var h = new Harness(); var player = h.Player(1, "Solo"); h.Kill(player);
         var handle = BinaryPrimitives.ReadUInt32LittleEndian(h.GoldEnter(player).AsSpan(8));
+        (await h.Ground.TakeForPetAsync(player, handle, 987)).Should().BeFalse("the pet waits 30 s, even for its master");
+        h.Now += GroundItemPickupRules.FirstDeadlineTicks + 1;
         (await h.Ground.TakeForPetAsync(player, handle, 987)).Should().BeTrue();
         StorageTestHarness.Session(player).CharacterGold.Should().Be(101);
         var taken = h.Connections[player].Sent.Single(p => Harness.Id(p) == GamePackets.TM_SC_TAKE_ITEM_RESULT);

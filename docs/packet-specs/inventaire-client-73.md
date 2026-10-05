@@ -103,7 +103,9 @@ Manquent :
 - ~~Après `/change_name`, les guildes, alliances et enchères gardent l'ancien nom jusqu'à la reconnexion~~ : uscT2HaQ, noms persistés et registres rafraîchis (`socle-guildes-alliances-sieges.md`).
 - ~~Le filtre de ramassage du familier (355) est lu et gardé, jamais appliqué.~~ Appliqué depuis le 2026-10-05
   (`socle-familier-pet.md` §19).
-- Les objets au sol ne s'ouvrent jamais aux autres joueurs (l'officiel les ouvre au groupe puis à tous après un délai).
+- ~~Les objets au sol ne s'ouvrent jamais aux autres joueurs~~ : ordre de ramassage officiel depuis le 2026-10-05
+  (`socle-partage-objets-sol.md`). Restent la portée (officiel 20 + demi-taille, ici 300) et les emplacements 1-2
+  (parties contributrices).
 - ~~Les invocations n'ont pas de durée : 302 et 306 n'ont pas d'appelant~~ : double invocation et cartes qui
   quittent le sac, 2026-10-05 (`socle-duree-invocations.md`).
 - ~~Une carte formée ou dont la créature est dehors peut encore être échangée, vendue ou rangée~~ : `IsErasable`

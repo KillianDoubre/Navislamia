@@ -33,6 +33,7 @@ public class GroundItemService : IGroundItemService
     private readonly IPlayerVisibilityService _players;
     private readonly Weight.ICarriedWeightService _weights;
     private readonly IPartyService _parties;
+    private readonly Func<uint> _clock;
     private readonly IItemUseCatalog _itemTypes;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
@@ -46,12 +47,13 @@ public class GroundItemService : IGroundItemService
 
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
         IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players,
-        Weight.ICarriedWeightService weights = null, IPartyService parties = null,
+        Weight.ICarriedWeightService weights = null, IPartyService parties = null, Func<uint> clock = null,
         IItemUseCatalog itemTypes = null)
     {
         _itemTypes = itemTypes;
         _parties = parties;
         _weights = weights;
+        _clock = clock ?? (() => ServerClock.Now);
         _rates = rates;
         _catalog = catalog;
         _characterService = characterService;
@@ -91,6 +93,7 @@ public class GroundItemService : IGroundItemService
         }
 
         var info = killer.ConnectionInfo;
+        var dropTime = _clock();
         var expiresAt = DateTime.UtcNow + _rates.GroundItemLifetime;
 
         foreach (var drop in rolled)
@@ -109,6 +112,7 @@ public class GroundItemService : IGroundItemService
                 OwnerHandle = info.CharacterHandle,
                 PartyId = info.PartyId,
                 MonsterDrop = true,
+                DropTime = dropTime,
                 ExpiresAt = expiresAt
             };
 
@@ -149,7 +153,8 @@ public class GroundItemService : IGroundItemService
         {
             Handle = WorldObjectHandle.Next(), ItemCode = itemId, Count = 1,
             X = x, Y = y, Z = z, Layer = owner.ConnectionInfo.Layer,
-            Owner = owner, OwnerHandle = owner.ConnectionInfo.CharacterHandle,
+            Owner = owner, OwnerHandle = owner.ConnectionInfo.CharacterHandle, QuestItem = true,
+            DropTime = _clock(),
             ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
         };
         _items[item.Handle] = item;
@@ -168,6 +173,7 @@ public class GroundItemService : IGroundItemService
             X = x + p.X, Y = y + p.Y, Z = z, Layer = killer.ConnectionInfo.Layer,
             Owner = killer, OwnerHandle = killer.ConnectionInfo.CharacterHandle,
             PartyId = killer.ConnectionInfo.PartyId, MonsterDrop = true,
+            DropTime = _clock(),
             ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
         };
         _items[item.Handle] = item;
@@ -221,6 +227,7 @@ public class GroundItemService : IGroundItemService
                 Layer = info.Layer,
                 Owner = client,
                 OwnerHandle = info.CharacterHandle,
+                DropTime = _clock(),
                 ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
             };
 
@@ -252,12 +259,16 @@ public class GroundItemService : IGroundItemService
     /// </summary>
     public async Task TakeAsync(GameClient client, uint takerHandle, uint itemHandle)
     {
-        if (!_items.TryGetValue(itemHandle, out var item) || !CanTake(client, item))
+        if (!_items.TryGetValue(itemHandle, out var item))
         {
             client.SendResult(TakeRequestId, (ushort)ResultCode.NotExist, 0);
             return;
         }
 
+        // onTakeItem's order: the range (TOO_FAR), judged from the taker — the player or its collecting pet —, comes
+        // before the quest item and the pick-up order, which refuse with ACCESS_DENIED (6): the object is there, its
+        // order just does not name the asker yet (see GroundItemPickupRules for the 30/40/50 s pacing). The order
+        // names the master, whoever takes (ItemPickupOrder.hPlayer[i] == pClient->GetHandle()).
         var info = client.ConnectionInfo;
         var taker = info.CharacterHandle;
         float x = info.X, y = info.Y;
@@ -279,6 +290,12 @@ public class GroundItemService : IGroundItemService
             return;
         }
 
+        if (!CanTake(client, item))
+        {
+            client.SendResult(TakeRequestId, (ushort)ResultCode.AccessDenied, 0);
+            return;
+        }
+
         var result = await TakeAsync(client, item, taker);
         client.SendResult(TakeRequestId, (ushort)result, 0);
     }
@@ -289,7 +306,7 @@ public class GroundItemService : IGroundItemService
         var best = float.MaxValue;
         foreach (var item in _items.Values)
         {
-            if (!CanTake(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0
+            if (!PetMayCollect(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0
                 || !Pets.PetPickupFilter.Collects(owner.ConnectionInfo.PetPickupFilter, TypeOf(item.ItemCode)))
             {
                 continue;
@@ -310,7 +327,7 @@ public class GroundItemService : IGroundItemService
 
     public async Task<bool> TakeForPetAsync(GameClient owner, uint itemHandle, uint petHandle)
     {
-        if (!_items.TryGetValue(itemHandle, out var item) || !CanTake(owner, item))
+        if (!_items.TryGetValue(itemHandle, out var item) || !PetMayCollect(owner, item))
         {
             return false;
         }
@@ -325,9 +342,52 @@ public class GroundItemService : IGroundItemService
             ? fields.BaseType
             : null;
 
+    /// <summary>
+    /// Whether <paramref name="picker"/> may take <paramref name="item"/> right now — the order loop the
+    /// official <c>onTakeItem</c> runs (<see cref="GroundItemPickupRules"/>). The pick_up_order this
+    /// repository puts on the wire fills slot 0 only: <c>hPlayer[0]</c> the owner's handle and
+    /// <c>nPartyID[0]</c>, for a monster drop, the party the killer was in. Its entitled players take at
+    /// once; anybody else is refused until the first slot's deadline (30 s) and accepted after it, the
+    /// remaining slots being empty.
+    /// </summary>
     private bool CanTake(GameClient picker, GroundItem item) =>
-        ReferenceEquals(item.Owner, picker) || item.MonsterDrop && _parties is not null
+        // IsTakeableQuestItem: a quest item stays its owner's, whatever the time since the fall.
+        item.QuestItem ? FirstSlotNamesPicker(picker, item)
+            : GroundItemPickupRules.CanPickUp(unchecked(_clock() - item.DropTime), OccupiedSlots(item),
+                FirstSlotNamesPicker(picker, item));
+
+    /// <summary>
+    /// What the master's pet may collect: the client's <c>SGameItem::IsPickable</c>, which drives the official pet,
+    /// on top of the server's own rule (<see cref="GroundItemPickupRules.PetMayCollect"/>).
+    /// </summary>
+    private bool PetMayCollect(GameClient owner, GroundItem item) => CanTake(owner, item)
+        && GroundItemPickupRules.PetMayCollect(unchecked(_clock() - item.DropTime), OccupiedSlots(item),
+            FirstSlotNamesPicker(owner, item));
+
+    /// <summary>
+    /// How many slots of the order are filled. Slots 1 and 2 are never filled here (see
+    /// <see cref="GroundItemPickupRules"/>), so this is 0 for an object nobody is entitled to — no drop of
+    /// this repository is — or 1.
+    /// </summary>
+    private static int OccupiedSlots(GroundItem item) =>
+        item.HasPickupOrder && (item.OwnerHandle != 0 || (item.PartyId ?? 0) != 0) ? 1 : 0;
+
+    /// <summary>
+    /// Whether slot 0 designates <paramref name="picker"/>: first its <c>hPlayer[0]</c> — the handle the
+    /// client compares its own against —, then, for a monster drop, the party <c>nPartyID[0]</c> names,
+    /// which the party rules judge (the killer's party, the picker's membership in it and the picker's
+    /// presence online).
+    /// </summary>
+    private bool FirstSlotNamesPicker(GameClient picker, GroundItem item)
+    {
+        if (ReferenceEquals(item.Owner, picker)) return true;
+
+        var info = picker.ConnectionInfo;
+        if (info.CharacterHandle != 0 && info.CharacterHandle == item.OwnerHandle) return true;
+
+        return item.MonsterDrop && _parties is not null
             && _parties.CanTakeDrop(item.Owner, picker, item.PartyId);
+    }
 
     /// <summary>
     /// The take itself, shared by the player and its pet: claim the item so a second request cannot
@@ -539,9 +599,13 @@ public class GroundItemService : IGroundItemService
         lock (info.GroundItemVisibilityLock)
         {
             if (!info.SpawnedGroundItems.Add(item.Handle)) return;
-            var dropTime = unchecked(ServerClock.Now + info.ClientClockOffset);
+            // drop_time is the instant the object fell, moved into this recipient's clock base. It is never
+            // the instant of the send: a re-send (Sync after a warp, a view re-acquisition) must let the
+            // client's window keep counting from the fall, otherwise a late arrival would see the object
+            // locked 30 s longer than it is.
+            var dropTime = unchecked(item.DropTime + info.ClientClockOffset);
             client.Connection.Send(GameSpawnPackets.BuildEnterItem(item.Handle, item.X, item.Y, item.Z,
-                item.Layer, item.ItemCode, item.Count, dropTime, item.OwnerHandle,
+                item.Layer, item.ItemCode, item.Count, dropTime, item.HasPickupOrder ? item.OwnerHandle : 0,
                 item.MonsterDrop ? (uint)(item.PartyId ?? 0) : 0));
         }
     }
