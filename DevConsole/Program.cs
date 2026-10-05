@@ -473,6 +473,7 @@ public class Program
         services.AddSingleton<IItemWearCatalog, ItemWearCatalog>();
         services.AddSingleton<IEtherealSacrificeCatalog, EtherealSacrificeCatalog>();
         services.AddSingleton<IItemUseService, ItemUseService>();
+        services.AddSingleton<IRecallFeatherService, RecallFeatherService>();
         services.AddSingleton<ICardSocketCatalog, CardSocketCatalog>();
         services.AddSingleton<ICardSocketService, CardSocketService>();
         services.AddSingleton<ISkillCardService, SkillCardService>();

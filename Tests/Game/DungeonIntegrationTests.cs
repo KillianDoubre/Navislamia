@@ -62,9 +62,21 @@ public class DungeonIntegrationTests
         dialogs.Select(player, Select("warp_to_instance_dungeon(40000,3)"));
         A.CallTo(() => service.ExecuteAsync(A<GameClient>._, A<PropAction>._)).MustNotHaveHappened();
         dialogs.Select(player, Select("warp_to_instance_dungeon(40000,0)"));
-        A.CallTo(() => service.ConfirmAsync(player, PropScript.Parse("warp_to_instance_dungeon(40000,0)")))
+        // SCRIPT_WarpToInstanceDungeon warps at once: only enter_instance_dungeon opens the native window.
+        A.CallTo(() => service.ExecuteAsync(player, PropScript.Parse("warp_to_instance_dungeon(40000,0)")))
             .MustHaveHappenedOnceExactly();
+        A.CallTo(() => service.ConfirmAsync(A<GameClient>._, A<PropAction>._)).MustNotHaveHappened();
     }
+
+    [TestCase("enter_instance_dungeon(40000)", true)]
+    [TestCase("enter_secret_dungeon(70101)", true)]
+    [TestCase("leave_instance_dungeon(40000)", true)]
+    [TestCase("enter_dungeon(130300)", true)]
+    [TestCase("warp_to_instance_dungeon(40000,0)", false)]
+    [TestCase("warp_to_secret_dungeon(70101)", false)]
+    [TestCase("scf_teleport_to_owned_secret_dungeon()", false)]
+    public void Only_the_official_window_entries_confirm_a_menu_choice(string trigger, bool confirms) =>
+        NpcDialogService.OpensConfirmation(trigger, PropScript.Parse(trigger)).Should().Be(confirms);
 
     [Test]
     public void Secret_information_keeps_dungeon_context_and_never_warps()

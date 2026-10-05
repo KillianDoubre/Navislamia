@@ -220,7 +220,10 @@ public class NpcDialogService : INpcDialogService
         var action = PropScript.Parse(trigger);
         if (_dungeons is not null && Dungeons.DungeonService.Handles(action.Kind))
         {
-            _ = SelectDungeonAsync(client, action, confirm: true);
+            // Only the official entries that open a native window confirm first: enter_dungeon (SCRIPT_WarpToDungeon,
+            // the raid window), enter_instance_dungeon, enter_secret_dungeon and leave_instance_dungeon. A menu's
+            // warp_to_instance_dungeon / warp_to_secret_dungeon warps at once (socle-fenetres-script.md §3).
+            _ = SelectDungeonAsync(client, action, confirm: OpensConfirmation(trigger, action));
             return;
         }
         if (_quests is not null && ReadFunctionName(trigger) is "set_quest_status" or "set_title_condition")
@@ -389,6 +392,11 @@ public class NpcDialogService : INpcDialogService
         var info = client.ConnectionInfo;
         return TownTeleportRules.BeginnerTeleporter(info.CharacterRace, info.PreviousJobs.Count, questProgress);
     }
+
+    /// <summary>Whether a menu trigger is one of the official functions that open a native confirmation window.</summary>
+    public static bool OpensConfirmation(string trigger, PropAction action) =>
+        action.Kind == PropActionKind.EnterDungeon
+        || ReadFunctionName(trigger) is "enter_instance_dungeon" or "enter_secret_dungeon" or "leave_instance_dungeon";
 
     private async Task SelectDungeonAsync(GameClient client, PropAction action, bool confirm = false)
     {
