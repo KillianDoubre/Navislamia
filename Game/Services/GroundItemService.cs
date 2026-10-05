@@ -33,6 +33,7 @@ public class GroundItemService : IGroundItemService
     private readonly IPlayerVisibilityService _players;
     private readonly Weight.ICarriedWeightService _weights;
     private readonly IPartyService _parties;
+    private readonly IItemUseCatalog _itemTypes;
     private readonly ConcurrentDictionary<uint, GroundItem> _items = new();
     private readonly Random _random = new();
 
@@ -45,8 +46,10 @@ public class GroundItemService : IGroundItemService
 
     public GroundItemService(IMonsterDropCatalog catalog, ICharacterService characterService,
         IItemGroupCatalog itemGroups, IRateService rates, IPlayerVisibilityService players,
-        Weight.ICarriedWeightService weights = null, IPartyService parties = null)
+        Weight.ICarriedWeightService weights = null, IPartyService parties = null,
+        IItemUseCatalog itemTypes = null)
     {
+        _itemTypes = itemTypes;
         _parties = parties;
         _weights = weights;
         _rates = rates;
@@ -238,7 +241,15 @@ public class GroundItemService : IGroundItemService
         }
     }
 
-    public async Task TakeAsync(GameClient client, uint itemHandle)
+    public Task TakeAsync(GameClient client, uint itemHandle) => TakeAsync(client, 0, itemHandle);
+
+    /// <summary>
+    /// <c>TM_CS_TAKE_ITEM</c> (204). The official <c>onTakeItem</c> (<c>GameMessage.cpp:1301-1315</c>) lets the
+    /// client's own pet gather name the summoned pet as <paramref name="takerHandle"/>: when that pet is out and
+    /// collects items, it is the taker — the range is judged from it and <c>TS_SC_TAKE_ITEM_RESULT</c> animates
+    /// it. Any other handle is the player.
+    /// </summary>
+    public async Task TakeAsync(GameClient client, uint takerHandle, uint itemHandle)
     {
         if (!_items.TryGetValue(itemHandle, out var item) || !CanTake(client, item))
         {
@@ -246,13 +257,28 @@ public class GroundItemService : IGroundItemService
             return;
         }
 
-        if (!WithinPickupRange(client.ConnectionInfo, item))
+        var info = client.ConnectionInfo;
+        var taker = info.CharacterHandle;
+        float x = info.X, y = info.Y;
+        if (takerHandle != 0 && takerHandle != taker)
+        {
+            lock (info.PetLock)
+            {
+                if (info.ActivePet is { CollectRange: > 0 } pet && pet.Handle == takerHandle)
+                {
+                    taker = pet.Handle;
+                    (x, y) = pet.PositionAt(ServerClock.Now);
+                }
+            }
+        }
+
+        if (item.Layer != info.Layer || CombatRange.Distance(x, y, item.X, item.Y) > PickupRange)
         {
             client.SendResult(TakeRequestId, (ushort)ResultCode.TooFar, 0);
             return;
         }
 
-        var result = await TakeAsync(client, item, client.ConnectionInfo.CharacterHandle);
+        var result = await TakeAsync(client, item, taker);
         client.SendResult(TakeRequestId, (ushort)result, 0);
     }
 
@@ -262,7 +288,8 @@ public class GroundItemService : IGroundItemService
         var best = float.MaxValue;
         foreach (var item in _items.Values)
         {
-            if (!CanTake(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0)
+            if (!CanTake(owner, item) || item.Layer != layer || Volatile.Read(ref item.TakenBy) != 0
+                || !Pets.PetPickupFilter.Collects(owner.ConnectionInfo.PetPickupFilter, TypeOf(item.ItemCode)))
             {
                 continue;
             }
@@ -290,6 +317,12 @@ public class GroundItemService : IGroundItemService
         return WithinPickupRange(owner.ConnectionInfo, item)
             && await TakeAsync(owner, item, petHandle) == ResultCode.Success;
     }
+
+    /// <summary>The item's <c>type</c> column, or <c>null</c> for gold (code 0) and an item no catalog knows.</summary>
+    private ItemBaseType? TypeOf(int itemCode) =>
+        itemCode != 0 && _itemTypes is not null && _itemTypes.TryGetUseFields(itemCode, out var fields)
+            ? fields.BaseType
+            : null;
 
     private bool CanTake(GameClient picker, GroundItem item) =>
         ReferenceEquals(item.Owner, picker) || item.MonsterDrop && _parties is not null

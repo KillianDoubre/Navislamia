@@ -867,3 +867,78 @@ ce que le client lit à partir de l'enregistrement lors de l'entrée.
 Tests : `PetCageTests` (`ThePetsOfTheBag_AreAnnouncedAtLoginAndCalledWithoutASecond351`,
 `AnUnnamedPet_OpensTheNameBoxInsteadOfComingOut`, les refus et le changement de nom), `PetWorldTests`,
 `BroadcastTests`.
+
+
+## 19. Le filtre de ramassage 355 (2026-10-05)
+
+Carte Trello `hiwE9j2o`. Sources : le client 7.3 (`SFrame.exe`, désassemblé), la source officielle 2015 (serveur
+`GameMessage.cpp`, client `SGameLocalPet.cpp`), le serveur officiel 2012-11 et sa PDB.
+
+### 19.1 Aucun serveur officiel ne lit la 355
+
+Ni la source 2015 (`GameMessage.h` s'arrête à `TM_CS_SET_PET_NAME` 354) ni le binaire 2012-11 (aucun symbole de
+filtre, aucun `onSet*Pet*` hors du nom) n'ont de branche 355. **Le ramassage du familier est conduit par le
+client** : `SGameLocalPet::CmdIdle` cherche les objets autour du maître (`GetItemObjects_For_PetAutoGather`),
+y mène le familier, puis `ReqTakeItem` envoie une **204 dont le `taker_handle` est le familier**. Le serveur
+officiel la traite dans `onTakeItem` (`GameMessage.cpp:1301-1315`) : si `taker_handle` est le familier invoqué,
+qu'il ramasse (`IsItemCollectable`) et qu'il est dans le monde, c'est lui le preneur — portée jugée depuis sa
+position (`:1369`), `TS_SC_TAKE_ITEM_RESULT` à son nom (`:1419`), résultat `SUCCESS` comme pour le joueur.
+
+### 19.2 Le client 7.3 filtre sa propre collecte
+
+Le client 2015 n'a pas de filtre ; le nôtre en a un, ajouté par sa reconstruction communautaire (chaînes
+`rzlabs_ui_text` de `db_string.rdb` : « Pickup Filter — All, Consumable, Soulstone, Cube, Card, Gear, Etc,
+Apply »). Chemin mesuré :
+
+| Adresse | Ce qu'elle fait |
+|---|---|
+| `0x65048e` | option `PET_PICKUP_FILTER` absente → `0x1f` |
+| `0x57df80` | fenêtre : `0x4be3a0` range la valeur dans l'enregistrement du familier (`+0x38`) et l'objet familier (`+0x1264`), puis message 11701 → trame 355 (`handle` = familier, valeur) |
+| `0x6cd89e` | `ReqTakeItem` du familier (deux constructeurs de 204 à `0x6cd842`/`0x6cd9c2`) passe `+0x1264` à `SGameWorld::GetItemObjects_For_PetAutoGather` (vtable `0xa54cac`, case `0xe0` → `0x680600` → `0x473db0`) |
+| `0x473ea3`-`0x473ee8` | le test, sur la catégorie de l'objet au sol (`+0x1288` = champ `+8` de sa fiche `db_item`, la colonne `type`) |
+
+Le test, recopié par `PetPickupFilter.Collects` :
+
+| Filtre | Ramasse |
+|---|---|
+| `== 0x3f` (« All », comparé à l'égalité) | tout |
+| — | `type` 6 (`Use` : cages et objets réutilisables), toujours |
+| bit `0x01` (Consumable) | `type` 3 (`Supply`) |
+| bit `0x02` (Soulstone) | `type` 7 |
+| bit `0x04` (Cube) | `type` 4 |
+| bit `0x08` (Card) | `type` 2 |
+| bit `0x10` (Gear) | `type` 1 (`Armor`) |
+| bit `0x20` (Etc) | `type` 0 |
+
+Le `type` 5 (`Charm`, 47 objets) n'a pas de case : seul « All » le laisse passer. Le défaut `0x1f` laisse de
+côté les objets « Etc ». Le champ `+8` de la fiche est bien la colonne `type` : sa distribution dans
+`db_item.rdb` (1 : 22 008, 2 : 2 614, 3 : 1 685, 7 : 368, 6 : 200, 0 : 1 264, 4 : 79, 5 : 47) et des objets
+connus (101221 arme → 1, 603002 parchemin → 3, 690403 cage → 6, 540001 carte → 2) le confirment.
+
+### 19.3 Ce que fait ce serveur
+
+- Notre serveur fait **aussi** ramasser le familier de lui-même (§17.2). Cette collecte suit désormais la règle
+  du client : `GroundItemService.TryFindNearest` saute un objet que le filtre du maître exclut
+  (`ConnectionInfo.PetPickupFilter`, `0x1f` tant qu'aucune 355 n'est arrivée, comme le client ; `type` lu dans
+  `IItemUseCatalog`).
+- Une **204 dont le `taker_handle` est le familier dehors et ramasseur** (`CollectRange > 0`) est sa prise :
+  couche et portée (300) jugées depuis sa position, 210 à son nom, puis `TS_SC_RESULT(204)`. Tout autre handle est
+  le joueur, comme l'officiel. Le serveur ne filtre pas une 204 : l'officiel non plus, le client l'a fait.
+
+### 19.4 NON ÉTABLI
+
+- **L'or** (code 0) n'a pas de fiche dans `db_item.rdb` : le client lit alors la catégorie d'un enregistrement de
+  repli (`[table+0x3c]`) que rien ne fixe. Le familier ramasse l'or quel que soit le filtre.
+- Si le client 7.3 envoie la 355 à la connexion ou seulement au clic sur « Apply » ; s'il active sa propre
+  collecte (bouton « Decorative Pet ») avec ce serveur, ce qui ferait coexister les deux collectes — le premier
+  arrivé prend l'objet, l'autre reçoit `NotExist`.
+
+### 19.5 À vérifier en jeu
+
+1. Familier dehors, filtre par défaut : il ramasse équipements, consommables, cartes, cubes, pierres d'âme, pas
+   les objets « Etc ».
+2. Fenêtre « Pickup Filter », ne garder que « Gear », Apply : il ne prend plus que l'équipement (et l'or).
+3. « All » : il prend tout, charmes compris.
+
+Tests : `PetPickupTests` (`PetPickupFilter_FollowsTheClientGather`, `TryFindNearest_SkipsTheTypesTheFilterExcludes`,
+`TakeItem_NamingTheCollectingPet_IsJudgedFromThePetAndAnimatesIt`, `TakeItem_NamingAPetThatDoesNotCollect_IsThePlayersTake`).

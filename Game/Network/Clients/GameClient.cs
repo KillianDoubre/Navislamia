@@ -1624,7 +1624,7 @@ public class GameClient : Client
 
     private async Task HandleTakeItemAsync(byte[] packet)
     {
-        if (!GameActionPackets.TryReadTakeItem(packet, out var itemHandle))
+        if (!GameActionPackets.TryReadTakeItem(packet, out var takerHandle, out var itemHandle))
         {
             SendResult((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.InvalidArgument);
             return;
@@ -1632,7 +1632,7 @@ public class GameClient : Client
 
         try
         {
-            await _networkService.GroundItemService.TakeAsync(this, itemHandle);
+            await _networkService.GroundItemService.TakeAsync(this, takerHandle, itemHandle);
         }
         catch (Exception exception)
         {

@@ -318,10 +318,10 @@ public class ConnectionInfo
     public object SummonLock { get; } = new();
 
     /// <summary>
-    /// The raw value of the last <c>TM_CS_SET_PET_FILTER</c> (355). Its meaning is not established: it is
-    /// kept, never applied (the pet collects everything its master owns).
+    /// The value of the last <c>TM_CS_SET_PET_FILTER</c> (355): the item types the pet collects
+    /// (<see cref="Navislamia.Game.Services.Pets.PetPickupFilter"/>), the client's own default until one arrives.
     /// </summary>
-    public uint PetPickupFilter { get; set; }
+    public uint PetPickupFilter { get; set; } = Navislamia.Game.Services.Pets.PetPickupFilter.Default;
 
     /// <summary>
     /// Where the character is heading: the last waypoint of its last move request, or its position after
@@ -823,7 +823,7 @@ public class ConnectionInfo
         PetHandles.Clear();
         PetNameOffers.Clear();
         Summons = Array.Empty<Navislamia.Game.Services.SummonPresence>();
-        PetPickupFilter = 0;
+        PetPickupFilter = Navislamia.Game.Services.Pets.PetPickupFilter.Default;
         DestinationX = 0;
         DestinationY = 0;
         MoveStartTick = 0;

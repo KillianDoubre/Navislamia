@@ -2319,16 +2319,19 @@ ouvrent une (`NpcDialogService.OpensConfirmation`), et aucun Lua Epic 7 n'appell
   réémettre de `TS_SC_MOVE` tant que la cible n'a pas dérivé de 3 m, et le rappelle au-delà de 540 unités.
   **Le rayon de ramassage vient de la compétence « Collect Items » (effet 10047, `var1` en mètres : 5/10/15)**,
   **× 12 unités par mètre** (règle de NGemity pour toute portée de compétence) ; le familier prend le butin
-  de son maître par le ramassage manuel, **`item_taker` = le familier et aucun `TS_SC_RESULT`**. Le filtre
-  355 est déclaré, lu, gardé (`PetPickupFilter`) et **jamais appliqué**. Le nom vit dans `Pets` (une ligne
+  de son maître par le ramassage manuel, **`item_taker` = le familier et aucun `TS_SC_RESULT`**. **Le filtre
+  355 suit la règle du client** (fiche §19, `PetPickupFilter`) : un bit par `type` d'objet — Consumable 0x01
+  (`Supply`), Soulstone 0x02, Cube 0x04, Card 0x08, Gear 0x10 (`Armor`), Etc 0x20 —, `0x3f` « All » comparé à
+  l'égalité (seul à laisser passer `Charm`), `Use` toujours ramassé, défaut `0x1f`. Aucun serveur officiel ne lit
+  la 355 : le client filtre sa propre collecte et envoie une 204 dont le `taker_handle` est le familier, que
+  `GroundItemService.TakeAsync(client, taker, item)` juge depuis le familier (`onTakeItem`). Le nom vit dans `Pets` (une ligne
   par cage) ; un familier jamais nommé reçoit la **353 sur son handle** **au lieu de sortir**, l'objet 920010
   (`RenamePet`, 120) la rouvre, refusé **avant consommation** sans familier dehors ; la 354 n'est acceptée que
   pour un handle proposé (`PetNameOffers`), avec **la règle des noms de personnage** (4-18 lettres/chiffres,
   mots interdits) ; refus = `@1105`/`@1106` + `TS_SC_RESULT(354)`, succès = `TS_SC_CHANGE_NAME` (30, 30 octets,
   `handle` @7, `name[19]` @11) au maître et aux observateurs, puis le résultat.
-- `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre d'options
-  (`PET_PICKUP_FILTER`), mais n'est **pas déclaré** : sa valeur n'est pas établie et le ramassage par
-  familier n'existe pas. Il tombe dans `Undefined packet ID`, sans erreur.
+- `TM_CS_SET_PET_FILTER` (355, 15 octets, `handle` @7, valeur @11) est émis par la fenêtre « Pickup Filter »
+  du client (`PET_PICKUP_FILTER`) ; déclaré et lu, sans réponse.
 - 353/354 (nom du familier) ont leur propre fiche et leur propre branche.
 - Détail et réserves : `docs/packet-specs/socle-familier-pet.md` ; tests : `Tests/Game/PetWorldTests.cs`.
 
