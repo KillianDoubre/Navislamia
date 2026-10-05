@@ -24,7 +24,10 @@ public enum SkillWeaponFlag
     Heavybow = 1 << 12,
     Crossbow = 1 << 13,
     OneHandStaff = 1 << 14,
-    TwoHandStaff = 1 << 15
+    TwoHandStaff = 1 << 15,
+
+    /// <summary><c>vf_shield_only</c>: no weapon class maps to it; it asks for a shield in the shield slot.</summary>
+    Shield = 1 << 16
 }
 
 public static class SkillWeaponGate
@@ -60,11 +63,23 @@ public static class SkillWeaponGate
         return WeaponFlags.TryGetValue(itemType, out var flag) ? flag : SkillWeaponFlag.None;
     }
 
-    public static bool Allows(SkillWeaponFlag required, bool weaponNotRequired, ItemType? equipped)
+    public static bool Allows(SkillWeaponFlag required, bool weaponNotRequired, ItemType? equipped) =>
+        Allows(required, weaponNotRequired, equipped, wearsShield: false);
+
+    /// <summary>
+    /// <c>applyStatByPassiveSkill</c>/<c>applyPassiveSkillEffect</c>: a skill that needs a weapon and is usable with a
+    /// shield needs the shield (<c>IsWearShield</c>), whatever the weapon; otherwise the main-hand weapon decides.
+    /// </summary>
+    public static bool Allows(SkillWeaponFlag required, bool weaponNotRequired, ItemType? equipped, bool wearsShield)
     {
         if (weaponNotRequired)
         {
             return true;
+        }
+
+        if ((required & SkillWeaponFlag.Shield) != SkillWeaponFlag.None)
+        {
+            return wearsShield;
         }
 
         return equipped.HasValue && (required & Resolve(equipped.Value)) != SkillWeaponFlag.None;

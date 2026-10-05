@@ -115,7 +115,7 @@ public class StatService : IStatService
 
     public void RefreshPassives(ConnectionInfo info)
     {
-        info.PassiveEffects = ResolveEffects(info.LearnedSkills, info.EquippedWeapon);
+        info.PassiveEffects = ResolveEffects(info.LearnedSkills, info.EquippedWeapon, info.WearsShield);
     }
 
     public void RefreshBuffs(ConnectionInfo info)
@@ -147,6 +147,7 @@ public class StatService : IStatService
     {
         info.RightWeaponEffects = Array.Empty<StatEffect>();
         info.LeftHand = null;
+        info.WearsShield = WearsShield(character);
         info.WeaponAttackRange = 0f;
         if (character.Items is null)
         {
@@ -177,6 +178,10 @@ public class StatService : IStatService
         }
     }
 
+    private bool WearsShield(CharacterEntity character) => character.Items is { } items && items.Any(item =>
+        !EtherealWearRules.Exhausted(item, _itemTemplates) && ItemWearRules.IsWornByPlayerAt(item, ItemWearType.Shield)
+        && _itemStats.IsShield((int)item.ItemResourceId));
+
     private ItemType? ResolveEquippedWeapon(CharacterEntity character)
     {
         if (character.Items is null)
@@ -205,19 +210,19 @@ public class StatService : IStatService
         List<StatEffect> effects = null;
         foreach (var skill in character.Skills)
         {
-            Append(_passives.Resolve(skill.SkillId, skill.Level, equippedWeapon), ref effects);
+            Append(_passives.Resolve(skill.SkillId, skill.Level, equippedWeapon, WearsShield(character)), ref effects);
         }
 
         return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();
     }
 
     private IReadOnlyList<StatEffect> ResolveEffects(IReadOnlyDictionary<int, byte> learnedSkills,
-        ItemType? equippedWeapon)
+        ItemType? equippedWeapon, bool wearsShield)
     {
         List<StatEffect> effects = null;
         foreach (var (skillId, level) in learnedSkills)
         {
-            Append(_passives.Resolve(skillId, level, equippedWeapon), ref effects);
+            Append(_passives.Resolve(skillId, level, equippedWeapon, wearsShield), ref effects);
         }
 
         return (IReadOnlyList<StatEffect>)effects ?? Array.Empty<StatEffect>();

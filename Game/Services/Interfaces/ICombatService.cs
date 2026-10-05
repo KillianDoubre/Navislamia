@@ -53,6 +53,10 @@ public interface ICombatService
     /// Rolls one swing of a monster on a creature that is not a player — a summon —, from that creature's stats and
     /// level, by the same rule as a swing on a player.
     /// </summary>
+    /// <summary>The same, the raw damage multiplied by the defender's hunting expertise against the monster's type.</summary>
+    HitResult RollMonsterHitOn(long instanceId, Stats.StatBlock defender, int defenderLevel, float damageTaken,
+        out uint intervalTicks) => RollMonsterHitOn(instanceId, defender, defenderLevel, out intervalTicks);
+
     HitResult RollMonsterHitOn(long instanceId, Stats.StatBlock defender, int defenderLevel, out uint intervalTicks)
     {
         intervalTicks = CombatFormulas.AttackIntervalTicks(100f);

@@ -18,7 +18,8 @@ namespace Navislamia.Game.Services;
 /// are <c>monster_group</c> and <c>f_group_first_attack</c>, read by the official group aggro
 /// (<see cref="MonsterAiRules.JoinsGroupAttack"/>). <see cref="Rewards"/> is the reward block of the same
 /// row, read by <see cref="MonsterRewardRules"/> at the monster's death (docs/packet-specs/
-/// socle-recompenses-monstres.md §9.1).
+/// socle-recompenses-monstres.md §9.1). <see cref="CreatureGroup"/> is <c>grp</c>, the <c>CREATURE_TYPE</c> that
+/// <c>StructMonster::GetCreatureGroup</c> returns, read by the hunting expertise (<see cref="Creatures.CreatureExpertise"/>).
 /// </para>
 /// </remarks>
 public readonly record struct MonsterInstance(
@@ -46,4 +47,5 @@ public readonly record struct MonsterInstance(
     byte Layer = 0,
     MonsterRewardProfile Rewards = default,
     bool IsDungeonRaidMonster = false,
-    int MonsterType = 0);
+    int MonsterType = 0,
+    int CreatureGroup = 0);

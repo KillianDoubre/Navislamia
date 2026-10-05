@@ -33,6 +33,8 @@ public class StatServiceTests
         var passives = A.Fake<ISkillPassiveCatalog>();
         A.CallTo(() => passives.Resolve(A<int>._, A<int>._, A<ItemType?>._)).Returns(Array.Empty<StatEffect>());
         A.CallTo(() => passives.Resolve(PassiveSkillId, 2, A<ItemType?>._)).Returns(new[] { PassiveEffect });
+        A.CallTo(() => passives.Resolve(A<int>._, A<int>._, A<ItemType?>._, A<bool>._)).Returns(Array.Empty<StatEffect>());
+        A.CallTo(() => passives.Resolve(PassiveSkillId, 2, A<ItemType?>._, A<bool>._)).Returns(new[] { PassiveEffect });
 
         var states = A.Fake<IStateCatalog>();
         A.CallTo(() => states.Resolve(A<int>._, A<int>._)).Returns(Array.Empty<StatEffect>());

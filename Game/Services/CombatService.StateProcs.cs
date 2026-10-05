@@ -10,6 +10,7 @@ namespace Navislamia.Game.Services;
 public partial class CombatService
 {
     private readonly StateProcs _stateProcs;
+    private readonly CooldownProcs _cooldownProcs;
     private readonly IItemStatCatalog _procItemStats;
 
     public void NotifyHit(CombatActor attacker, CombatActor target, HitResult hit,
@@ -61,8 +62,11 @@ public partial class CombatService
 
     private void RunStateProcs(CombatActor owner, CombatActor other, StateProcEvent trigger, uint type = 0, int element = 0)
     {
-        if (_stateProcs is null || owner.Owner?.ConnectionInfo.CharacterHandle is not > 0 || other.Owner is null) return;
+        if (_stateProcs is null && _cooldownProcs is null || owner.Owner?.ConnectionInfo.CharacterHandle is not > 0
+            || other.Owner is null) return;
         var tags = new List<StateProcTag>();
+        // EF_INC_SKILL_COOL_TIME_ON_* are passive skills only: a player's or a summon's, never a monster's or a state's.
+        KeyValuePair<int, byte>[] learned = null;
         int weapon = 0;
         if (owner.IsMonster)
         {
@@ -78,7 +82,8 @@ public partial class CombatService
             {
                 var card = info.CreatureCards.Values.FirstOrDefault(c => c.SummonHandle == owner.SummonHandle);
                 if (card is null) return;
-                tags.AddRange(_stateProcs.Learned(card.Skills));
+                learned = card.Skills.ToArray();
+                if (_stateProcs is not null) tags.AddRange(_stateProcs.Learned(learned));
                 foreach (var item in card.Equipment.Where(i => !i.Exhausted))
                     if (_procItemStats?.GetWeaponType(item.ResourceId) is { } itemWeapon) { weapon = (int)itemWeapon; break; }
             }
@@ -87,11 +92,12 @@ public partial class CombatService
         else
         {
             var info = owner.Owner.ConnectionInfo;
-            tags.AddRange(_stateProcs.Learned(info.LearnedSkills.ToArray()));
+            learned = info.LearnedSkills.ToArray();
+            if (_stateProcs is not null) tags.AddRange(_stateProcs.Learned(learned));
             weapon = info.EquippedWeapon is { } w ? (int)w : 0;
             lock (info.BuffLock) AddStates(info.ActiveBuffs.ToArray());
         }
-        if (tags.Count == 0) return;
+        if (tags.Count == 0 && (learned is null || _cooldownProcs is null)) return;
         var stats = ActorStats(owner);
         var mp = owner.IsMonster ? _worldState.GetMp(owner.MonsterId)
             : owner.IsSummon ? Array.Find(owner.Owner.ConnectionInfo.Summons, s => s.Handle == owner.SummonHandle)?.Mp ?? 0
@@ -100,6 +106,13 @@ public partial class CombatService
         var resolved = StateProcs.Resolve(tags, trigger, weapon, type, element, ActorHpPercent(owner), ActorHpPercent(other),
             ActorLevel(owner) - ActorLevel(other), mpPercent, _random);
         foreach (var proc in resolved) _casts?.ApplyCombatState(proc.Self ? owner : other, owner, proc);
+        if (learned is not null && _cooldownProcs is not null)
+        {
+            // StructCooldownProc::Proc: the cool time changes on the passive's owner, whichever side it was on.
+            foreach (var proc in _cooldownProcs.Resolve(learned, trigger, weapon, type, element, ActorHpPercent(owner),
+                         ActorHpPercent(other), ActorLevel(owner) - ActorLevel(other), mpPercent, _random))
+                _casts?.ApplyCooldownProc(owner, proc);
+        }
 
         void AddStates(IEnumerable<ActiveBuff> states)
         {

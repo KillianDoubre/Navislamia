@@ -522,6 +522,8 @@ public class Program
         services.AddSingleton<IPlayerLocationService, PlayerLocationService>();
         services.AddSingleton<Navislamia.Game.Services.Combat.StateProcs>(provider =>
             new Navislamia.Game.Services.Combat.StateProcs(provider.GetRequiredService<Navislamia.Game.DataAccess.Repositories.Interfaces.ISkillResourceRepository>()));
+        services.AddSingleton<Navislamia.Game.Services.Combat.CooldownProcs>(provider =>
+            new Navislamia.Game.Services.Combat.CooldownProcs(provider.GetRequiredService<Navislamia.Game.DataAccess.Repositories.Interfaces.ISkillResourceRepository>()));
         services.AddSingleton<Navislamia.Game.Services.Combat.EnergyProcs>(provider =>
             new Navislamia.Game.Services.Combat.EnergyProcs(provider.GetRequiredService<Navislamia.Game.DataAccess.Repositories.Interfaces.ISkillResourceRepository>()));
         services.AddSingleton<Navislamia.Game.Services.Trade.IPlayerTradeService, Navislamia.Game.Services.Trade.PlayerTradeService>();

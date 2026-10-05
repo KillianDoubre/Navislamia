@@ -18,10 +18,12 @@ public class SkillService : ISkillService
     private readonly ICharacterService _characterService;
     private readonly IStatService _statService;
     private readonly IRateService _rates;
+    private readonly Creatures.ICreatureService _creatures;
 
     public SkillService(SkillCatalog catalog, ICharacterService characterService, IStatService statService,
-        IRateService rates)
+        IRateService rates, Creatures.ICreatureService creatures = null)
     {
+        _creatures = creatures;
         _rates = rates;
         _catalog = catalog;
         _characterService = characterService;
@@ -92,6 +94,8 @@ public class SkillService : ISkillService
         client.SendResult(RequestId, (ushort)ResultCode.Success, request.SkillId);
 
         SendRefreshedStats(client, info);
+        // setSummonUpdate: a master passive aimed at the summons (10031/10032) moves their stats too.
+        _creatures?.RefreshSummonStats(client);
     }
 
     private void SendRefreshedStats(GameClient client, ConnectionInfo info)

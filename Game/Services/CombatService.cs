@@ -71,9 +71,11 @@ public partial class CombatService : ICombatService
         bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null,
         Creatures.ICreatureEvents creatures = null, Guilds.GuildRuntime guilds = null, Guilds.GuildCombatEvents guildEvents = null,
         Huntaholic.IHuntaholicEvents huntaholic = null, Dungeons.DungeonEvents dungeons = null, IEtherealWear ethereal = null,
-        Combat.EnergyProcs energyProcs = null, Combat.StateProcs stateProcs = null, IItemStatCatalog itemStats = null)
+        Combat.EnergyProcs energyProcs = null, Combat.StateProcs stateProcs = null, IItemStatCatalog itemStats = null,
+        Combat.CooldownProcs cooldownProcs = null)
     {
         _stateProcs = stateProcs;
+        _cooldownProcs = cooldownProcs;
         _procItemStats = itemStats;
         _energyProcs = energyProcs;
         _ethereal = ethereal;
@@ -445,7 +447,11 @@ public partial class CombatService : ICombatService
         return RollMonsterHit(instance, monster, target, monster.AttackPointRight, DamageKind.Physical, 0, 0);
     }
 
-    public HitResult RollMonsterHitOn(long instanceId, StatBlock defender, int defenderLevel, out uint intervalTicks)
+    public HitResult RollMonsterHitOn(long instanceId, StatBlock defender, int defenderLevel, out uint intervalTicks) =>
+        RollMonsterHitOn(instanceId, defender, defenderLevel, 1f, out intervalTicks);
+
+    public HitResult RollMonsterHitOn(long instanceId, StatBlock defender, int defenderLevel, float damageTaken,
+        out uint intervalTicks)
     {
         intervalTicks = CombatFormulas.AttackIntervalTicks(100f);
         if (defender is null || !_worldState.TryGetInstance(instanceId, out var instance))
@@ -456,8 +462,8 @@ public partial class CombatService : ICombatService
         var monster = MonsterStats(instanceId, instance);
         intervalTicks = CombatFormulas.AttackIntervalTicks(monster.AttackSpeed);
         return CombatFormulas.Resolve(Combatant.From(monster, instance.Level),
-            Combatant.From(defender, Math.Max(1, defenderLevel)), monster.AttackPointRight, DamageKind.Physical, 0, 0,
-            _random);
+            Combatant.From(defender, Math.Max(1, defenderLevel)), monster.AttackPointRight * damageTaken, DamageKind.Physical,
+            0, 0, _random);
     }
 
     public HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,

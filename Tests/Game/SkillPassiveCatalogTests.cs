@@ -150,8 +150,8 @@ public class SkillPassiveCatalogTests
     [Test]
     public void BuildTemplates_IgnoresAnUnsupportedEffectTypeAndEmptyPairs()
     {
-        SkillPassiveCatalog.BuildTemplates(Passive(1, 10011, Vars(10, 5)))
-            .Should().BeEmpty("AmplifyBaseAttribute has no readable value in this data");
+        SkillPassiveCatalog.BuildTemplates(Passive(1, 10010, Vars(10, 5)))
+            .Should().BeEmpty("EF_SPECIALIZE_ARMOR_AMP is not supported");
 
         SkillPassiveCatalog.BuildTemplates(Passive(1, SkillPassiveCatalog.IncreaseHpMp, Vars()))
             .Should().BeEmpty();

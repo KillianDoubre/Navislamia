@@ -27,7 +27,7 @@ using NUnit.Framework;
 namespace Tests.Game;
 
 [TestFixture]
-public class StateProcsTests
+public partial class StateProcsTests
 {
     private static ConnectionInfo Info(GameClient c) => StorageTestHarness.Session(c);
     private static decimal[] Vars(int state = 42)
@@ -185,7 +185,7 @@ public class StateProcsTests
             var relay = new CastInterrupts();
             Combat = new CombatService(World, A.Fake<IMonsterSpawnService>(), Leveling, A.Fake<IGroundItemService>(),
                 rates, Stats, States, parties, random: Draw(), players: Players, casts: relay, runTicks: false, rules: options,
-                stateProcs: new StateProcs(procs));
+                stateProcs: new StateProcs(procs), cooldownProcs: new CooldownProcs(procs));
             var creatures = A.Fake<ICreatureService>();
             A.CallTo(() => creatures.SetSummonVitals(A<GameClient>._, A<CreatureCard>._, A<int>._, A<int>._))
                 .Invokes((GameClient c, CreatureCard card, int hp, int mp) =>

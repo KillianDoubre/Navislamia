@@ -27,6 +27,9 @@ public interface ISkillCastService
     /// </summary>
     void ApplyCombatState(Combat.CombatActor target, Combat.CombatActor source, Combat.StateProc proc) { }
 
+    /// <summary><c>StructCooldownProc</c>: the owner's cooling skills get the proc's seconds, then a 403.</summary>
+    void ApplyCooldownProc(Combat.CombatActor owner, Combat.CooldownProc proc) { }
+
     void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks);
     void ApplyMonsterState(GameClient client, int stateId, int stateLevel, uint durationTicks, long monsterId) =>
         ApplyState(client, stateId, stateLevel, durationTicks);

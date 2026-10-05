@@ -335,11 +335,15 @@ public partial class SkillCastService
                     : _combatService.GetMonsterStats(target.Id) ?? new StatBlock();
                 var targetLevel = target.Player?.ConnectionInfo.CharacterLevel ?? target.Monster.Value.Level;
                 var kind = f.Kind == SkillCastKind.MagicAttack ? DamageKind.Magical : DamageKind.Physical;
+                // ProvideAttackerInfo: the summon's hunting expertise against the target's creature type.
+                var expertise = _creatures?.ExpertiseOf(cast.Master.ConnectionInfo, cast.Card) ?? Creatures.CreatureExpertise.None;
+                var raw = damage * expertise.DamageAgainst(target.Player is not null ? Creatures.CreatureExpertise.Human
+                    : target.Monster.Value.CreatureGroup);
                 var hit = target.Player is { } opponent
-                    ? _combatService.RollSummonHitOnPlayer(cast.Master, opponent, stats, cast.Card.Level, damage, kind,
+                    ? _combatService.RollSummonHitOnPlayer(cast.Master, opponent, stats, cast.Card.Level, raw, kind,
                         SkillDamageCurve.HitBonus(f, cast.Card.Level, targetLevel), SkillDamageCurve.CriticalBonus(f, cast.Cast.SkillLevel), f.ElementalType)
                     : CombatFormulas.Resolve(Combatant.From(stats, cast.Card.Level), Combatant.From(defender, targetLevel),
-                        damage, kind, SkillDamageCurve.HitBonus(f, cast.Card.Level, targetLevel),
+                        raw, kind, SkillDamageCurve.HitBonus(f, cast.Card.Level, targetLevel),
                         SkillDamageCurve.CriticalBonus(f, cast.Cast.SkillLevel), _random, f.ElementalType);
                 var hp = target.Player is { } victim ? _combatService.DamagePlayerBySummon(cast.Master, victim, cast.Actor.Handle,
                     hit.Damage, kind == DamageKind.Magical)
