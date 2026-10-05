@@ -287,7 +287,7 @@ public sealed class AuctionService : IAuctionService
         if (tax < 0) return ResultCode.NotEnoughMoney;
         if (info.IsBoothOpen || info.WatchedBoothHandle is not null) return ResultCode.NotActableWhileUsingBooth;
         if (item.WearInfo != ItemWearType.None || item.EquippedBySummonId is not null) return ResultCode.NotActable;
-        if (info.SummonSlots.Contains(item.Id)) return ResultCode.NotActable;
+        if (!Creatures.HeldItemRules.IsErasable(info, item.Id)) return ResultCode.NotActable;
         if (info.CharacterGold < tax) return ResultCode.NotEnoughMoney;
         if (!_catalog.TryGetItem(code, out var row)) return ResultCode.NotActable;
         var index = _catalog.CategoryIndexOf(row.Group, row.Class);

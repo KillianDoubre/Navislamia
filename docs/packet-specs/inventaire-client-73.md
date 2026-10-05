@@ -104,9 +104,9 @@ La résurrection différée 3321 produite par l'état de mort 314084 reste à po
 - Les objets au sol ne s'ouvrent jamais aux autres joueurs (l'officiel les ouvre au groupe puis à tous après un délai).
 - ~~Les invocations n'ont pas de durée : 302 et 306 n'ont pas d'appelant~~ : double invocation et cartes qui
   quittent le sac, 2026-10-05 (`socle-duree-invocations.md`).
-- Une carte formée ou dont la créature est dehors peut encore être échangée, vendue ou rangée : l'officiel la
-  refuse (`StructPlayer::IsErasable`) ; ici la créature est renvoyée et l'emplacement vidé. L'équipement d'une
-  créature cédée reste chez l'ancien propriétaire.
+- ~~Une carte formée ou dont la créature est dehors peut encore être échangée, vendue ou rangée~~ : `IsErasable`
+  porté le 2026-10-05 (`socle-duree-invocations.md` §6) ; l'équipement d'une créature cédée revient au sac de
+  l'ancien maître à sa connexion, comme l'officiel.
 - ~~Les groupes vivent en mémoire et disparaissent au redémarrage du serveur~~ : persistés depuis le 2026-10-05
   (`socle-groupe.md` §6) ; les équipes d'attaque ne le sont pas encore (leur côté guilde est en mémoire).
 - ~~`EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources`~~ : 167 zones actives ; les polygones sans ligne (1000, 9000, 9001, 120101-120113) restent sans effet (`socle-zones-evenement-lua.md`, relecture du 2026-10-05).

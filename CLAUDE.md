@@ -180,7 +180,11 @@ here. `code` and `summon_code` carry the same value (`SummonResource.id`, `Summo
 the caller. **306 is the double summon, 302 a bound card leaving the bag** (`docs/packet-specs/socle-duree-invocations.md`):
 a second summon called while the main one is out stays `1000 + 1881 level × 700 + 112-state level × value_4 × 100` ticks
 (306 on its handle, 0 under state 3121), then goes back; a card gone from the bag sends 302, one come in 301, both from a
-re-read after `IInventoryChangeFeed`, and the `Summons` row follows its card. `CharacterService` writes `MainSummonId` and
+re-read after `IInventoryChangeFeed`, and the `Summons` row follows its card. **What a creature or the pet holds never
+leaves the bag** (official `IsErasable`, `Creatures/HeldItemRules`: formed card, summon out, belt slot, cage of the pet
+out) — trade, sale, booth, auction, storage, drop, destruction and crafting all judge it; a tamed card that is neither
+formed nor out trades freely, and a departed creature's equipment is unworn at the old master's next login (§6 of
+that sheet). `CharacterService` writes `MainSummonId` and
 `SummonSlotItemIds`, and those six columns hold *summon* sids like the official character row, not card ids:
 the session and the 303 speak card handles, `CharacterService` translates both ways.
 

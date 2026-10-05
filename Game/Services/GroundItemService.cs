@@ -200,8 +200,9 @@ public class GroundItemService : IGroundItemService
         {
             // The rules are judged inside the removal, under the database gate, so an equip handled
             // between a separate read and the erase cannot slip a worn item through.
+            // IsDropable starts with IsErasable (StructPlayer.cpp:12658): nothing a creature or the pet out holds falls.
             var removal = await _characterService.RemoveItemAsync(info.CharacterName, itemHandle,
-                item => ResolveDropCount(item, count));
+                item => Creatures.HeldItemRules.IsErasable(info, item.Id) ? ResolveDropCount(item, count) : 0);
             if (removal.Removed <= 0)
             {
                 SendDropResult(client, itemHandle, false);
