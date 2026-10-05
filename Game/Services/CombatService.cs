@@ -13,7 +13,7 @@ using Serilog;
 
 namespace Navislamia.Game.Services;
 
-public class CombatService : ICombatService
+public partial class CombatService : ICombatService
 {
     private const int TickIntervalMs = 100;
 
@@ -71,8 +71,12 @@ public class CombatService : ICombatService
         bool runTicks = true, IPkFieldService pkFields = null, Progression.ITitleService titles = null,
         Creatures.ICreatureEvents creatures = null, Guilds.GuildRuntime guilds = null, Guilds.GuildCombatEvents guildEvents = null,
         Huntaholic.IHuntaholicEvents huntaholic = null, Dungeons.DungeonEvents dungeons = null, IEtherealWear ethereal = null,
-        Combat.EnergyProcs energyProcs = null)
+        Combat.EnergyProcs energyProcs = null, Combat.StateProcs stateProcs = null, IItemStatCatalog itemStats = null,
+        Combat.CooldownProcs cooldownProcs = null)
     {
+        _stateProcs = stateProcs;
+        _cooldownProcs = cooldownProcs;
+        _procItemStats = itemStats;
         _energyProcs = energyProcs;
         _ethereal = ethereal;
         _dungeons = dungeons;
@@ -336,11 +340,9 @@ public class CombatService : ICombatService
             // A miss still lands as an attack: the monster turns on the player either way.
             targetHp = ApplyDamage(client, session.TargetInstanceId, session.TargetHandle, damage);
             _ethereal?.Hit(client, true, hit.Damage, left ? EtherealHit.LeftHand : EtherealHit.Normal);
-            // StructCreature::OnAttack on a hit that landed; the additional swing of a double attack fires nothing.
-            if ((hit.Flags & HitFlags.Miss) == 0 && (!doubleAttack || i < count / 2))
-            {
-                _energyProcs?.OnAttack(client, Combat.EnergyProcs.NormalAttack, 0, -1);
-            }
+            // StructCreature::OnAttack on a hit that landed; the extra double-attack swing skips attack procs, but retains critical/block/avoid procs.
+            NotifyHit(new Combat.CombatActor(client), new Combat.CombatActor(client, MonsterId: session.TargetInstanceId),
+                hit, attackProcs: !doubleAttack || i < count / 2);
             hits.Add(new AttackHit(damage, (byte)hit.Flags, targetHp, elemental));
         }
 
@@ -454,7 +456,11 @@ public class CombatService : ICombatService
         return RollMonsterHit(instance, monster, target, monster.AttackPointRight, DamageKind.Physical, 0, 0);
     }
 
-    public HitResult RollMonsterHitOn(long instanceId, StatBlock defender, int defenderLevel, out uint intervalTicks)
+    public HitResult RollMonsterHitOn(long instanceId, StatBlock defender, int defenderLevel, out uint intervalTicks) =>
+        RollMonsterHitOn(instanceId, defender, defenderLevel, 1f, out intervalTicks);
+
+    public HitResult RollMonsterHitOn(long instanceId, StatBlock defender, int defenderLevel, float damageTaken,
+        out uint intervalTicks)
     {
         intervalTicks = CombatFormulas.AttackIntervalTicks(100f);
         if (defender is null || !_worldState.TryGetInstance(instanceId, out var instance))
@@ -465,8 +471,8 @@ public class CombatService : ICombatService
         var monster = MonsterStats(instanceId, instance);
         intervalTicks = CombatFormulas.AttackIntervalTicks(monster.AttackSpeed);
         return CombatFormulas.Resolve(Combatant.From(monster, instance.Level),
-            Combatant.From(defender, Math.Max(1, defenderLevel)), monster.AttackPointRight, DamageKind.Physical, 0, 0,
-            _random);
+            Combatant.From(defender, Math.Max(1, defenderLevel)), monster.AttackPointRight * damageTaken, DamageKind.Physical,
+            0, 0, _random);
     }
 
     public HitResult RollMonsterHit(long instanceId, GameClient target, float baseDamage, DamageKind kind,
@@ -540,13 +546,13 @@ public class CombatService : ICombatService
             }
         }
 
+        var wasAlive = info.CharacterHp > 0;
         var hp = DamagePlayer(target, damage);
+        if (wasAlive && hp <= 0 && attackerInstanceId >= 0)
+            NotifyDeath(new Combat.CombatActor(target, MonsterId: attackerInstanceId), new Combat.CombatActor(target));
         if (damage > 0)
         {
             _compete?.OnDamagedByOther(target, null);
-            // The monster's hit landed: the player's energy passives on being attacked.
-            _energyProcs?.OnBeingAttacked(target, magical
-                ? Combat.EnergyProcs.Harmful | Combat.EnergyProcs.MagicalSkill : Combat.EnergyProcs.NormalAttack, 0, -1);
         }
 
         if (hp <= 0 || damage <= 0 || attackerInstanceId < 0)
@@ -752,11 +758,7 @@ public class CombatService : ICombatService
                 }
         var targetHp = DamagePlayerByPlayer(client, target, damage);
         _ethereal?.Hit(client, true, hit.Damage, competing: _compete?.AreCompeting(client, target) == true);
-        if ((hit.Flags & HitFlags.Miss) == 0)
-        {
-            _energyProcs?.OnAttack(client, Combat.EnergyProcs.NormalAttack, 0, -1);
-            _energyProcs?.OnBeingAttacked(target, Combat.EnergyProcs.NormalAttack, 0, -1);
-        }
+        NotifyHit(new Combat.CombatActor(client), new Combat.CombatActor(target), hit);
 
         var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
         var frame = GameAttackPackets.BuildAttackEvent(info.CharacterHandle, targetInfo.CharacterHandle, intervalMs,
@@ -828,6 +830,7 @@ public class CombatService : ICombatService
         {
             StopAttack(target);
             _casts?.Interrupt(target);
+            NotifyDeath(new Combat.CombatActor(attacker, summonHandle), new Combat.CombatActor(target));
             if (competing)
             {
                 _compete.OnKilledBy(target, attacker);
@@ -982,6 +985,7 @@ public class CombatService : ICombatService
         _dungeons?.MonsterKilled(instanceId);
 
         // An area can kill a monster outside the caster's view. Each viewer receives its own handle.
+        RunStateProcs(new Combat.CombatActor(client, MonsterId: instanceId), new Combat.CombatActor(client), Combat.StateProcEvent.Dead);
         var removedStates = _worldState.ClearStates(instanceId);
         var recipients = new HashSet<GameClient> { client };
         if (_players is not null)
@@ -1149,6 +1153,7 @@ public class CombatService : ICombatService
                     }
 
                     _levelingService.ApplyExperience(client);
+                    RewardKillProcs(client, instanceId);
                     if (_titles is not null) _ = _titles.RecordMonsterKillAsync(client, monster);
                 }
             }

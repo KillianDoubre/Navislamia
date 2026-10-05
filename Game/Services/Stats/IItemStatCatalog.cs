@@ -11,4 +11,7 @@ public interface IItemStatCatalog
 
     /// <summary>The <c>AttackRange</c> a weapon gives: its <c>range</c> × 100; 0 when not a weapon or unknown.</summary>
     float GetAttackRange(int itemResourceId) => 0f;
+
+    /// <summary><c>CLASS_SHIELD</c> (210): what <c>IsWearShield</c> asks of the shield slot.</summary>
+    bool IsShield(int itemResourceId) => false;
 }

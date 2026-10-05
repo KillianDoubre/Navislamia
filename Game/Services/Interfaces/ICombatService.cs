@@ -4,6 +4,10 @@ namespace Navislamia.Game.Services;
 
 public interface ICombatService
 {
+    void NotifyHit(Combat.CombatActor attacker, Combat.CombatActor target, HitResult hit,
+        uint attackType = Combat.EnergyProcs.NormalAttack, int element = 0, bool attackProcs = true) { }
+    void NotifyDeath(Combat.CombatActor killer, Combat.CombatActor victim) { }
+
     /// <summary>The duel/PK relation used to exclude hostile players from beneficial skills.</summary>
     bool ArePlayerEnemies(GameClient attacker, GameClient target) => false;
     void OnPkEnabled(GameClient client) { }
@@ -49,6 +53,10 @@ public interface ICombatService
     /// Rolls one swing of a monster on a creature that is not a player — a summon —, from that creature's stats and
     /// level, by the same rule as a swing on a player.
     /// </summary>
+    /// <summary>The same, the raw damage multiplied by the defender's hunting expertise against the monster's type.</summary>
+    HitResult RollMonsterHitOn(long instanceId, Stats.StatBlock defender, int defenderLevel, float damageTaken,
+        out uint intervalTicks) => RollMonsterHitOn(instanceId, defender, defenderLevel, out intervalTicks);
+
     HitResult RollMonsterHitOn(long instanceId, Stats.StatBlock defender, int defenderLevel, out uint intervalTicks)
     {
         intervalTicks = CombatFormulas.AttackIntervalTicks(100f);

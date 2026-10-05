@@ -79,16 +79,21 @@ Tous livrés le 2026-10-05 (lot de Codex relu) : ~~322~~, ~~451~~ (réponse à 4
 
 ### Effets déclenchés au combat (`m_vProcBy*`, `CalculateStat.cpp`)
 
-Seuls les passifs d'énergie 32262/32263 sont branchés (`Combat/EnergyProcs.cs`). Manquent :
+Les passifs d'énergie 32262/32263 et les **passifs qui posent un état au combat** sont branchés
+(livrés le 2026-10-05, `socle-passifs-etats-combat.md`). Compétences `10048..10062`, états
+`26`, `36..39`, `3201..3211` et `3311` : coup donné/reçu, critique, esquive, blocage, blocage parfait,
+meurtre et mort. **32001 correspond à l'expérience des invocations**, pas à cette famille.
 
-- les passifs qui posent un état sur un coup, un coup reçu, un critique, une esquive, un blocage ou une mort
-  (`EF_ADD_STATE_ON_*`, 32001 et suivants) ;
-- les temps de recharge modifiés sur attaque, coup reçu ou mort (`IncSkillCoolTimeOn*`, 10063-10065) ;
-- la maîtrise du bouclier (`IncreaseExtensionAttribute`, 10009) et l'expertise d'esquive (10011, sans valeurs) ;
-- les passifs des invocations (`AmplifySummonHpMpSp` 10032, `HuntingTraining` 10013).
+Manquent :
+- ~~les temps de recharge modifiés sur attaque, coup reçu ou mort (`IncSkillCoolTimeOn*`, 10063-10065)~~ ;
+- ~~la maîtrise du bouclier (`IncreaseExtensionAttribute`, 10009) et l'expertise d'esquive (10011)~~ ;
+- ~~les passifs des invocations (`AmplifySummonHpMpSp` 10032, `HuntingTraining` 10013)~~ : les trois livrés le
+  2026-10-05 (`socle-passifs-combat-recharge-bouclier.md`). Reste `EF_INC_SKILL_COOL_TIME_ON_SKILL_OF_ID` (32281,
+  deux compétences), déclenché par l'usage d'une compétence précise.
 
-Ces effets partagent une seule mécanique officielle (`_ATTACK_TAG`, `CheckProcByAttack`) : `EnergyProcs.Applies` en
-porte déjà les conditions et peut servir de base commune.
+`Combat/AttackProcConditions.cs` porte maintenant les conditions communes aux états et à l'énergie
+(`_ATTACK_TAG`, `CheckProcByAttack`) ; les événements de mort utilisent `_KILL_TAG`.
+La résurrection différée 3321 produite par l'état de mort 314084 reste à porter : le déclencheur pose déjà 314085.
 
 ### Petits manques
 
@@ -101,8 +106,9 @@ porte déjà les conditions et peut servir de base commune.
 - Une carte formée ou dont la créature est dehors peut encore être échangée, vendue ou rangée : l'officiel la
   refuse (`StructPlayer::IsErasable`) ; ici la créature est renvoyée et l'emplacement vidé. L'équipement d'une
   créature cédée reste chez l'ancien propriétaire.
-- Les groupes vivent en mémoire et disparaissent au redémarrage du serveur.
-- `EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources` (`socle-zones-evenement.md`).
+- ~~Les groupes vivent en mémoire et disparaissent au redémarrage du serveur~~ : persistés depuis le 2026-10-05
+  (`socle-groupe.md` §6) ; les équipes d'attaque ne le sont pas encore (leur côté guilde est en mémoire).
+- ~~`EventAreaInfo` n'a que ses polygones pour les zones hors `EventAreaResources`~~ : 167 zones actives ; les polygones sans ligne (1000, 9000, 9001, 120101-120113) restent sans effet (`socle-zones-evenement-lua.md`, relecture du 2026-10-05).
 - `/passist` envoie aussi `TS_SC_TARGET` (512), que l'officiel n'envoie jamais (`SendTargetMsg` sans appelant) : ajout
   de Codex, gardé car sans danger, à confirmer en jeu (`512-target.md`).
 - ~~`docs/gm-commands.md` (français) dépassé~~ : supprimé le 2026-10-05, la seule liste est `docs/gm-commands.en.md`.

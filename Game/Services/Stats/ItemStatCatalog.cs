@@ -19,6 +19,7 @@ public class ItemStatCatalog : IItemStatCatalog
     private readonly ILogger _logger = Log.ForContext<ItemStatCatalog>();
     private readonly FrozenDictionary<int, IReadOnlyList<StatEffect>> _effects;
     private readonly FrozenDictionary<int, ItemType> _weaponTypes;
+    private readonly FrozenSet<int> _shields;
     private readonly FrozenDictionary<int, float> _attackRanges = FrozenDictionary<int, float>.Empty;
 
     public ItemStatCatalog(IItemResourceRepository repository)
@@ -26,6 +27,7 @@ public class ItemStatCatalog : IItemStatCatalog
         var resources = repository.GetEffectFields();
         var effects = new Dictionary<int, IReadOnlyList<StatEffect>>(resources.Count);
         var weaponTypes = new Dictionary<int, ItemType>();
+        var shields = new HashSet<int>();
         foreach (var resource in resources)
         {
             var resolved = BuildEffects(resource);
@@ -38,10 +40,16 @@ public class ItemStatCatalog : IItemStatCatalog
             {
                 weaponTypes[resource.Id] = resource.ItemType;
             }
+
+            if (resource.ItemType == ItemType.Shield)
+            {
+                shields.Add(resource.Id);
+            }
         }
 
         _effects = effects.ToFrozenDictionary();
         _weaponTypes = weaponTypes.ToFrozenDictionary();
+        _shields = shields.ToFrozenSet();
         var ranges = new Dictionary<int, float>();
         foreach (var (id, range) in repository.GetWeaponRanges() ?? new Dictionary<int, decimal>())
         {
@@ -63,6 +71,8 @@ public class ItemStatCatalog : IItemStatCatalog
 
     public float GetAttackRange(int itemResourceId) =>
         _attackRanges.TryGetValue(itemResourceId, out var range) ? range : 0f;
+
+    public bool IsShield(int itemResourceId) => _shields.Contains(itemResourceId);
 
     public ItemType? GetWeaponType(int itemResourceId)
     {

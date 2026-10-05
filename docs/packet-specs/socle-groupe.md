@@ -17,8 +17,8 @@
    `CREATE|nom|chef|` et `PINFO|nom|chef|…`, alors que l'officiel écrit `CREATE|%s|%s|%d|` et
    `PINFO|%d|%s|%s|%d|%d|%d|%d|` (l'id du groupe en tête). Chaque format est rattaché à la fonction qui
    l'émet (§3).
-3. **Les groupes vivent en mémoire** (§6) : ils survivent à la déconnexion d'un membre, pas au
-   redémarrage du serveur.
+3. **Les groupes sont persistés** (§6) : ils survivent à la déconnexion d'un membre et au redémarrage du
+   serveur.
 
 ## 2. Côté client (`SFrame.exe`, lecture des chaînes)
 
@@ -107,9 +107,32 @@ n'avait établi que les trois valeurs du mode et le format du paquet.
 
 ## 6. Persistance
 
-Aucune. `Characters.PartyId` n'est plus lu à l'entrée en jeu : la table `Parties` du dépôt n'a pas le mot
-de passe d'invitation et son `LeadPartyId` auto-référent est obligatoire. Un groupe survit à la sortie de
-ses membres (hors ligne dans `PINFO`) et disparaît au redémarrage, ou quand son dernier membre le quitte.
+Livrée le 2026-10-05 (carte Trello `6nctY154`). Modèle officiel : la table `Party` (`party_sid`, nom,
+`leader_sid`, `share_mode`, `party_type`, `lead_party_id`) et `Character.party_id`, écrites par
+`DB_InsertParty`/`DB_SetParty`/`DB_SetPartyLeader`/`DB_DeleteParty` et relues au démarrage par
+`PartyManager::Init` (`Community/PartyLoader.cpp`, `smp_load_party_list` puis `smp_load_party_member_info`).
+
+- **Schéma** : la table `Parties` existante, corrigée par `Version0025_PartyPersistence` : l'index sur
+  `LeaderId` n'est plus unique (un chef garde ses anciens groupes supprimés en douceur) et `LeadPartyId` devient
+  facultatif (lien d'équipe d'attaque, nul pour un groupe à lui). `Parties.Id` est l'id du groupe du jeu ;
+  `Characters.PartyId` porte l'appartenance.
+- **Écriture** : chaque création, adhésion, promotion, changement de partage et départ (`RemoveMember`, qui couvre
+  quitter, exclure, dissoudre et l'entrée en instance) met un instantané dans une file à lecteur unique, sous le
+  verrou du service, donc dans l'ordre ; `PartyStore.SaveAsync` écrit la ligne et les `PartyId` en une sauvegarde.
+  Le dernier départ efface les `PartyId` et supprime la ligne (suppression douce du contexte). Un arrêt propre vide
+  la file (`FlushAsync`).
+- **Lecture** : avant l'ouverture du réseau (`Program.Main`), les groupes reviennent avec leurs membres hors
+  ligne ; l'entrée en jeu d'un membre envoie `LOGIN` puis `PINFO`, comme après une déconnexion. Comme l'officiel, un
+  groupe sans membre ou dont le chef n'est pas membre est détruit, ainsi qu'un groupe HuntaHolic ou d'arène. Les ids
+  neufs reprennent après le plus grand id jamais donné (lignes supprimées comprises).
+- **Écarts** : seuls les groupes ordinaires (type 0) sont stockés. Les équipes d'attaque (types 1 et 2) ne le sont
+  pas : leur côté guilde (`GuildService._teams`) vit en mémoire, un groupe rechargé sans lui serait orphelin ;
+  l'officiel les relie de nouveau (`joinLinkedParty`). Le mot de passe d'invitation n'est pas stocké (l'officiel non
+  plus) : il est retiré au rechargement, une invitation en cours meurt avec le serveur.
+- **Tests** : `PartyServiceTests.Persistence.cs` (ordre des écritures, HuntaHolic jamais stocké, restauration et
+  règles de destruction, ids suivants) et l'essai PostgreSQL explicite
+  `PostgreSql_party_rows_and_members_survive_a_restart` (migrations dans un schéma isolé, écriture, suppression,
+  même chef deux fois, redémarrage).
 
 ## 7. NON ÉTABLI
 

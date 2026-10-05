@@ -21,6 +21,15 @@ namespace Navislamia.Game.Services.Creatures;
 
 public interface ICreatureService
 {
+    /// <summary>The summon's hunting expertise (<c>EF_HUNTING_TRAINING</c> among its skills).</summary>
+    CreatureExpertise ExpertiseOf(ConnectionInfo info, CreatureCard card) => CreatureExpertise.None;
+
+    /// <summary>
+    /// <c>StructPlayer::setSummonUpdate</c>: the master's passives changed (10031/10032 feed its summons), so every
+    /// announced summon gets its stats again.
+    /// </summary>
+    void RefreshSummonStats(GameClient client) { }
+
     /// <summary>World entry: the cards, the formation, the 301 of each slotted summon, and the main summon back.</summary>
     Task OnWorldEntryAsync(GameClient client);
 
@@ -109,7 +118,7 @@ public interface ICreatureService
 
 /// <summary>A summon in the world as a monster fights it: where it is, how alive it is, and its body and stats.</summary>
 public readonly record struct SummonTarget(uint Handle, float X, float Y, byte Layer, int Hp, int Level,
-    StatBlock Stats, float Size, float Scale);
+    StatBlock Stats, float Size, float Scale, CreatureExpertise Expertise = null);
 
 /// <summary>
 /// Taming, formation and summoning (docs/packet-specs/socle-apprivoisement-invocation.md §15), ported from the
@@ -657,8 +666,9 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         var block = CreatureRules.SummonStats(resource, card.Level, Context(info, card));
         block.MaxSp = 1000;
         var masterSp = _passives is null ? Array.Empty<StatEffect>()
-            : info.LearnedSkills.SelectMany(s => _passives.ResolveSummonSp(s.Key, s.Value)).ToArray();
-        // StructSummon::CalculateStat: bit 23 means MaxSP here. Flat additions precede amplification.
+            : info.LearnedSkills.SelectMany(s => _passives.ResolveForSummon(s.Key, s.Value)).ToArray();
+        // StructSummon::CalculateStat: bit 23 means MaxSP here. Flat additions precede amplification; the master's
+        // m_ParameterForSummon (10031/10032) adds to and amplifies max HP, MP, SP and the HP/MP regeneration.
         var worn = ItemEffectsOf(info, card).Select(e => e.Target == StatTarget.MaxStamina
             ? e with { Target = StatTarget.MaxSp } : e).ToArray();
         StatCalculator.ApplyEffects(block, worn, masterSp);
@@ -678,6 +688,14 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
 
         return block;
+    }
+
+    public CreatureExpertise ExpertiseOf(ConnectionInfo info, CreatureCard card)
+    {
+        if (_passives is null || card is null) return CreatureExpertise.None;
+        var expertise = CreatureExpertise.From(SkillsOf(info, card)
+            .Select(skill => (_passives.HuntingTraining(skill.Key), (int)skill.Value)));
+        return expertise.IsEmpty ? CreatureExpertise.None : expertise;
     }
 
     private StatEffect[] ItemEffectsOf(ConnectionInfo info, CreatureCard card)
@@ -1066,7 +1084,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
 
         var (x, y) = SummonPosition(summonHandle, ServerClock.Now);
         target = new SummonTarget(summonHandle, x, y, presence.Layer, presence.Hp, card.Level, presence.Stats,
-            resource.Size, resource.Scale);
+            resource.Size, resource.Scale, ExpertiseOf(info, card));
         return true;
     }
 
@@ -1426,6 +1444,23 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
 
         return true;
+    }
+
+    public void RefreshSummonStats(GameClient client)
+    {
+        CreatureCard[] cards;
+        lock (client.ConnectionInfo.SummonLock)
+        {
+            cards = client.ConnectionInfo.CreatureCards.Values.Where(c => c.HasSummon && c.InfoSent).ToArray();
+        }
+
+        foreach (var card in cards)
+        {
+            if (_catalog.TryGetSummon(card.SummonCode, out var resource))
+            {
+                RefreshSummonStats(client, card, resource);
+            }
+        }
     }
 
     /// <summary>The stats of a summon whose skills or master changed, out in the world or kept in its card.</summary>
@@ -2737,11 +2772,14 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             var presence = Array.Find(info.Summons, s => s.Handle == handle);
             var stats = presence?.Stats ?? StatsOf(info, card, resource);
             var defender = _combat.GetMonsterStats(swing.TargetInstanceId) ?? new StatBlock();
+            // ProvideAttackerInfo: the hunting expertise against the monster's creature type, before the defence.
             var hit = CombatFormulas.Resolve(Combatant.From(stats, card.Level), Combatant.From(defender, monster.Level),
-                stats.AttackPointRight, DamageKind.Physical, 0, 0, _random);
+                stats.AttackPointRight * ExpertiseOf(info, card).DamageAgainst(monster.CreatureGroup), DamageKind.Physical, 0,
+                0, _random);
             var intervalMs = CombatService.IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
             // StructMonster::onDamage: the hate goes to the summon that hit, the kill and the reward to its master.
             var targetHp = _combat.ApplyDamage(client, swing.TargetInstanceId, monsterHandle, hit.Damage, 0);
+            _combat.NotifyHit(new Combat.CombatActor(client, handle), new Combat.CombatActor(client, MonsterId: swing.TargetInstanceId), hit);
             _ethereal?.Hit(client, true, hit.Damage, summon: card);
             if (targetHp > 0)
             {

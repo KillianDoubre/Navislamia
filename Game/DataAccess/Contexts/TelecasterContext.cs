@@ -193,10 +193,11 @@ public class TelecasterContext : SoftDeletionContext
             .WithMany(i => i.PartyMembers)
             .HasForeignKey(c => c.PartyId);
         
-        modelBuilder.Entity<CharacterEntity>()
-            .HasOne(c => c.LeadersParty)
-            .WithOne(i => i.Leader)
-            .HasForeignKey<PartyEntity>(c => c.LeaderId);
+        // A leader may have led parties before (soft-deleted rows keep them): not unique (socle-groupe.md §persistance).
+        modelBuilder.Entity<PartyEntity>()
+            .HasOne(p => p.Leader)
+            .WithMany()
+            .HasForeignKey(p => p.LeaderId);
         
         modelBuilder.Entity<CharacterEntity>()
             .HasOne(c => c.Guild)

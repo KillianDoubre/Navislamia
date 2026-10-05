@@ -100,6 +100,5 @@ public class CharacterEntity : Entity
 	public virtual ICollection<AuctionEntity> Sellers { get; set; }
 	public virtual ICollection<AuctionEntity> HighestBidders { get; set; }
 	public virtual ItemStorageEntity ItemStorage { get; set; }
-	public virtual PartyEntity LeadersParty { get; set; }
 
 }

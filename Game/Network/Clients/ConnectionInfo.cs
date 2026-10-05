@@ -29,6 +29,9 @@ public class ConnectionInfo
     public uint MainTitleLockedUntil { get; set; }
     public ItemType? EquippedWeapon { get; set; }
 
+    /// <summary><c>IsWearShield</c>: a shield (class 210) in the shield slot, what shield-only passives ask for.</summary>
+    public bool WearsShield { get; set; }
+
     /// <summary>
     /// What the shield slot holds when it is not a shield: a second weapon (dual wield) or the arrows of an archer,
     /// with its handle and count (docs/packet-specs/socle-mecaniques-combat.md). Seeded with the stats.

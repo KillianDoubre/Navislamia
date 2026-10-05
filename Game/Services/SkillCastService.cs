@@ -85,9 +85,8 @@ public partial class SkillCastService : ISkillCastService
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
         Creatures.ICreatureService creatures = null, Dungeons.IDungeonService dungeons = null,
         Huntaholic.IHuntaholicEvents huntaholic = null, IDynamicFieldProps dynamicProps = null, IEtherealWear ethereal = null,
-        Compete.ICompeteService compete = null, IFieldPropUse propUse = null, Combat.EnergyProcs energyProcs = null)
+        Compete.ICompeteService compete = null, IFieldPropUse propUse = null)
     {
-        _energyProcs = energyProcs;
         _propUse = propUse;
         _compete = compete;
         _ethereal = ethereal;
@@ -721,7 +720,7 @@ public partial class SkillCastService : ISkillCastService
 
     private async Task ActivateDungeonAsync(GameClient client, PropAction action)
     {
-        var result = await _dungeons.ExecuteAsync(client, action);
+        var result = await _dungeons.ConfirmAsync(client, action);
         if (result != ResultCode.Success) client.SendResult(400, (ushort)result);
     }
 
@@ -1301,7 +1300,7 @@ public partial class SkillCastService : ISkillCastService
             _ethereal?.Hit(client, true, playerHit.Damage, EtherealHit.Skill, competing: competing);
             var hp = _combatService.DamagePlayerByPlayer(client, player, playerHit.Damage, magical);
             ProduceAttackEnergy(client, fields, skillLevel);
-            SkillHitProcs(client, player, playerHit.Flags, magical, fields.ElementalType);
+            SkillHitProcs(client, player, instanceId, playerHit, fields);
             return new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage, targetHandle, hp,
                 playerHit.Damage, (byte)playerHit.Flags, ElementalType: (byte)fields.ElementalType);
         }
@@ -1314,29 +1313,16 @@ public partial class SkillCastService : ISkillCastService
         var hate = HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, skillLevel, hit.Damage);
         var targetHp = _combatService.ApplyDamage(client, instanceId, targetHandle, hit.Damage, hate);
         _ethereal?.Hit(client, true, hit.Damage, EtherealHit.Skill);
-        SkillHitProcs(client, null, hit.Flags, magical, fields.ElementalType);
+        SkillHitProcs(client, null, instanceId, hit, fields);
         var type = magical ? SkillHitType.MagicDamage : SkillHitType.Damage;
 
         return new SkillHit(type, targetHandle, targetHp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType);
     }
 
-    private readonly Combat.EnergyProcs _energyProcs;
-
     /// <summary><c>StructSkill::ProcSkill</c> calls <c>OnAttack</c> for each damage result that did not miss.</summary>
-    private void SkillHitProcs(GameClient client, GameClient victim, HitFlags flags, bool magical, int element)
-    {
-        if ((flags & HitFlags.Miss) != 0 || _energyProcs is null)
-        {
-            return;
-        }
-
-        var type = Combat.EnergyProcs.Harmful | (magical ? Combat.EnergyProcs.MagicalSkill : Combat.EnergyProcs.PhysicalSkill);
-        _energyProcs.OnAttack(client, type, element, -1);
-        if (victim is not null)
-        {
-            _energyProcs.OnBeingAttacked(victim, type, element, -1);
-        }
-    }
+    private void SkillHitProcs(GameClient client, GameClient victim, long monster, HitResult hit, CastableBuffFields fields) =>
+        NotifySkillHit(new Combat.CombatActor(client), victim is null
+            ? new Combat.CombatActor(client, MonsterId: monster) : new Combat.CombatActor(victim), fields, hit);
 
     private static void ProduceAttackEnergy(GameClient client, CastableBuffFields fields, int skillLevel)
     {
@@ -1445,7 +1431,7 @@ public partial class SkillCastService : ISkillCastService
                         ? _combatService.DamagePlayerByPlayer(client, victim, hit.Damage, magical)
                         : _combatService.ApplyDamage(client, target.Id, handle, hit.Damage,
                             HateRules.SkillHate(fields.HateMod, fields.HateBasic, fields.HatePerSkl, level, hit.Damage));
-                    SkillHitProcs(client, target.Player, hit.Flags, magical, fields.ElementalType);
+                    SkillHitProcs(client, target.Player, target.Id, hit, fields);
                     hits.Add((target.Id, new SkillHit(magical ? SkillHitType.MagicDamage : SkillHitType.Damage,
                         handle, hp, hit.Damage, (byte)hit.Flags, ElementalType: (byte)fields.ElementalType)));
                     if (hp <= 0) break;

@@ -237,8 +237,13 @@ public class MonsterAiService
                 break;
             case MonsterAiAction.Attack:
                 StopToAttack(master, instanceId, handle, info, now);
-                var hit = _combat.RollMonsterHitOn(instanceId, summon.Stats, summon.Level, out var intervalTicks);
+                // ProvideTargetInfo: the summon's hunting expertise avoids part of what this creature type deals.
+                var hit = _combat.RollMonsterHitOn(instanceId, summon.Stats, summon.Level,
+                    summon.Expertise?.DamageTakenFrom(instance.CreatureGroup) ?? 1f, out var intervalTicks);
+                var wasAlive = summon.Hp > 0;
                 var summonHp = _creatures.DamageSummon(master, summon.Handle, hit.Damage);
+                _combat.NotifyHit(new Combat.CombatActor(master, MonsterId: instanceId), new Combat.CombatActor(master, summon.Handle), hit);
+                if (wasAlive && summonHp <= 0) _combat.NotifyDeath(new Combat.CombatActor(master, MonsterId: instanceId), new Combat.CombatActor(master, summon.Handle));
                 var intervalMs = CombatService.IntervalMs(intervalTicks);
                 var monsterHp = _worldState.GetHp(instanceId);
                 master.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, summon.Handle, intervalMs, intervalMs,
@@ -300,6 +305,7 @@ public class MonsterAiService
 
         // HP, property and, on the killing swing, the death penalty: after the swing that shows it.
         _combat.DamagePlayer(client, hit.Damage, instanceId, false);
+        _combat.NotifyHit(new Combat.CombatActor(client, MonsterId: instanceId), new Combat.CombatActor(client), hit);
 
         _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
     }

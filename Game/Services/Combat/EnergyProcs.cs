@@ -22,8 +22,6 @@ public sealed class EnergyProcs
 
     public const int OnAttackEffect = 32262;
     public const int OnBeingAttackedEffect = 32263;
-    private const int EveryWeapon = 99;
-    private const int AnyElement = 99;
 
     private readonly FrozenDictionary<int, (bool Attacking, decimal[] Vars)> _procs;
     private readonly Random _random;
@@ -64,7 +62,7 @@ public sealed class EnergyProcs
                 continue;
             }
 
-            var hpPercent = info.CharacterMaxHp > 0 ? (int)(100L * info.CharacterHp / info.CharacterMaxHp) : 100;
+            var hpPercent = AttackProcConditions.Percent(info.CharacterHp, info.CharacterMaxHp);
             if (Applies(proc.Vars, level, info.EquippedWeapon is { } weapon ? (int)weapon : 0, attackType, element,
                     hpPercent, otherHpPercent, _random.Next(100)))
             {
@@ -83,22 +81,8 @@ public sealed class EnergyProcs
     public static bool Applies(decimal[] vars, int level, int weaponClass, uint attackType, int element,
         int hpPercent, int otherHpPercent, int roll)
     {
-        var classes = new[] { (int)Var(vars, 8), (int)Var(vars, 9), (int)Var(vars, 10), (int)Var(vars, 11) };
-        if (classes[0] != EveryWeapon && !classes.Contains(weaponClass)) return false;
-
-        // _PROC_TAG::CheckProc: XRandom() % 100 >= ratio refuses.
-        if (roll >= Var(vars, 6) + Var(vars, 7) * level) return false;
-        var minHp = (int)Var(vars, 14); var maxHp = (int)Var(vars, 15);
-        var targetMin = (int)Var(vars, 16); var targetMax = (int)Var(vars, 17);
-        if (minHp != 0 && hpPercent < minHp) return false;
-        if (maxHp != 0 && hpPercent > maxHp) return false;
-        if (targetMin != 0 && (otherHpPercent == -1 || otherHpPercent < targetMin)) return false;
-        if (targetMax != 0 && (otherHpPercent == -1 || otherHpPercent >= targetMax)) return false;
-
-        var mask = (uint)Var(vars, 12);
-        if ((mask & attackType) != attackType) return false;
-        var tagElement = (int)Var(vars, 18);
-        return tagElement == AnyElement || tagElement == element;
+        return AttackProcConditions.Attack(vars, level, weaponClass, attackType, element,
+            hpPercent, otherHpPercent, roll);
     }
 
     private static decimal Var(decimal[] vars, int index) => vars is { } v && v.Length > index ? v[index] : 0m;

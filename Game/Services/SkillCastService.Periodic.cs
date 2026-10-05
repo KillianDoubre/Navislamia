@@ -114,8 +114,13 @@ public partial class SkillCastService
                 var level = monster >= 0 && _monsterState.TryGetInstance(monster, out var instance) ? instance.Level
                     : caster?.Owner.ConnectionInfo.CharacterLevel ?? 1;
                 hp = StateDamage(rule, hp, sourceStats, stats, level);
+                var wasAlive = target.Hp > 0;
                 var remaining = target.Summon is null ? _combatService.DamagePlayer(target.Owner, hp)
                     : _creatures?.DamageSummon(target.Owner, target.Handle, hp) ?? target.Hp;
+                if (wasAlive && remaining <= 0 && (monster >= 0 || caster is not null))
+                    _combatService.NotifyDeath(monster >= 0 ? new Combat.CombatActor(target.Owner, MonsterId: monster)
+                        : new Combat.CombatActor(caster.Owner, caster.Summon?.Handle ?? 0),
+                        new Combat.CombatActor(target.Owner, target.Summon?.Handle ?? 0));
                 state.Pulse.Total = SaturatedAdd(state.Pulse.Total, hp);
                 SendUnitPulse(target, state, source, StateResultType.DamageHp, hp, remaining, final, state.Pulse.Total, monster);
             }

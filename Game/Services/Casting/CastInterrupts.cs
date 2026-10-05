@@ -17,6 +17,10 @@ public interface ICastInterrupts
     void InterruptSummon(GameClient client, uint handle) { }
     void ForgetSummon(GameClient client, uint handle) { }
     void SummonDamaged(GameClient client, uint handle, int damage) { }
+    void ApplyCombatState(Combat.CombatActor target, Combat.CombatActor source, Combat.StateProc proc) { }
+
+    void ApplyCooldownProc(Combat.CombatActor owner, Combat.CooldownProc proc) { }
+
     void ApplyState(GameClient client, int stateId, int level, uint duration) { }
 }
 
@@ -37,5 +41,11 @@ public sealed class CastInterrupts : ICastInterrupts
     public void InterruptSummon(GameClient client, uint handle) => _listener?.CancelSummonCast(client, handle, force: true);
     public void ForgetSummon(GameClient client, uint handle) => _listener?.ForgetSummonCaster(client, handle);
     public void SummonDamaged(GameClient client, uint handle, int damage) => _listener?.OnSummonCasterDamaged(client, handle, damage);
+    public void ApplyCombatState(Combat.CombatActor target, Combat.CombatActor source, Combat.StateProc proc) =>
+        _listener?.ApplyCombatState(target, source, proc);
+
+    public void ApplyCooldownProc(Combat.CombatActor owner, Combat.CooldownProc proc) =>
+        _listener?.ApplyCooldownProc(owner, proc);
+
     public void ApplyState(GameClient client, int stateId, int level, uint duration) => _listener?.ApplyState(client, stateId, level, duration);
 }

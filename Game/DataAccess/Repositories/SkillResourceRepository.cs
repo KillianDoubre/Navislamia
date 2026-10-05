@@ -60,6 +60,7 @@ public class SkillResourceRepository : ISkillResourceRepository
                 Crossbow = skill.UseWithCrossbow,
                 OneHandStaff = skill.UseWithOneHandStaff,
                 TwoHandStaff = skill.UseWithTwoHandStaff,
+                Shield = skill.UseWithShieldOnly,
                 WeaponNotRequired = skill.UseWithWeaponNotRequired
             })
             .AsEnumerable()
@@ -195,6 +196,7 @@ public class SkillResourceRepository : ISkillResourceRepository
         if (row.Crossbow) { flags |= SkillWeaponFlag.Crossbow; }
         if (row.OneHandStaff) { flags |= SkillWeaponFlag.OneHandStaff; }
         if (row.TwoHandStaff) { flags |= SkillWeaponFlag.TwoHandStaff; }
+        if (row.Shield) { flags |= SkillWeaponFlag.Shield; }
 
         return flags;
     }
@@ -220,6 +222,7 @@ public class SkillResourceRepository : ISkillResourceRepository
         public bool Crossbow { get; init; }
         public bool OneHandStaff { get; init; }
         public bool TwoHandStaff { get; init; }
+        public bool Shield { get; init; }
         public bool WeaponNotRequired { get; init; }
     }
 }
