@@ -132,8 +132,8 @@ Manquent :
 
 ### Avant d'ouvrir à de vrais joueurs
 
-- **Anti-triche** : le serveur croit les positions du client (`TM_CS_MOVE_REQUEST`, `TM_CS_REGION_UPDATE`, 900) sans
-  contrôle de vitesse ni d'obstacles ; les paquets 54, 57 et 59 sont lus et ignorés.
+- **Anti-triche** : ~~le serveur croit les positions du client sans contrôle de vitesse ni d'obstacles~~ : porté le
+  2026-10-05 (`socle-anti-triche-deplacement.md`) ; les paquets 54, 57 et 59 restent lus et ignorés.
 - **Exploitation** : PostgreSQL démarre à la main avec les droits administrateur, aucune sauvegarde automatique des
   bases, aucun test de charge à plusieurs dizaines de joueurs.
 - **Validation en jeu** : la plupart des systèmes à plusieurs joueurs (échange, étals, enchères, groupe, guildes,

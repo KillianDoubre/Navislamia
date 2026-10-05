@@ -16,6 +16,8 @@ using Navislamia.Game.Services.GmCommands;
 using Serilog;
 using Serilog.Events;
 
+using Navislamia.Game.Services.Movement;
+
 namespace Navislamia.Game.Network.Clients;
 
 public class GameClient : Client
@@ -239,10 +241,30 @@ public class GameClient : Client
             return;
         }
 
+        // onMoveRequest: a dead character does not walk (IsDead, GameMessage.cpp:372).
+        if (ConnectionInfo.CharacterHandle != 0 && ConnectionInfo.CharacterHp <= 0) return;
+
         // onMoveRequest echoes GetRealMoveSpeed(): the stat move speed, slowed by the load
         // (StructPlayer::GetMoveSpeed), divided by 7. The echo, the peers' copy and the position estimate all
         // use it (docs/packet-specs/socle-vitesse-echo.md, socle-poids.md).
         if (Navislamia.Game.Services.Creatures.SummonFall.IsActive(ConnectionInfo, ServerClock.Now)) return;
+
+        // GetValidWayPoint: the walk is judged against where the server has the character, before anything moves
+        // (docs/packet-specs/socle-anti-triche-deplacement.md).
+        var claimedX = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+        var claimedY = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
+        var path = new (float X, float Y)[count];
+        for (var i = 0; i < count; i++)
+        {
+            path[i] = (BinaryPrimitives.ReadSingleLittleEndian(waypoints.Slice(i * 8, 4)),
+                BinaryPrimitives.ReadSingleLittleEndian(waypoints.Slice(i * 8 + 4, 4)));
+        }
+
+        var now = ServerClock.Now;
+        var (serverX, serverY) = Navislamia.Game.Services.Buffs.SkillCastRangeRules.PlayerPosition(ConnectionInfo, now);
+        var verdict = ConnectionInfo.CharacterHandle == 0
+            ? MoveVerdict.Accept
+            : PlayerMoveRules.Judge(serverX, serverY, claimedX, claimedY, path, _networkService.WorldCollision?.Map);
         var speed = _networkService.CarriedWeightService?.RealMoveSpeed(ConnectionInfo)
                     ?? ConnectionInfo.EchoedMoveSpeed;
         // A rider moves at its mount's speed when that is faster (StructSummon::GetRidingMoveSpeed).
@@ -252,6 +274,34 @@ public class GameClient : Client
         }
 
         ConnectionInfo.MoveSpeed = speed;
+        switch (verdict)
+        {
+            case MoveVerdict.Ignore:
+                return;
+            case MoveVerdict.Refuse:
+            case MoveVerdict.Correct:
+                _logger.Warning("{clientTag} move refused ({verdict}): claimed ({x}, {y}), server has ({sx}, {sy})",
+                    ClientTag, verdict, claimedX, claimedY, serverX, serverY);
+                SendResult((ushort)GamePackets.TM_CS_MOVE_REQUEST, (ushort)ResultCode.AccessDenied);
+                // A position the server cannot accept is walked back to the server's: an obstacle, as the official
+                // does, and a distance too (a deviation: the official only answers, which could strand a client).
+                if (PlayerMoveRules.InMap(claimedX, claimedY))
+                {
+                    PlayerMoves.WalkBackTo(this, _networkService.PlayerVisibilityService, serverX, serverY);
+                    SyncVisibleObjects();
+                    _networkService.PlayerVisibilityService.OnMove(this, Array.Empty<byte>());
+                }
+
+                return;
+        }
+
+        // StructPlayer::StandUp: a sitting character stands up to walk.
+        if (ConnectionInfo.IsSitting)
+        {
+            ConnectionInfo.IsSitting = false;
+            SendActorStatus();
+        }
+
         var total = 7 + 12 + count * 8;
         var packet = new byte[total];
         var s = packet.AsSpan();
@@ -272,23 +322,11 @@ public class GameClient : Client
         Connection.Send(packet);
 
         ConnectionInfo.ClientClockOffset = unchecked(curTime - ServerClock.Now);
-        ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
-        ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
 
-        // The last waypoint is where the character is going; with the start tick, the server estimates where
-        // it is between two reports (what its pet trails).
-        ConnectionInfo.MoveStartTick = ServerClock.Now;
-        if (count > 0)
-        {
-            var last = waypoints.Slice((count - 1) * 8, 8);
-            ConnectionInfo.DestinationX = BinaryPrimitives.ReadSingleLittleEndian(last.Slice(0, 4));
-            ConnectionInfo.DestinationY = BinaryPrimitives.ReadSingleLittleEndian(last.Slice(4, 4));
-        }
-        else
-        {
-            ConnectionInfo.DestinationX = ConnectionInfo.X;
-            ConnectionInfo.DestinationY = ConnectionInfo.Y;
-        }
+        // SetMultipleMove: the walk starts at the client's position (startPos) and follows its waypoints at the echoed
+        // speed: the server's estimate of the character until the next request (what its pet trails, what the next
+        // walk is judged against).
+        ConnectionInfo.BeginWalk(claimedX, claimedY, path, now);
 
         SyncVisibleObjects();
         RefreshEventArea();
@@ -310,12 +348,18 @@ public class GameClient : Client
         }
 
         var input = buffer.AsSpan(7);
-        ConnectionInfo.X = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
-        ConnectionInfo.Y = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
+        var now = ServerClock.Now;
+        var reportedX = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(4, 4));
+        var reportedY = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(8, 4));
+        var (serverX, serverY) = Navislamia.Game.Services.Buffs.SkillCastRangeRules.PlayerPosition(ConnectionInfo, now);
+        var (x, y) = ConnectionInfo.CharacterHandle == 0
+            ? (reportedX, reportedY)
+            : PlayerMoveRules.Trusted(serverX, serverY, reportedX, reportedY);
         ConnectionInfo.Z = BinaryPrimitives.ReadSingleLittleEndian(input.Slice(12, 4));
 
-        // A real position: the estimate of a walking character restarts from it.
-        ConnectionInfo.MoveStartTick = ServerClock.Now;
+        // The walk goes on from the position kept (onRegionUpdate takes no position from the client; a close one is
+        // kept here, which absorbs the drift of the estimate).
+        ConnectionInfo.Rebase(x, y, now);
         SyncVisibleObjects();
         RefreshEventArea();
 
@@ -341,8 +385,19 @@ public class GameClient : Client
         // StructPlayer::ChangeLocation judges the claim against the server's estimate before the session takes it:
         // TM_SC_CHANGE_LOCATION (901), and the new place's weather (docs/packet-specs/901-change-location.md).
         _networkService.PlayerLocationService?.ChangeByRequest(this, x, y);
-        ConnectionInfo.X = x;
-        ConnectionInfo.Y = y;
+        if (ConnectionInfo.CharacterHandle != 0)
+        {
+            var now = ServerClock.Now;
+            var (serverX, serverY) = Navislamia.Game.Services.Buffs.SkillCastRangeRules.PlayerPosition(ConnectionInfo, now);
+            (x, y) = PlayerMoveRules.Trusted(serverX, serverY, x, y);
+            ConnectionInfo.Rebase(x, y, now);
+        }
+        else
+        {
+            ConnectionInfo.X = x;
+            ConnectionInfo.Y = y;
+        }
+
         SyncVisibleObjects();
         RefreshEventArea();
     }

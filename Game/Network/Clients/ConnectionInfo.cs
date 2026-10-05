@@ -379,10 +379,59 @@ public class ConnectionInfo
     /// </summary>
     public (float X, float Y) PositionAt(uint nowTick)
     {
+        var path = _movePath;
+        if (path is { } walk && walk.StartTick == MoveStartTick && walk.Points.Length > 0
+            && walk.Points[^1].X == DestinationX && walk.Points[^1].Y == DestinationY)
+        {
+            // The whole accepted path, leg by leg (ArMoveVector), as long as nothing moved the character since.
+            return Navislamia.Game.Services.MonsterMovement.PositionAlong(X, Y, walk.Points, walk.Ends, walk.StartTick,
+                nowTick);
+        }
+
         var length = MathF.Sqrt((DestinationX - X) * (DestinationX - X) + (DestinationY - Y) * (DestinationY - Y));
         var endTick = Navislamia.Game.Services.MonsterMovement.EndTick(MoveStartTick, length, MoveSpeed);
         return Navislamia.Game.Services.MonsterMovement.PositionAt(X, Y, DestinationX, DestinationY, MoveStartTick,
             endTick, nowTick);
+    }
+
+    private sealed record MovePath((float X, float Y)[] Points, uint[] Ends, uint StartTick);
+
+    private volatile MovePath _movePath;
+
+    /// <summary>
+    /// <c>SetMultipleMove</c> of an accepted walk: from (<paramref name="x"/>, <paramref name="y"/>) along
+    /// <paramref name="path"/> at <see cref="MoveSpeed"/>, from <paramref name="nowTick"/>. An empty path is a stop there.
+    /// </summary>
+    public void BeginWalk(float x, float y, (float X, float Y)[] path, uint nowTick)
+    {
+        X = x;
+        Y = y;
+        MoveStartTick = nowTick;
+        (DestinationX, DestinationY) = path.Length > 0 ? path[^1] : (x, y);
+        _movePath = path.Length > 0
+            ? new MovePath(path, Navislamia.Game.Services.MonsterMovement.PathEndTicks(x, y, path, nowTick, MoveSpeed),
+                nowTick)
+            : null;
+    }
+
+    /// <summary>
+    /// Moves the walk's origin to (<paramref name="x"/>, <paramref name="y"/>) at <paramref name="nowTick"/> without
+    /// changing where it goes: the legs already walked are dropped, the rest is timed again from there.
+    /// </summary>
+    public void Rebase(float x, float y, uint nowTick)
+    {
+        var remaining = Array.Empty<(float X, float Y)>();
+        if (_movePath is { } walk && walk.StartTick == MoveStartTick)
+        {
+            var next = Array.FindIndex(walk.Ends, end => unchecked((int)(nowTick - end)) < 0);
+            if (next >= 0) remaining = walk.Points[next..];
+        }
+        else if (DestinationX != X || DestinationY != Y)
+        {
+            remaining = new[] { (DestinationX, DestinationY) };
+        }
+
+        BeginWalk(x, y, remaining, nowTick);
     }
 
     /// <summary>

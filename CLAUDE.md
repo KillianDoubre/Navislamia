@@ -196,6 +196,14 @@ pipe-delimited list of `QS2`, `KMT` and chat-mode entries stored as text in
 characters. Do not split this value into the `quick_slot`, `current_key` or `saved_key` properties
 used by later clients such as Epic 9.4; this Epic 7.3 executable only registers `client_info`.
 
+**A walk is judged against where the server has the player** (`docs/packet-specs/socle-anti-triche-deplacement.md`,
+official `onMoveRequest`/`GetValidWayPoint`): `ConnectionInfo.BeginWalk` keeps the accepted path and `PositionAt`
+follows it leg by leg at the echoed speed; a dead player's request is dropped; a claimed position outside the map or
+more than 525 units from the estimate, or a way through a `.nfa` obstacle, answers `ACCESS_DENIED` and walks the
+player back (`Movement/PlayerMoveRules`, `PlayerMoves`); a region update or a 900 keeps the client's position only
+within 120 units of the estimate. A death stops the walk for the player and its observers. Any server-side change of
+a player's position should go through `BeginWalk`/`Rebase`; changing `MoveStartTick` or the destination at least drops the kept path.
+
 Movement uses the client's current `x/y` fields for visibility; the final waypoint is a future
 destination and must never be used as the current position.
 
