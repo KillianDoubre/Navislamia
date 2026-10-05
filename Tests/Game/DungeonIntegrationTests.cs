@@ -62,7 +62,7 @@ public class DungeonIntegrationTests
         dialogs.Select(player, Select("warp_to_instance_dungeon(40000,3)"));
         A.CallTo(() => service.ExecuteAsync(A<GameClient>._, A<PropAction>._)).MustNotHaveHappened();
         dialogs.Select(player, Select("warp_to_instance_dungeon(40000,0)"));
-        A.CallTo(() => service.ExecuteAsync(player, PropScript.Parse("warp_to_instance_dungeon(40000,0)")))
+        A.CallTo(() => service.ConfirmAsync(player, PropScript.Parse("warp_to_instance_dungeon(40000,0)")))
             .MustHaveHappenedOnceExactly();
     }
 

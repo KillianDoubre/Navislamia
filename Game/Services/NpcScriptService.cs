@@ -54,23 +54,28 @@ public sealed class NpcScriptService : INpcScriptService
     private readonly IEventAreaWorldEffects _worldEffects;
     private readonly TimeProvider _time;
     private readonly ICreatureService _summonService;
+    private readonly Dungeons.IDungeonService _dungeons;
 
     public NpcScriptService(NpcScriptCatalog scripts, ICharacterRepositoryFactory repositories, CharacterGate gate,
         IItemMatchCatalog items, IAuctionCatalog names, IQuestService quests = null, IStatService stats = null,
         ICreatureEvents creatures = null, ICastInterrupts states = null, IWarpService warp = null,
         IInventoryChangeFeed feed = null, IOptions<NpcScriptOptions> options = null, ILevelingService leveling = null,
-        IEventAreaWorldEffects worldEffects = null, TimeProvider time = null, ICreatureService summonService = null)
+        IEventAreaWorldEffects worldEffects = null, TimeProvider time = null, ICreatureService summonService = null,
+        Dungeons.IDungeonService dungeons = null)
     {
         _scripts = scripts; _repositories = repositories; _gate = gate; _items = items; _names = names;
         _quests = quests; _stats = stats; _creatures = creatures; _states = states; _warp = warp; _feed = feed;
         _options = options?.Value ?? new NpcScriptOptions();
         _leveling = leveling;
         _worldEffects = worldEffects; _time = time ?? TimeProvider.System; _summonService = summonService;
+        _dungeons = dungeons;
     }
 
     public bool Handles(string function) => _scripts.Handles(function)
         || function.StartsWith("NPC_all_2012_EnchantEvent_b_", StringComparison.Ordinal)
-        || function is "set_flag" or "dlg_general" or "dlg_special" or "creature_name_change_box";
+        || function is "set_flag" or "dlg_general" or "dlg_special" or "creature_name_change_box"
+            or "show_channel_set" or "enter_secret_dungeon" or "enter_instance_dungeon" or "leave_instance_dungeon"
+            or "recall_feather";
 
     public Task<NpcScriptPage> RunAsync(GameClient client, uint npcHandle, long revision, string trigger) =>
         RunCoreAsync(client, npcHandle, revision, trigger);
@@ -185,13 +190,49 @@ public sealed class NpcScriptService : INpcScriptService
                 Bind("dlg_special", a => {
                     if (a.Count < 3 || !Recipient(a, 3)) return Nil();
                     var callback = Text(a, 1).Split('\0')[0].Trim();
-                    var frame = GameSmallPackets.ShowWindow(Text(a, 0), Text(a, 2), callback);
-                    if (frame is not null) uiEffects.Add(() => {
-                        lock (info.NpcVisibilityLock) info.ScriptWindowTrigger = callback;
-                        client.Connection.Send(frame);
-                    });
+                    var windowName = Text(a, 0); var argument = Text(a, 2);
+                    if (GameSmallPackets.ShowWindow(windowName, argument, callback) is not null)
+                        uiEffects.Add(() => ScriptWindows.Show(client, windowName, argument, callback));
                     return Nil();
                 });
+                Bind("show_channel_set", a => {
+                    if (Recipient(a, 0)) uiEffects.Add(() => ScriptWindows.Show(client, "number_input_window", info.CharacterName, "on_channel_set"));
+                    return Nil();
+                });
+                foreach (var name in new[] { "enter_secret_dungeon", "enter_instance_dungeon", "leave_instance_dungeon" })
+                {
+                    var windowEntry = name;
+                    Bind(windowEntry, a => {
+                        if (a.Count < 1 || !Recipient(a, 1) || _dungeons is null) return Nil();
+                        var action = PropScript.Parse(windowEntry + "(" + Number(a, 0).ToString(CultureInfo.InvariantCulture) + ")");
+                        uiEffects.Add(() => _ = _dungeons.ConfirmAsync(client, action)); return Nil();
+                    });
+                }
+                foreach (var name in new[] { "warp_to_secret_dungeon", "warp_to_instance_dungeon", "exit_indun" })
+                {
+                    var dungeonEntry = name;
+                    Bind(dungeonEntry, a => {
+                        if (a.Count < 1 || _dungeons is null) return Nil();
+                        var hasType = dungeonEntry == "warp_to_instance_dungeon" && a.Count > 1 && a[1].Type == DataType.Number;
+                        if (!Recipient(a, hasType ? 2 : 1)) return Nil();
+                        var expression = dungeonEntry + "(" + Number(a, 0).ToString(CultureInfo.InvariantCulture)
+                            + (hasType ? "," + Number(a, 1).ToString(CultureInfo.InvariantCulture) : "") + ")";
+                        var action = PropScript.Parse(expression);
+                        uiEffects.Add(() => _ = _dungeons.ExecuteAsync(client, action)); return Nil();
+                    });
+                }
+                Bind("recall_feather", a => {
+                    if (a.Count < 3 || !Recipient(a, 3) || _warp is null) return Nil();
+                    // SCRIPT_RecallFeather truncates x/y to int, unlike SCRIPT_Warp's AR_UNIT.
+                    destination = (checked((int)Number(a, 0)), checked((int)Number(a, 1)), checked((byte)Number(a, 2)));
+                    return Nil();
+                });
+                // There are currently no active public channels in this server. The official
+                // accessors return layer/count 0 and min/max 1 for an unallocated channel.
+                Bind("get_layer_of_channel", _ => Numeric(0));
+                Bind("get_user_count_in_channel", _ => Numeric(0));
+                Bind("get_min_channel_num", _ => Numeric(1));
+                Bind("get_max_channel_num", _ => Numeric(1));
                 CreatureCard Creature(long target) {
                     lock (info.SummonLock)
                         return target is >= 0 and < CreatureRules.MaxSlots
