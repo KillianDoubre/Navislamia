@@ -521,6 +521,11 @@ public class Program
         services.AddSingleton<Navislamia.Game.Services.Party.IPartyService, Navislamia.Game.Services.Party.PartyService>();
         services.AddSingleton<Navislamia.Game.Services.Friends.IFriendStore, Navislamia.Game.Services.Friends.FriendStore>();
         services.AddSingleton<Navislamia.Game.Services.Friends.IFriendService, Navislamia.Game.Services.Friends.FriendService>();
+        // La ferme de créatures : la table dédiée et son chemin de lecture (6000 → 6001), §5.6 points 1 et 3.
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmStore,
+            Navislamia.Game.Services.Creatures.CreatureFarmStore>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmService,
+            Navislamia.Game.Services.Creatures.CreatureFarmService>();
         services.AddSingleton<IPlayerLocationService, PlayerLocationService>();
         services.AddSingleton<Navislamia.Game.Services.Combat.StateProcs>(provider =>
             new Navislamia.Game.Services.Combat.StateProcs(provider.GetRequiredService<Navislamia.Game.DataAccess.Repositories.Interfaces.ISkillResourceRepository>()));

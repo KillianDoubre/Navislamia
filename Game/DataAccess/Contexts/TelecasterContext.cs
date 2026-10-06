@@ -7,6 +7,7 @@ public class TelecasterContext : SoftDeletionContext
 {
     public DbSet<DonationScoreEntity> DonationScores { get; set; }
     public DbSet<CharacterFriendEntity> CharacterFriends { get; set; }
+    public DbSet<CreatureFarmEntity> CreatureFarms { get; set; }
     public TelecasterContext(DbContextOptions<TelecasterContext> options) : base(options) { }
 
     public DbSet<AllianceEntity> Alliances { get; set; }
@@ -51,6 +52,16 @@ public class TelecasterContext : SoftDeletionContext
             .HasForeignKey(f => f.OwnerId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<CharacterFriendEntity>().HasOne<CharacterEntity>().WithMany()
             .HasForeignKey(f => f.TargetId).OnDelete(DeleteBehavior.Cascade);
+        // One farm row per character and per slot: three slots at most, none of them shared. The unique
+        // index ignores soft-deleted rows like the two above.
+        modelBuilder.Entity<CreatureFarmEntity>().HasIndex(f => new { f.CharacterId, f.Slot }).IsUnique()
+            .HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<CreatureFarmEntity>().HasIndex(f => f.CardItemId);
+        // The navigation is bound by name on purpose: an explicit HasOne<CharacterEntity>() leaves
+        // CreatureFarmEntity.Character to the convention, which then mints a second, shadow relationship
+        // (nullable CharacterId1 + its index), because CharacterId is already taken by this one.
+        modelBuilder.Entity<CreatureFarmEntity>().HasOne(f => f.Character).WithMany()
+            .HasForeignKey(f => f.CharacterId).OnDelete(DeleteBehavior.Cascade);
         base.OnModelCreating(modelBuilder);
 
         ConfigureAuctions(modelBuilder);

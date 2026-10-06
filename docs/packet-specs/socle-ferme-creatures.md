@@ -507,6 +507,12 @@ d'une créature à l'expiration, ni formule d'expérience.
 
 ## 8. Décision de Killian — 2026-09-30 : paquets pris en charge, système non implémenté
 
+> **OBSOLÈTE depuis le 2026-10-06.** Cette décision est levée : la référence officielle de logique
+> (`reference/official2015`) est disponible localement, confrontée à l'ère 7.3, et le sous-ensemble
+> minimal à porter est défini. Le savoir à jour, les valeurs 7.3 mesurées et les questions restantes
+> sont dans `docs/packet-specs/socle-ferme-creatures-officielle.md`. Le texte ci-dessous est conservé
+> tel quel (historique de la décision retirée) et **ne doit plus servir de base à un lot de code**.
+
 **La ferme de créatures ne sera pas implémentée** : le système était peu utilisé en retail, et il faudrait en
 inventer l'essentiel. Le socle livré reste la prise en charge complète des paquets : 6000 reçoit une 6001 vide,
 6002/6004/6006/6008 sont lus, bornés et journalisés sans réponse, et aucun id déclaré n'atteint le `throw` final.
