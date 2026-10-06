@@ -569,7 +569,10 @@ blocking polygons are the client's `.nfa` files, extracted to `DevConsole/Maps` 
 areas overlap them), a wander into or across an obstacle is refused, and a chase or a return goes around
 through `PathFinder` (A* over a visibility graph; a monster inside an obstacle may walk out). A path travels
 as a multi-waypoint `TS_SC_MOVE` and is interpolated leg by leg. `GameModule.LoadMaps` read `SkipLoading`
-backwards and the map parsers were culture-sensitive: the maps had never loaded.
+backwards and the map parsers were culture-sensitive: the maps had never loaded. **`MapService` reads the location,
+script and event area files only, one map after the other (under 100 ms)**: it used to insert the `.nfa` obstacles a
+second time into two quadtrees nothing read, about 30 of the server's 40 startup seconds, while `WorldCollision` loads
+them in under 100 ms; its parallel loading also raced on the shared region and script lists.
 
 ## Monster AI
 

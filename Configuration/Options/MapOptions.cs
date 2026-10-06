@@ -6,6 +6,5 @@ public class MapOptions
     public int Height { get; set; }
     public int MaxLayer { get; set; }
     public bool SkipLoading { get; set; }
-    public bool SkipLoadingNfa { get; set; }
     public bool NoCollisionCheck { get; set; }
 }

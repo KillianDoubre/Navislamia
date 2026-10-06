@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 
 using Navislamia.Configuration.Options;
@@ -29,8 +28,6 @@ namespace Navislamia.Game.Maps
 
         private readonly QuadTree _qtLocationInfo;
         private readonly object _locationSync = new();
-        private static QuadTree _qtBlockInfo;
-        private static QuadTree _qtAutoBlockInfo;
         private static Dictionary<int, PropContactScriptInfo> _propScriptInfo;
         private static Dictionary<int, List<EventAreaInfo>> _eventAreaInfo;
         private static EventAreaInfo[] _eventAreaSnapshot = Array.Empty<EventAreaInfo>();
@@ -63,8 +60,6 @@ namespace Navislamia.Game.Maps
             _logger = logger;
 
             _qtLocationInfo = new QuadTree(0, 0, _mapOptions.Width, _mapOptions.Height);
-            _qtBlockInfo = new QuadTree(0, 0, _mapOptions.Width, _mapOptions.Height);
-            _qtAutoBlockInfo = new QuadTree(0, 0, _mapOptions.Width, _mapOptions.Height);
             _propScriptInfo = new Dictionary<int, PropContactScriptInfo>();
             lock (EventAreaSync)
             {
@@ -114,136 +109,67 @@ namespace Navislamia.Game.Maps
             }
         }
 
+        /// <remarks>
+        /// The .nfa blocking polygons are not read here: <c>WorldCollision</c> loads them for the whole server in under
+        /// 100 ms. This method used to insert them a second time into two quadtrees nothing ever read, which took
+        /// about 30 of the server's 40 startup seconds. The remaining files are read one map after the other: the
+        /// region and script lists they fill are shared, and the parallel loading raced on them.
+        /// </remarks>
         public void Start(string directory)
         {
-            List<Task> tasks = new();
-
-            var skipLoadingNfa = _mapOptions.SkipLoadingNfa;
-
-            tasks.Add(Task.Run(() =>
-            {
-                SeamlessWorldInfo.Initialize($"{directory}\\TerrainSeamlessWorld.cfg");
-                _logger.LogDebug("TerrainSeamlessWorld.cfg loaded!");
-            }));
-
-            tasks.Add(Task.Run(() =>
-            {
-                PropInfo.Initialize($"{directory}\\TerrainPropInfo.cfg");
-                _logger.LogDebug("TerrainPropInfo.cfg loaded!");
-            }));
-
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-                var worker = Task.WhenAll(tasks);
-                worker.Wait();
-
-                if (!worker.IsCompletedSuccessfully)
-                {
-                    foreach (var t in tasks.Where(t => t.IsFaulted))
-                    {
-                        _logger.LogError("A task has failed {exception}", t.Exception?.Message); // TODO: should include stack trace
-                        throw new Exception();
-                    }
-                    return;
-                }
-
-                tasks.Clear();
+                SeamlessWorldInfo.Initialize(Path.Combine(directory, "TerrainSeamlessWorld.cfg"));
+                PropInfo.Initialize(Path.Combine(directory, "TerrainPropInfo.cfg"));
 
                 _tileSize = SeamlessWorldInfo.TileLength;
                 MapCount = SeamlessWorldInfo.SizeMapCount;
 
                 var mapLength = SeamlessWorldInfo.TileLength * SeamlessWorldInfo.SegmentCountPerMap * SeamlessWorldInfo.TileCountPerSegment;
                 var attrLen = SeamlessWorldInfo.TileLength / AttrCountPerTile;
+                var maps = 0;
 
                 for (var y = 0; y < MapCount.CY; ++y)
                 {
                     for (var x = 0; x < MapCount.CX; ++x)
                     {
-                        var cellX = x;
-                        var cellY = y;
-                        _logger.LogDebug("Loading map: m{x}_{y}...", x, y);
-
                         var locationFileName = SeamlessWorldInfo.GetLocationFileName(x, y);
-
                         if (string.IsNullOrEmpty(locationFileName))
                         {
                             continue;
                         }
 
+                        maps++;
                         if (SeamlessWorldInfo.GetWorldId(x, y) != -1)
                         {
                             SetDefaultLocation(x, y, mapLength, SeamlessWorldInfo.GetWorldId(x, y));
                         }
 
-                        tasks.Add(Task.Run(() =>
-                        {
-                            LoadLocationFile($"{directory}\\{locationFileName}", cellX, cellY, attrLen, mapLength);
-                        }));
+                        LoadLocationFile(Path.Combine(directory, locationFileName), x, y, attrLen, mapLength);
 
                         var scriptFileName = SeamlessWorldInfo.GetScriptFileName(x, y);
-
-                        if (string.IsNullOrEmpty(scriptFileName))
+                        if (!string.IsNullOrEmpty(scriptFileName))
                         {
-                            continue;
-                        }
-
-                        tasks.Add(Task.Run(() =>
-                        {
-                            LoadScriptFile($"{directory}\\{scriptFileName}", cellX, cellY, attrLen, mapLength, PropInfo);
-                        }));
-
-                        if (!skipLoadingNfa)
-                        {
-                            var attributeFileName = SeamlessWorldInfo.GetAttributePolygonFileName(x, y);
-
-                            if (string.IsNullOrEmpty(attributeFileName))
-                            {
-                                continue;
-                            }
-
-                            tasks.Add(Task.Run(() =>
-                            {
-                                LoadAttributeFile($"{directory}\\{attributeFileName}", cellX, cellY, attrLen, mapLength);
-                            }));
+                            LoadScriptFile(Path.Combine(directory, scriptFileName), x, y, attrLen, mapLength, PropInfo);
                         }
 
                         var eventAreaFileName = SeamlessWorldInfo.GetEventAreaFileName(x, y);
-
-                        if (string.IsNullOrEmpty(eventAreaFileName))
+                        if (!string.IsNullOrEmpty(eventAreaFileName))
                         {
-                            continue;
+                            LoadEventAreaFile(Path.Combine(directory, eventAreaFileName), x, y, attrLen, mapLength);
                         }
-
-                        tasks.Add(Task.Run(() =>
-                        {
-                            LoadEventAreaFile($"{directory}\\{eventAreaFileName}", cellX, cellY, attrLen, mapLength);
-                        }));
-
-                        worker = Task.WhenAll(tasks);
-                        worker.Wait();
-
-                        if (worker.IsCompletedSuccessfully)
-                        {
-                            continue;
-                        }
-
-                        foreach (var t in tasks.Where(t => t.IsFaulted))
-                        {
-                            _logger.LogError("A task has failed {exception}", t.Exception?.Message); // TODO: should include stack trace
-                            throw new Exception();
-                        }
-
-                        return;
                     }
                 }
+
+                _logger.LogInformation("Loaded {maps} maps of a {cx} x {cy} world ({regions} script regions, {areas} event areas) in {ms} ms",
+                    maps, MapCount.CX, MapCount.CY, RegionList.Count, GetEventAreas().Length,
+                    (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             }
             catch (Exception ex)
             {
-                _logger.LogError("Failed loads maps! {exception}", ex); // TODO: needs to include stack trace
-                return;
+                _logger.LogError(ex, "Failed to load the maps");
             }
-
-            _logger.LogDebug("{mapCount} Maps loaded successfully!", MapCount.CX + MapCount.CY);
         }
 
         private void SetDefaultLocation(int x, int y, float mapLength, int locationId)
@@ -261,53 +187,6 @@ namespace Navislamia.Game.Maps
             locationInfo.Set(points);
 
             RegisterMapLocationInfo(locationInfo);
-        }
-
-        private void LoadAttributeFile(string fileName, int x, int y, float attrLen, float mapLength)
-        {
-            if (!File.Exists(fileName))
-            {
-                return;
-            }
-
-            KStream stream = new(fileName);
-
-            var polygonCnt = stream.ReadInt();
-
-            PolygonF blockInfo = new();
-
-            for (var i = 0; i < polygonCnt; ++i)
-            {
-                var pointCount = stream.ReadInt();
-
-                if (pointCount < 3)
-                    continue;
-
-                var points = new PointF[pointCount];
-
-                for (var pointNum = 0; pointNum < points.Length; ++pointNum)
-                {
-                    points[pointNum] = new PointF(stream.ReadInt(), stream.ReadInt());
-                }
-
-                foreach (var point in points)
-                {
-                    point.X = mapLength * x + point.X * attrLen;
-                    point.Y = mapLength * y + point.Y * attrLen;
-                }
-
-                if (!blockInfo.Set(points))
-                {
-                    continue;
-                }
-
-                _qtBlockInfo.Add(new MapLocationInfo(new PolygonF(blockInfo)));
-
-                if (pointCount < 50)
-                {
-                    _qtAutoBlockInfo.Add(new MapLocationInfo(new PolygonF(blockInfo)));
-                }
-            }
         }
 
         private void LoadEventAreaFile(string fileName, int x, int y, float attrLen, float mapLength)
