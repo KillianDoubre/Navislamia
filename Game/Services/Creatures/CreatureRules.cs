@@ -88,6 +88,27 @@ public static class CreatureRules
     /// card carrying the summon flag); a card already bound keeps its place wherever it moves. A card listed
     /// twice is bound once, and slots past the Creature Control level stay empty.
     /// </summary>
+    /// <summary>
+    /// Why the cards asked for and left out of <paramref name="resolved"/> were left out, in the order of
+    /// <c>StructPlayer::EquipSummon</c>'s checks: a slot beyond the Creature Control level, a card that is not tamed
+    /// (no <c>ITEM_FLAG_SUMMON</c>: an empty card), or a summon that could not be allocated.
+    /// </summary>
+    public static IReadOnlyList<(uint Card, string Reason)> FormationRefusals(IReadOnlyList<uint> requested,
+        IReadOnlyList<long> resolved, int slotCount, Func<long, bool> isBound)
+    {
+        var refusals = new List<(uint, string)>();
+        for (var i = 0; i < requested.Count; i++)
+        {
+            var card = requested[i];
+            if (card == 0 || System.Linq.Enumerable.Contains(resolved, (long)card)) continue;
+            refusals.Add((card, i >= slotCount
+                ? $"slot {i + 1} is beyond the {slotCount} slot(s) of Creature Control"
+                : isBound(card) ? "its summon could not be allocated" : "the card is not tamed (no ITEM_FLAG_SUMMON)"));
+        }
+
+        return refusals;
+    }
+
     public static long[] ResolveFormation(IReadOnlyList<long> current, IReadOnlyList<uint> requested, int slotCount,
         Func<long, bool> canBind, Func<long, bool> isInWorld)
     {

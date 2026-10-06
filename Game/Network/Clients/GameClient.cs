@@ -856,15 +856,12 @@ public class GameClient : Client
     }
 
     /// <summary>
-    /// TM_EQUIP_SUMMON (303) from the client, 32 bytes: the player validated a creature formation. NGemity
-    /// (<c>WorldSession::onEquipSummon</c>) keeps a card only when it is a summon card owned by the player
-    /// and carrying <c>ITEM_FLAG_SUMMON</c> (bit 31, a tamed card), within the slot count the Creature
-    /// Control skill (1801) allows, then <b>always</b> answers with the resulting formation. Nothing sets
-    /// that flag here — there is no taming and <c>/item</c> writes no flag — so every card is refused and the
-    /// resulting formation is the stored one: it is re-sent unchanged, with the request's
-    /// <c>open_dialog</c>, which is the reference's own answer for that case and lets the window resync
-    /// instead of waiting. Nothing is written. Before this arm the declared id reached the
-    /// "Unknown Packet Type" throw. See docs/packet-specs/324-get-summon-setup-info.md §14.
+    /// TM_EQUIP_SUMMON (303) from the client, 32 bytes: the player validated a creature formation.
+    /// <c>StructPlayer::EquipSummon</c> keeps a card only when it is a summon card owned by the player and carrying
+    /// <c>ITEM_FLAG_SUMMON</c> (bit 31, a tamed card), within the slot count the Creature Control skill (1801)
+    /// allows, then <b>always</b> answers with the resulting formation (<c>CreatureService.EquipAsync</c>, which logs
+    /// each card it leaves out and why). Before this arm the declared id reached the "Unknown Packet Type" throw.
+    /// See docs/packet-specs/324-get-summon-setup-info.md §14.
     /// </summary>
     private void HandleEquipSummon(byte[] buffer)
     {
@@ -885,7 +882,7 @@ public class GameClient : Client
         if (_logger.IsEnabled(LogEventLevel.Debug))
         {
             _logger.Debug(
-                "TM_EQUIP_SUMMON ({id}) received from {clientTag}: open_dialog={openDialog} cards={cards}; no card is tamed, the stored formation is sent back",
+                "TM_EQUIP_SUMMON ({id}) received from {clientTag}: open_dialog={openDialog} cards={cards}",
                 (ushort)GamePackets.TM_EQUIP_SUMMON, ClientTag, request.OpenDialog,
                 string.Join(",", request.CardHandles));
         }

@@ -92,6 +92,25 @@ public partial class CreatureTests
             .Should().Equal(10, 0, 0, 0, 0, 0);
     }
 
+    [Test]
+    public void A_card_left_out_of_a_formation_says_why()
+    {
+        // 2026-10-04: two tamed cards (170, 173) with Creature Control at level 1 — one slot.
+        var tamed = new HashSet<long> { 170, 173 };
+        var requested = new uint[] { 170, 173, 0, 0, 0, 0 };
+        var resolved = CreatureRules.ResolveFormation(new long[6], requested, 1, tamed.Contains, _ => false);
+        CreatureRules.FormationRefusals(requested, resolved, 1, tamed.Contains).Should().ContainSingle()
+            .Which.Should().Be((173u, "slot 2 is beyond the 1 slot(s) of Creature Control"));
+
+        // 2026-10-06: an empty card (146) next to a tamed one, three slots.
+        requested = new uint[] { 173, 146, 0, 0, 0, 0 };
+        resolved = CreatureRules.ResolveFormation(new long[] { 173, 0, 0, 0, 0, 0 }, requested, 3, tamed.Contains,
+            _ => false);
+        resolved.Should().Equal(173, 0, 0, 0, 0, 0);
+        CreatureRules.FormationRefusals(requested, resolved, 3, tamed.Contains).Should().ContainSingle()
+            .Which.Should().Be((146u, "the card is not tamed (no ITEM_FLAG_SUMMON)"));
+    }
+
     private sealed class Harness
     {
         public readonly ICharacterService Characters = A.Fake<ICharacterService>();

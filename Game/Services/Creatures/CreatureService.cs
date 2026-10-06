@@ -2141,6 +2141,8 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             card => CanBind(info, card), card => IsCardInWorld(info, card));
         if (resolved is null)
         {
+            // A summon in the world cannot leave the formation (EquipSummon throws): the stored one goes back.
+            _logger.Information("{clientTag} formation refused: a summon out in the world would leave it", client.ClientTag);
             client.Connection.Send(GameCharacterPackets.BuildEquipSummon(current, openDialog));
             return;
         }
@@ -2185,6 +2187,14 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
 
         await _characters.SaveCreatureFormationAsync(info.CharacterName, resolved, MainSummonId(info));
         client.Connection.Send(GameCharacterPackets.BuildEquipSummon(resolved, openDialog));
+        // The client keeps no reason: say in the log which card was left out and why.
+        foreach (var (card, reason) in CreatureRules.FormationRefusals(cardHandles, resolved, slotCount, id => CanBind(info, id)))
+        {
+            _logger.Information("{clientTag} formation: card {card} left out, {reason}", client.ClientTag, card, reason);
+        }
+
+        _logger.Debug("{clientTag} formation {formation} sent back (Creature Control {slots} slot(s))", client.ClientTag,
+            string.Join(",", resolved), slotCount);
 
         // UpdateTitleConditionBySummonEquip: the formation conditions follow the new formation.
         _ = _titles?.RefreshAsync(client);

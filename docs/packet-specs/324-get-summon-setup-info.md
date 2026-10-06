@@ -636,3 +636,23 @@ avec la réponse que la référence donne dans ce cas plutôt qu'un silence.
 
 Tests : `Tests/Game/EquipSummonPacketsTests.cs` (lecture, longueurs refusées, renvoi de la formation par la
 vraie boucle de réception, silence avant l'entrée en jeu). 1 209 tests, 0 échec.
+
+## 15. Formation « mal affichée au-delà d'une créature » (2026-10-06)
+
+Bug noté : la formation s'affiche mal dès la deuxième créature. Les journaux des essais montrent deux refus, tous deux
+conformes à `StructPlayer::EquipSummon` (`StructPlayer.cpp:6294-6440`) :
+
+- **4 octobre** : cartes 170 et 173, toutes deux apprivoisées, avec Creature Control (1801) au **niveau 1**. L'officiel
+  ouvre un emplacement par niveau (`nCreatureControlLevel`, au plus 6) : la deuxième est retirée et la réponse 303 ne
+  garde que la première. Creature Control est passé au niveau 3 le 6 octobre à 16:04, après ces essais.
+- **6 octobre** : cartes 146 et 150, **vides** (`Flag` 0, aucune ligne `Summons`). L'officiel ne forme qu'une carte qui
+  porte `ITEM_FLAG_SUMMON` : elles sont refusées.
+
+Le client place la carte glissée avant la réponse, puis la 303 la retire ; c'est ce qui se voit. Le journal ne permettait
+pas de le comprendre : la ligne de la 303 reçue portait un texte figé d'un lot antérieur (« no card is tamed, the stored
+formation is sent back ») sans rapport avec ce qui se passait. `CreatureService.EquipAsync` journalise désormais chaque
+carte écartée et sa raison (`CreatureRules.FormationRefusals` : emplacement au-delà de Creature Control, carte non
+apprivoisée, invocation non allouée) en `Information`, et la formation renvoyée en `Debug`.
+
+**À revérifier en jeu** avec Creature Control 3 et deux cartes apprivoisées (170, 173) : si l'affichage reste faux alors
+que le journal n'écarte aucune carte, le défaut est ailleurs (301 de la deuxième invocation) et ce paragraphe sera repris.
