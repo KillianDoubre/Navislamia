@@ -38,6 +38,12 @@ public interface INpcScriptService
 /// <summary>Only the exact server-advertised trigger may reach this interpreter (NpcDialogService).</summary>
 public sealed class NpcScriptService : INpcScriptService
 {
+    /// <summary>StructState::GAIA_MEMBER_SHIP (StructMisc.h:50): the Hidden Village pass that is_premium() reads.</summary>
+    public const int HiddenVillagePassState = 9004;
+
+    /// <summary>TS_SC_DIALOG::TYPE_AUCTION_WINDOW (GameMessage.h:2282).</summary>
+    public const int AuctionWindowDialogType = 4;
+
     private readonly NpcScriptCatalog _scripts;
     private readonly ICharacterRepositoryFactory _repositories;
     private readonly CharacterGate _gate;
@@ -270,7 +276,21 @@ public sealed class NpcScriptService : INpcScriptService
                 Bind("get_npc_id", _ => Numeric(npcId));
                 Bind("get_local_info", _ => Numeric(_options.LocalInfo));
                 Bind("get_env", _ => Numeric(0));
-                Bind("is_premium", _ => DynValue.False);
+                // SCRIPT_IsPremium: the Hidden Village pass, StructState::GAIA_MEMBER_SHIP (9004, "Travel Pass to Hidden
+                // Village"), which StructPlayer::SetSetSecrouteFreePass puts on the player.
+                Bind("is_premium", _ => {
+                    lock (info.BuffLock) return DynValue.NewBoolean(info.ActiveBuffs.Any(b => b.StateId == HiddenVillagePassState
+                        && (b.EndTick == uint.MaxValue || unchecked((int)(b.EndTick - ServerClock.Now)) > 0)));
+                });
+                // The guild dungeon shortcut of the teleporters is not served (CLAUDE.md, Point de retour): no owned dungeon.
+                Bind("get_own_dungeon_id", _ => Numeric(0));
+                Bind("get_siege_dungeon_id", _ => Numeric(0));
+                // SCRIPT_ShowAuctionWindow: an empty TS_SC_DIALOG of TYPE_AUCTION_WINDOW (4) opens the auction house.
+                Bind("show_auction_window", _ => {
+                    if (dialog) uiEffects.Add(() => client.Connection.Send(GameNpcDialogPackets.BuildDialog(npcHandle, "Auction",
+                        string.Empty, Array.Empty<NpcDialogMenuEntry>(), AuctionWindowDialogType)));
+                    return Nil();
+                });
                 Bind("get_flag", a => {
                     var key = Text(a, 0);
                     var value = flags.GetValueOrDefault(key) ?? (key is "q18" or "q19" or "rental_weapon" or "rental_armor" ? "0" : string.Empty);

@@ -41,4 +41,17 @@ public class GameRuleOptions
     /// <summary>GameRule::fAllyPCBangChaosBonusRate / fPremiumPCBangChaosBonusRate: the chaos both add (0.1).</summary>
     public decimal AllyPcBangChaosBonusRate { get; set; } = 0.1m;
     public decimal PremiumPcBangChaosBonusRate { get; set; } = 0.1m;
+
+    /// <summary>
+    /// <c>g_nCurrentLocalFlag</c> (<c>game.local_flag</c>): the server's country bit, 1 = Korea, the official default
+    /// and the value the crafting, dungeon and HuntaHolic catalogues already use. An NPC whose <c>local_flag</c> has
+    /// this bit is not shown (docs/packet-specs/socle-pnj-pays-periodes.md).
+    /// </summary>
+    public int LocalFlag { get; set; } = 1;
+
+    /// <summary>
+    /// <c>game.ServiceServer</c>: a live server hides the NPCs flagged "not on a service server" (bit 30: cash shop
+    /// merchants, test helpers) and shows those flagged "not on a test server" (bit 29).
+    /// </summary>
+    public bool ServiceServer { get; set; } = true;
 }

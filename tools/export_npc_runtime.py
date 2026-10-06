@@ -1,7 +1,12 @@
 """Export the official NPC functions needed by stamp/event/gift/repair dialogues.
 
-Usage: python tools/export_npc_runtime.py <official Resource/Script directory>
+Usage: python tools/export_npc_runtime.py <official Resource/Script directory> [<Epic 7 Part 4 branches/Live directory>]
 The generated resource is committed: the running server needs no external scripts.
+
+The Hidden Village teleporters, the "to Hidden Village" teleporters of the towns, the Flea Market (maricat) NPCs and
+the auctioneers run their official Lua too (docs/packet-specs/socle-pnj-pays-periodes.md): their menus depend on the
+NPC id and on the Hidden Village pass. The teleporters come from the Epic 7 Lua (branches/Live, 2012), closer to the
+7.3 client than the 2015 copy; NPC_Auction.lua exists in the 2015 tree only.
 """
 import json
 import re
@@ -72,6 +77,41 @@ while pending:
     if name not in selected:
         selected.add(name)
         pending.update(call for call in re.findall(r'\b(\w+)\s*\(', functions[name]) if call in functions)
+
+def read_functions(path):
+    text = path.read_text(encoding='cp949', errors='replace').replace('\x00', '')
+    text = re.sub(r'--\[\[.*?\]\]', '', text, flags=re.S)
+    starts = list(re.finditer(r'^function\s+(\w+)\s*\(', text, re.M))
+    result = {}
+    for index, match in enumerate(starts):
+        block = text[match.start():starts[index + 1].start() if index + 1 < len(starts) else len(text)]
+        ends = list(re.finditer(r'^\s*end\s*(?:--[^\n]*)?$', block, re.M))
+        if ends:
+            result[match[1]] = '\n'.join(line.split('--', 1)[0].rstrip() for line in block[:ends[-1].end()].splitlines())
+    return result
+
+
+epic7 = Path(sys.argv[2] if len(sys.argv) > 2 else r'A:\Rappelz Kiff\Epic 7 Part 4\branches\Live')
+town = read_functions(epic7 / 'NPC_TeleportTown.lua')
+auction = read_functions(source / 'NPC_Auction.lua')
+contact_roots = ['NPC_TeleportTown_1_Secroute_contact', 'NPC_TeleportTown_2_Secroute_contact',
+                 'NPC_TeleportSecroute_Town_contact', 'NPC_maricat_market_teleport_contact',
+                 'NPC_maricat_market_maricat_contact', 'NPC_maricat_market_guard_contact']
+contact_roots += sorted(name for name in auction if name.startswith('NPC_Auction_') and name.endswith('_contact'))
+# The Epic 7 definitions win over the 2015 ones for these menus and everything they call.
+pending = set(contact_roots)
+done = set()
+while pending:
+    name = pending.pop()
+    if name in done:
+        continue
+    done.add(name)
+    body = town.get(name) or auction.get(name)
+    if body is None:
+        raise SystemExit(f'{name} is in neither {epic7} nor NPC_Auction.lua')
+    functions[name] = body
+    selected.add(name)
+    pending.update(call for call in re.findall(r'\b(\w+)\s*\(', body) if call in town or call in auction)
 
 resource = Path(__file__).resolve().parents[1] / 'Game/Scripting/Scripts/npc_dialogs.json'
 resource.write_text(json.dumps({name: functions[name] for name in sorted(selected)}, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')

@@ -28,7 +28,11 @@ public class NpcResourceRepository : INpcResourceRepository
                 Z = resource.Z,
                 Hp = resource.Hp,
                 Level = resource.Level,
-                RaceId = resource.RaceId
+                RaceId = resource.RaceId,
+                LocalFlag = resource.LocalFlag,
+                IsPeriodic = resource.IsPeriodic,
+                BeginOfPeriod = resource.BeginOfPeriod,
+                EndOfPeriod = resource.EndOfPeriod
             })
             .ToList();
     }

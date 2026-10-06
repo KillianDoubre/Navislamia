@@ -315,6 +315,15 @@ contains 2,338 dialog definitions recovered from the server Lua. The local Arcad
 the matching `ContactScript` values. See `docs/npc-dialogs.md` for the packet layout, catalog generation
 and current action limitations.
 
+**Which NPCs stand in the world is the official `onNPCData` rule** (`docs/packet-specs/socle-pnj-pays-periodes.md`,
+`NpcSpawnRules`): an NPC's `local_flag` is an **exclusion** mask against `GameRules:LocalFlag` (1, Korea), bit 30 keeps
+it off a live server (`GameRules:ServiceServer`) and bit 29 off a test one, and a periodic NPC only stands inside its
+period (all of the data's periods ended by 2012). The 7.3 client's own `local_flag` (`npc-client-flags.json`, embedded,
+`tools/export_npc_client_flags.py`) is OR-ed in: it retires the events the server table still enables, the 9.4-only event
+rows above all. 406 of 1 182 NPCs stand. Before, every row spawned, events and `???????` names included. The Hidden Village
+teleporters, the towns' teleporters to it, the Flea Market and every auctioneer run their official Lua in the NPC
+sandbox (`show_auction_window` = `TS_SC_DIALOG` type 4, `is_premium` = state 9004 active).
+
 ## Monster packets and catalog
 
 Monsters use the 73-byte monster variant of `TS_SC_ENTER`: `objType = 3`, the shared creature payload,

@@ -37,8 +37,15 @@ CONTACTS = [
 # The Gaia teleporters' small talk, reached from their menu.
 FOLLOW_UPS = ["quest_rumor6", "quest_rumor_a_3", "quest_rumor_b_3"]
 
-# NPCs whose server-built page needs the contact link only.
-LINK_ONLY = ["NPC_TeleportField_Beginner_contact"]
+# NPCs whose server-built page needs the contact link only: the island teleporter (NpcDialogService), and the
+# contacts run as official Lua by the NPC script sandbox (tools/export_npc_runtime.py): the Hidden Village
+# teleporters, the towns' teleporters to Hidden Village, the Flea Market and the auctioneers.
+LINK_ONLY = ["NPC_TeleportField_Beginner_contact",
+             "NPC_TeleportTown_1_Secroute_contact", "NPC_TeleportTown_2_Secroute_contact",
+             "NPC_TeleportSecroute_Town_contact", "NPC_maricat_market_teleport_contact",
+             "NPC_maricat_market_maricat_contact", "NPC_maricat_market_guard_contact",
+             "NPC_Auction_Deva_contact", "NPC_Auction_Gaia_contact", "NPC_Auction_Asura_contact",
+             "NPC_Auction_Rondoh_contact", "NPC_Auction_Secroute_contact", "NPC_Auction_maricat_market_contact"]
 
 EXCLUDED_TRIGGERS = {"Trick_or_treat_2011()"}
 
