@@ -2914,21 +2914,24 @@ Aucune de ces valeurs n'est devinée.
 - Les neuf ids sont `X(<id>, true)` chez rzu sous « Since EPIC_7_3 » : 7.3 garde les ids nus, aucun champ
   n'est gaté. Seuls les six que le serveur lit ou émet sont déclarés ; les trois trames de résultat
   6003/6005/6007 restent non déclarées tant que les valeurs de leur `result` ne sont pas établies.
-- `TM_CS_REQUEST_FARM_INFO` (6000, **7 octets**, à l'ouverture et à chaque rafraîchissement de la fenêtre)
-  reçoit un `TM_SC_FARM_INFO` (6001, `8 + 120 × N` octets) **vide** : `summons = 0`, 8 octets. Le client le
-  traite proprement (octet nul → pas d'allocation, `SFrame.exe 0x67219c`). C'est un **choix de lot**, pas
-  un fait de référence : la ferme n'existe pas côté serveur.
+- **Le socle est en place** (`docs/packet-specs/socle-ferme-creatures-officielle.md`, logique : la source officielle
+  2015 confrontée au binaire 2012-11 ; NGemity n'a rien, rzu que les structures) : table `CreatureFarms`
+  (`CreatureFarmEntity`, Telecaster, `Version0026_CreatureFarm`) — une ligne par invocation déposée, `slot` 0-base,
+  index unique `(CharacterId, Slot)` filtré sur `DeletedOn IS NULL` —, drapeau de carte **bit 27**
+  (`CreatureFarmRules.FarmedSummonMask`, les autres bits préservés), et `6000` → `6001` rempli à chaque demande
+  (`CreatureFarmService`, `8 + 120 × N`, ferme vide = 8 octets). Piège EF : lier la navigation par son nom,
+  `HasOne(f => f.Character)`, sinon la convention fabrique une seconde relation fantôme.
+- **Constantes 7.3 mesurées, pas celles de 2015** : 3 cases dont 1 ordinaire, plafond **100**, formes 60/115, cracker
+  ×1,5, EXP/h 137 700 et 347 264 ; l'EXP n'est appliquée qu'à la reprise. `refresh_time` = premier 06:00 (heure
+  locale) **après le dernier soin** moins maintenant, 0 si jamais soigné ; `elasped_time` se compte en UTC
+  (`timestamptz` relu en UTC). Le PNJ de la ferme est **11467** (`NPC_Creature_Farm_contact`).
 - 6002 (`19 + 8 × T + 8 × C`), 6004 et 6006 (11 octets, `card_handle` @7) et 6008 (7 octets) sont lus,
-  bornés, journalisés — **jamais répondus** : aucune référence n'implémente la ferme (NGemity : 0
-  occurrence), et `result`, tickets, crackers, durées et `index` ne sont pas établis. 6001 reçu d'un client
-  est journalisé et abandonné.
-- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`). Fiche :
-  `docs/packet-specs/socle-ferme-creatures.md`.
-- **Décision (2026-09-30) : la ferme n'est pas implémentée**, seuls ses paquets sont pris en charge. La fenêtre
-  ne s'ouvre que par le déclencheur `show_creature_farm_window()` du PNJ Sonya, **volontairement non exécuté** :
-  sans fenêtre, le client n'émet ni 6002 ni 6004 ni 6006 ni 6008, et on n'a pas à répondre 6003/6005/6007 avec un
-  `result` inconnu. Ce que l'on sait du système retail (Epic 7.2, sources web) et le tableau décodé de
-  `db_creaturefarm.rdb` (rareté, forme, renforcement → nombre de tickets) sont au §8 de la fiche.
+  bornés, journalisés — **jamais répondus** tant que leurs lots n'existent pas ; 6003/6005/6007 restent non déclarées.
+  La fenêtre (`show_creature_farm_window()`, dialogue 3000 type 9) **n'est pas encore ouverte**, pour que le client
+  n'envoie pas de dépôt sans réponse. La réponse à 6008 n'est pas une trame de ferme : `TM_SC_MARKET` 250
+  (`creature_farm`), avec `npc_handle = 0` non mesuré côté client.
+- `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`) ; dans une entrée, `using_cash`/
+  `using_cracker` sont relatifs à l'entrée (+43/+44). Formats des trames : `docs/packet-specs/socle-ferme-creatures.md`.
 
 ## Usure éthérée, chute 9001, « objet obtenu », scripts PNJ (2026-10-04)
 

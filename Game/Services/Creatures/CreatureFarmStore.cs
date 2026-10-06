@@ -95,8 +95,10 @@ public sealed class CreatureFarmStore : ICreatureFarmStore
 
         var cardIds = rows.Select(f => f.CardItemId).ToArray();
         var cards = await db.Items.AsNoTracking().Where(i => cardIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
-        var summons = await db.Summons.AsNoTracking().Where(s => cardIds.Contains(s.CardItemId))
-            .ToDictionaryAsync(s => s.CardItemId);
+        // A card names one summon; should two rows name the same card, the first wins rather than the read throwing.
+        var summons = (await db.Summons.AsNoTracking().Where(s => cardIds.Contains(s.CardItemId)).OrderBy(s => s.Id)
+                .ToListAsync())
+            .GroupBy(s => s.CardItemId).ToDictionary(g => g.Key, g => g.First());
 
         var farm = new List<FarmedSummon>(rows.Count);
         foreach (var row in rows)

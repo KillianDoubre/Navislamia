@@ -1078,7 +1078,15 @@ public class GameClient : Client
             return;
         }
 
-        await farm.SendFarmInfoAsync(this);
+        // Started without being awaited by the receive loop: what it throws would go unobserved.
+        try
+        {
+            await farm.SendFarmInfoAsync(this);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not answer the creature farm request of {clientTag}", ClientTag);
+        }
     }
 
     /// <summary>

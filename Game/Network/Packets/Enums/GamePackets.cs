@@ -443,7 +443,7 @@ public enum GamePackets : ushort
     // X(<id>, true) in rzu under a "// Since EPIC_7_3" marker, so 7.3 keeps the plain ids and no field of the
     // family is version gated. Only the six ids the server reads or emits are declared; the three result frames
     // 6003/6005/6007 stay undeclared until a lot emits them (their `result` values are not established).
-    // See docs/packet-specs/socle-ferme-creatures.md.
+    // See docs/packet-specs/socle-ferme-creatures.md (the frames) and socle-ferme-creatures-officielle.md (the farm).
     TM_CS_REQUEST_FARM_INFO = 6000,
     TM_SC_FARM_INFO = 6001,
     TM_CS_FOSTER_CREATURE = 6002,

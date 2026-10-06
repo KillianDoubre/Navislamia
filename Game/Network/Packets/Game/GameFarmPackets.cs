@@ -18,8 +18,9 @@ namespace Navislamia.Game.Network.Packets.Game;
 /// <c>6003</c>/<c>6005</c>/<c>6007</c> carry a <c>result</c> byte whose values no reference establishes and
 /// are therefore neither declared nor emitted (see docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5).
 ///
-/// Nothing here decides when a farm fills, what a ticket costs or how long a creature stays: the server has
-/// no farm storage at all (§7.1), so the only content this file can produce is an empty farm.
+/// Nothing here decides when a farm fills, what a ticket costs or how long a creature stays: the entries come from
+/// the farm's storage (<c>CreatureFarmService</c>, docs/packet-specs/socle-ferme-creatures-officielle.md §5.6), and
+/// an empty farm is the 8-byte frame.
 /// </summary>
 public static class GameFarmPackets
 {

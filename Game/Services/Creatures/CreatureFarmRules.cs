@@ -129,11 +129,23 @@ public static class CreatureFarmRules
     /// </summary>
     public static long FarmedHours(DateTime registrationTime, int durationSeconds, DateTime now)
     {
-        var end = registrationTime.AddSeconds(durationSeconds > 0 ? durationSeconds : 0);
-        var counted = now < end ? now : end;
-        var hours = (counted - registrationTime).TotalHours;
+        var start = Utc(registrationTime);
+        var end = start.AddSeconds(durationSeconds > 0 ? durationSeconds : 0);
+        var current = Utc(now);
+        var counted = current < end ? current : end;
+        var hours = (counted - start).TotalHours;
         return hours <= 0 ? 0 : (long)hours;
     }
+
+    /// <summary>
+    /// An instant on the UTC line. The farm's times come back from PostgreSQL as UTC (<c>timestamptz</c>) while the
+    /// server clock is local: subtracting the two as they are would be wrong by the zone's offset. An unspecified
+    /// kind is read as local, the server's own clock.
+    /// </summary>
+    private static DateTime Utc(DateTime value) => value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+
+    /// <summary>The same instant on the server's local clock, where the official 06:00 reset lives (<c>localtime_s</c>).</summary>
+    private static DateTime Local(DateTime value) => value.Kind == DateTimeKind.Utc ? value.ToLocalTime() : value;
 
     /// <summary>
     /// The farm experience the reference computes at retrieval
@@ -154,12 +166,12 @@ public static class CreatureFarmRules
 
     /// <summary>
     /// The <c>6001</c>'s <c>elasped_time</c> — the reference's own spelling: now − deposition, in seconds
-    /// (<c>GameMessage.cpp:11684</c>). Never negative, and no cap: the frame carries the ticket's duration
-    /// separately (§3.2).
+    /// (<c>fillFarmedSummonTimeInfo</c>, <c>GameMessage.cpp:11683-11684</c>). Never negative, and no cap: the frame
+    /// carries the ticket's duration separately (§3.2).
     /// </summary>
     public static int ElapsedSeconds(DateTime registrationTime, DateTime now)
     {
-        var seconds = (now - registrationTime).TotalSeconds;
+        var seconds = (Utc(now) - Utc(registrationTime)).TotalSeconds;
         return seconds <= 0 ? 0 : seconds >= int.MaxValue ? int.MaxValue : (int)seconds;
     }
 
@@ -167,24 +179,35 @@ public static class CreatureFarmRules
     /// The last nursing reset at or before <paramref name="now"/>: today 06:00 local server time, or
     /// yesterday's when the clock is still before it (<c>StructPlayer.cpp:11439-11456</c>).
     /// </summary>
-    public static DateTime LastNursingReset(DateTime now) =>
-        now.TimeOfDay >= TimeSpan.FromHours(NursingResetHour)
-            ? now.Date.AddHours(NursingResetHour)
-            : now.Date.AddDays(-1).AddHours(NursingResetHour);
+    public static DateTime LastNursingReset(DateTime now)
+    {
+        var local = Local(now);
+        return local.TimeOfDay >= TimeSpan.FromHours(NursingResetHour)
+            ? local.Date.AddHours(NursingResetHour)
+            : local.Date.AddDays(-1).AddHours(NursingResetHour);
+    }
 
     /// <summary>
-    /// The <c>6001</c>'s <c>refresh_time</c> (<c>GameMessage.cpp:11686-11708</c>): seconds until the next
-    /// 06:00 when the entry was nursed before the last reset, 0 otherwise — and 0 for an entry never
-    /// nursed, which is what a null <paramref name="nursingTime"/> means here (§3.2, §5.4).
+    /// The <c>6001</c>'s <c>refresh_time</c>, <c>fillFarmedSummonTimeInfo</c> (<c>GameMessage.cpp:11686-11706</c>):
+    /// 0 for an entry never nursed; otherwise the first 06:00 after the last nursing — the nursing day's 06:00, or the
+    /// next day's when the nursing came at or after it — minus now, never negative. An entry nursed since the last
+    /// 06:00 therefore waits for the next one, and one nursed before it reads 0: it can be nursed again.
     /// </summary>
     public static int RefreshSeconds(DateTime? nursingTime, DateTime now)
     {
-        if (nursingTime is null || nursingTime.Value >= LastNursingReset(now))
+        if (nursingTime is null)
         {
             return 0;
         }
 
-        var seconds = (LastNursingReset(now).AddDays(1) - now).TotalSeconds;
+        var nursed = Local(nursingTime.Value);
+        var refresh = nursed.Date.AddHours(NursingResetHour);
+        if (nursed >= refresh)
+        {
+            refresh = refresh.AddDays(1);
+        }
+
+        var seconds = (refresh - Local(now)).TotalSeconds;
         return seconds <= 0 ? 0 : seconds >= int.MaxValue ? int.MaxValue : (int)seconds;
     }
 

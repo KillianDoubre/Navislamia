@@ -184,30 +184,48 @@ public class CreatureFarmSocleTests
     // --- The 06:00 nursing reset (§5.4) ---------------------------------------------------------------
 
     [Test]
-    public void TheNursingDayStartsAtSixAndAnEntryNursedSinceReadsZero()
+    public void TheNursingDayStartsAtSixAndAnEntryNursedSinceWaitsForTheNextOne()
     {
         CreatureFarmRules.LastNursingReset(new DateTime(2026, 10, 6, 5, 30, 0))
             .Should().Be(new DateTime(2026, 10, 5, 6, 0, 0), "before 06:00 the marker is yesterday's");
         CreatureFarmRules.LastNursingReset(new DateTime(2026, 10, 6, 12, 0, 0))
             .Should().Be(new DateTime(2026, 10, 6, 6, 0, 0));
 
+        // fillFarmedSummonTimeInfo (GameMessage.cpp:11686-11706): the first 06:00 after the nursing, minus now.
         CreatureFarmRules.RefreshSeconds(null, Now).Should().Be(0, "never nursed");
         CreatureFarmRules.RefreshSeconds(new DateTime(2026, 10, 6, 9, 0, 0), Now)
-            .Should().Be(0, "nursed after the last 06:00");
+            .Should().Be(18 * 3600, "nursed since today's 06:00: it waits for tomorrow's");
         CreatureFarmRules.RefreshSeconds(new DateTime(2026, 10, 6, 2, 0, 0), Now)
-            .Should().Be(18 * 3600, "seconds until the next 06:00");
+            .Should().Be(0, "nursed before today's 06:00: it can be nursed again");
         CreatureFarmRules.RefreshSeconds(new DateTime(2026, 10, 5, 23, 0, 0), Now)
-            .Should().Be(18 * 3600);
+            .Should().Be(0, "yesterday after 06:00: its refresh was today's 06:00, past");
+        CreatureFarmRules.RefreshSeconds(new DateTime(2026, 10, 6, 6, 0, 0), new DateTime(2026, 10, 6, 5, 0, 0).AddDays(1))
+            .Should().Be(3600, "a nursing at 06:00 sharp counts in that day");
     }
 
     [Test]
     public void AnEntryCarriesTheRefreshTimeComputedFromItsNursingTime()
     {
         var registered = new DateTime(2026, 10, 3, 12, 0, 0);
-        var packet = OneEntry(registered, new DateTime(2026, 10, 6, 2, 0, 0));
+        var packet = OneEntry(registered, new DateTime(2026, 10, 6, 9, 0, 0));
 
         BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(47)).Should().Be(18 * 3600);
         BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(43)).Should().Be(3 * 24 * 3600);
+    }
+
+    [Test]
+    public void TimesReadBackAsUtcAreComparedWithTheLocalClockOnTheSameLine()
+    {
+        // PostgreSQL gives timestamptz back as UTC; the server clock is local. Mixed as they are, the elapsed time
+        // would be off by the zone's offset.
+        var localNow = DateTime.SpecifyKind(Now, DateTimeKind.Local);
+        var registeredUtc = localNow.AddDays(-3).ToUniversalTime();
+        CreatureFarmRules.ElapsedSeconds(registeredUtc, localNow).Should().Be(3 * 24 * 3600);
+        CreatureFarmRules.FarmedHours(registeredUtc, 604800, localNow).Should().Be(72);
+
+        var nursedUtc = DateTime.SpecifyKind(new DateTime(2026, 10, 6, 9, 0, 0), DateTimeKind.Local).ToUniversalTime();
+        CreatureFarmRules.RefreshSeconds(nursedUtc, localNow).Should().Be(18 * 3600,
+            "the 06:00 reset is local even when the nursing time comes back as UTC");
     }
 
     [Test]

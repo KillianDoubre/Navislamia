@@ -282,7 +282,8 @@ jour, la journée commençant à 06:00 heure serveur** ; puis écrit `nursing_ti
 (`:11458-11459`). Le soin **n'exige pas** de cracker (la source ne teste jamais `is_using_cracker`
 ici) et **ne pose aucun drapeau** : `ITEM_FLAG_NURSED_SUMMON` (bit 28, `ItemInstance.h:91`) est
 déclaré mais `NurseSummon` ne le pose pas. Le `6001` en déduit `refresh_time` :
-`refresh_time = (nursing_time < dernier 06:00) ? secondes jusqu'au prochain 06:00 : 0`
+`refresh_time = max(0, premier 06:00 après nursing_time − maintenant)`, 0 si jamais soigné — **corrigé à la revue
+du 2026-10-06** (§11) : la règle écrite ici d'abord était l'inverse de `fillFarmedSummonTimeInfo`
 (`GameMessage.cpp:11686-11708`), et pour une entrée jamais soignée 0 aussi. La convention 06:00 est
 donc **convention de remise à zéro**, pas une fenêtre.
 
@@ -435,9 +436,10 @@ Questions ouvertes, à trancher par Killian ou par le dev avant/pendant le lot :
    « absente en 7.3 » (§6.2) par l'absence de branche dans `RegainSummon`, ce qui est un indice fort
    mais pas une preuve que le tarif premium 7.3 n'existait pas. Les textes 7.3 (`smsg_creaturefarm…`)
    mentionnent les tickets premium sans donner de taux d'EXP. À confirmer avant de figer le tarif.
-3. **Le NPC de la ferme** : la source donne son nom textuel (`@91000349`, `@91000350`) mais pas son
-   `npc_id` numérique ; la table client 7.3 n'a pas été relue pour l'identifier. Tant qu'il n'est pas
-   identifié, la fenêtre ne peut être ouverte ni par dialogue ni par le trigger.
+3. **Le NPC de la ferme** : **11467** (établi à la revue du 2026-10-06, §11) — `npc-dialogs.73.json` lie 11467 à
+   `NPC_Creature_Farm_contact` (titre `@91000350`, menu `show_creature_farm_window()`), posé en (140205, 102858) à
+   côté de la destination « ferme de créatures » (140101, 102600) des téléporteurs. Reste à décider quand ouvrir la
+   fenêtre (§11).
 4. **Version du plafond de ferme** : 100 (mesuré 2012-11 + texte 7.3) vs 150 (source 2015). Tranché
    pour **100** ici (§6.2) ; à confirmer si un jour un arbre 7.3 côté serveur devient disponible.
 5. **`SendMarketInfo` en 2012-11** : la fonction existe (symbole
@@ -486,9 +488,8 @@ sans réponse à ces questions.
 2. **Plafond de ferme** : 100 (mesuré 2012-11 `0x1404096c0` + textes `smsg_creaturefarm*` 7.3) contre
    150 (source 2015). Tranché pour **100** (§6.2, §7.4) ; confirmer si un arbre serveur 7.3
    apparaît un jour.
-3. **PNJ de la ferme** : identité textuelle établie (`@91000349`/`@91000350`,
-   `NPC_Creature_farm.lua:14-17`, `:61-71`) mais **`npc_id` numérique non identifié** — sans lui, ni le
-   dialogue ni le déclencheur `show_creature_farm_window` ne peuvent être accrochés (§7.3).
+3. **PNJ de la ferme** : **11467** (`NPC_Creature_Farm_contact`, §11). La fenêtre n'est pas encore ouverte : la
+   brancher laisse le client envoyer 6002/6004/6006, auxquels rien ne répond tant que leurs lots n'existent pas.
 4. **Forme du stockage** : à trancher par le dev (table dédiée calquée sur l'officielle ou
    `ItemStorageEntity`), les colonnes et la sémantique étant établies (§5.6 point 1, §7.1). Le point
    à surveiller est le rattachement de la carte au personnage (`owner_id` côté officiel ; `int?`
@@ -560,7 +561,8 @@ fichier est protégé) :
 3. **`6001` rempli** — `CreatureFarmService.SendFarmInfoAsync` lit la table à chaque `6000` (jamais de
    projection) et construit une entrée par ligne : `index` = case, `exp` = l'EXP de l'invocation de la
    carte, `name` = son nom, `duration` = la durée du ticket, `elasped_time` = maintenant − dépôt en
-   secondes, `refresh_time` = secondes jusqu'au prochain 06:00 (0 si jamais soigné ou soigné depuis),
+   secondes, `refresh_time` = secondes jusqu'au premier 06:00 qui suit le dernier soin (0 si jamais soigné ou si
+   ce 06:00 est passé),
    `using_cash`/`using_cracker` = les colonnes, `card_info` = le motif 75 octets de **la carte du joueur**
    (`ItemFixedInfo.FromItem`), comme tranché en §3.2. Ferme vide → les 8 octets d'aujourd'hui.
    `GameClient.HandleRequestFarmInfoAsync` garde le garde-fou de longueur (7) et n'émet plus
@@ -591,8 +593,8 @@ fichier est protégé) :
   *snapshot* au modèle du contexte et échouait tant que les deux n'étaient pas alignés — il passe. **Aucune
   base n'a été migrée ni interrogée** (pas de PostgreSQL dans le conteneur) : l'application réelle de la
   migration reste à vérifier là où une base existe.
-- **Fenêtre (point 4)** : `npc_id` du PNJ de ferme non identifié (A VERIFIER 3, §7.3) — rien n'est accroché,
-  ni dialogue `3000/type 9` ni déclencheur `show_creature_farm_window`.
+- **Fenêtre (point 4)** : le PNJ est 11467 (§11) ; rien n'est accroché, ni dialogue `3000/type 9` ni déclencheur
+  `show_creature_farm_window`, tant que dépôt et reprise n'ont pas de réponse.
 - **`6008` (point 5)** : la réponse officielle est un `TM_SC_MARKET` 250 avec `npc_handle = 0`, or
   `MarketService.Open` refuse explicitement un handle nul et la réaction du client 7.3 à ce handle n'est pas
   mesurée (A VERIFIER 5). Rien n'est émis tant que ce point n'est pas tranché.
@@ -633,3 +635,27 @@ ligne 508) est
 défini (§5.6). Le lot de code correspondant appartient au **dev** ; cette fiche ne contient que le
 savoir ; le texte de la fiche d'origine est intact et reste en place comme trace de la décision
 retirée, avec seulement l'avertissement d'obsolescence daté ajouté en tête de son second `## 8`.
+
+## 11. Revue du 2026-10-06 (avant fusion)
+
+Relu contre la source officielle, le code et une vraie base :
+
+- **`refresh_time` était inversé.** `fillFarmedSummonTimeInfo` (`GameMessage.cpp:11683-11706`) prend le 06:00 du jour
+  du dernier soin, le décale d'un jour si le soin est à 06:00 ou après, et renvoie `max(0, ce 06:00 − maintenant)` :
+  une entrée soignée aujourd'hui attend demain 06:00, une entrée soignée avant le dernier 06:00 lit 0. La version
+  livrée faisait l'inverse (§5.4 l'énonçait ainsi) ; `CreatureFarmRules.RefreshSeconds` et ses tests suivent
+  maintenant la source.
+- **Fuseaux.** Les colonnes sont `timestamptz` : Npgsql les rend en UTC, l'horloge du service est locale. Les
+  soustraire telles quelles décalait `elasped_time` et les heures de ferme de l'écart du fuseau (2 h en été à Paris).
+  `ElapsedSeconds`/`FarmedHours` comparent sur la ligne UTC, `RefreshSeconds`/`LastNursingReset` à l'heure locale du
+  serveur (`localtime_s` de l'officiel) ; test `TimesReadBackAsUtcAreComparedWithTheLocalClockOnTheSameLine`.
+- **6000 en tâche détachée** : `HandleRequestFarmInfoAsync` attrape désormais ce qu'il lève (réserve de la MR).
+- **`Summons` en double** pour une carte : la lecture prenait un `ToDictionaryAsync` qui aurait levé ; la première
+  ligne gagne.
+- **Commentaires périmés** de `GameFarmPackets` et `GamePackets` (« aucun stockage de ferme ») corrigés.
+- **Migration appliquée sur PostgreSQL** : `QuestLifecycleTests.PostgreSqlMigrationsAndFailedRewardInsertRollBackTheWholeHandIn`
+  migre les deux contextes dans un schéma jetable — `Version0026_CreatureFarm` comprise — et passe.
+- **PNJ de la ferme : 11467** (A VERIFIER 3 levé).
+- **Pour le lot du dépôt** : l'officiel refuse d'effacer, d'échanger ou de vendre une carte en ferme
+  (`StructPlayer::IsErasable`, `StructPlayer.cpp:12537`) et l'écarte des invocations au chargement
+  (`DB_Login.cpp:1565`) ; `HeldItemRules` ne le juge pas encore, sans conséquence tant qu'aucun geste ne pose le bit 27.
