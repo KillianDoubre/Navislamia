@@ -8,7 +8,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ClientMonsterRdbPath,
 
-    [string]$OutputPath = "DevConsole/monster-spawns.73.json"
+    [string]$OutputPath = "DevConsole/monster-spawns.73.json",
+
+    [string]$SourceDescription = "7.3 client NFS rectangles and the Epic 7 monster_respawn.lua, filtered by the client db_monster.rdb IDs"
 )
 
 $ErrorActionPreference = "Stop"
@@ -166,6 +168,30 @@ function Add-FixedPopulations(
     }
 }
 
+function Read-WorldGeometry([string]$Directory) {
+    # MapLoader::LoadRegionInfo: a region is (raw x TILE_LENGTH) + map index x map length. TILE_LENGTH is 42, so
+    # a map is 384 raw units; this script once used 336 x 48, which stretched every box by 8/7 from its map's
+    # corner (up to ~2 300 units off: monsters in the trainee island's camp).
+    $geometry = @{ TILE_LENGTH = 42; TILECOUNT_PER_SEGMENT = 6; SEGMENTCOUNT_PER_MAP = 64 }
+    $config = Join-Path $Directory "TerrainSeamlessWorld.cfg"
+    if (Test-Path $config) {
+        foreach ($line in [IO.File]::ReadAllLines($config)) {
+            $match = [regex]::Match($line, '^\s*(TILE_LENGTH|TILECOUNT_PER_SEGMENT|SEGMENTCOUNT_PER_MAP)\s*=\s*(\d+)')
+            if ($match.Success) {
+                $geometry[$match.Groups[1].Value] = [int]$match.Groups[2].Value
+            }
+        }
+    }
+
+    $mapLength = $geometry.TILE_LENGTH * $geometry.TILECOUNT_PER_SEGMENT * $geometry.SEGMENTCOUNT_PER_MAP
+    if ($mapLength -ne 16128) {
+        throw "Unexpected map length $mapLength (expected 16128)"
+    }
+
+    return [pscustomobject]@{ TileLength = $geometry.TILE_LENGTH; MapLength = $mapLength }
+}
+
+$geometry = Read-WorldGeometry (Resolve-Path $NfsDirectory)
 $clientIds = Read-ClientMonsterIds $ClientMonsterRdbPath
 $groups = Read-RespawnGroups $MonsterRespawnLuaPath
 $areas = [Collections.Generic.List[object]]::new()
@@ -199,10 +225,10 @@ Get-ChildItem (Resolve-Path $NfsDirectory) -Filter *.nfs | Sort-Object Name | Fo
         $offset += 20 + $nameLength
 
         $boxes.Add([pscustomobject]@{
-            Left = ($tileX * 336 + $left) * 48
-            Top = ($tileY * 336 + $top) * 48
-            Right = ($tileX * 336 + $right) * 48
-            Bottom = ($tileY * 336 + $bottom) * 48
+            Left = $left * $geometry.TileLength + $tileX * $geometry.MapLength
+            Top = $top * $geometry.TileLength + $tileY * $geometry.MapLength
+            Right = $right * $geometry.TileLength + $tileX * $geometry.MapLength
+            Bottom = $bottom * $geometry.TileLength + $tileY * $geometry.MapLength
         })
     }
 
@@ -268,7 +294,7 @@ Get-ChildItem (Resolve-Path $NfsDirectory) -Filter *.nfs | Sort-Object Name | Fo
 $catalog = [ordered]@{
     Metadata = [ordered]@{
         ClientEpic = "7.3"
-        Source = "9.4 NFS rectangles and monster_respawn.lua, filtered by the client db_monster.rdb IDs"
+        Source = $SourceDescription
         AreaCount = $areas.Count
         InstanceCount = $instanceCount
         CompatibleMonsterIdCount = $compatibleMonsterIds.Count
@@ -290,6 +316,6 @@ if (-not (Test-Path $parent)) {
     New-Item -ItemType Directory -Path $parent | Out-Null
 }
 
-$catalog | ConvertTo-Json -Depth 8 -Compress | Set-Content -Path $OutputPath -Encoding UTF8
+[IO.File]::WriteAllText($OutputPath, ($catalog | ConvertTo-Json -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
 Write-Host "Generated $($areas.Count) compatible areas / $instanceCount instances / $($compatibleMonsterIds.Count) monster IDs"
 Write-Host "Output: $OutputPath"

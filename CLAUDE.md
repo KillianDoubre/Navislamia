@@ -335,11 +335,13 @@ once per instance from the factory's seeded `Random`. This client build appears 
 facing for idle monsters (setting `is_first_enter` made no difference), so they render facing the default
 direction until they orient through movement; the field is kept for correctness and future clients.
 
-`DevConsole/monster-spawns.73.json` currently contains 3,973 compatible areas, 43,443 instances and
-2,457 distinct resource IDs. It is deserialized directly with `System.Text.Json`; do not add it to the
+`DevConsole/monster-spawns.73.json` currently contains 4,082 compatible areas, 40,566 instances and
+2,638 distinct resource IDs. It is deserialized directly with `System.Text.Json`; do not add it to the
 generic configuration provider because flattening the large arrays adds tens of seconds to startup.
-The catalog is generated from the available 9.4 NFS/Lua spawn sources and filtered against IDs decoded
-from the Epic 7.3 client `db_monster.rdb`. Rendering and streaming have been validated in game.
+The catalog is generated from the client's own NFS boxes and the Epic 7 `monster_respawn.lua`, filtered
+against IDs decoded from the Epic 7.3 client `db_monster.rdb`. **A box is `raw × 42 + map index × 16128`**
+(official `MapLoader::LoadRegionInfo`, `TILE_LENGTH`); the importer used `raw × 48`, which stretched every
+box by 8/7 and put monsters on the trainee island's start points (`docs/world-spawning.md`). Rendering and streaming have been validated in game.
 
 ## Targeting and action cancel
 
@@ -565,8 +567,8 @@ destination/speed/start-tick the caller broadcasts.
 `move speed / 7` (`MonsterMovement.SpeedByte`): wander at that, chase × 1.00-1.09, return × 2. The world's
 blocking polygons are the client's `.nfa` files, extracted to `DevConsole/Maps` by
 `tools/Export-FieldProps --extract-maps` (git-ignored) and loaded by `WorldCollision` into `CollisionMap`
-(own geometry and grid, not the legacy X2D code). Spawn points are redrawn out of obstacles (the 9.4 spawn
-areas overlap them), a wander into or across an obstacle is refused, and a chase or a return goes around
+(own geometry and grid, not the legacy X2D code). Spawn points are redrawn out of obstacles (the spawn
+areas brush them: 8.8 % of their points), a wander into or across an obstacle is refused, and a chase or a return goes around
 through `PathFinder` (A* over a visibility graph; a monster inside an obstacle may walk out). A path travels
 as a multi-waypoint `TS_SC_MOVE` and is interpolated leg by leg. `GameModule.LoadMaps` read `SkipLoading`
 backwards and the map parsers were culture-sensitive: the maps had never loaded. **`MapService` reads the location,

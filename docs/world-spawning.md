@@ -8,9 +8,9 @@ implemented yet.
 
 The generated monster catalog contains:
 
-- 3,973 compatible spawn areas
-- 43,443 idle monster instances
-- 2,457 distinct client-compatible monster resource IDs
+- 4,082 compatible spawn areas
+- 40,566 idle monster instances
+- 2,638 distinct client-compatible monster resource IDs
 
 ## Visibility model
 
@@ -59,24 +59,38 @@ array keys through `IConfiguration`. The development-only `MonsterSpawns` sectio
 when the catalog file is absent. In the local smoke test, this reduced startup through monster indexing
 from roughly 35 seconds to 2.58 seconds.
 
-The catalog combines the 9.4 server data available locally with the actual Epic 7.3 client resources:
+The catalog combines the Epic 7 era sources with the actual Epic 7.3 client resources:
 
-1. NFS boxes provide exact rectangular spawn areas and `mob(groupId, box)` calls.
-2. `monster_respawn.lua` provides normal, rare, raid and raid-rare populations and densities.
+1. The client's own NFS boxes (`DevConsole/Maps/*.nfs`) provide the rectangular spawn areas and the
+   `mob(groupId, #box)` calls.
+2. The Epic 7 `monster_respawn.lua` (`Epic 7 Part 4/trunk`) provides normal, rare, raid and raid-rare
+   populations and densities. A branch gated on an event toggle (`ID == 1038 and rangifer_on == 1`,
+   `halloween_on`) is not matched, and inside a branch the first `monster_ID` is the event-off one.
 3. Counts use the official rounded `area / 130000 * density` calculation with a minimum of one.
 4. `db_monster.rdb` provides the valid Epic 7.3 `MonsterResource.id` set after scrambled-ID decoding.
 5. Populations absent from the client resource set are excluded.
 
-This is the complete compatible catalog derivable from the available sources. It is not guaranteed to
-be a byte-for-byte copy of an original Epic 7.3 server database because the available map and Lua
-sources are from 9.4.
+**A box is placed the way the official `MapLoader::LoadRegionInfo` places it: `raw × TILE_LENGTH + map
+index × 16128`, with `TILE_LENGTH = 42`** (read from `TerrainSeamlessWorld.cfg`). Until 2026-10-06 the
+importer used `(map index × 336 + raw) × 48`: the same map origin, but every box stretched by 8/7 from its
+map's corner, up to ~2 300 units off — monsters stood on the Deva and Asura start points of the trainee
+island, and 48.6 % of the points sampled in the boxes fell inside an `.nfa` obstacle, against 8.8 % at the
+right scale. `MonsterSpawnCatalogTests` holds the alignment and the start points.
+
+The catalog was first built from the 9.4 NFS and Lua; the boxes are the same in the 7.3 client for 3,960
+of them, and the Epic 7 Lua mostly adds a monster or two to a group the 9.4 one had trimmed.
+
+**Not modelled**: the official server only registers `raid_respawn` populations in `g_vRaidMonsterRespawnInfo`,
+which `GameContent::AddRespawnObjectToWorld` never reads; the importer still adds them to the open-world
+area like the field ones (unchanged by this fix). The rare-mob auto traps (`id % 100` in 41/43/44/46/49) are
+skipped by the Lua unless `game.use_auto_trap` is 1; the importer keeps them.
 
 Regenerate it with:
 
 ```powershell
 .\tools\Import-MonsterSpawns.ps1 `
-  -NfsDirectory '<9.4 NewMap directory>' `
-  -MonsterRespawnLuaPath '<decompressed monster_respawn.lua>' `
+  -NfsDirectory 'DevConsole\Maps' `
+  -MonsterRespawnLuaPath '<Epic 7 Part 4>	runk\monster_respawn.lua' `
   -ClientMonsterRdbPath '<7.3 db_monster.rdb>' `
   -OutputPath 'DevConsole\monster-spawns.73.json'
 ```
@@ -90,7 +104,7 @@ Successful startup includes logs equivalent to:
 
 ```text
 Loaded and indexed <count> NPCs
-Loaded 43443 monster instances from 0 spawn points and 3973 official areas (<count> monster resources)
+Loaded 40566 monster instances from 0 spawn points and 4082 official areas (<count> monster resources)
 ```
 
 Visibility synchronization is silent during normal movement. Startup logs retain indexed object and
