@@ -76,15 +76,19 @@ public class FieldPropCatalog : IFieldPropCatalog
     private readonly ILogger _logger = Log.ForContext<FieldPropCatalog>();
     private readonly FrozenDictionary<int, FieldPropTemplate> _templates;
     private readonly FrozenDictionary<int, (int X, int Y)> _dungeons;
+    private readonly int _localFlag;
 
     public IReadOnlyList<FieldPropInstance> Instances { get; }
 
-    public FieldPropCatalog(IOptions<FieldPropOptions> options) : this(options.Value)
+    public FieldPropCatalog(IOptions<FieldPropOptions> options, IOptions<GameRuleOptions> rules = null)
+        : this(options.Value, rules?.Value?.LocalFlag ?? new GameRuleOptions().LocalFlag)
     {
     }
 
-    public FieldPropCatalog(FieldPropOptions options)
+    /// <param name="localFlag">The server's country bit: a prop whose template excludes it is not placed.</param>
+    public FieldPropCatalog(FieldPropOptions options, int localFlag = 1)
     {
+        _localFlag = localFlag;
         _templates = options.Templates.ToFrozenDictionary(
             template => template.Id,
             template => Resolve(template));
@@ -136,9 +140,14 @@ public class FieldPropCatalog : IFieldPropCatalog
                     lua));
     }
 
-    private FieldPropInstance[] BuildInstances(FieldPropOptions options) => options.Spawns
-        .Where(spawn => _templates.ContainsKey(spawn.PropId))
-        .Select((spawn, index) => new FieldPropInstance(
+    // FieldPropManager::RegisterFieldProp: a prop whose local_flag excludes this country is not placed. Filtered before the
+    // numbering, since an instance id is its position (TryGetInstance).
+    private FieldPropInstance[] BuildInstances(FieldPropOptions options)
+    {
+        var excluded = options.Templates.Where(t => (t.LocalFlag & _localFlag) != 0).Select(t => t.Id).ToHashSet();
+        return options.Spawns
+            .Where(spawn => _templates.ContainsKey(spawn.PropId) && !excluded.Contains(spawn.PropId))
+            .Select((spawn, index) => new FieldPropInstance(
             index,
             spawn.PropId,
             spawn.X,
@@ -150,7 +159,8 @@ public class FieldPropCatalog : IFieldPropCatalog
             spawn.ScaleX,
             spawn.ScaleY,
             spawn.ScaleZ))
-        .ToArray();
+            .ToArray();
+    }
 
     public bool TryGetInstance(long instanceId, out FieldPropInstance instance)
     {

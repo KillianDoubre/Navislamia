@@ -34,6 +34,13 @@ public class FieldPropTemplateOptions
 
     /// <summary>The Epic 7 script of a prop whose 9.4 script has no action (<c>quest_prop_*</c>).</summary>
     public string LuaScript { get; set; } = string.Empty;
+
+    /// <summary>
+    /// <c>FieldPropResource.local_flag</c>: the countries the prop is <b>not</b> placed in, against
+    /// <c>GameRules:LocalFlag</c> (<c>FieldPropManager::RegisterFieldProp</c>). The event props (Christmas, Halloween…)
+    /// carry 1048575, every country, outside their event.
+    /// </summary>
+    public int LocalFlag { get; set; }
 }
 
 public class FieldPropDropOptions

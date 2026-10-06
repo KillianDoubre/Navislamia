@@ -92,3 +92,24 @@ Sans `FieldPropUse` (tests isolés), les conditions 1, 2 et 4 refusent toujours,
   un nombre échoue donc tant que rien n'a posé le drapeau.
 - **Couches** : l'officiel pose une copie de chaque prop par couche de canal (`ChannelManager`). Ici l'état est par
   prop, toutes couches confondues.
+
+## Pays et props d'événement (2026-10-06)
+
+Bug noté par Killian : des modèles d'événement (décorations de Noël, sapins, paquets cadeaux…) apparaissaient toute
+l'année. Les 3 189 props de `field-props.73.json` étaient tous posés. `FieldPropManager::RegisterFieldProp` (source
+2015, `FieldPropManager.cpp:177-181`, même fonction dans le serveur de 2012-11) ne pose pas un prop si le
+`local_flag` de son modèle contient le bit du pays du serveur : c'est un masque d'**exclusion**, comme celui des PNJ
+(`socle-pnj-pays-periodes.md`).
+
+- `tools/export_field_prop_rules.py` écrit `LocalFlag` dans chaque modèle, depuis le `FieldPropResource` d'Epic 7.
+  Le `db_fieldpropresource.rdb` du client (enregistrements de 657 octets, `local_flag` à +16) porte la même valeur
+  pour les 454 modèles posés.
+- `FieldPropCatalog` écarte ces poses contre `GameRules:LocalFlag` (1), avant la numérotation, puisque l'identifiant
+  d'instance est la position dans la liste. Le modèle reste connu.
+- Résultat : 26 modèles exclus, tous à 1048575 (tous les pays : les décorations de fêtes et des props d'événement
+  coréens), et 1 237 poses gardées sur 3 189.
+- `FieldPropSwitchingResource` (substitution d'un prop par serveur pendant un événement) n'est pas porté : la table
+  9.4 n'a que six lignes, pour les serveurs 2 à 4, et ce serveur est le 1. Le dump Epic 7 n'en a pas.
+- NON ÉTABLI : une décoration dessinée par les fichiers de carte du client (et non posée par le serveur) ne dépend pas
+  de ce filtre. Si un modèle de fête reste visible en jeu, c'est qu'il vient du client.
+

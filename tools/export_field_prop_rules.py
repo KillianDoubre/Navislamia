@@ -38,6 +38,8 @@ for template in templates:
         missing.append(template['Id'])
         continue
     template['CastingTime'] = int(number(row, 'casting_time') * 100)
+    # FieldPropManager::RegisterFieldProp: the countries the prop is not placed in (1048575 = an event prop, off).
+    template['LocalFlag'] = int(number(row, 'local_flag'))
     template['UseCount'] = int(number(row, 'use_count'))
     template['RegenTime'] = int(number(row, 'regen_time') * 100)
     template['LifeTime'] = int(number(row, 'life_time') * 100)

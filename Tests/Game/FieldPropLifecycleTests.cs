@@ -45,6 +45,31 @@ public class FieldPropLifecycleTests
     private uint _now = 10_000;
 
     [Test]
+    public void A_prop_whose_local_flag_excludes_the_country_is_not_placed()
+    {
+        // FieldPropManager::RegisterFieldProp: the Christmas decorations carry 1048575, every country, outside their event.
+        var catalog = new FieldPropCatalog(new FieldPropOptions
+        {
+            Templates =
+            {
+                new FieldPropTemplateOptions { Id = 1, ActivateSkillId = 6904 },
+                new FieldPropTemplateOptions { Id = 1015, ActivateSkillId = 6904, LocalFlag = 1048575 },
+                new FieldPropTemplateOptions { Id = 2001, ActivateSkillId = 6904, LocalFlag = 1040383 }
+            },
+            Spawns =
+            {
+                new FieldPropSpawnOptions { PropId = 1015, X = 5, Y = 5 },
+                new FieldPropSpawnOptions { PropId = 1, X = 10, Y = 10 },
+                new FieldPropSpawnOptions { PropId = 2001, X = 20, Y = 20 }
+            }
+        }, localFlag: 1);
+
+        catalog.Instances.Select(i => i.PropId).Should().Equal(1);
+        catalog.Instances[0].InstanceId.Should().Be(0, "an instance id stays its position in the list");
+        catalog.TryGetTemplate(1015, out _).Should().BeTrue("the template stays known; only its placements go");
+    }
+
+    [Test]
     public void A_prop_with_a_regen_time_first_appears_after_it_and_an_untracked_one_is_always_there()
     {
         var states = new FieldPropStates(Catalog(), () => _now);

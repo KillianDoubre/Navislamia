@@ -1213,6 +1213,10 @@ then `FIELD_PROP_INFO` (37) — `prop_id` u32 @26, `fZOffset` @30, `fRotateX/Y/Z
 **`objType = EOT_FieldProp (6)`** — rzu is the authority; the emulator's internal `OBJ_STATIC = 0` is a
 different enum and must not reach the wire.
 
+**A prop is placed only where its template's `local_flag` does not exclude `GameRules:LocalFlag`**
+(`FieldPropManager::RegisterFieldProp`, `FieldPropTemplateOptions.LocalFlag` from `export_field_prop_rules.py`): the
+holiday and event props carry 1048575, so 1 237 of 3 189 placements stand (`socle-props.md`, *Pays et props d'événement*).
+
 **`TS_SC_WARP` is id `12`** at this epic (`< EPIC_9_6_3`): `x`/`y`/`z` floats + `layer` int8, 20 bytes.
 `WarpService` mirrors `World::WarpBegin`/`WarpEnd`: stop the attack, `TS_SC_LEAVE` **every** visible
 object and clear the visible sets, set the position, warp, then re-sync NPCs/monsters/props. Skipping
