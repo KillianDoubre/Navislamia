@@ -41,6 +41,7 @@ public class PetBehaviorService
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(TickIntervalMs));
         while (await timer.WaitForNextTickAsync())
         {
+            using var _ = Navislamia.Game.Network.ServerMetrics.Tick("pets");
             foreach (var client in _networkService.AuthorizedGameClients.Values)
             {
                 try

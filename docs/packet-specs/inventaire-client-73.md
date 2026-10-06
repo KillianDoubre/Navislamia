@@ -126,17 +126,21 @@ Manquent :
 - ~~`StringResources` (102 256 lignes) non filtrée~~ : RlwjZDsY, codes bornés à `db_string.rdb` ; les 102256 actuels sont déjà connus.
 - ~~Un nouvel `import_epic7.py` réinsère les lignes Epic 7 hors client sans rejouer le filtre~~ : lbQQRm8S, filtrage final obligatoire ; `--plan` vérifié en lecture seule.
 
-### Décisions laissées à Killian
+### Décisions de Killian (2026-10-06)
 
-- Numéro de sécurité (9002-9011) : stockage et vérification du code, transport vers le serveur d'authentification.
-- Boutique payante et coffre commercial (10001 et suivants, 9000/9001).
-- Ferme de créatures (6000-6008) : volontairement non implémentée.
+- Numéro de sécurité (9002-9011) : **à faire** — stockage et vérification du code, transport vers le serveur
+  d'authentification.
+- Boutique payante et coffre commercial (10001 et suivants, 9000/9001) : **à faire**.
+- Ferme de créatures (6000-6008) : **à porter** depuis le serveur officiel (cartes Trello `xyPQkALO`, 6002, 6004,
+  6006 ; source dans `reference/official2015/` sur le VPS).
+- Instances 50000, 60000 et 70000 (voir ci-dessus) : à vérifier.
+- Anti-triche 54, 57 et 59 : à prendre en charge si une utilité est trouvée.
 
 ### Avant d'ouvrir à de vrais joueurs
 
 - **Anti-triche** : ~~le serveur croit les positions du client sans contrôle de vitesse ni d'obstacles~~ : porté le
   2026-10-05 (`socle-anti-triche-deplacement.md`) ; les paquets 54, 57 et 59 restent lus et ignorés.
-- **Exploitation** : ~~PostgreSQL démarre à la main, aucune sauvegarde automatique des bases~~ : CkEncmJM, scripts de démarrage Automatic et sauvegarde quotidienne avec rotation livrés (`exploitation-postgresql.md`), installation administrateur encore à faire. Aucun test de charge à plusieurs dizaines de joueurs.
+- **Exploitation** : ~~PostgreSQL démarre à la main, aucune sauvegarde automatique des bases~~ : CkEncmJM, scripts de démarrage Automatic et sauvegarde quotidienne avec rotation livrés (`exploitation-postgresql.md`) et installés le 2026-10-05 (service Automatic, tâche quotidienne à 02:30). ~~Aucun test de charge à plusieurs dizaines de joueurs~~ : `tools/LoadTest` (`test-de-charge.md`), premier rapport à 50 et 100 clients.
 - **Validation en jeu** : la plupart des systèmes à plusieurs joueurs (échange, étals, enchères, groupe, guildes,
   sièges, duel, PvP, buffs de groupe) et les contenus (artisanat, quêtes, HuntaHolic, donjons) ne sont validés que
   par les tests automatiques.

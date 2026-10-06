@@ -182,6 +182,7 @@ public partial class CombatService : ICombatService
         {
             try
             {
+                using var _ = Navislamia.Game.Network.ServerMetrics.Tick("combat");
                 Tick(DateTime.UtcNow);
             }
             catch (Exception ex)
@@ -1303,7 +1304,7 @@ public partial class CombatService : ICombatService
                 _lastAttacker.Remove(instanceId);
             }
 
-            if (attacker != null)
+            if (attacker is { Released: false })
             {
                 _spawnService.Sync(attacker);
             }

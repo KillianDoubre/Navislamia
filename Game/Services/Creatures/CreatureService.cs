@@ -2848,6 +2848,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             {
                 try
                 {
+                    using var _ = Navislamia.Game.Network.ServerMetrics.Tick("creatures");
                     ProcessSwings(DateTime.UtcNow);
                     if (++ticks % 10 == 0)
                     {

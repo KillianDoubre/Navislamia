@@ -3018,6 +3018,17 @@ Keep `System` at `Warning`. A log call with more than three properties allocates
 its arguments **before** Serilog checks the level, so a per-packet one is wrapped in
 `_logger.IsEnabled(LogEventLevel.Debug)` (`GameClient.SendMessage` and the receive loop do).
 
+## Load test (`tools/LoadTest`, `docs/packet-specs/test-de-charge.md`)
+
+Headless bots play the real 7.3 protocol (auth, one-time key, lobby, creation, world entry, walk, local chat, combat,
+resurrection) through the server's own `CipherConnection` used client-side. `seed` creates `load001…` in the auth
+database; `run --stages 50,100 --hold 120` writes a Markdown report. Attached to a local `DevConsole` over EventPipe,
+it also reads CPU, runtime counters, lock contention (with durations) and the **`Navislamia` meter**
+(`Game/Network/ServerMetrics.cs`): one tick per periodic loop (`ServerMetrics.Tick("name")`), synchronous handling
+per received frame (`FrameTimer` in `GameClient.OnDataReceived`), visibility passes and the queue-to-socket send
+delay. Instruments are disabled without a listener; **a new periodic loop wraps its tick the same way** and gets its
+interval in `Report.LoopBudgetMs`.
+
 ## Change guidelines
 
 - Preserve the 7-byte header, little-endian layout and exact client packet sizes.

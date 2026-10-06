@@ -49,8 +49,11 @@ public class Connection : IConnection
     /// <c>WaitToReadAsync</c> and wakes the moment something is queued, and it collapses a burst into
     /// one wake-up instead of one per message.
     /// </summary>
-    private readonly Channel<byte[]> _sendChannel =
-        Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
+    private readonly Channel<Outgoing> _sendChannel =
+        Channel.CreateUnbounded<Outgoing>(new UnboundedChannelOptions { SingleReader = true });
+
+    /// <summary>A queued message and when it was queued (0 while nobody measures <see cref="ServerMetrics.SendDelay"/>).</summary>
+    private readonly record struct Outgoing(byte[] Buffer, long QueuedAt);
 
     /// <summary>Caps how much of a burst is copied into one pooled buffer before it is flushed.</summary>
     private const int MaxSendBatchBytes = 64 * 1024;
@@ -253,7 +256,14 @@ public class Connection : IConnection
     /// <param name="buffer">Message data to be sent</param>
     public virtual void Send(byte[] buffer)
     {
-        _sendChannel.Writer.TryWrite(buffer);
+        // A closed connection has no send loop left: queuing would only keep the message alive.
+        if (Volatile.Read(ref _disconnectSignaled) != 0)
+        {
+            return;
+        }
+
+        _sendChannel.Writer.TryWrite(new Outgoing(buffer,
+            ServerMetrics.SendDelay.Enabled ? ServerMetrics.Timestamp() : 0));
     }
 
     /// <summary>
@@ -284,6 +294,7 @@ public class Connection : IConnection
     protected async Task SendLoop()
     {
         var pending = new List<byte[]>();
+        long oldestQueuedAt = 0;
 
         try
         {
@@ -296,16 +307,20 @@ public class Connection : IConnection
 
                 pending.Clear();
                 var total = 0;
+                oldestQueuedAt = 0;
 
-                while (total < MaxSendBatchBytes && _sendChannel.Reader.TryRead(out var buffer))
+                while (total < MaxSendBatchBytes && _sendChannel.Reader.TryRead(out var message))
                 {
-                    pending.Add(buffer);
-                    total += buffer.Length;
+                    if (pending.Count == 0) oldestQueuedAt = message.QueuedAt;
+                    pending.Add(message.Buffer);
+                    total += message.Buffer.Length;
                 }
 
                 if (total > 0)
                 {
                     await SendBatchAsync(pending, total);
+                    ServerMetrics.BytesSent.Add(total);
+                    if (oldestQueuedAt != 0) ServerMetrics.SendDelay.Record(ServerMetrics.ElapsedMs(oldestQueuedAt));
                 }
             }
         }

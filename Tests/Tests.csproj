@@ -27,6 +27,7 @@
       <ProjectReference Include="..\Configuration\Configuration.csproj" />
       <ProjectReference Include="..\DevConsole\DevConsole.csproj" />
       <ProjectReference Include="..\Game\Game.csproj" />
+      <ProjectReference Include="..\tools\LoadTest\LoadTest.csproj" />
     </ItemGroup>
 
 </Project>

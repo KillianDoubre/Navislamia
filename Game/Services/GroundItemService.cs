@@ -627,6 +627,7 @@ public class GroundItemService : IGroundItemService
         {
             try
             {
+                using var _ = Navislamia.Game.Network.ServerMetrics.Tick("ground-items");
                 Expire(DateTime.UtcNow);
             }
             catch (Exception exception)

@@ -23,7 +23,7 @@ public static class MonsterContribution
             return new[] { new MonsterRewardGroup(killer, 1) };
         var total = ledger.Damage.Sum(d => (decimal)d.Damage);
         if (total <= 0) return Array.Empty<MonsterRewardGroup>();
-        var groups = ledger.Damage.Where(d => d.Player.ConnectionInfo.CharacterHandle != 0 && d.Damage > 0)
+        var groups = ledger.Damage.Where(d => !d.Player.Released && d.Player.ConnectionInfo.CharacterHandle != 0 && d.Damage > 0)
             .GroupBy(d => Group(d.Player)).Select(g => new
             {
                 Key = g.Key, Player = g.First().Player, Damage = g.Sum(d => (decimal)d.Damage)

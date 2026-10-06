@@ -61,6 +61,7 @@ public class MonsterAiService
         {
             try
             {
+                using var _ = Navislamia.Game.Network.ServerMetrics.Tick("monster-ai");
                 Tick(DateTime.UtcNow);
             }
             catch (Exception ex)

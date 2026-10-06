@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Navislamia.Game.Network.Clients.Actions;
 using Navislamia.Game.Network.Interfaces;
 using Navislamia.Game.Network.Packets;
@@ -84,7 +85,7 @@ public class Client : IDisposable
                 {
                     // A client disposed first (Dispose disconnects, and the receive completion then signals
                     // it) has nothing left to release; reading its state would throw on a pool thread.
-                    if (ConnectionInfo is null)
+                    if (Released)
                     {
                         break;
                     }
@@ -114,10 +115,25 @@ public class Client : IDisposable
         Connection.Send(msg.Data);
     }
 
+    private int _released;
+
+    /// <summary>The client has disconnected or been disposed: what still holds it may read it, nothing reaches the player.</summary>
+    public bool Released => Volatile.Read(ref _released) != 0;
+
+    /// <remarks>
+    /// <see cref="Connection"/> and <see cref="ConnectionInfo"/> used to be set to null here. A departed player is
+    /// still held by the services that outlive the session — a monster's damage ledger and last attacker, a corpse
+    /// waiting for its leave, a ground item's owner — and the next tick that read one threw: the combat tick was
+    /// abandoned for every player, and a monster hit by a player who left could no longer die (found by the load
+    /// test, docs/packet-specs/test-de-charge.md). They stay; a send to the closed connection is dropped.
+    /// </remarks>
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _released, 1) != 0)
+        {
+            return;
+        }
+
         Connection.Disconnect();
-        Connection = null;
-        ConnectionInfo = null;
     }
 }

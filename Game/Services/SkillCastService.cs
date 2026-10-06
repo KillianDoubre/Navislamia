@@ -1741,6 +1741,7 @@ public partial class SkillCastService : ISkillCastService
         {
             try
             {
+                using var _ = Navislamia.Game.Network.ServerMetrics.Tick("buffs");
                 var now = ServerClock.Now;
                 ProcessBuffs(now);
             }
@@ -1758,6 +1759,7 @@ public partial class SkillCastService : ISkillCastService
         {
             try
             {
+                using var _ = Navislamia.Game.Network.ServerMetrics.Tick("casts");
                 var now = ServerClock.Now;
                 ProcessPeriodicStates(now);
                 ProcessCasts(now);

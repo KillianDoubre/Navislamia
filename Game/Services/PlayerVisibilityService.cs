@@ -225,6 +225,7 @@ public sealed class PlayerVisibilityService : IPlayerVisibilityService
 
     public void OnMove(GameClient walker, byte[] waypoints)
     {
+        using var _ = Navislamia.Game.Network.ServerMetrics.Visibility("players");
         var info = walker.ConnectionInfo;
 
         if (info.CharacterHandle == 0 || !_index.TryGet(info.CharacterHandle, out var mine))

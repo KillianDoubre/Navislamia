@@ -43,6 +43,7 @@ public sealed class PlayerRegenerationService
 
     public void Tick()
     {
+        using var _ = Navislamia.Game.Network.ServerMetrics.Tick("regeneration");
         foreach (var client in _players.Registry.Clients)
         {
             try

@@ -34,6 +34,7 @@ public class MonsterMovementService
         {
             try
             {
+                using var _ = Navislamia.Game.Network.ServerMetrics.Tick("monster-movement");
                 Tick(DateTime.UtcNow);
             }
             catch (Exception ex)

@@ -47,6 +47,22 @@ public class MonsterProgressionTests
     }
 
     [Test]
+    public void A_contributor_who_left_takes_nothing_and_the_kill_still_resolves()
+    {
+        // Found by the load test: a disposed client used to have no ConnectionInfo, and this resolution threw on
+        // the killing blow, so a monster hit by a player who left could no longer die.
+        var gone = Player(1); var killer = Player(2);
+        var ledger = new MonsterDamageLedger(new[] { (gone, 40L), (killer, 60L) }, gone, 100);
+        gone.Dispose();
+
+        gone.Released.Should().BeTrue();
+        StorageTestHarness.Session(gone).Should().NotBeNull("what still holds a departed player may read it");
+        var shares = MonsterContribution.Resolve(ledger, killer, 101);
+        shares.Should().ContainSingle().Which.Representative.Should().Be(killer);
+        shares[0].Factor.Should().BeApproximately(.5, 1e-9, "half of 60 %, largest and last hit: the departed keeps its damage in the denominator and its first-hit bonus");
+    }
+
+    [Test]
     public void First_hit_bonus_moves_after_one_minute_including_clock_wrap()
     {
         var first = Player(1); var last = Player(2); var tick = uint.MaxValue - 100;

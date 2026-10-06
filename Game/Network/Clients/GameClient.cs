@@ -934,6 +934,7 @@ public class GameClient : Client
 
     private void SyncVisibleObjects()
     {
+        using var _ = ServerMetrics.Visibility("objects");
         _networkService.NpcSpawnService.Sync(this);
         _networkService.MonsterSpawnService.Sync(this);
         _networkService.FieldPropService.Sync(this);
@@ -2628,6 +2629,19 @@ public class GameClient : Client
 
     public override void OnDataReceived(int bytesReceived)
     {
+        var timer = new ServerMetrics.FrameTimer();
+        try
+        {
+            ReceiveFrames(bytesReceived, ref timer);
+        }
+        finally
+        {
+            timer.End();
+        }
+    }
+
+    private void ReceiveFrames(int bytesReceived, ref ServerMetrics.FrameTimer timer)
+    {
         var remainingData = bytesReceived;
 
         while (remainingData >= Marshal.SizeOf<Header>())
@@ -2666,6 +2680,7 @@ public class GameClient : Client
             var msgBuffer = Connection.Read((int)header.Length);
 
             remainingData -= msgBuffer.Length;
+            timer.Begin(header.ID);
 
             if (!DefinedPackets[header.ID])
             {

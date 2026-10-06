@@ -53,7 +53,14 @@ public sealed class SkillEffectScheduler : IDisposable
     private async Task Run()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
-        try { while (await timer.WaitForNextTickAsync(_stop.Token)) Tick(ServerClock.Now); }
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+            {
+                using var _ = Navislamia.Game.Network.ServerMetrics.Tick("skill-effects");
+                Tick(ServerClock.Now);
+            }
+        }
         catch (OperationCanceledException) { }
     }
     public void Dispose() { _stop.Cancel(); lock (_gate) { _pending.Clear(); _props.Clear(); } _stop.Dispose(); }
