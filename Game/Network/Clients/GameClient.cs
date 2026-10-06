@@ -1101,12 +1101,17 @@ public class GameClient : Client
 
     /// <summary>
     /// TM_CS_FOSTER_CREATURE (6002), the farm's "assign" button: the card to leave in the farm and the ticket
-    /// and cracker stacks it consumes. The frame is read and bounded, and nothing is answered: the result frame
-    /// 6003 carries a <c>result</c> byte whose values no reference establishes, and this server can neither
-    /// validate nor consume the stacks (which item is a ticket is not established either). See
-    /// docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5, §7.6.
+    /// and cracker stacks it consumes. A well formed frame is always answered with TM_SC_RESULT_FOSTER (6003) —
+    /// 8 bytes, <c>1</c> for an accepted deposition and <c>0</c> for a refusal, the values the reference fixes
+    /// (docs/packet-specs/6002-foster-creature.md §5.6). A malformed frame (truncated, counters against the
+    /// length) is logged and left unanswered, this deposit's convention for what the parser rejects.
+    /// <para>
+    /// The gesture itself — the card, the ticket cost of the summon's key, the two stacks, the slot and the
+    /// write — belongs to <see cref="Navislamia.Game.Services.Creatures.ICreatureFarmDepositService"/>; the
+    /// refusal is answered here, so that no failure path can leave the client without its 6003.
+    /// </para>
     /// </summary>
-    private void HandleFosterCreature(byte[] buffer)
+    private async Task HandleFosterCreatureAsync(byte[] buffer)
     {
         if (!GameFarmPackets.TryReadFosterCreature(buffer, out var request))
         {
@@ -1124,6 +1129,30 @@ public class GameClient : Client
                 (ushort)GamePackets.TM_CS_FOSTER_CREATURE, buffer.Length, ClientTag, request.CreatureCardHandle,
                 request.Tickets.Length, request.Crackers.Length);
         }
+
+        var deposit = _networkService.CreatureFarmDepositService;
+        if (deposit is null)
+        {
+            // A harness with no deposition service can validate nothing: refuse rather than claim the card was
+            // taken in. Only a host that wired no farm reaches this.
+            Connection.Send(GameFarmPackets.BuildResultFoster(GameFarmPackets.FosterResultRefused));
+            return;
+        }
+
+        var taken = false;
+        try
+        {
+            taken = await deposit.FosterCreatureAsync(this, request);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not deposit card {cardHandle} for {clientTag}",
+                request.CreatureCardHandle, ClientTag);
+        }
+
+        Connection.Send(GameFarmPackets.BuildResultFoster(taken
+            ? GameFarmPackets.FosterResultAccepted
+            : GameFarmPackets.FosterResultRefused));
     }
 
     /// <summary>
@@ -3705,11 +3734,12 @@ public class GameClient : Client
 
             // The creature farm (ferme de créatures) socle: TM_CS_REQUEST_FARM_INFO (6000),
             // TM_CS_FOSTER_CREATURE (6002), TM_CS_RETRIEVE_CREATURE (6004), TM_CS_NURSE_CREATURE (6006) and
-            // TM_CS_REQUEST_FARM_MARKET (6008). The five frames are read and bounded and only 6000 is answered
-            // (with a TM_SC_FARM_INFO, 6001) filled from the farm's storage; the result frames 6003/6005/6007
-            // carry a `result` byte whose values no reference establishes and stay undeclared. The arms must
-            // stay before the throwing switch below — a member of GamePackets that reaches it breaks the
-            // receive loop. See docs/packet-specs/socle-ferme-creatures-officielle.md §5.6.
+            // TM_CS_REQUEST_FARM_MARKET (6008). 6000 is answered with a TM_SC_FARM_INFO (6001) filled from the
+            // farm's storage, and a well formed 6002 with a TM_SC_RESULT_FOSTER (6003) — 1 accepted, 0 refused
+            // (docs/packet-specs/6002-foster-creature.md §5.6); the other three stay read and unanswered, their
+            // own result frames (6005/6007) still undeclared. The arms must stay before the throwing switch
+            // below — a member of GamePackets that reaches it breaks the receive loop.
+            // See docs/packet-specs/socle-ferme-creatures-officielle.md §5.6.
             if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO)
             {
                 _ = HandleRequestFarmInfoAsync(msgBuffer);
@@ -3718,7 +3748,7 @@ public class GameClient : Client
 
             if (header.ID == (ushort)GamePackets.TM_CS_FOSTER_CREATURE)
             {
-                HandleFosterCreature(msgBuffer);
+                _ = HandleFosterCreatureAsync(msgBuffer);
                 continue;
             }
 
@@ -3747,6 +3777,16 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_SC_FARM_INFO)
             {
                 _logger.Warning("Server to client packet TM_SC_FARM_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_SC_RESULT_FOSTER (6003) is the answer to a deposition: a server to client packet, declared
+            // because this lot emits it (docs/packet-specs/6002-foster-creature.md §3.3, §5.6). The 7.3 client
+            // builds none, so an incoming one is a protocol anomaly — logged and dropped, like 6001 just above.
+            if (header.ID == (ushort)GamePackets.TM_SC_RESULT_FOSTER)
+            {
+                _logger.Warning("Server to client packet TM_SC_RESULT_FOSTER ({id}) received from {clientTag}",
                     header.ID, ClientTag);
                 continue;
             }

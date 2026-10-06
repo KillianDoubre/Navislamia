@@ -52,6 +52,13 @@ public sealed record ItemMixFields(int BaseType, int Grade, long Price, int Endu
 /// </summary>
 public readonly record struct ItemSellFields(int Id, int Rank, int Price);
 
+/// <summary>
+/// One item resource as the farm's deposition reads it: the class the reference compares (403 <c>FARM_PASS</c>
+/// / 402 <c>CREATURE_FOOD</c>) and the two option arrays a ticket carries its duration (<c>OptVar1[0]</c>,
+/// seconds) and its premium flag (<c>OptVar2[0] == 1</c>) in.
+/// </summary>
+public readonly record struct ItemFarmFields(int Id, ItemType ItemType, decimal[] OptVar1, decimal[] OptVar2);
+
 public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType,
     bool RenamesPet = false, int CoolTime = 0, short CoolTimeGroup = 0,
     short[] BaseTypes = null, decimal[] BaseVar1 = null, short[] OptTypes = null,
@@ -160,4 +167,12 @@ public interface IItemResourceRepository
     /// item code can already sit in one of its chassis.
     /// </summary>
     IReadOnlyList<ItemSoulstoneCraftFields> GetSoulstoneCraftFields();
+
+    /// <summary>
+    /// The class of every item resource and the two option arrays the farm's deposition reads on a ticket: 403
+    /// (<c>CLASS_FARM_PASS</c>) and 402 (<c>CLASS_CREATURE_FOOD</c>) tell a ticket from a cracker, and the
+    /// ticket's duration and premium flag come from <c>OptVar1[0]</c> / <c>OptVar2[0]</c>
+    /// (docs/packet-specs/6002-foster-creature.md §5.2 points 3-5, §5.4).
+    /// </summary>
+    IReadOnlyList<ItemFarmFields> GetFarmFields() => System.Array.Empty<ItemFarmFields>();
 }

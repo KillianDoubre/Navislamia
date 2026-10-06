@@ -167,6 +167,14 @@ public class ItemResourceRepository : IItemResourceRepository
             .ToList();
     }
 
+    public IReadOnlyList<ItemFarmFields> GetFarmFields()
+    {
+        return _context.ItemResources
+            .AsNoTracking()
+            .Select(item => new ItemFarmFields((int)item.Id, item.ItemType, item.OptVar1, item.OptVar2))
+            .ToList();
+    }
+
     public IReadOnlyList<ItemWearFields> GetWearFields()
     {
         return _context.ItemResources

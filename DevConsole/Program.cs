@@ -526,6 +526,15 @@ public class Program
             Navislamia.Game.Services.Creatures.CreatureFarmStore>();
         services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmService,
             Navislamia.Game.Services.Creatures.CreatureFarmService>();
+        // Son chemin d'écriture (6002 → 6003) : la couture du coût en tickets est enregistrée sans aucune
+        // ligne — la table n'est pas encore chargée (docs/packet-specs/6002-foster-creature.md §5.5), donc
+        // elle rend 0 pour toute clé et tout dépôt est refusé au lieu d'être accepté sans vérification.
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmItemCatalog,
+            Navislamia.Game.Services.Creatures.CreatureFarmItemCatalog>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmTicketCost,
+            Navislamia.Game.Services.Creatures.CreatureFarmTicketCost>();
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmDepositService,
+            Navislamia.Game.Services.Creatures.CreatureFarmDepositService>();
         services.AddSingleton<IPlayerLocationService, PlayerLocationService>();
         services.AddSingleton<Navislamia.Game.Services.Combat.StateProcs>(provider =>
             new Navislamia.Game.Services.Combat.StateProcs(provider.GetRequiredService<Navislamia.Game.DataAccess.Repositories.Interfaces.ISkillResourceRepository>()));
