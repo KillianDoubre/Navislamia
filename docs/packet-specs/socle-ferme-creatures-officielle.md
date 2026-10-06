@@ -2,7 +2,10 @@
 
 Fiche **compagnon** de `docs/packet-specs/socle-ferme-creatures.md`. Elle ne remplace pas la fiche
 d'origine : elle **remplit son §7** à partir de la source officielle désormais disponible et **lève
-explicitement la décision du 2026-09-30** (voir §8). La fiche d'origine est laissée intacte.
+explicitement la décision du 2026-09-30** (voir §8). Le texte de la fiche d'origine n'est pas
+réécrit et **aucune de ses lignes n'est supprimée** : seul un **avertissement d'obsolescence daté** a
+été ajouté en tête de sa section « Décision de Killian » — le **second** `## 8`, ligne 508 de ce
+fichier-là, qui en porte deux (« Références épinglées » ligne 475 puis « Décision de Killian »).
 
 Texte de la décision levée (`socle-ferme-creatures.md`, 2026-09-30) :
 
@@ -29,9 +32,14 @@ Neuf trames, id et nom lus dans `op_codes.md:256-264` (dépôt) et confirmés pa
 | 6007 | `TM_SC_RESULT_NURSE` | `GameMessage.h:363` |
 | 6008 | `TM_CS_REQUEST_FARM_MARKET` | `GameMessage.h:364` |
 
-Les neuf ids sont déjà dans `GamePackets.cs:442-452` et lus par `GameClient.cs:3675-3720` ; le lot
-`hermes/packet-socle-ferme-creatures` a livré les codecs (`GameFarmPackets.cs`) et est mergé sur
-`master` (`8b3061aa`). Cette fiche ne touche ni au code ni à la fiche d'origine.
+**Six des neuf ids sont déjà déclarés** — `GamePackets.cs:447-452` : 6000, 6001, 6002, 6004, 6006,
+6008 — et tous sont lus par `Game/Network/Clients/GameClient.cs:1047-1160` (aiguillages
+`:3676-3720`). **Les trois trames de résultat 6003/6005/6007 ne sont pas déclarées** : le commentaire
+`GamePackets.cs:442-446` le dit explicitement, au motif que leur octet `result` n'était pas établi —
+motif que **cette fiche lève** (§3.4). Le lot qui émet 6002/6004/6006 doit donc déclarer les trois
+ids **dans le même commit que leurs `case`** (critère d'acceptation 4) et mettre le commentaire à
+jour. Le lot `hermes/packet-socle-ferme-creatures` a livré les codecs (`GameFarmPackets.cs`) et est
+mergé sur `master` (`8b3061aa`). Cette fiche ne touche pas au code serveur.
 
 ## 2. Ce que le joueur fait pour que le client l'envoie
 
@@ -49,11 +57,21 @@ PNJ est posé par `NPC_Creature_Farm_init` (`NPC_Creature_farm.lua:14-17`, `@910
 | « soigner » (`button_ministration_01..03`) | 6006 |
 | bouton d'achat de ticket (`button_tiket_buy_01`) | 6008 |
 
-Les noms de boutons sont mesurés dans le client 7.3 (`client73/SFrame.exe`, chaînes à
-`0x63e810` `button_regain_01`, `0x63e888/0x63e8a0/0x63e8b8` `button_ministration_03/02/01`,
-`0x63ea70` `button_tiket_buy_01`, `0x63e788` `tiket_icon_slot_%02d`, `0x63e7a0` `food_icon_slot_%02d`,
-`0x63e6c4..0x63e72c` `icon_commerce_farmticket_{senior,junior}[_premium]`, fenêtre
-`window_creature_farm.nui` à `0x642600`). Le PNJ lui-même n'est pas établi (§7).
+Les noms de boutons sont mesurés dans le client 7.3 (`client73/SFrame.exe`, chaînes lues aux
+offsets **fichier** `0x63e810` `button_regain_01`, `0x63e888/0x63e8a0/0x63e8b8`
+`button_ministration_03/02/01`, `0x63ea70` `button_tiket_buy_01`, `0x63e788` `tiket_icon_slot_%02d`,
+`0x63e7a0` `food_icon_slot_%02d`, `0x63e86c` `creature_card_icon_slot_01`,
+`0x63e6c4/0x63e6e4/0x63e704/0x63e72c`
+`icon_commerce_farmticket_{senior,junior}[_premium]`, fenêtre `window_creature_farm.nui` à
+`0x642610`, aide `window_creature_farm_help.nui` à `0x6425f0`). Les deux **légendes** de bouton
+`regain` (`0x63ea48`) et `assign` (`0x63ea50`) sont voisines, et les **boîtes de confirmation** de
+ces deux gestes sont `msgbox_creatureFarmAssign` (`0x641c70`) et `msgbox_creatureFarmRegain`
+(`0x641c54`) ; les refus « pas d'assignation » sont `msgbox_creatureFarmDoNotAssign4..1`
+(`0x641bd4`, `0x641bf4`, `0x641c14`, `0x641c34`).
+Ce sont des **offsets fichier, pas des adresses virtuelles** (`SFrame.exe` : `image_base`
+`0x400000`, `.text` en `RVA 0x1000` / `raw 0x400` — même convention que le commentaire de
+`GameFarmPackets.cs`) : une adresse virtuelle équivalente n'aurait aucun sens ici, les chaînes
+tombant hors des sections mappées. Le PNJ lui-même n'est pas établi (§7.3).
 
 ## 3. Structure sur le fil
 
@@ -79,13 +97,13 @@ Avec `N = creature_count` (0..3, §5.4), et en-tête 7 : **7 + 1 + 120 × N**.
 | 8 | — | début du 1er `SUMMON_INFO` | `GameMessage.h:3878` |
 | +0 | `int32` | `index` | `GameMessage.h:3879` ; **le numéro de case de ferme** : `GameMessage.cpp:11754` (`info->index = i`, `i` = slot 0..2, cf. §5.4) |
 | +4 | `int64` | `exp` | `GameMessage.h:3880` ; `GameMessage.cpp:11715` = `creatureCard->GetSummonStruct()->GetEXP()`, c'est-à-dire **l'EXP déjà acquise par l'invocation**, pas la projection de la ferme (§5.3) |
-| +12 | `char[19]` | `name` | `GameMessage.h:3881` ; `GameMessage.cpp:11716` = `pSummon->GetName()` copié dans un `char[19]` — le remplissage/troncature exact (`\0` final garanti ou non) n'est pas établi, §7.9 |
+| +12 | `char[19]` | `name` | `GameMessage.h:3881` ; `GameMessage.cpp:11716-11717` = `s_strcpy( name, _countof(name), … )` puis `name[_countof(name) - 1] = 0` : copie bornée à 19 octets, **dernier octet forcé à 0** (18 caractères visibles au plus) ; le tampon du message est mis à zéro avant remplissage (`GameMessage.cpp:11729`), donc les octets non écrits de la trame envoyée sont à 0 — la question ouverte §7.9 ci-dessous est **levée** |
 | +31 | `int32` | `duration` | `GameMessage.h:3882` ; `GameMessage.cpp:11720` = `farmInfo->duration`, la valeur du ticket (§5.1) |
 | +35 | `int32` | `elasped_time` | `GameMessage.h:3883` ; `GameMessage.cpp:11684` = `maintenant - registration_time`, **en secondes** |
 | +39 | `int32` | `refresh_time` | `GameMessage.h:3884` ; `GameMessage.cpp:11705/11707` = secondes jusqu'au **prochain 06:00**, 0 si jamais soigné (§3.6) |
 | +43 | `int8` | `using_cash` | `GameMessage.h:3885` ; `GameMessage.cpp:11718` = `is_cash` du dépôt (= ticket premium) |
 | +44 | `int8` | `using_cracker` | `GameMessage.h:3886` ; `GameMessage.cpp:11719` = cracker consommé au dépôt |
-| +45 | — | `card_info` | `GameMessage.h:3887` = `TS_ITEM_BASE_INFO` (`GameMessage.h:1390-1430`), rempli par `fillItemBaseInfo` (`GameMessage.cpp:11723`) : **la carte du joueur elle-même**, jamais une ligne de catalogue |
+| +45 | — | `card_info` | `GameMessage.h:3887` = `TS_ITEM_BASE_INFO` (`GameMessage.h:1390-1430`), rempli par `fillItemBaseInfo` (`GameMessage.cpp:11723`) : **la carte du joueur elle-même**, jamais une ligne de catalogue ; cela lève la question « `card_info` : quel objet ? » de la fiche d'origine (§7.9 là-bas) |
 | +120 | — | `SUMMON_INFO` suivant | pas d'alignement intercalaire (source `#pragma pack(1)`, `ContentStruct.h:316`) |
 
 `120 = 45 + 75` : le motif d'objet de 75 octets est déjà écrit par `GameFarmPackets.cs` (fiche
@@ -136,8 +154,10 @@ magasin standard, avec le handle PNJ **0**. `TS_SC_MARKET` en 7.3 :
 `EPIC_8_1`, `huntaholic_point` à partir de `EPIC_5_2`). Soit **13 + 16 × N octets** — l'écrivain du
 dépôt donne déjà la même taille (`GameTradePackets.cs:33` `MarketInfoHeaderSize = 13`).
 
+**Piège de taille :** rzu déclare après la liste un `_(pad)( 4 * items.size(), item_list_marker )` sans gating de version (`TS_SC_MARKET.h:22-23`), ce qui donnerait `13 + 20 × N` ; le client 7.3 lit `items × 16` octets contigus à partir de l'offset 13, et le dépôt émet donc compact, sans ce remplissage (`GameTradePackets.cs:16-18`). **Ne pas écrire le pad** : il désaliigne la trame.
+
 Le catalogue `creature_farm` existe des deux côtés : données 7.3
-(`sqlserver/Arcadia/MarketResource.csv:4468-4469`) et données client-ère 2011-12
+(`reference/sqlserver/Arcadia/MarketResource.csv:4468-4469`) et données client-ère 2011-12
 (`epic7part4/csv/MarketResource.csv:684-685`) donnent `creature_farm` → `710005`, `710006` (prix
 par `price_ratio`, cf. l'export du dépôt `DevConsole/market-catalog.73.json:4778-4791` :
 `710005` = 200 000 rut, `710006` = 400 000 rut, `HuntaholicPoint 0`). Deux lignes → **45 octets**.
@@ -162,12 +182,12 @@ EPIC_9_8_1 »), NGemity = `38ceb2c`.
 
 | champ / trame | gating rzu | tranché pour 7.3 |
 |---|---|---|
-| `6001` en-tête et champs `index`/`exp`/`duration`/`elasped_time`/`refresh_time`/`using_cash`/`using_cracker`/`card_info` | aucun gating (`TS_SC_FARM_INFO.h:9-21`) | **présents** |
-| `name[19]` | `20` en déclaration, `19` si `version < EPIC_9_6` (`TS_SC_FARM_INFO.h:14-16`) | **19 octets** |
-| `unknown` (`int64`) | ajouté si `version >= EPIC_9_8_1` (`TS_SC_FARM_INFO.h:12`) | **absent** |
-| `unknown` (`int32`, après `index`) | `version >= EPIC_9_5` | **absent** |
+| `6001` en-tête et champs `index`/`exp`/`duration`/`elasped_time`/`refresh_time`/`using_cash`/`using_cracker`/`card_info` | aucun gating (`TS_SC_FARM_INFO.h:9-20`) | **présents** |
+| `name[19]` | `20` en déclaration, `19` si `version < EPIC_9_6` (`TS_SC_FARM_INFO.h:12-14`) | **19 octets** |
+| `unknown` (`int64`) | ajouté si `version >= EPIC_9_8_1` (`TS_SC_FARM_INFO.h:11`) | **absent** |
+| `unknown` (`int32`, après `index`) | **aucune trace** : l'en-tête rzu `87c1e83` ne porte que le `int64` de `:11`, et NGemity `38ceb2c` ne porte aucun `unknown` (ni `int32`, ni `int64`) | **absent** |
 | `card_info` / `TS_ITEM_FIXED_INFO` | motif de 75 octets retenu par le dépôt (`118` en `>= EPIC_9_6_3`) | **75 octets**, motif déjà écrit par le dépôt |
-| id de `6001` | `Since EPIC_7_3` (`TS_SC_FARM_INFO.h:27`) | **en vigueur** |
+| id de `6001` | `Since EPIC_7_3` puis `X(6001, true)` (`TS_SC_FARM_INFO.h:29-31`) | **en vigueur** |
 | réponse 6008 | `250` si `version < EPIC_9_6_3` | **250** (pas 1250) |
 | ligne de marché | `huntaholic_point` (`>= EPIC_5_2`) oui, `arena_point` (`>= EPIC_8_1`) non | **16 octets par ligne** |
 | ouverture de la fenêtre | `TM_SC_DIALOG = 3000` (`GameMessage.h:291` ; `GamePackets.cs:347`) et `TYPE_CREATURE_FARM_WINDOW = 9` (`GameMessage.h:2287`) | **3000 / type 9** (§5.5) |
@@ -186,7 +206,7 @@ Sauf mention contraire, tout ce paragraphe vient de `official2015/GameServer/Gam
 
 - **6000** `onRequestFarmInfo` (`GameMessage.cpp:11726-11764`) : pour chaque case 0..2 occupée,
   `fillFarmedSummonTimeInfo` (`:11681-11709`) puis `fillFarmedSummonInfo` (`:11711-11724`) ; une
-  entrée **expirée** (`registration_time + duration < now`, `:11742-11751`) est d'abord reprise
+  entrée **expirée** (`registration_time + duration < now`, `:11747-11752`) est d'abord reprise
   (`RegainSummon`) et signalée au joueur par le message `@1158` (`:11752`), puis `index = i`
   (`:11754`) et `creature_count` (`:11760`). C'est **la seule lecture du 6001 : le serveur ne
   projette rien**, il montre l'état stocké.
@@ -310,6 +330,15 @@ Décision de Killian du 2026-10-06, dans cet ordre :
 Les points 1 à 3 forment le socle sans lequel le `6001` resterait vide ; 4 et 5 rendent la fenêtre
 utilisable ; 6 évite de porter des constantes Epic 9.x dans un serveur 7.3.
 
+**Hors périmètre de ce lot** — les trois gestes qui écrivent en base et répondent une trame de
+résultat gardent leurs cartes : `TM_CS_FOSTER_CREATURE` 6002 (réponse 6003, format §3.3 et §3.4),
+`TM_CS_RETRIEVE_CREATURE` 6004 (réponse 6005, 11 → 8 octets, §3.5/§3.4) et `TM_CS_NURSE_CREATURE`
+6006 (réponse 6007, idem). Leurs prérequis sont ceux du socle : table de ferme (§5.6 point 1),
+drapeau bit 27 (point 2), table de coûts en tickets (`db_creaturefarm.rdb` / `CreatureFarmResource`,
+§6.3, non chargée par le dépôt) et courbe d'EXP d'invocation (`ICreatureCatalog.NeedExp`, §7.8).
+Aucune trame de résultat ne doit être émise avant que ces prérequis existent, et l'id 6003/6005/6007
+doit être déclaré avec son `case` dans le même commit.
+
 ## 6. Écarts assumés
 
 ### 6.1 Avec NGemity
@@ -337,31 +366,34 @@ offsets PE calculés) :
 |---|---|---|---|
 | EXP/h normal | `145763` (`GameRule.cpp:140`) | `137700` (`0x1404f7e68`) | **prendre la valeur 7.3** |
 | EXP/h croissance | `1118029` (`:141`) | `347264` (`0x1404f7e6c`) | idem |
-| EXP/h évolution | `3708799` (`:142`) | **pas de constante ni de branche** | la ferme 7.3 ne sert que 2 formulaires |
-| EXP/h premium | `728814` / `13975356` / `37087982` (`:144-146`) | **aucune branche premium** dans `RegainSummon` | pas de prime d'EXP premium en 7.3 |
+| EXP/h évolution | `3708799` (`:142`) | **pas de constante ni de branche** (le `.tsv` ne porte que les deux globales `nFarmNormalSummonEXP`/`nFarmGrowthSummonEXP`, et `RegainSummon` `1400d5e60` ne lit que celles-là) | la ferme 7.3 ne sert que 2 formulaires |
+| EXP/h premium | `728814` / `13975356` / `37087982` (`:144-146`) | **aucune branche premium** dans `RegainSummon` ni aucune globale `PremiumFarm` dans le `.tsv` (0 occurrence) | pas de prime d'EXP premium en 7.3 |
 | plafond de ferme | `FARM_MAX_LEVEL = 150` (`GameRule.h:49`) | `100` (`0x1404096c0`) | **100** |
 | cases | `3` / `1` (`GameRule.h:50-51`) | `3` / `1` (`cmp $0x3` `1400d5938`, `cmp $0x1` `1400d5965`) | identiques |
 | plafond formulaire 1 | `60` | `60` (`0x1404096b8`) | identiques |
 | plafond formulaire 2 | `115` | `115` (`0x1404096bc`) | identiques |
-| cracker | ×1.5 (`StructPlayer.cpp:11365-11371`) | `1.5` (`0x14040a2c8`) vs `1.0` (`0x140400730`) | identiques |
+| cracker | ×1.5 (`StructPlayer.cpp:11365-11371`) | `1.5` (`0x14040a2c8`) vs `1.0` (`0x140400730`), deux **doubles** chargés par `movsd` (`1400d6016`, `1400d6020`) | identiques |
 | drapeau de ferme | bit 27 (`ItemInstance.h:90`) | `orl $0x8000000` sur l'objet (`1400d5a1e`) | identique |
 | soin quotidien | dernier 06:00 (`StructPlayer.cpp:11439-11456`) | heure `6` dans `NurseSummon` (`1400d6446`) | identique |
 
 Autrement dit : **la logique se porte, les constantes d'EXP et le plafond non**. Les valeurs 7.3
 d'EXP/h croissance (`347264`) et normal (`137700`) remplacent celles de 2015 ; les constantes
 premium et évolution de 2015 sont des ajouts postérieurs à 7.3 et ne doivent pas être portées.
-Le reste des algorithmes (heures entières, `dRate`, plafonds, jours à 06:00, cases) est commun.
+Le reste des algorithmes (heures entières, `dRate`, plafonds, jours à 06:00, cases) est commun. Les
+plafonds sont bien appliqués en 2012-11 : `FarmSummon` (`1400d57d0`) compare `cmp $0x64` (100),
+`cmp $0x3c` (60) et `cmp $0x73` (115) en `1400d592f` / `1400d5977` / `1400d5994`, et le drapeau y est
+posé par `orl $0x8000000` (`1400d5a1e`).
 
 ### 6.3 Avec les données 7.3 déjà présentes dans le dépôt
 
 - **Table des coûts en tickets** : `db_creaturefarm.rdb` (client 7.3, sha256
   `36564e4a…dea3d`) est la même table que `CreatureFarmResource` (4 colonnes `tinyint` :
   `rate`, `form`, `enhance_level`, `ticket_count`, `CreatureFarmLoader.cpp:10-23`, lue par
-  `GetCreatureFarmTicketCount(rate, form, enhance_level)`, `GameContent.h:573`) ; le dépôt la
+  `GetCreatureFarmTicketCount(rate, form, enhance_level)`, `GameContent.h:573` ; `GetNeedSummonExp` est déclarée deux lignes plus bas, `:575`) ; le dépôt la
   connaît dans `ArcadiaSchemaPSQL.sql:46` mais **ne la charge pas** (aucune entité EF). Le décodage
   de la table client figure déjà dans la fiche d'origine §8.2 et n'est pas refait ici.
-- **Textes 7.3** : `sqlserver/Arcadia/StringResource_DE.csv:1038-1055` porte
-  `smsg_creaturefarm01..18` marqués `version:7.3` et confirme les règles : reprise automatique à
+- **Textes 7.3** : `reference/sqlserver/Arcadia/StringResource_DE.csv:1038-1057` porte
+  `smsg_creaturefarm01..20` marqués `version:7.3` et confirme les règles : reprise automatique à
   l'expiration, disparition après 30 jours sans reprise, pas de croissance au-delà du niveau du
   propriétaire, niveau max **60** (formulaire 1) et **100** (formulaire 2), soin quotidien, cadeau
   possible, contrats de 3 et 7 jours, tickets vendus à la guilde des marchands, coût en tickets
@@ -418,16 +450,82 @@ Questions ouvertes, à trancher par Killian ou par le dev avant/pendant le lot :
    (`ScriptPlayer.h:55-62`) mais **appelés par aucun script de l'extrait** (`NPC_Creature_farm.lua`
    ne les utilise pas) ; le script qui les consomme n'est pas dans l'extrait. Le tableau de ferme
    affiché par le client reste, lui, alimenté par `6001`, donc ce n'est pas bloquant.
-8. **`GameContent::GetNeedSummonExp` n'a pas d'équivalent dans le dépôt** : `RegainSummon` en a
-   besoin pour convertir l'EXP en niveaux (`StructPlayer.cpp:11402`), et une recherche de
-   `NeedSummonExp` / table d'EXP d'invocation dans `Game/` ne rend rien. La courbe vient côté client
-   de `client73/db_exp.rdb` (présent) ou de la table `ExpResource` de la référence ; **la source de
-   vérité retenue doit être tranchée avant d'implémenter le calcul d'EXP**, sans quoi le modèle de
-   §5.3 restera inapplicable tel quel.
-9. **Remplissage du `name[19]`** : `fillFarmedSummonInfo` copie le nom de l'invocation dans un
-   `char[19]` (`GameMessage.h:3881`, `GameMessage.cpp:11716`) ; le corps exact (nombre d'octets
-   envoyés, zéros de fin systématiques ou longueur réelle) n'a pas été relu. Le dépôt écrit la
-   trame, mais la convention de remplissage doit être confirmée pour un nom de 19 caractères plein.
+8. **`GameContent::GetNeedSummonExp` a un équivalent dans le dépôt** (correction du 2026-10-06) :
+   `ICreatureCatalog.NeedExp(int)` (`Game/Services/Creatures/CreatureCatalog.cs:38-42`, `:80`), chargé
+   depuis `CreatureCatalogOptions.SummonExp` (`_summonExp`, `:74`) et documenté comme la courbe
+   cumulée (colonne `normal_exp`, lue pour chaque formulaire, 0 au-delà de la table). Côté officiel
+   elle est déclarée en `GameContent.h:575`, juste après `GetCreatureFarmTicketCount` (`:573`). **Le
+   calcul d'EXP de §5.3 est donc applicable tel quel.** Ce qui reste à trancher n'est plus
+   l'existence de la courbe mais **sa source de vérité** (`CreatureCatalogOptions.SummonExp` de la
+   configuration du dépôt, `client73/db_exp.rdb` ou `SummonResource.normal_exp`) et l'indexation
+   (le dépôt rend 0 hors table et indexe au niveau 1 ; à confirmer contre la table `ExpResource`).
+9. **Remplissage du `name[19]`** — **levé** : `s_strcpy( name, _countof(name), … )` puis
+   `name[_countof(name) - 1] = 0` (`GameMessage.cpp:11716-11717`), tampon mis à zéro avant remplissage
+   (`:11729`, détail en §3.2). Ce qui reste ouvert n'est plus la trame mais la **source du nom** :
+   la source officielle lit `GetSummonStruct()->GetName()`, alors que le dépôt nomme les invocations
+   lui-même (`RandomName`, `CreatureCatalog.cs:98-106`) — envoyer le nom de la ressource d'invocation
+   brute ou celui porté par l'objet/invocation du joueur est un choix de rédaction laissé au dev.
+
+## A VERIFIER PAR KILLIAN
+
+Ce que la référence locale ne tranche pas et qui demande son arbitrage. Rien de ce qui suit ne bloque
+le socle décrit en §5.6 points 1 à 3 : le dev peut livrer le stockage, le drapeau et un `6001` rempli
+sans réponse à ces questions.
+
+1. **Portée des tickets premium** — la source officielle réserve la **case 0 aux tickets normaux** et
+   les **cases 1 et 2 aux tickets premium** (`FARM_MAX_COUNT = 3`, `FARM_NON_CASH_MAX_COUNT = 1`,
+   §5.2, `GameMessage.cpp:11833-11834`), et les objets premium sont `710007`/`710008` (3 et 7 jours,
+   `NPC_Creature_farm.lua:41-45`, table `ticket_code_table[duration][cash]`). Ce qui reste à trancher
+   n'est pas la case mais **l'existence commerciale et le tarif** : les identités `2012232`/`2012233`
+   portées par la carte d'origine n'ont **pas** été localisées dans les données 7.3 relues
+   (`reference/sqlserver/Arcadia/MarketResource.csv`, `epic7part4/csv/MarketResource.csv`,
+   `DevConsole/market-catalog.73.json` n'ont que `710005`/`710006`), et les quatre constantes d'EXP
+   premium/évolution ne sont pas dans le binaire 2012-11 (§6.2, §7.2). **Question : le serveur 7.3
+   doit-il ouvrir les cases premium, et avec quel tarif d'EXP, alors que la référence 2012-11 les
+   ignore ?**
+2. **Plafond de ferme** : 100 (mesuré 2012-11 `0x1404096c0` + textes `smsg_creaturefarm*` 7.3) contre
+   150 (source 2015). Tranché pour **100** (§6.2, §7.4) ; confirmer si un arbre serveur 7.3
+   apparaît un jour.
+3. **PNJ de la ferme** : identité textuelle établie (`@91000349`/`@91000350`,
+   `NPC_Creature_farm.lua:14-17`, `:61-71`) mais **`npc_id` numérique non identifié** — sans lui, ni le
+   dialogue ni le déclencheur `show_creature_farm_window` ne peuvent être accrochés (§7.3).
+4. **Forme du stockage** : à trancher par le dev (table dédiée calquée sur l'officielle ou
+   `ItemStorageEntity`), les colonnes et la sémantique étant établies (§5.6 point 1, §7.1). Le point
+   à surveiller est le rattachement de la carte au personnage (`owner_id` côté officiel ; `int?`
+   `StorageId` côté dépôt).
+5. **`6008` fermé seulement après essai client** : `TM_SC_MARKET` `250` avec `npc_handle = 0` est ce
+   que la source 2015 envoie (`GameMessage.cpp:11943-11952`) ; la réaction du client 7.3 à un handle
+   nul n'est **pas** mesurée (§7.6). À vérifier sur le client avant de considérer la trame close.
+6. **Source de vérité de la courbe d'EXP d'invocation** : `CreatureCatalogOptions.SummonExp`,
+   `client73/db_exp.rdb` ou `SummonResource.normal_exp` (§7.8). Le calcul de §5.3 ne peut être
+   implémenté qu'avec la réponse.
+
+## Bloc pour CLAUDE.md
+
+Bloc à insérer dans `CLAUDE.md` par la MR du lot (le dev ne modifie pas `CLAUDE.md` lui-même, le
+fichier est protégé) :
+
+```markdown
+### Ferme de créatures (6000-6008)
+
+- La logique de référence est la source officielle locale `reference/official2015` (2015, ère Epic 9.x),
+  confrontée à l'ère 7.3 : `reference/epic7part4` (serveur 2012-11 + `.symbols.tsv`), client
+  `reference/client73/SFrame.exe`, données `reference/sqlserver/Arcadia`.
+- **NGemity ne tranche rien ici** : aucune logique de ferme dans `Chihiro/src` — seulement trois
+  en-têtes. rzu ne donne que les structures.
+- Constantes : prendre les **valeurs 7.3 mesurées**, pas celles de 2015 — EXP/h normal `137700`,
+  croissance `347264`, `FARM_MAX_LEVEL = 100` (la source 2015 dit 150), cracker ×1.5 (`dRate`).
+  Pas d'EXP premium ni d'EXP évolution en 7.3 (absentes du binaire 2012-11).
+- `6001` = `8 + 120 × N` octets, `N` = cases occupées (0..3) ; la case voyage dans `index` ; `exp` est
+  l'EXP déjà acquise par l'invocation ; l'EXP n'est **appliquée qu'à la reprise** (6004), jamais
+  périodiquement ; soin une fois par jour, journée à partir de 06:00 serveur.
+- Les trames de résultat **6003/6005/6007 ne sont pas encore déclarées** dans `GamePackets` ; les
+  lots qui les émettent les déclarent avec leur `case` (critère 4 d'acceptation).
+- La réponse à `6008` n'est pas une trame de ferme : c'est `TM_SC_MARKET` `250` avec le catalogue
+  `creature_farm` — compact, **sans le `pad` de 4 × n que déclare rzu**.
+- Savoir complet et questions ouvertes : `docs/packet-specs/socle-ferme-creatures-officielle.md`
+  (la décision du 2026-09-30 « paquets seuls, pas de système » est levée).
+```
 
 ## 8. Commits et fichiers épinglés
 
@@ -447,14 +545,15 @@ Questions ouvertes, à trancher par Killian ou par le dev avant/pendant le lot :
 - **Serveur 7.3-era** : `epic7part4/server/2012-11/CaptainHerlockServer.exe`
   `83b54fe1…d9dd3eac` (+ son `.symbols.tsv`) ; `epic7part4/csv/MarketResource.csv` `5992cd8a…cf9ac4`.
 - **Données 7.3** : `client73/SFrame.exe` `41e0af2e…fb9500e` ; `client73/db_creaturefarm.rdb`
-  `36564e4a…dea3d` ; `sqlserver/Arcadia/StringResource_DE.csv` `df9e1454…d31670e`.
+  `36564e4a…dea3d` ; `reference/sqlserver/Arcadia/StringResource_DE.csv` `df9e1454…d31670e`.
 
 ### Cette fiche lève la décision du 2026-09-30
 
-La décision « paquets pris en charge, système non implémenté » (`socle-ferme-creatures.md`, §8) est
+La décision « paquets pris en charge, système non implémenté » (`socle-ferme-creatures.md`, second `## 8`,
+ligne 508) est
 **caduque** : la référence officielle de logique est désormais disponible localement
 (`reference/official2015`, épinglée ci-dessus), elle a été confrontée à l'ère 7.3
-(`reference/epic7part4`, client 7.3, données `sqlserver/Arcadia`), et le sous-ensemble minimal est
+(`reference/epic7part4`, client 7.3, données `reference/sqlserver/Arcadia`), et le sous-ensemble minimal est
 défini (§5.6). Le lot de code correspondant appartient au **dev** ; cette fiche ne contient que le
-savoir, et la fiche d'origine n'est pas modifiée (§8 de celle-ci reste en place comme trace de la
-décision retirée).
+savoir ; le texte de la fiche d'origine est intact et reste en place comme trace de la décision
+retirée, avec seulement l'avertissement d'obsolescence daté ajouté en tête de son second `## 8`.
