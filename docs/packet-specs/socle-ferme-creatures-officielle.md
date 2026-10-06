@@ -521,11 +521,87 @@ fichier est protégé) :
   périodiquement ; soin une fois par jour, journée à partir de 06:00 serveur.
 - Les trames de résultat **6003/6005/6007 ne sont pas encore déclarées** dans `GamePackets` ; les
   lots qui les émettent les déclarent avec leur `case` (critère 4 d'acceptation).
+- Le socle est en place : table `CreatureFarms` (`CreatureFarmEntity`, Telecaster) — une ligne par
+  invocation déposée, `slot` 0-base, index unique `(CharacterId, Slot)` filtré sur `DeletedOn IS NULL` —
+  plus `ICreatureFarmStore`/`ICreatureFarmService` et le chemin `6000` → `6001`. Migration
+  `Version0026_CreatureFarm` écrite **à la main** (`dotnet ef` absent du conteneur) : le test existant
+  `TelecasterPaidItemModelTests.ModelSnapshotDescribesTheSameModelSoNoMigrationIsPending` est la preuve
+  hors ligne que le *snapshot*, le `.Designer.cs` et le modèle du contexte s'accordent.
+- Piège EF : lier la navigation par son nom — `HasOne(f => f.Character)`. Un `HasOne<CharacterEntity>()`
+  sans navigation laisse `Character` à la convention, qui fabrique alors une **seconde** relation fantôme
+  (`CharacterId1` nullable + son index), `CharacterId` étant déjà pris ; le diff du *snapshot* le montre.
+- Piège offsets : dans une entrée de `6001`, `using_cash`/`using_cracker` sont **relatifs à l'entrée**
+  (+43/+44), pas « début d'entrée + 8 + 43 » ; le motif carte de 75 octets suit ses propres offsets
+  (`ItemFixedInfoWriter` : `level` +33).
 - La réponse à `6008` n'est pas une trame de ferme : c'est `TM_SC_MARKET` `250` avec le catalogue
   `creature_farm` — compact, **sans le `pad` de 4 × n que déclare rzu**.
 - Savoir complet et questions ouvertes : `docs/packet-specs/socle-ferme-creatures-officielle.md`
   (la décision du 2026-09-30 « paquets seuls, pas de système » est levée).
 ```
+
+## 9. Ce que le lot dev a livré (2026-10-06) — et ce qu'il n'a pas livré
+
+**Livré** (§5.6 points 1, 2, 3 et 6) :
+
+1. **Stockage** — table dédiée `CreatureFarms` (`CreatureFarmEntity`), calquée sur l'officielle, avec
+   exactement les colonnes de §5.6 point 1 (`slot`, carte = `CardItemId`, propriétaire = `CharacterId`,
+   `MaxLevel`, `IsUsingCracker`, `IsCash`, `RegistrationTime`, `Duration`, `NursingTime`). Le `slot` est
+   stocké **0-base** (le 1-base officiel est un détail de la table 2015, `DB_Login.cpp:1333-1334`), donc
+   l'`index` du `6001` se lit sans conversion. Index unique `(CharacterId, Slot)` avec `"DeletedOn" IS NULL`
+   — un emplacement de ferme par personnage ; index simple sur `CardItemId`. `ICreatureFarmStore` couvre les
+   quatre procédures officielles : `LoadAsync` (`smp_read_farm_info`), `InsertAsync` (`DB_InsertFarmInfo`),
+   `SetNursingTimeAsync` (`DB_UpdateNursingTime`), `RemoveAsync` (`DB_DeleteFarmInfo`). Les deux écritures
+   de dépôt/reprise posent et lèvent le bit 27 **dans le même `SaveChanges`** que la ligne : sans cela une
+   carte déposée resterait « libre » pour tous les autres chemins d'objet.
+2. **Drapeau** — `CreatureFarmRules.FarmedSummonMask` = **bit 27** (`0x08000000`) et `NursedSummonMask` =
+   **bit 28**, avec `WithFarmedSummon` / `WithoutFarmedSummon` / `IsFarmed` (et l'équivalent *nursed*). Les
+   autres bits de la carte sont préservés (`ItemFlag.None` = aucun bit, comme `CreatureRules.Raw`). Le lot
+   du soin notera que la source 7.3 ne pose **aucun** drapeau (§5.4) : bit 28 déclaré, jamais posé ici.
+3. **`6001` rempli** — `CreatureFarmService.SendFarmInfoAsync` lit la table à chaque `6000` (jamais de
+   projection) et construit une entrée par ligne : `index` = case, `exp` = l'EXP de l'invocation de la
+   carte, `name` = son nom, `duration` = la durée du ticket, `elasped_time` = maintenant − dépôt en
+   secondes, `refresh_time` = secondes jusqu'au prochain 06:00 (0 si jamais soigné ou soigné depuis),
+   `using_cash`/`using_cracker` = les colonnes, `card_info` = le motif 75 octets de **la carte du joueur**
+   (`ItemFixedInfo.FromItem`), comme tranché en §3.2. Ferme vide → les 8 octets d'aujourd'hui.
+   `GameClient.HandleRequestFarmInfoAsync` garde le garde-fou de longueur (7) et n'émet plus
+   `BuildEmptyFarmInfo()` qu'en l'absence de service (bancs de test).
+4. **Constantes 7.3** (§6.2) — `MaxCount` 3, `NonCashMaxCount` 1, `MaxLevel` **100**, plafonds de
+   formulaire 60/115, `CrackerRate` 1.5, EXP/h **137 700** (normal) et **347 264** (croissance), heure de
+   remise à zéro du soin 6. Les valeurs 2015 (150, 145 763, 1 118 029, premium et évolution) sont citées en
+   commentaire et **ne sont pas portées**. `FarmedHours`, `GainedExp` et `LevelLimit` portent le modèle de
+   §5.3 là où il ne dépend pas de la courbe d'EXP.
+
+**Choix de rédaction assumés** (le dev tranche, §7.1 / §7.9) :
+
+- `name` = le nom de l'invocation de la carte (`SummonEntity.Name`, le nom que le serveur affiche partout
+  ailleurs), à défaut le nom de la ressource d'invocation (`ICreatureCatalog.FirstSummonForCard`), à défaut
+  la chaîne vide. `GetSummonStruct()->GetName()` de la source est le nom de ressource ; les deux restent des
+  choix de rédaction ouverts (§7.9).
+- Une ligne dont la carte a disparu de `Items` est **ignorée et journalisée** : son motif de 75 octets ne
+  peut pas être construit et un motif nul afficherait une case vide.
+- L'EXP de l'invocation absente de la base se lit 0 (aucune invention de courbe).
+
+**Non livré, avec la raison** :
+
+- **Migration EF** (livrée) : `dotnet ef` est absent du conteneur de build, donc `Version0026_CreatureFarm`
+  (`CreateTable` + les deux index, `Down` = `DropTable`), son `.Designer.cs` et
+  `TelecasterContextModelSnapshot.cs` ont été **écrits à la main** sur le patron des lots précédents. La
+  preuve hors ligne est le test existant
+  `TelecasterPaidItemModelTests.ModelSnapshotDescribesTheSameModelSoNoMigrationIsPending` : il compare le
+  *snapshot* au modèle du contexte et échouait tant que les deux n'étaient pas alignés — il passe. **Aucune
+  base n'a été migrée ni interrogée** (pas de PostgreSQL dans le conteneur) : l'application réelle de la
+  migration reste à vérifier là où une base existe.
+- **Fenêtre (point 4)** : `npc_id` du PNJ de ferme non identifié (A VERIFIER 3, §7.3) — rien n'est accroché,
+  ni dialogue `3000/type 9` ni déclencheur `show_creature_farm_window`.
+- **`6008` (point 5)** : la réponse officielle est un `TM_SC_MARKET` 250 avec `npc_handle = 0`, or
+  `MarketService.Open` refuse explicitement un handle nul et la réaction du client 7.3 à ce handle n'est pas
+  mesurée (A VERIFIER 5). Rien n'est émis tant que ce point n'est pas tranché.
+- **Reprise automatique des entrées expirées** : le `6000` de la source reprend les entrées dont le ticket
+  est échu **avant** de répondre, ce qui passe par `RegainSummon` et donc par la courbe d'EXP d'invocation
+  (A VERIFIER 6). Une entrée échue est donc servie telle qu'elle est stockée, drapeau et ligne intacts :
+  vider la ligne sans appliquer l'EXP ferait perdre au joueur l'EXP qu'il a gagnée.
+- **6002 / 6004 / 6006** : hors périmètre par décision (§5.6), aucune trame 6003/6005/6007 n'est émise et
+  les trois ids restent non déclarés.
 
 ## 8. Commits et fichiers épinglés
 
