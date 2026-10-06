@@ -94,9 +94,12 @@ public class LevelingService : ILevelingService
 
         // StructPlayer::onExpChange runs on_player_level_up once, with the level reached.
         if (increased) _returnPoints?.OnLevelUp(client, newLevel);
+        LevelChanged?.Invoke(client);
     }
 
     private readonly ReturnPoints.IReturnPointService _returnPoints;
+
+    public event Action<GameClient> LevelChanged;
 
     public long ApplyDeathPenalty(GameClient client)
     {
@@ -139,6 +142,7 @@ public class LevelingService : ILevelingService
             client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_hp", maxHp));
             client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "max_mp", maxMp));
             client.SendVitalProperty(GameStatPackets.BuildProperty(handle, "mp", info.CharacterMp));
+            LevelChanged?.Invoke(client);
         }
 
         _logger.Debug("{clientTag} lost {penalty} exp on death (level {level})", client.ClientTag, penalty,

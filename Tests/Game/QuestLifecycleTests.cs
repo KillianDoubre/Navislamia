@@ -1,3 +1,4 @@
+using Navislamia.Game.Network.Packets.Enums;
 using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
@@ -160,6 +161,41 @@ public class QuestLifecycleTests
         (await Quest()).Progress.Should().Be(QuestRules.Finishable);
         (await _service.RunScriptAsync(_client, "assert(get_quest_progress(1005)==2)")).Should().Be(1);
     }
+    [Test]
+    public async Task The_mark_over_the_npc_follows_the_quest_from_offer_to_hand_in()
+    {
+        // SendNPCStatusInVisibleRange: a 500 for the NPC in view each time its mark changes for this player.
+        StorageTestHarness.Session(_client).SpawnedNpcs[3011] = 90;
+        uint? Mark()
+        {
+            var frame = _connection.Sent.LastOrDefault(p => BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4)) == 500
+                && BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(7)) == 90);
+            return frame is null ? null : BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(11));
+        }
+
+        await _service.SendQuestListAsync(_client);
+        Mark().Should().Be(CreatureStatus.NpcHasStartableQuest, "the quest can be taken: \"!\"");
+        StorageTestHarness.Session(_client).NpcQuestMarks[3011].Should().Be(CreatureStatus.NpcHasStartableQuest,
+            "what a later TS_SC_ENTER of the NPC carries");
+
+        await Start();
+        Mark().Should().Be(CreatureStatus.NpcHasInProgressQuest);
+
+        await Kill(); await Kill();
+        await WaitFor(() => Mark() == CreatureStatus.NpcHasFinishableQuest);
+        Mark().Should().Be(CreatureStatus.NpcHasFinishableQuest, "the quest can be handed in: \"?\"");
+
+        await End();
+        await WaitFor(() => Mark() == 0u);
+        Mark().Should().Be(0u, "done and not repeatable: no mark");
+        StorageTestHarness.Session(_client).NpcQuestMarks.Should().BeEmpty();
+    }
+
+    private static async Task WaitFor(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(10);
+    }
+
     private Task Kill(int id = 1003) => _service.OnMonsterKilledAsync(_client, id, 10, 20, 0);
     private Task End(sbyte slot = -1) => _service.EndQuestAsync(_client, new GameActionPackets.EndQuestRequest(1005, slot));
     private IEnumerable<ResultCode> EndResults() => _connection.Sent

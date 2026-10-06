@@ -70,6 +70,8 @@ public sealed class QuestService : IQuestService, IDisposable
                 TextIdEnd = g.Select(l => l.TextIdEnd).FirstOrDefault(i => i != 0)
             }).GroupBy(l => l.NpcId).ToDictionary(g => g.Key, g => g.OrderBy(l => l.QuestId).ToArray());
         if (_feed is not null) _feed.Changed += InventoryChanged;
+        // StructPlayer::onExpChange: a level gained (or lost) can show a quest the level hid.
+        if (_leveling is not null) _leveling.LevelChanged += LevelChanged;
         if (_players is not null && _options is not null) _ = TickAsync();
     }
 
@@ -293,6 +295,78 @@ public sealed class QuestService : IQuestService, IDisposable
             client.Connection.Send(GameQuestPackets.BuildQuestList(await _characters.GetQuestsAsync(client.ConnectionInfo.CharacterName)));
         }
         catch (Exception exception) { _logger.Error(exception, "Could not read quest list for {clientTag}", client.ClientTag); }
+
+        // World entry, a start (onStartQuest), a drop (onDropQuest) and a hand-in (onEndQuest) all resend the list, and
+        // the official server refreshes the marks at each of them.
+        await RefreshNpcMarksAsync(client);
+    }
+
+    private void LevelChanged(GameClient client) => _ = RefreshNpcMarksAsync(client);
+
+    public async Task RefreshNpcMarksAsync(GameClient client)
+    {
+        if (_options is null || _links.Count == 0) return;
+        var info = client.ConnectionInfo;
+        // One refresh at a time per player; a request during it runs it once more, so the last state always wins.
+        if (Interlocked.Increment(ref info.NpcQuestMarkRequests) > 1) return;
+        try
+        {
+            do
+            {
+                Volatile.Write(ref info.NpcQuestMarkRequests, 1);
+                await PublishNpcMarksAsync(client);
+            } while (Interlocked.CompareExchange(ref info.NpcQuestMarkRequests, 0, 1) != 1);
+        }
+        catch (Exception exception)
+        {
+            Volatile.Write(ref info.NpcQuestMarkRequests, 0);
+            _logger.Error(exception, "Could not refresh the quest marks of {clientTag}", client.ClientTag);
+        }
+    }
+
+    private async Task PublishNpcMarksAsync(GameClient client)
+    {
+        var info = client.ConnectionInfo;
+        await using var db = new TelecasterContext(_options);
+        var characterId = await db.Characters.AsNoTracking().Where(c => c.CharacterName == info.CharacterName)
+            .Select(c => (long?)c.Id).FirstOrDefaultAsync();
+        if (characterId is not { } id || info.CharacterHandle == 0) return;
+        var active = await db.CharacterQuests.AsNoTracking().Where(q => q.CharacterId == id).ToArrayAsync();
+        var completed = await Completions(db, id);
+        var accepted = await Acceptances(db, id);
+
+        var marks = new Dictionary<int, uint>(_links.Count);
+        foreach (var (npcId, links) in _links)
+        {
+            var states = new List<QuestMarkRules.Link>(links.Length);
+            foreach (var link in links)
+            {
+                if (!_resources.TryGetValue(link.QuestId, out var resource) || !QuestRules.Supported(resource)) continue;
+                var quest = active.FirstOrDefault(q => q.Code == link.QuestId);
+                var finishable = quest?.Progress == QuestRules.Finishable;
+                var startable = quest is null && link.FlagStart == "1"
+                    && CanStart(resource, info, active, completed, accepted, await FavorAsync(db, id, resource, npcId));
+                states.Add(new QuestMarkRules.Link(resource.Type, link.FlagStart == "1", link.FlagProgress == "1",
+                    link.FlagEnd == "1", startable, quest is not null && !finishable, finishable));
+            }
+
+            var mark = QuestMarkRules.Mark(states);
+            if (mark != 0) marks[npcId] = mark;
+        }
+
+        var previous = info.NpcQuestMarks;
+        info.NpcQuestMarks = marks;
+        // SendNPCStatusInVisibleRange: a 500 per NPC in view, its status as this player sees it; only a changed one
+        // tells the client something.
+        lock (info.NpcVisibilityLock)
+        {
+            foreach (var (npcId, handle) in info.SpawnedNpcs)
+            {
+                var mark = marks.GetValueOrDefault((int)npcId);
+                if (mark != previous.GetValueOrDefault((int)npcId))
+                    client.Connection.Send(GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForNpc(mark)));
+            }
+        }
     }
 
     public async Task DropQuestAsync(GameClient client, GameActionPackets.DropQuestRequest request)
@@ -569,7 +643,13 @@ public sealed class QuestService : IQuestService, IDisposable
         }
         return targets[0] > 0;
     }
-    private static void SendStatus(GameClient client, CharacterQuestEntity quest) => client.Connection.Send(GameQuestPackets.BuildQuestStatus(GameQuestPackets.ToQuestListEntry(quest)));
+    private void SendStatus(GameClient client, CharacterQuestEntity quest)
+    {
+        client.Connection.Send(GameQuestPackets.BuildQuestStatus(GameQuestPackets.ToQuestListEntry(quest)));
+        // StructPlayer::onStatusChanged / onProgressChanged: a quest that can be handed in, or that failed, changes the
+        // marks; a count that moves on does not.
+        if (quest.Progress != QuestRules.InProgress) _ = RefreshNpcMarksAsync(client);
+    }
     private static void Chat(GameClient client, string message) => client.Connection.Send(GameChatPackets.BuildChat("@QUEST", 120, message));
     private void InventoryChanged(string name)
     {
@@ -594,6 +674,7 @@ public sealed class QuestService : IQuestService, IDisposable
     public void Dispose()
     {
         if (_feed is not null) _feed.Changed -= InventoryChanged;
+        if (_leveling is not null) _leveling.LevelChanged -= LevelChanged;
         _stop.Cancel();
     }
 

@@ -69,7 +69,8 @@ public class NpcSpawnService : INpcSpawnService
             WorldObjectStreamer.Stream(client, info.NpcVisibilityLock, inRange,
                 npc => npc.Id,
                 (npc, handle) => GameSpawnPackets.BuildEnterNpc(handle, npc.X, npc.Y, npc.Z,
-                    info.Layer, npc.Hp, npc.Level, (byte)npc.RaceId, (int)npc.Id),
+                    info.Layer, npc.Hp, npc.Level, (byte)npc.RaceId, (int)npc.Id,
+                    info.NpcQuestMarks.GetValueOrDefault((int)npc.Id)),
                 info.SpawnedNpcs,
                 info.SpawnedNpcIdsByHandle);
 

@@ -28,6 +28,18 @@ public static class CreatureStatus
     /// </summary>
     public const uint MonsterDead = 1 << 8;
 
+    /// <summary>
+    /// An NPC has a quest this player can take: the "!" over its head (rzu <c>TCS_FlagHasStartableQuest</c>, official
+    /// <c>TS_ENTER::NPCInfo::FLAG_HAS_STARTABLE_QUEST</c>). The NPC meaning of the same bit as <see cref="MonsterDead"/>.
+    /// </summary>
+    public const uint NpcHasStartableQuest = 1 << 8;
+
+    /// <summary>An NPC follows a quest this player runs (rzu <c>TCS_FlagHasInProgressQuest</c>).</summary>
+    public const uint NpcHasInProgressQuest = 1 << 9;
+
+    /// <summary>An NPC takes back a quest this player can hand in: the "?" (rzu <c>TCS_FlagHasFinishableQuest</c>).</summary>
+    public const uint NpcHasFinishableQuest = 1 << 10;
+
     /// <summary>Player sitting down — the player meaning of the same bit as <see cref="MonsterDead"/>.</summary>
     public const uint PlayerSitdown = 1 << 8;
 

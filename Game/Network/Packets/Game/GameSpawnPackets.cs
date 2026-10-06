@@ -50,11 +50,11 @@ public static class GameSpawnPackets
     }
 
     public static byte[] BuildEnterNpc(uint handle, float x, float y, float z, byte layer,
-        int hp, int level, byte race, int npcId)
+        int hp, int level, byte race, int npcId, uint questMark = 0)
     {
         const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 8;
         var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, race, ObjectTypeNpc, 0f,
-            ActorStatus.ForNpc());
+            ActorStatus.ForNpc(questMark));
 
         WriteEncodedInt(packet.AsSpan(EncodedIdOffset, 8), (uint)npcId);
         WriteChecksum(packet);

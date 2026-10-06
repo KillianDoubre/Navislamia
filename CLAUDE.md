@@ -1622,6 +1622,10 @@ premiers octets de chaque enregistrement de 703), 706 = 19, 707 = 11 + 4 × H, 7
   consomme les objets, crée les récompenses (niveau du bon emplacement), crédite EXP/JP/or/points
   Huntaholic, écrit `CharacterQuestCompletions` et retire la quête active. Deux remises concurrentes
   ne paient qu'une fois. Résultat 605 puis liste 600 ; les progrès sont envoyés en 601.
+- **Marqueurs « ! » / « ? »** (`socle-marqueurs-quete.md`) : aucun paquet, le statut du PNJ **tel que ce joueur le
+  voit** (bits 8/9/10 : à prendre, en cours, à rendre ; un seul, à rendre d'abord, `GetStatusCode`). `QuestService`
+  les calcule pour tous les PNJ liés (`ConnectionInfo.NpcQuestMarks`), l'`ENTER` les porte, une 500 part aux PNJ en vue
+  quand ils changent : liste des quêtes, état non « en cours », niveau (`ILevelingService.LevelChanged`).
 - 600 garde ses entrées de 61 octets et ses deux comptes u16 ; 601 fait 40 octets. 603 retire la quête
   puis resynchronise 600 ; 604 reste sans réponse ; 602 n'est jamais émis.
 - Migrations : `QuestLifecycle` (historique, temps restant, échéance, index unique des seules quêtes

@@ -18,6 +18,13 @@ public interface IQuestService
     Task SendQuestListAsync(GameClient client);
 
     /// <summary>
+    /// Recomputes the quest mark of every quest NPC for this player and sends a <c>TS_SC_STATUS_CHANGE</c> (500) for
+    /// each NPC in view whose mark changed (official <c>SendNPCStatusInVisibleRange</c>,
+    /// docs/packet-specs/socle-marqueurs-quete.md).
+    /// </summary>
+    Task RefreshNpcMarksAsync(GameClient client) => Task.CompletedTask;
+
+    /// <summary>
     /// Handles <c>TM_CS_DROP_QUEST</c> (603): judge the code, erase the quest from the character's state,
     /// answer and resynchronise the list.
     /// </summary>

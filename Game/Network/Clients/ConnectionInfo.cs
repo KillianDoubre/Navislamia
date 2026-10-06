@@ -622,6 +622,17 @@ public class ConnectionInfo
     public string OpenMarketName { get; set; } = string.Empty;
 
     public HashSet<string> NpcDialogTriggers { get; } = new();
+
+    /// <summary>
+    /// The quest mark of each quest NPC for this player, by NPC id (<see cref="QuestMarkRules"/>): read by every NPC
+    /// <c>TS_SC_ENTER</c>, replaced whole by <c>QuestService.RefreshNpcMarksAsync</c> at the official moments.
+    /// </summary>
+    public volatile IReadOnlyDictionary<int, uint> NpcQuestMarks = EmptyQuestMarks;
+
+    public static readonly IReadOnlyDictionary<int, uint> EmptyQuestMarks = new Dictionary<int, uint>();
+
+    /// <summary>Mark refreshes asked and not yet done: one runs at a time, a request during it runs it once more.</summary>
+    public int NpcQuestMarkRequests;
     public Dictionary<int, byte> LearnedSkills { get; } = new();
     public float X { get; set; }
     public float Y { get; set; }
@@ -821,6 +832,7 @@ public class ConnectionInfo
         SummonNameChangeTarget = 0; ScriptWindowTrigger = string.Empty; ScriptWindow = null;
         NameChangeCompletion = System.Threading.Tasks.Task.CompletedTask;
         IsInvisible = false; ChatBlockUntil = 0;
+        NpcQuestMarks = EmptyQuestMarks;
         CharacterHandle = 0;
         TargetHandle = 0;
         CharacterHp = 0;

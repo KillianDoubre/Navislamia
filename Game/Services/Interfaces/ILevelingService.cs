@@ -5,6 +5,12 @@ namespace Navislamia.Game.Services;
 public interface ILevelingService
 {
     void ApplyExperience(GameClient client);
+
+    /// <summary>
+    /// The character's level changed, up or down (<c>StructPlayer::onExpChange</c>): what depends on the level, such as
+    /// the quest marks over the NPCs, follows it.
+    /// </summary>
+    event System.Action<GameClient> LevelChanged { add { } remove { } }
     bool SetLevel(GameClient client, int level) => false;
 
     /// <summary>

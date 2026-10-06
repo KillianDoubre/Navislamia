@@ -72,8 +72,11 @@ public static class ActorStatus
     /// </summary>
     public static uint ForMonster(bool dead = false) => dead ? CreatureStatus.MonsterDead : 0u;
 
-    /// <summary>An NPC's mask: this Epic 7.3 client has no NPC flag in use.</summary>
-    public static uint ForNpc() => 0u;
+    /// <summary>
+    /// An NPC's mask, as one player sees it: the quest mark over its head (<see cref="Navislamia.Game.Services.QuestMarkRules"/>),
+    /// the only NPC flag this client reads.
+    /// </summary>
+    public static uint ForNpc(uint questMark = 0) => questMark;
 
     /// <summary>
     /// A summon's mask: no summon flag is established for 7.3 — NGemity sends the value of
