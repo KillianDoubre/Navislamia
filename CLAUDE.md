@@ -200,8 +200,9 @@ used by later clients such as Epic 9.4; this Epic 7.3 executable only registers 
 official `onMoveRequest`/`GetValidWayPoint`): `ConnectionInfo.BeginWalk` keeps the accepted path and `PositionAt`
 follows it leg by leg at the echoed speed; a dead player's request is answered by a stop to that client alone (the client walks a click before the echo, so a
 click sent just before it learnt of the death walked the body on; the official drops it silently); a claimed position outside the map or
-more than 525 units from the estimate, or a way through a `.nfa` obstacle, answers `ACCESS_DENIED` and walks the
-player back (`Movement/PlayerMoveRules`, `PlayerMoves`); a region update or a 900 keeps the client's position only
+more than 525 units from the estimate, a destination inside a `.nfa` obstacle or, **in a dungeon only** (location type
+4/12/14), a leg through one, answers `ACCESS_DENIED` and walks the player back — out of the dungeons the client's own
+detours are trusted, as the 2012-11 server does (the 2015 leg check everywhere dates from 2014) (`Movement/PlayerMoveRules`, `PlayerMoves`); a region update or a 900 keeps the client's position only
 within 120 units of the estimate. A death stops the walk for the player and its observers (`ICombatService.HaltOnDeath`, `/die` included). Any server-side change of
 a player's position should go through `BeginWalk`/`Rebase`; changing `MoveStartTick` or the destination at least drops the kept path.
 

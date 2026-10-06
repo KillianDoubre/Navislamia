@@ -203,6 +203,15 @@ public class GameClient : Client
     /// <summary>Header (7) + handle, x, y, cur_time (16) + speed (1) + count (2): the waypoints start at 26.</summary>
     private const int MoveRequestFixedLength = 26;
 
+    /// <summary>
+    /// Whether the character stands in a dungeon, where each leg of a walk is checked against the obstacles: the type
+    /// of its current location (<see cref="ConnectionInfo.LocationId"/>, kept by <c>PlayerLocationService</c>).
+    /// </summary>
+    private bool InDungeon() =>
+        ConnectionInfo.LocationId != 0 && _networkService.WorldLocationService is { } locations
+        && locations.TryGet(ConnectionInfo.LocationId, out var location)
+        && PlayerMoveRules.IsDungeonLocation(location.LocationType);
+
     private void HandleMoveRequest(byte[] buffer)
     {
         // The waypoint count is the client's to claim: without this check a short frame threw inside the
@@ -272,7 +281,8 @@ public class GameClient : Client
         var (serverX, serverY) = Navislamia.Game.Services.Buffs.SkillCastRangeRules.PlayerPosition(ConnectionInfo, now);
         var verdict = ConnectionInfo.CharacterHandle == 0
             ? MoveVerdict.Accept
-            : PlayerMoveRules.Judge(serverX, serverY, claimedX, claimedY, path, _networkService.WorldCollision?.Map);
+            : PlayerMoveRules.Judge(serverX, serverY, claimedX, claimedY, path, _networkService.WorldCollision?.Map,
+                InDungeon());
         var speed = _networkService.CarriedWeightService?.RealMoveSpeed(ConnectionInfo)
                     ?? ConnectionInfo.EchoedMoveSpeed;
         // A rider moves at its mount's speed when that is faster (StructSummon::GetRidingMoveSpeed).

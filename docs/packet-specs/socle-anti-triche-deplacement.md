@@ -24,6 +24,13 @@ Source officielle 2015, `Game/Message/GameMessage.cpp` :
 - `StructCreature::onDead` (`StructCreature.cpp:5728-5737`) : une créature qui meurt en marchant est arrêtée là où
   elle est (`SetMove(pos, pos, 0)`, diffusé).
 
+**Les obstacles des règles 3 et 4 sont une règle de 2014, pas de 7.3** (revu le 2026-10-06, §5) : la source 2015
+le dit elle-même (`GameMessage.cpp:321`, « 2014-01-02, étendu des seuls donjons à tout le terrain »), et le serveur
+de 2012-11 (`CaptainHerlockServer.exe`, `onMoveRequest` `0x140132f90`) ne fait **qu'un** appel à `CollisionToLine`,
+sur chaque segment entre points de passage, **seulement si** `IsInDungeon` / `IsInSecretDungeon` /
+`IsInInstanceDungeon` ; aucun contrôle entre la position serveur et la position déclarée ; puis le dernier point
+de passage dans un obstacle (`GameContent::IsBlocked`) → `ACCESS_DENIED`.
+
 Le contrôle de vitesse est donc **implicite** : le serveur fait avancer le joueur à sa propre vitesse ; un client
 plus rapide se retrouve à plus de 525 unités de la position serveur et sa demande suivante est refusée.
 
@@ -79,3 +86,24 @@ refusé et ramené, mise à jour de région lointaine, arrêt à la mort chez le
 
 En jeu : marcher, courir, monter, porter une charge lourde — rien ne doit être refusé (surveiller le journal :
 `move refused`). Mourir en marchant : le personnage s'arrête net, chez soi et chez un autre joueur.
+
+## 5. Obstacles : la règle de 7.3 (2026-10-06)
+
+Bug noté : « déplacements trop restrictifs sur le contrôle des collisions, alors que le client fait des calculs de
+détours exprès ». Les journaux du 6 octobre le montrent : des refus `Correct` avec une position déclarée égale à
+celle du serveur (« claimed (152309, 79231), server has (152309, 79231) », à Horizon), donc sur un segment entre
+points de passage — le détour que le chemin du client venait de calculer autour des mêmes polygones `.nfa`, jugé
+bloqué parce qu'il frôlait un bord.
+
+Le lot portait la règle de 2015. `PlayerMoveRules.Judge` suit désormais le serveur 2012-11 :
+
+- hors donjon : **aucun** contrôle de segment, ni serveur → client ni entre points de passage ; seule une
+  **destination dans un obstacle** est corrigée (`IsBlocked`) ;
+- en donjon (`inDungeon`, type du lieu courant 4, 12 ou 14 — `PlayerMoveRules.IsDungeonLocation`, lu par
+  `GameClient.InDungeon` depuis `ConnectionInfo.LocationId`) : chaque segment, comme avant ;
+- le reste ne change pas : hors carte, 525 unités de l'estimation, plus d'une carte, mort, chute.
+
+Écart conservé : un refus pour obstacle **ramène** le joueur à la position du serveur (`Correct`) quand le binaire
+2012 répond `ACCESS_DENIED` seul (même raison que l'écart 1 du §3). Le test lâche de l'officiel
+(`IsLooseCollision` : un segment qui touche un bord, `TOUCH`, ne compte pas) n'est pas repris pour les donjons :
+à revoir si des refus y sont signalés.

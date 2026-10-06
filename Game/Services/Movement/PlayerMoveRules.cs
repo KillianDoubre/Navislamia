@@ -39,16 +39,24 @@ public static class PlayerMoveRules
 
     /// <summary>
     /// Judges a walk from the client's position (<c>x</c>, <c>y</c> of the request) along <paramref name="path"/>,
-    /// the server having the player at (<paramref name="serverX"/>, <paramref name="serverY"/>):
+    /// the server having the player at (<paramref name="serverX"/>, <paramref name="serverY"/>), the way the 7.3-era
+    /// server does (<c>onMoveRequest</c> of the 2012-11 <c>CaptainHerlockServer.exe</c>, <c>0x140132f90</c>):
     /// <list type="number">
     /// <item>the client's position outside the map, or farther than <see cref="VisibleRange"/> → refused;</item>
-    /// <item>an obstacle between the server's position and the client's, or between two waypoints → corrected
-    /// back to the server's position, or dropped when the server's position itself is inside an obstacle;</item>
-    /// <item>a waypoint outside the map → refused; a last waypoint farther than <see cref="MapLength"/> → dropped.</item>
+    /// <item><b>in a dungeon only</b> (<paramref name="inDungeon"/>: <c>IsInDungeon</c>, <c>IsInSecretDungeon</c>,
+    /// <c>IsInInstanceDungeon</c>), an obstacle between two waypoints → corrected back to the server's position, or
+    /// dropped when the server's position itself is inside an obstacle;</item>
+    /// <item>a waypoint outside the map → refused;</item>
+    /// <item>a destination inside an obstacle (<c>GameContent::IsBlocked</c> on the last waypoint) → corrected;</item>
+    /// <item>a last waypoint farther than <see cref="MapLength"/> → dropped.</item>
     /// </list>
+    /// Out of the dungeons the client's own detours are trusted: its path finder walks around the same <c>.nfa</c>
+    /// polygons, and testing each leg again refused honest walks that brushed a polygon. The 2015 source checks every
+    /// leg everywhere and the server-to-client segment too — "2014-01-02, extended from the dungeons to every field"
+    /// (<c>GameMessage.cpp:321</c>): a later rule, not the 7.3 one.
     /// </summary>
     public static MoveVerdict Judge(float serverX, float serverY, float clientX, float clientY,
-        IReadOnlyList<(float X, float Y)> path, CollisionMap map)
+        IReadOnlyList<(float X, float Y)> path, CollisionMap map, bool inDungeon = false)
     {
         if (!InMap(clientX, clientY) || Distance(serverX, serverY, clientX, clientY) > VisibleRange)
         {
@@ -56,11 +64,6 @@ public static class PlayerMoveRules
         }
 
         map ??= CollisionMap.Empty;
-        if (map.IsSegmentBlocked(serverX, serverY, clientX, clientY))
-        {
-            return Blocked(map, serverX, serverY);
-        }
-
         var (fromX, fromY) = (clientX, clientY);
         foreach (var (x, y) in path)
         {
@@ -69,12 +72,17 @@ public static class PlayerMoveRules
                 return MoveVerdict.Refuse;
             }
 
-            if (map.IsSegmentBlocked(fromX, fromY, x, y))
+            if (inDungeon && map.IsSegmentBlocked(fromX, fromY, x, y))
             {
                 return Blocked(map, serverX, serverY);
             }
 
             (fromX, fromY) = (x, y);
+        }
+
+        if (path.Count > 0 && map.IsBlocked(path[^1].X, path[^1].Y))
+        {
+            return Blocked(map, serverX, serverY);
         }
 
         if (path.Count > 0 && Distance(serverX, serverY, path[^1].X, path[^1].Y) > MapLength)
@@ -84,6 +92,12 @@ public static class PlayerMoveRules
 
         return MoveVerdict.Accept;
     }
+
+    /// <summary>
+    /// The location types where the 7.3-era server checks each leg of a walk (<c>StructWorldLocation</c>):
+    /// dungeon (4), secret dungeon (12), instance dungeon (14).
+    /// </summary>
+    public static bool IsDungeonLocation(short locationType) => locationType is 4 or 12 or 14;
 
     /// <summary><c>GameRule::CHANGE_LOCATION_ERROR_RANGE</c> (10 × <c>DEFAULT_UNIT_SIZE</c>).</summary>
     public const float ErrorRange = 120f;

@@ -50,14 +50,29 @@ public class PlayerMoveTests
     }
 
     [Test]
-    public void An_obstacle_on_the_way_walks_the_player_back_unless_the_server_has_it_inside_one()
+    public void Out_of_a_dungeon_the_client_detours_are_trusted_and_only_a_blocked_destination_is_corrected()
     {
+        // onMoveRequest of the 2012-11 server: no leg is checked out of the dungeons, and no server-to-client segment.
         PlayerMoveRules.Judge(1000, 1000, 1200, 1000, Array.Empty<(float, float)>(), Wall)
-            .Should().Be(MoveVerdict.Correct, "server to client position crosses the wall");
+            .Should().Be(MoveVerdict.Accept, "the server-to-client segment is a 2015 check");
         PlayerMoveRules.Judge(1000, 1000, 1010, 1000, new[] { (1200f, 1000f) }, Wall)
-            .Should().Be(MoveVerdict.Correct, "a leg of the path crosses the wall");
-        PlayerMoveRules.Judge(1100, 1000, 1200, 1000, Array.Empty<(float, float)>(), Wall)
+            .Should().Be(MoveVerdict.Accept, "a leg brushing or crossing a polygon is the client's own detour");
+        PlayerMoveRules.Judge(1000, 1000, 1010, 1000, new[] { (1100f, 1000f) }, Wall)
+            .Should().Be(MoveVerdict.Correct, "GameContent::IsBlocked on the destination");
+        PlayerMoveRules.Judge(1100, 1000, 1010, 1000, new[] { (1100f, 950f) }, Wall)
             .Should().Be(MoveVerdict.Ignore, "the server's own position is inside the wall");
+    }
+
+    [Test]
+    public void In_a_dungeon_each_leg_is_checked()
+    {
+        PlayerMoveRules.Judge(1000, 1000, 1010, 1000, new[] { (1200f, 1000f) }, Wall, inDungeon: true)
+            .Should().Be(MoveVerdict.Correct, "IsInDungeon: CollisionToLine on every leg");
+        PlayerMoveRules.Judge(1000, 1000, 1010, 1000, East, Wall, inDungeon: true).Should().Be(MoveVerdict.Accept);
+        PlayerMoveRules.IsDungeonLocation(4).Should().BeTrue();
+        PlayerMoveRules.IsDungeonLocation(12).Should().BeTrue();
+        PlayerMoveRules.IsDungeonLocation(14).Should().BeTrue();
+        PlayerMoveRules.IsDungeonLocation(2).Should().BeFalse("a town");
     }
 
     [Test]
