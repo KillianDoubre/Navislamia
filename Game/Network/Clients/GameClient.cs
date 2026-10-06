@@ -1045,15 +1045,15 @@ public class GameClient : Client
 
     /// <summary>
     /// TM_CS_REQUEST_FARM_INFO (6000), the creature farm window asking for its content — the client sends it on
-    /// open and on every refresh (SFrame.exe 0x6109f0). The answer is a TM_SC_FARM_INFO (6001) with
-    /// <c>summons = 0</c>: NavisLamia stores no farm at all, so no entry could be filled with anything but
-    /// invented values, and the 7.3 client handles the empty farm cleanly.
+    /// open and on every refresh (SFrame.exe 0x6109f0). The answer is a TM_SC_FARM_INFO (6001) filled from the
+    /// farm's storage (<see cref="Navislamia.Game.Services.Creatures.CreatureFarmService"/>): one entry per
+    /// deposited invocation, and the 8-byte empty frame when the farm holds none.
     ///
     /// A frame whose length is not 7 is malformed, not a request: the client writes the length in hard and no
     /// reference establishes an answer for it, so it is only logged. See
-    /// docs/packet-specs/socle-ferme-creatures.md §5.2, §5.3.
+    /// docs/packet-specs/socle-ferme-creatures-officielle.md §5.6 point 3.
     /// </summary>
-    private void HandleRequestFarmInfo(byte[] buffer)
+    private async Task HandleRequestFarmInfoAsync(byte[] buffer)
     {
         if (!GameFarmPackets.HasNoPayload(buffer))
         {
@@ -1062,10 +1062,18 @@ public class GameClient : Client
             return;
         }
 
-        Connection.Send(GameFarmPackets.BuildEmptyFarmInfo());
-
         _logger.Debug("TM_CS_REQUEST_FARM_INFO ({id}) Length: {length} received from {clientTag}",
             (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO, buffer.Length, ClientTag);
+
+        var farm = _networkService.CreatureFarmService;
+        if (farm is null)
+        {
+            // A harness without a farm answers the empty frame, as the socle did before the table existed.
+            Connection.Send(GameFarmPackets.BuildEmptyFarmInfo());
+            return;
+        }
+
+        await farm.SendFarmInfoAsync(this);
     }
 
     /// <summary>
@@ -3675,13 +3683,13 @@ public class GameClient : Client
             // The creature farm (ferme de créatures) socle: TM_CS_REQUEST_FARM_INFO (6000),
             // TM_CS_FOSTER_CREATURE (6002), TM_CS_RETRIEVE_CREATURE (6004), TM_CS_NURSE_CREATURE (6006) and
             // TM_CS_REQUEST_FARM_MARKET (6008). The five frames are read and bounded and only 6000 is answered
-            // (with an empty TM_SC_FARM_INFO, 6001): NavisLamia stores no farm, and the result frames
-            // 6003/6005/6007 carry a `result` byte whose values no reference establishes. The arms must stay
-            // before the throwing switch below — a member of GamePackets that reaches it breaks the receive
-            // loop. See docs/packet-specs/socle-ferme-creatures.md.
+            // (with a TM_SC_FARM_INFO, 6001) filled from the farm's storage; the result frames 6003/6005/6007
+            // carry a `result` byte whose values no reference establishes and stay undeclared. The arms must
+            // stay before the throwing switch below — a member of GamePackets that reaches it breaks the
+            // receive loop. See docs/packet-specs/socle-ferme-creatures-officielle.md §5.6.
             if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO)
             {
-                HandleRequestFarmInfo(msgBuffer);
+                _ = HandleRequestFarmInfoAsync(msgBuffer);
                 continue;
             }
 

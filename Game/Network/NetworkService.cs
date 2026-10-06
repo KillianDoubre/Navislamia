@@ -74,6 +74,9 @@ public class NetworkService : INetworkService
     public readonly Navislamia.Game.Services.Friends.IFriendService FriendService;
     public readonly IPlayerLocationService PlayerLocationService;
 
+    /// <summary>The creature farm's read path (6000 → 6001); null in harnesses that do not build a farm.</summary>
+    public readonly Navislamia.Game.Services.Creatures.ICreatureFarmService CreatureFarmService;
+
     /// <summary>The world's obstacles, which a player's walk is judged against; null in harnesses that do not build it.</summary>
     public readonly Navislamia.Game.Maps.Collision.IWorldCollision WorldCollision;
 
@@ -126,9 +129,11 @@ public class NetworkService : INetworkService
         Navislamia.Game.Services.Guilds.GuildUploadRelay guildUploads = null,
         Navislamia.Game.Services.Friends.IFriendService friendService = null,
         IPlayerLocationService playerLocationService = null,
-        Navislamia.Game.Maps.Collision.IWorldCollision worldCollision = null)
+        Navislamia.Game.Maps.Collision.IWorldCollision worldCollision = null,
+        Navislamia.Game.Services.Creatures.ICreatureFarmService creatureFarmService = null)
     {
         WorldCollision = worldCollision;
+        CreatureFarmService = creatureFarmService;
         FriendService = friendService;
         PlayerLocationService = playerLocationService;
         TitleService = titleService;
