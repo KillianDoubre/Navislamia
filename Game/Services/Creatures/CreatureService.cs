@@ -222,7 +222,13 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         public long CardItemId;
         public long TargetInstanceId;
         public DateTime NextSwingAt;
+
+        /// <summary>The last <c>TOO_FAR</c> sent for this swing (<c>m_nLastCantAttackTime</c>), 0 before the first.</summary>
+        public uint LastCantAttackTick;
     }
+
+    /// <summary><c>StructSummon::onCantAttack</c>: at most one <c>TOO_FAR</c> per 100 ticks (1 s).</summary>
+    public const uint CantAttackIntervalTicks = 100;
 
     // ---- world entry and exit -------------------------------------------------------------------------------
 
@@ -2783,6 +2789,17 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             var (mx, my) = _world.GetPosition(swing.TargetInstanceId);
             if (CombatRange.Distance(sx, sy, mx, my) > CreatureRules.SummonReach(resource, monster.Size, monster.Scale))
             {
+                // StructSummon::onCantAttack: TS_SC_CANT_ATTACK (102) TOO_FAR to the master, once a second. The 7.3
+                // client walks its summon only on that answer — SCreatureStateMachine::OnNetInput turns a TOO_FAR with
+                // a target into a fresh attack input, which paths the creature to the target and sends its moves.
+                // Without it the summon stood still, or kept following its master, and never struck.
+                if (swing.LastCantAttackTick == 0
+                    || unchecked((int)(tick - swing.LastCantAttackTick)) > (int)CantAttackIntervalTicks)
+                {
+                    swing.LastCantAttackTick = tick == 0 ? 1u : tick;
+                    client.Connection.Send(GameStateResultPackets.CantAttack(handle, monsterHandle, ResultCode.TooFar));
+                }
+
                 swing.NextSwingAt = now.AddMilliseconds(200);
                 continue;
             }

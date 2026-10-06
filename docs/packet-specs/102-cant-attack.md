@@ -133,7 +133,8 @@ refuse, pas l'étape 4.
 `StructPlayer::onCantAttack` (`0x1400c3820`) et `StructSummon::onCantAttack` (`0x140106640`) envoient le
 **code 2** `TOO_FAR`, avec un anti-rebond (`[this+0x2594] + 100`, `0x1400c3840-0x1400c3868` ; le serviteur
 écrit au nom de son maître, `Messages::SendCantAttackMessage(GetMaster(), ...)`). NGemity porte exactement ces
-deux envois (`Player.cpp:1620`, `Summon.cpp:539`). Aucun n'est dans le périmètre de la carte.
+deux envois (`Player.cpp:1620`, `Summon.cpp:539`). Aucun n'était dans le périmètre de la carte ; **celui de
+l'invocation est porté depuis le 2026-10-06** (§11).
 
 ### 5.5 Ce que le client 7.3 en fait
 
@@ -393,3 +394,31 @@ assis → StandUp() + BroadcastStatusMessage ; !IsAttackable() → 6 ACCESS_DENI
 Voir `docs/packet-specs/102-cant-attack.md`.
 ```
 
+
+## 11. `TOO_FAR` d'une invocation : ce qui fait marcher la créature (2026-10-06)
+
+Bug noté : « attaque créature et attaque créature groupée : la créature ne se déplace plus vers la cible, ou part
+dans une autre direction, et n'attaque pas ». Le serveur officiel ne déplace **jamais** une invocation vers sa cible
+(`processAttack` hors de portée → `onCantAttack`, `StructCreature.cpp:4159-4290` ; aucun `SetMove` d'approche dans
+`StructSummon.cpp`) : c'est le client qui la fait marcher, et il le fait **sur la 102 `TOO_FAR`**.
+
+Le §5.5 ne regardait que le consommateur d'interface. Il y en a un second, qui décide (build client du 2011-12-14 avec
+sa PDB, `epic7part4/client-pdb/2011-12-14-part4-design`) :
+
+- `SCommandSystem::ProcMsgAtStatic`, `case MSG_CANT_ATTACK` (`0x45fb28-0x45fb44`) : retrouve l'acteur
+  `attacker_handle` et appelle sa méthode virtuelle `+0x258`, `OnNetInput` ;
+- `SGameCreature::OnNetInput` (`0x6d21f0`) délègue à sa machine à états ; `SCreatureStateMachine::OnNetInput`
+  (`0x6aab30`, `switch (type − 4)`, type 14 → `0x6aad2d`) : raison **5 ou 6** → rien ; raison **2 (`TOO_FAR`) avec
+  une cible non nulle** → `SInputAttack(target, false)` donnée à la machine (`0x6aad71-0x6aad8e`) — la créature
+  repart à l'attaque, donc chemine vers la cible et envoie ses `TM_CS_MOVE_REQUEST` ; toute autre raison → état
+  réinitialisé (fin de l'attaque).
+
+Le serveur n'envoyait aucun `TOO_FAR` : la créature restait sur place, ou gardait son état précédent (suivre le
+maître), et le coup était repoussé de 200 ms sans fin. `CreatureService.ProcessSwings` envoie désormais, tant que
+l'invocation est hors de portée, `CantAttack(summon, handle du monstre chez le maître, TooFar)` au maître, au plus une
+fois par 100 ticks (`StructSummon::onCantAttack`, sans la garde « immobile » du joueur). Test :
+`CreatureTests.A_summon_out_of_reach_tells_its_master_too_far_so_that_the_client_walks_it_in`.
+
+`StructPlayer::onCantAttack` (même code, seulement quand le joueur ne marche pas) n'est pas porté : l'attaque du joueur
+marche déjà, son client l'amenant à portée de lui-même. À reprendre si un joueur reste planté devant un monstre qui
+s'éloigne.

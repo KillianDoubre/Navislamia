@@ -2324,6 +2324,9 @@ ouvrent une (`NpcDialogService.OpensConfirmation`), et aucun Lua Epic 7 n'appell
 - **4001/4002** visent la **carte** formée ; l'invocation principale est renvoyée avant la suivante, revient à
   la connexion (bruit 50) et suit le warp. Marche (`TM_CS_MOVE_REQUEST` sur son handle, `speed_sync`) et
   attaque (`TM_CS_ATTACK_REQUEST` sur son handle) : ses dégâts passent par `ApplyDamage` **au nom du maître**.
+  **Le serveur ne fait jamais marcher une invocation vers sa cible** : hors de portée il envoie au maître une 102
+  `TOO_FAR` (1 par seconde, `StructSummon::onCantAttack`), sur laquelle le client relance l'attaque de la créature et
+  la fait cheminer (`SCreatureStateMachine::OnNetInput`) ; sans elle la créature ne bougeait pas (`102-cant-attack.md` §11).
 - Écarts (fiche §15.5) : ligne `Summons` créée dès l'apprivoisement, `ITEM_FLAG_TAMING` gardé en session.
 - **Suite livrée** (`socle-invocations-progression.md`) : stats officielles (`stat_id`, `CreatureEnhance`,
   `CreatureLevelBonus`, coefficient 0,7 + Creature Mastery, niveau de combat du maître), expérience de chasse

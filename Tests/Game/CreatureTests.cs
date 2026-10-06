@@ -355,6 +355,35 @@ public partial class CreatureTests
     }
 
     [Test]
+    public void A_summon_out_of_reach_tells_its_master_too_far_so_that_the_client_walks_it_in()
+    {
+        var h = new Harness();
+        Bind(h);
+        h.Service.Summon(h.Client, 60);
+        var handle = h.Info.Summons[0].Handle;
+        A.CallTo(() => h.Combat.GetMonsterStats(0)).Returns(new StatBlock());
+        // The client put the summon far from the monster.
+        var far = new byte[8];
+        BinaryPrimitives.WriteSingleLittleEndian(far.AsSpan(0, 4), h.Info.X + 3000);
+        BinaryPrimitives.WriteSingleLittleEndian(far.AsSpan(4, 4), h.Info.Y + 3000);
+        h.Service.MoveSummon(h.Client, handle, h.Info.X + 3000, h.Info.Y + 3000, 0, 0, far);
+
+        h.Service.SummonAttack(h.Client, handle, Harness.MonsterHandle);
+        h.Service.ProcessSwings(DateTime.UtcNow.AddSeconds(1));
+        h.Service.ProcessSwings(DateTime.UtcNow.AddSeconds(2));
+
+        // StructSummon::onCantAttack: 102 TOO_FAR, summon as attacker, the master's handle of the monster as target,
+        // once per 100 ticks — the 7.3 client re-issues the attack on it (SCreatureStateMachine::OnNetInput).
+        var tooFar = h.Sent.Where(p => BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4, 2))
+                                       == (ushort)GamePackets.TM_SC_CANT_ATTACK).ToList();
+        tooFar.Should().ContainSingle("the second check comes within the same second");
+        BinaryPrimitives.ReadUInt32LittleEndian(tooFar[0].AsSpan(7, 4)).Should().Be(handle);
+        BinaryPrimitives.ReadUInt32LittleEndian(tooFar[0].AsSpan(11, 4)).Should().Be(Harness.MonsterHandle);
+        BinaryPrimitives.ReadInt32LittleEndian(tooFar[0].AsSpan(15, 4)).Should().Be((int)ResultCode.TooFar);
+        A.CallTo(() => h.Combat.ApplyDamage(h.Client, A<long>._, A<uint>._, A<int>._, A<int>._)).MustNotHaveHappened();
+    }
+
+    [Test]
     public void A_summon_enters_with_its_stats_and_swings_with_its_buffed_ones()
     {
         var h = new Harness();
