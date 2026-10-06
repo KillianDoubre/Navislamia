@@ -347,6 +347,12 @@ incohérents avec la longueur) garde la convention du dépôt — journal d'aver
 valeur : il la recopie dans son événement interne d'id `0xae` (`SFrame.exe` `0x672220-0x672272`) et
 laisse son interface conclure (§7.4).
 
+### 5.7 Ce que le lot a livré — 7 octobre 2026
+
+Le paquet est implémenté de bout en bout : une trame bien formée reçoit **toujours** son `6003`.
+
+| pièce | fichi...[truncated]
+
 ---
 
 ## 6. Écarts assumés
@@ -499,8 +505,9 @@ protégé) :
   **1 = confiée, 0 = refus** — la référence répond **toujours** à une trame bien formée, le client ne
   teste pas l'octet (il le remet à son interface).
 - Version : `X(6002, true)` et `X(6003, true)` sous `// Since EPIC_7_3`, **aucun** `version >=` dans les
-  structures, `ar_handle_t` = 4 octets : rien à retirer pour 7.3. `TM_SC_RESULT_FOSTER` (6003) n'est pas
-  encore déclaré dans `GamePackets` : le lot le déclare **avec son `case`**.
+  structures, `ar_handle_t` = 4 octets : rien à retirer pour 7.3. `TM_SC_RESULT_FOSTER` (6003) est **déclaré** depuis ce
+ lot, avec son bras de dispatch (journal + `continue` pour une trame entrante, anomalie de protocole) :
+ tout membre de `GamePackets` doit être routé avant le `switch` qui lève.
 - Objets : un **ticket** est de classe **403** (`ItemType.FarmPass`), un **cracker** de classe **402**
   (`ItemType.CreatureFood`). Le nombre de tickets dû vient de la table `CreatureFarmResource`
   (`rate`, `form`, `enhance_level`, `ticket_count`) que le client porte dans `db_creaturefarm.rdb`
@@ -515,5 +522,11 @@ protégé) :
   coût vaut 0) puis lit `ticketInfo[0]` hors trame ; sa somme de crackers ajoute toujours
   `crackerInfo[0].cracker_count` (index manquant, `GameMessage.cpp:11819`) ; le binaire de l'ère 7.3 ne
   vérifie ni propriétaire ni inventaire sur les piles de tickets/crackers.
+- Couture du coût : `ICreatureFarmTicketCost.GetTicketCount(rate, form, enhanceLevel)` est enregistrée
+  **sans aucune ligne** tant que la table n'est pas chargée : elle rend 0 et **tout dépôt est refusé**
+  (`result = 0`). Remplir la table est le seul geste du lot « Socle » — le service n'a pas à changer.
+- Deux gardes que la référence n'a pas, et qui évitent un dépôt gratuit : une entrée de `ticket_count` /
+  `cracker_count` **≤ 0** (une somme *négative* peut égaler le coût en ne consommant rien) et un ticket
+  dont la ressource ne porte **pas de durée** exploitable (`OptVar1[0] ≤ 0`).
 - Savoir complet et questions ouvertes : `docs/packet-specs/6002-foster-creature.md`.
 ```
