@@ -117,7 +117,7 @@ public interface ICreatureService
 }
 
 /// <summary>A summon in the world as a monster fights it: where it is, how alive it is, and its body and stats.</summary>
-public readonly record struct SummonTarget(uint Handle, float X, float Y, byte Layer, int Hp, int Level,
+public readonly record struct SummonTarget(uint Handle, float X, float Y, byte Layer, int Hp, int Mp, int Level,
     StatBlock Stats, float Size, float Scale, CreatureExpertise Expertise = null);
 
 /// <summary>
@@ -1102,7 +1102,7 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
 
         var (x, y) = SummonPosition(summonHandle, ServerClock.Now);
-        target = new SummonTarget(summonHandle, x, y, presence.Layer, presence.Hp, card.Level, presence.Stats,
+        target = new SummonTarget(summonHandle, x, y, presence.Layer, presence.Hp, presence.Mp, card.Level, presence.Stats,
             resource.Size, resource.Scale, ExpertiseOf(info, card));
         return true;
     }
@@ -2795,13 +2795,16 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
                 _world.AddSummonHate(swing.TargetInstanceId, client, handle, hit.Damage);
             }
 
-            var summonHp = presence?.Hp ?? Vitals(card, stats).Hp;
+            var vitals = Vitals(card, stats);
+            var summonHp = presence?.Hp ?? vitals.Hp;
+            var summonMp = presence?.Mp ?? vitals.Mp;
+            var monsterMp = _world.GetMp(swing.TargetInstanceId);
 
             client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, monsterHandle, intervalMs, intervalMs,
-                GameAttackPackets.ActionAttack, hit.Damage, targetHp, summonHp, (byte)hit.Flags));
+                GameAttackPackets.ActionAttack, hit.Damage, targetHp, monsterMp, summonHp, summonMp, (byte)hit.Flags));
             ObserverFrames.SendMonsterFrame(_players, client, swing.TargetInstanceId, (_, observerHandle) =>
                 GameAttackPackets.BuildAttackEvent(handle, observerHandle, intervalMs, intervalMs,
-                    GameAttackPackets.ActionAttack, hit.Damage, targetHp, summonHp, (byte)hit.Flags));
+                    GameAttackPackets.ActionAttack, hit.Damage, targetHp, monsterMp, summonHp, summonMp, (byte)hit.Flags));
 
             if (targetHp <= 0)
             {

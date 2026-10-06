@@ -4,8 +4,10 @@ using Navislamia.Game.Network.Packets.Enums;
 
 namespace Navislamia.Game.Network.Packets.Game;
 
-/// <summary>One hit of a swing: its damage (elemental part included), its ATTACK_INFO__FLAG and the target HP after.</summary>
-public readonly record struct AttackHit(int Damage, byte Flag, int TargetHp, int[] ElementalDamage = null);
+/// <summary>
+/// One hit of a swing: its damage (elemental part included), its ATTACK_INFO__FLAG and the target HP and MP after.
+/// </summary>
+public readonly record struct AttackHit(int Damage, byte Flag, int TargetHp, int TargetMp, int[] ElementalDamage = null);
 
 public static class GameAttackPackets
 {
@@ -20,7 +22,9 @@ public static class GameAttackPackets
     private const int FlagOffset = 8;
     private const int ElementalOffset = 9;
     private const int TargetHpOffset = 37;
+    private const int TargetMpOffset = 41;
     private const int AttackerHpOffset = 53;
+    private const int AttackerMpOffset = 57;
     private const byte AttackFlagNone = 0;
 
     public static uint ReadAttackTarget(ReadOnlySpan<byte> packet)
@@ -28,8 +32,14 @@ public static class GameAttackPackets
         return BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(11, 4));
     }
 
+    /// <summary>
+    /// One hit. The client sets both actors' HP and MP gauges from <c>target_hp/target_mp</c> and
+    /// <c>attacker_hp/attacker_mp</c> (rzu <c>ATTACK_INFO</c>, int32 @37/@41 and @53/@57): an MP left at 0 empties the
+    /// gauge of the player at each hit, given or taken, until the next regeneration fills it again.
+    /// </summary>
     public static byte[] BuildAttackEvent(uint attackerHandle, uint targetHandle, ushort attackSpeed,
-        ushort attackDelay, byte action, int damage, int targetHp, int attackerHp, byte hitFlag = 0)
+        ushort attackDelay, byte action, int damage, int targetHp, int targetMp, int attackerHp, int attackerMp,
+        byte hitFlag = 0)
     {
         var total = HeaderSize + EventHeaderSize + AttackInfoSize;
         var packet = new byte[total];
@@ -49,7 +59,9 @@ public static class GameAttackPackets
         // ATTACK_INFO__FLAG after damage and mp_damage: 1 perfect block, 2 block, 4 miss, 8 critical.
         info[FlagOffset] = hitFlag;
         BinaryPrimitives.WriteInt32LittleEndian(info.Slice(TargetHpOffset, 4), targetHp);
+        BinaryPrimitives.WriteInt32LittleEndian(info.Slice(TargetMpOffset, 4), targetMp);
         BinaryPrimitives.WriteInt32LittleEndian(info.Slice(AttackerHpOffset, 4), attackerHp);
+        BinaryPrimitives.WriteInt32LittleEndian(info.Slice(AttackerMpOffset, 4), attackerMp);
 
         WriteChecksum(packet);
         return packet;
@@ -62,7 +74,7 @@ public static class GameAttackPackets
     /// </summary>
     public static byte[] BuildAttackEvent(uint attackerHandle, uint targetHandle, ushort attackSpeed,
         ushort attackDelay, byte action, byte attackFlag, System.Collections.Generic.IReadOnlyList<AttackHit> hits,
-        int attackerHp)
+        int attackerHp, int attackerMp)
     {
         var count = hits?.Count ?? 0;
         var total = HeaderSize + EventHeaderSize + AttackInfoSize * count;
@@ -93,7 +105,9 @@ public static class GameAttackPackets
             }
 
             BinaryPrimitives.WriteInt32LittleEndian(info.Slice(TargetHpOffset, 4), hit.TargetHp);
+            BinaryPrimitives.WriteInt32LittleEndian(info.Slice(TargetMpOffset, 4), hit.TargetMp);
             BinaryPrimitives.WriteInt32LittleEndian(info.Slice(AttackerHpOffset, 4), attackerHp);
+            BinaryPrimitives.WriteInt32LittleEndian(info.Slice(AttackerMpOffset, 4), attackerMp);
         }
 
         WriteChecksum(packet);

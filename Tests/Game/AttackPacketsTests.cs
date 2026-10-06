@@ -14,7 +14,7 @@ public class AttackPacketsTests
         var packet = GameAttackPackets.BuildAttackEvent(
             attackerHandle: 0x40000001u, targetHandle: 0x40000002u,
             attackSpeed: 1200, attackDelay: 1200, action: GameAttackPackets.ActionAttack,
-            damage: 55, targetHp: 45, attackerHp: 200);
+            damage: 55, targetHp: 45, targetMp: 30, attackerHp: 200, attackerMp: 140);
 
         packet.Length.Should().Be(83);
         BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0, 4)).Should().Be(83);
@@ -30,7 +30,9 @@ public class AttackPacketsTests
         BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(22, 4)).Should().Be(55);
         packet[30].Should().Be(0);
         BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(59, 4)).Should().Be(45);
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(63, 4)).Should().Be(30, "target_mp @41 of ATTACK_INFO");
         BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(75, 4)).Should().Be(200);
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(79, 4)).Should().Be(140, "attacker_mp @57 of ATTACK_INFO");
     }
 
     [Test]

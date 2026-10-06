@@ -311,9 +311,10 @@ public partial class GmCommandService : IGmCommandService
 
                 // Dead is HP 0 and nothing else in this version: the client learns it from the hp property,
                 // exactly as from a killing swing (docs/packet-specs/socle-mort-respawn.md).
-                _combatService.StopAttack(client);
                 info.IsSitting = false;
                 info.CharacterHp = 0;
+                // A death stops the walk too: without it /die while walking left the client walking a dead body.
+                _combatService.HaltOnDeath(client);
                 client.Connection.Send(GameStatPackets.BuildProperty(info.CharacterHandle, "hp", 0));
                 break;
 
@@ -507,7 +508,7 @@ public partial class GmCommandService : IGmCommandService
             var targetHp = _combatService.ApplyDamage(client, instanceId, handle, hp);
             client.Connection.Send(GameAttackPackets.BuildAttackEvent(info.CharacterHandle, handle,
                 KillAttackDelayMs, KillAttackDelayMs, GameAttackPackets.ActionAttack, hp, targetHp,
-                info.CharacterHp));
+                _monsterState.GetMp(instanceId), info.CharacterHp, info.CharacterMp));
             killed++;
         }
 

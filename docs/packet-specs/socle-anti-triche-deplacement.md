@@ -42,8 +42,9 @@ plus rapide se retrouve à plus de 525 unités de la position serveur et sa dema
   position serveur (`PlayerMoves.WalkBackTo`, à lui et à ses observateurs) ; un joueur assis se relève (500).
 - `TM_CS_REGION_UPDATE` et 900 : la position du client n'est gardée qu'à moins de 120 unités
   (`CHANGE_LOCATION_ERROR_RANGE`) de l'estimation, sinon l'estimation ; la marche continue depuis là (`Rebase`).
-- **Mort** : `CombatService` (les deux chemins de mort d'un joueur) appelle `PlayerMoves.Stop` : arrêt à la
-  position estimée, `TS_SC_MOVE` d'arrêt au joueur et à ses observateurs.
+- **Mort** : `ICombatService.HaltOnDeath` (les deux chemins de mort d'un joueur en combat, et `/die`) arrête l'attaque,
+  l'incantation et la marche (`PlayerMoves.Stop`) : arrêt à la position estimée, `TS_SC_MOVE` d'arrêt au joueur et à
+  ses observateurs. `/die` ne l'appelait pas (2026-10-06) : un `/die` en marchant laissait le corps marcher.
 - Obstacles : `IWorldCollision.Map` (les `.nfa` du client), injecté dans `NetworkService`. Sans cartes extraites,
   la carte est vide et seuls les contrôles de distance jouent.
 
@@ -56,6 +57,11 @@ plus rapide se retrouve à plus de 525 unités de la position serveur et sa dema
    position honnête proche absorbe cette dérive.
 3. Le contrôle s'applique au joueur ; les invocations (`MoveSummon`) et le familier gardent leurs propres règles,
    comme l'officiel qui ne teste les obstacles que pour un joueur.
+4. **Un mort qui demande à marcher reçoit un arrêt** (`TS_SC_MOVE` sans point de passage, à lui seul ; ses observateurs
+   n'ont jamais eu cette marche). L'officiel l'abandonne en silence (`GameMessage.cpp:372`). Mais le client part dès le
+   clic, avant l'écho : un clic envoyé juste avant que le client apprenne sa mort (coup mortel et propriété `hp` encore
+   en route) promenait le cadavre jusqu'à sa destination — le « déplacement continu après la mort » observé en jeu
+   (2026-10-06). Le joueur reste mort ; seule l'animation de marche s'arrête.
 
 ## 4. NON ÉTABLI
 

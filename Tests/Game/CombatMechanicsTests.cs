@@ -121,12 +121,12 @@ public class CombatMechanicsTests
     {
         var hits = new[]
         {
-            new AttackHit(120, 8, 880, new[] { 0, 20, 0, 0, 0, 0, 0 }),
-            new AttackHit(60, 0, 820)
+            new AttackHit(120, 8, 880, 40, new[] { 0, 20, 0, 0, 0, 0, 0 }),
+            new AttackHit(60, 0, 820, 40)
         };
 
         var packet = GameAttackPackets.BuildAttackEvent(1, 2, 1150, 1150, GameAttackPackets.ActionAttack,
-            AttackMechanics.FlagDoubleWeapon, hits, 500);
+            AttackMechanics.FlagDoubleWeapon, hits, 500, 75);
 
         packet.Length.Should().Be(7 + 15 + 61 * 2);
         packet[20].Should().Be(AttackMechanics.FlagDoubleWeapon);
@@ -136,14 +136,17 @@ public class CombatMechanicsTests
         first[8].Should().Be(8);
         BinaryPrimitives.ReadInt32LittleEndian(first.Slice(9 + 4)).Should().Be(20, "fire's share");
         BinaryPrimitives.ReadInt32LittleEndian(first.Slice(37)).Should().Be(880);
+        BinaryPrimitives.ReadInt32LittleEndian(first.Slice(41)).Should().Be(40, "target_mp");
+        BinaryPrimitives.ReadInt32LittleEndian(first.Slice(57)).Should().Be(75, "attacker_mp");
         BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(22 + 61 + 37)).Should().Be(820);
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(22 + 61 + 57)).Should().Be(75, "every hit carries the attacker's MP");
     }
 
     [Test]
     public void An_aiming_bow_sends_no_hit()
     {
         var packet = GameAttackPackets.BuildAttackEvent(1, 2, 920, 920, AttackMechanics.ActionAiming,
-            AttackMechanics.FlagUsingBow, Array.Empty<AttackHit>(), 500);
+            AttackMechanics.FlagUsingBow, Array.Empty<AttackHit>(), 500, 75);
 
         packet.Length.Should().Be(22);
         packet[19].Should().Be(AttackMechanics.ActionAiming);

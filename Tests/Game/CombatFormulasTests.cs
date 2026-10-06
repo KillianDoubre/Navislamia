@@ -226,7 +226,7 @@ public class CombatFormulasTests
     [Test]
     public void The_attack_event_carries_the_hit_flag_after_damage_and_mp_damage()
     {
-        var packet = GameAttackPackets.BuildAttackEvent(1, 2, 1150, 1150, GameAttackPackets.ActionAttack, 0, 10, 20,
+        var packet = GameAttackPackets.BuildAttackEvent(1, 2, 1150, 1150, GameAttackPackets.ActionAttack, 0, 10, 0, 20, 0,
             (byte)HitFlags.Miss);
 
         packet.Should().HaveCount(83);

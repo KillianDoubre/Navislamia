@@ -302,14 +302,15 @@ public partial class GmCommandServiceTests
     }
 
     [Test]
-    public async Task Die_DropsHpToZeroAndStopsTheAttack()
+    public async Task Die_DropsHpToZeroAndStopsWhatADeathStops()
     {
         var (client, connection) = NewClient(permission: GmCommandRules.GmPermission);
 
         await _service.HandleAsync(client, "/die", Array.Empty<GameClient>());
 
         StorageTestHarness.Session(client).CharacterHp.Should().Be(0);
-        A.CallTo(() => _combat.StopAttack(client)).MustHaveHappenedOnceExactly();
+        // The attack, the cast and the walk, like a death in combat: /die while walking used to walk the body on.
+        A.CallTo(() => _combat.HaltOnDeath(client)).MustHaveHappenedOnceExactly();
         Properties(connection).Should().ContainSingle().Which.Should().Be(("hp", 0));
     }
 

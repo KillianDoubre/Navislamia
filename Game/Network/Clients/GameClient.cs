@@ -241,8 +241,16 @@ public class GameClient : Client
             return;
         }
 
-        // onMoveRequest: a dead character does not walk (IsDead, GameMessage.cpp:372).
-        if (ConnectionInfo.CharacterHandle != 0 && ConnectionInfo.CharacterHp <= 0) return;
+        // onMoveRequest: a dead character does not walk (IsDead, GameMessage.cpp:372). The client starts a walk the
+        // moment it is clicked, before the echo: a click sent just before it learnt of the death walked the body to
+        // its destination, since the official server drops the request without a word. The stop goes to this client
+        // alone — its observers never had the walk.
+        if (ConnectionInfo.CharacterHandle != 0 && ConnectionInfo.CharacterHp <= 0)
+        {
+            Connection.Send(GameMovePackets.BuildStopMove(ConnectionInfo.CharacterHandle,
+                unchecked(ServerClock.Now + ConnectionInfo.ClientClockOffset), ConnectionInfo.Layer));
+            return;
+        }
 
         // onMoveRequest echoes GetRealMoveSpeed(): the stat move speed, slowed by the load
         // (StructPlayer::GetMoveSpeed), divided by 7. The echo, the peers' copy and the position estimate all

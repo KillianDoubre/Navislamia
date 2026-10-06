@@ -22,6 +22,12 @@ public interface ICombatService
     void StopAttack(GameClient client);
 
     /// <summary>
+    /// What a death stops (<c>StructCreature::onDead</c>): the attack, the cast, and the walk, for the player and its
+    /// observers. Every path that brings a player to 0 HP goes through it.
+    /// </summary>
+    void HaltOnDeath(GameClient target) => StopAttack(target);
+
+    /// <summary>
     /// Drops every monster's aggro on a leaving player, so a disconnect or a warp leaves nothing
     /// chasing a ghost. The monsters return home on the next AI tick.
     /// </summary>

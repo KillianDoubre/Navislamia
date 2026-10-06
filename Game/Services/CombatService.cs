@@ -150,6 +150,13 @@ public partial class CombatService : ICombatService
         }
     }
 
+    public void HaltOnDeath(GameClient target)
+    {
+        StopAttack(target);
+        _casts?.Interrupt(target);
+        Movement.PlayerMoves.Stop(target, _players);
+    }
+
     public void StopAttack(GameClient client)
     {
         AttackSession session;
@@ -284,10 +291,10 @@ public partial class CombatService : ICombatService
                 var aimFlag = Combat.AttackMechanics.AttackFlag(false, false, weapon);
                 client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle,
                     session.TargetHandle, aimMs, aimMs, Combat.AttackMechanics.ActionAiming, aimFlag,
-                    Array.Empty<AttackHit>(), info.CharacterHp));
+                    Array.Empty<AttackHit>(), info.CharacterHp, info.CharacterMp));
                 ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
                     (_, handle) => GameAttackPackets.BuildAttackEvent(session.AttackerHandle, handle, aimMs, aimMs,
-                        Combat.AttackMechanics.ActionAiming, aimFlag, Array.Empty<AttackHit>(), info.CharacterHp));
+                        Combat.AttackMechanics.ActionAiming, aimFlag, Array.Empty<AttackHit>(), info.CharacterHp, info.CharacterMp));
                 session.NextSwingAt = now.AddMilliseconds(aimMs);
                 return;
             }
@@ -345,7 +352,8 @@ public partial class CombatService : ICombatService
             // StructCreature::OnAttack on a hit that landed; the extra double-attack swing skips attack procs, but retains critical/block/avoid procs.
             NotifyHit(new Combat.CombatActor(client), new Combat.CombatActor(client, MonsterId: session.TargetInstanceId),
                 hit, attackProcs: !doubleAttack || i < count / 2);
-            hits.Add(new AttackHit(damage, (byte)hit.Flags, targetHp, elemental));
+            hits.Add(new AttackHit(damage, (byte)hit.Flags, targetHp, _worldState.GetMp(session.TargetInstanceId),
+                elemental));
         }
 
         var swingTicks = ranged ? (uint)(intervalTicks * (1f - Combat.AttackMechanics.AimShare)) : intervalTicks;
@@ -359,13 +367,13 @@ public partial class CombatService : ICombatService
             unchecked(ServerClock.Now + info.ClientClockOffset), info.Layer));
 
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(session.AttackerHandle, session.TargetHandle,
-            intervalMs, intervalMs, GameAttackPackets.ActionAttack, flag, hits, info.CharacterHp));
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, flag, hits, info.CharacterHp, info.CharacterMp));
 
         // The players around see the swing too, each under its own handle for the monster: the killing one
         // carries target_hp = 0, which is what plays the monster's death on their screen.
         ObserverFrames.SendMonsterFrame(_players, client, session.TargetInstanceId,
             (_, handle) => GameAttackPackets.BuildAttackEvent(session.AttackerHandle, handle, intervalMs, intervalMs,
-                GameAttackPackets.ActionAttack, flag, hits, info.CharacterHp));
+                GameAttackPackets.ActionAttack, flag, hits, info.CharacterHp, info.CharacterMp));
 
         if (targetHp <= 0)
         {
@@ -509,9 +517,7 @@ public partial class CombatService : ICombatService
         {
             // A dead character swings no more (the reference's onDead ends the attack), and a monster kill
             // costs experience (StructPlayer::procDecreaseEXPAndDropItem). No death packet exists here.
-            StopAttack(target);
-            _casts?.Interrupt(target);
-            Movement.PlayerMoves.Stop(target, _players);
+            HaltOnDeath(target);
             _levelingService.ApplyDeathPenalty(target);
             if (info.ImmoralPoint > 0m) MoralityRules.Set(target, MoralityRules.AfterDeath(info.ImmoralPoint, info.PkCount));
             if (_deathDrops is not null)
@@ -829,7 +835,8 @@ public partial class CombatService : ICombatService
         var intervalMs = IntervalMs(CombatFormulas.AttackIntervalTicks(stats.AttackSpeed));
         var frame = GameAttackPackets.BuildAttackEvent(info.CharacterHandle, targetInfo.CharacterHandle, intervalMs,
             intervalMs, GameAttackPackets.ActionAttack, Combat.AttackMechanics.AttackFlag(false, false, info.EquippedWeapon),
-            new[] { new AttackHit(damage, (byte)hit.Flags, targetHp, elemental) }, info.CharacterHp);
+            new[] { new AttackHit(damage, (byte)hit.Flags, targetHp, targetInfo.CharacterMp, elemental) },
+            info.CharacterHp, info.CharacterMp);
         if (_players is not null)
         {
             _players.SendToObservers(client, frame, includeSelf: true);
@@ -894,9 +901,7 @@ public partial class CombatService : ICombatService
 
         if (killed)
         {
-            StopAttack(target);
-            _casts?.Interrupt(target);
-            Movement.PlayerMoves.Stop(target, _players);
+            HaltOnDeath(target);
             NotifyDeath(new Combat.CombatActor(attacker, summonHandle), new Combat.CombatActor(target));
             if (competing)
             {

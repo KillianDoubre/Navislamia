@@ -85,6 +85,12 @@ résultat passe par `ICombatService.RollHit`, donc par la même règle qu'un cou
 - `HIT_DAMAGE_INFO.flag` du tir de compétence : `int32` @14 de l'enregistrement de 45 octets, mêmes valeurs
   (NGemity `Skill.cpp:117-126`).
 - Un raté envoie 0 dégât ; le monstre prend quand même le joueur pour cible.
+- **Chaque `ATTACK_INFO` porte les PV et les PM des deux acteurs après le coup** : `target_hp` @37, `target_mp` @41,
+  `attacker_hp` @53, `attacker_mp` @57 (`int32` en 7.3, rzu `TS_SC_ATTACK_EVENT.h`). Le client règle ses jauges sur
+  ces valeurs. Les deux PM partaient à 0 jusqu'au 2026-10-06 : la jauge de PM du joueur tombait à 0 à chaque coup,
+  donné ou reçu, puis remontait d'un bloc à la régénération suivante. `GameAttackPackets.BuildAttackEvent` les exige
+  désormais (PM du joueur `ConnectionInfo.CharacterMp`, du monstre `MonsterWorldState.GetMp`, d'une invocation
+  `SummonPresence.Mp`).
 
 ## 7. Écarts assumés
 

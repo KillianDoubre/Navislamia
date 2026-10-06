@@ -124,7 +124,7 @@ public class LoadTestFramesTests
     [Test]
     public void Server_frames_are_read_where_the_server_writes_them()
     {
-        var attack = Navislamia.Game.Network.Packets.Game.GameAttackPackets.BuildAttackEvent(5, 9, 100, 100, 0, 12, 0, 300);
+        var attack = Navislamia.Game.Network.Packets.Game.GameAttackPackets.BuildAttackEvent(5, 9, 100, 100, 0, 12, 0, 0, 300, 0);
         Frames.AttackOf(attack).Should().Be((5u, 9u, (int?)0));
 
         var property = Navislamia.Game.Network.Packets.Game.GameStatPackets.BuildProperty(5, "hp", 0);

@@ -247,11 +247,12 @@ public class MonsterAiService
                 if (wasAlive && summonHp <= 0) _combat.NotifyDeath(new Combat.CombatActor(master, MonsterId: instanceId), new Combat.CombatActor(master, summon.Handle));
                 var intervalMs = CombatService.IntervalMs(intervalTicks);
                 var monsterHp = _worldState.GetHp(instanceId);
+                var monsterMp = _worldState.GetMp(instanceId);
                 master.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, summon.Handle, intervalMs, intervalMs,
-                    GameAttackPackets.ActionAttack, hit.Damage, summonHp, monsterHp, (byte)hit.Flags));
+                    GameAttackPackets.ActionAttack, hit.Damage, summonHp, summon.Mp, monsterHp, monsterMp, (byte)hit.Flags));
                 ToOtherWatchers(master, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
                     otherHandle, summon.Handle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
-                    summonHp, monsterHp, (byte)hit.Flags));
+                    summonHp, summon.Mp, monsterHp, monsterMp, (byte)hit.Flags));
                 _worldState.SetNextAttack(instanceId, unchecked(now + intervalTicks));
                 break;
             case MonsterAiAction.Drop:
@@ -297,12 +298,14 @@ public class MonsterAiService
 
         var intervalMs = CombatService.IntervalMs(intervalTicks);
         var monsterHp = _worldState.GetHp(instanceId);
+        var monsterMp = _worldState.GetMp(instanceId);
+        var playerMp = info.CharacterMp;
         client.Connection.Send(GameAttackPackets.BuildAttackEvent(handle, info.CharacterHandle,
-            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, playerHp,
-            monsterHp, (byte)hit.Flags));
+            intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage, playerHp, playerMp,
+            monsterHp, monsterMp, (byte)hit.Flags));
         ToOtherWatchers(client, instanceId, true, (_, otherHandle) => GameAttackPackets.BuildAttackEvent(
             otherHandle, info.CharacterHandle, intervalMs, intervalMs, GameAttackPackets.ActionAttack, hit.Damage,
-            playerHp, monsterHp, (byte)hit.Flags));
+            playerHp, playerMp, monsterHp, monsterMp, (byte)hit.Flags));
 
         // HP, property and, on the killing swing, the death penalty: after the swing that shows it.
         _combat.DamagePlayer(client, hit.Damage, instanceId, false);

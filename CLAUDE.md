@@ -198,10 +198,11 @@ used by later clients such as Epic 9.4; this Epic 7.3 executable only registers 
 
 **A walk is judged against where the server has the player** (`docs/packet-specs/socle-anti-triche-deplacement.md`,
 official `onMoveRequest`/`GetValidWayPoint`): `ConnectionInfo.BeginWalk` keeps the accepted path and `PositionAt`
-follows it leg by leg at the echoed speed; a dead player's request is dropped; a claimed position outside the map or
+follows it leg by leg at the echoed speed; a dead player's request is answered by a stop to that client alone (the client walks a click before the echo, so a
+click sent just before it learnt of the death walked the body on; the official drops it silently); a claimed position outside the map or
 more than 525 units from the estimate, or a way through a `.nfa` obstacle, answers `ACCESS_DENIED` and walks the
 player back (`Movement/PlayerMoveRules`, `PlayerMoves`); a region update or a 900 keeps the client's position only
-within 120 units of the estimate. A death stops the walk for the player and its observers. Any server-side change of
+within 120 units of the estimate. A death stops the walk for the player and its observers (`ICombatService.HaltOnDeath`, `/die` included). Any server-side change of
 a player's position should go through `BeginWalk`/`Rebase`; changing `MoveStartTick` or the destination at least drops the kept path.
 
 Movement uses the client's current `x/y` fields for visibility; the final waypoint is a future
@@ -364,7 +365,10 @@ asymmetry read as an inconsistent attack range — a player could hit a monster 
 The reach is now the reference's own value (see Monster AI): `(12 × attack_range) / 100` plus both body
 radii, `size × 12 × scale` each. For Epic 7.3
 (`version >= EPIC_7_3`) every `ATTACK_INFO` field is int32 and there is no `flag_padding`, so one
-swing is 83 bytes (`ATTACK_INFO` = 61) and a `count = 0` `AEAA_EndAttack` is 22 bytes. The client
+swing is 83 bytes (`ATTACK_INFO` = 61) and a `count = 0` `AEAA_EndAttack` is 22 bytes. **Each `ATTACK_INFO` carries
+both actors' HP and MP after the hit** (`target_hp/mp` @37/@41, `attacker_hp/mp` @53/@57) and the client sets its
+gauges from them: the two MP went out as 0, which emptied the player's MP gauge at every hit until the next
+regeneration refilled it (`socle-combat-reel.md` §6). The client
 plays the death animation when `target_hp` reaches 0; there is no `TS_SC_DEAD` in this version.
 
 `MonsterWorldState` is the single source of mutable monster state: the shared `SpatialIndex`, current

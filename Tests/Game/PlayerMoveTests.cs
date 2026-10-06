@@ -90,11 +90,18 @@ public class PlayerMoveTests
     }
 
     [Test]
-    public void A_dead_player_does_not_walk()
+    public void A_dead_player_does_not_walk_and_is_stopped_where_it_lies()
     {
         var (client, connection) = Session(hp: 0, frame: Move(1, 0, 0, (10f, 0f)));
         Receive(client, connection);
-        connection.Sent.Should().BeEmpty("onMoveRequest returns for a dead creature");
+
+        // onMoveRequest returns for a dead creature; the client walked the click already, so it gets a stop: a move
+        // of its own handle with no waypoint, and nothing else.
+        var stop = connection.Sent.Should().ContainSingle().Subject;
+        Id(stop).Should().Be((ushort)GamePackets.TM_SC_MOVE);
+        BinaryPrimitives.ReadUInt32LittleEndian(stop.AsSpan(11, 4)).Should().Be(StorageTestHarness.Session(client).CharacterHandle);
+        BinaryPrimitives.ReadUInt16LittleEndian(stop.AsSpan(17, 2)).Should().Be(0, "no waypoint");
+        StorageTestHarness.Session(client).CharacterHp.Should().Be(0);
     }
 
     [Test]
