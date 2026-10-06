@@ -324,6 +324,11 @@ period (all of the data's periods ended by 2012). The 7.3 client's own `local_fl
 rows above all. 406 of 1 182 NPCs stand. Before, every row spawned, events and `???????` names included. The Hidden Village
 teleporters, the towns' teleporters to it, the Flea Market and every auctioneer run their official Lua in the NPC
 sandbox (`show_auction_window` = `TS_SC_DIALOG` type 4, `is_premium` = state 9004 active).
+**Seasonal events are closed unless `GameRules:Events` opens them** (`docs/packet-specs/socle-pnj-evenements.md`,
+`NpcEvents`): the official Lua has no date, its operators added an event's menu entries for the event and took them out
+after. An event's menu entry (`Trick_or_treat_2011` in 18 town NPCs) is left out of the menu, and an NPC whose contact
+is an event's (the Halloween pumpkin spirits, the Easter dragon) is not placed, while its event has no open `MM-dd`
+window; none is open by default. The list is `tools/export_npc_event_menus.py`'s, embedded.
 
 ## Monster packets and catalog
 

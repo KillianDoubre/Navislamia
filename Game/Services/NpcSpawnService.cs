@@ -57,11 +57,14 @@ public class NpcSpawnService : INpcSpawnService
         try
         {
             var info = client.ConnectionInfo;
-            // A periodic NPC stands only inside its period: before it nobody sees it, after it it leaves the view.
+            // A periodic NPC stands only inside its period: before it nobody sees it, after it it leaves the view. An
+            // event's NPC stands only while GameRules:Events opens its event (NpcEvents).
             var now = _utcNow();
+            var localNow = now.ToLocalTime();
             var inRange = (GetIndex()?.WithinRange(info.X, info.Y, WorldVisibility.ViewRange)
                     ?? Array.Empty<NpcResourceEntity>())
-                .Where(npc => NpcSpawnRules.IsPresent(npc, now)).ToList();
+                .Where(npc => NpcSpawnRules.IsPresent(npc, now) && NpcEvents.IsNpcShown(npc.Id, _rules.Events, localNow))
+                .ToList();
 
             WorldObjectStreamer.Stream(client, info.NpcVisibilityLock, inRange,
                 npc => npc.Id,

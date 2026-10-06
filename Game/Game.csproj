@@ -15,6 +15,7 @@
     <EmbeddedResource Include="Scripting/Scripts/guild_dialogs.json" LogicalName="Navislamia.GuildDialogs.json" />
     <EmbeddedResource Include="Services/Dungeons/dungeon-resources.json" LogicalName="Navislamia.DungeonResources.json" />
     <EmbeddedResource Include="Services/npc-client-flags.json" LogicalName="Navislamia.NpcClientFlags.json" />
+    <EmbeddedResource Include="Services/npc-event-menus.json" LogicalName="Navislamia.NpcEventMenus.json" />
     <ProjectReference Include="..\Configuration\Configuration.csproj" />
   </ItemGroup>
 

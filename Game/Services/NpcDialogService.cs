@@ -35,14 +35,18 @@ public class NpcDialogService : INpcDialogService
     private readonly Guilds.IGuildService _guilds;
     private readonly ReturnPoints.IReturnPointService _returnPoints;
     private readonly INpcScriptService _npcScripts;
+    private readonly IReadOnlyList<GameEventWindow> _events;
+    private readonly Func<DateTime> _localNow;
 
     public NpcDialogService(IOptions<NpcDialogOptions> options, IWarpService warpService,
         IStorageService storageService, IMarketService marketService, IQuestService quests = null,
         Jobs.IJobChangeService jobChange = null, Creatures.ICreatureDialogService creatureDialogs = null,
         Dungeons.IDungeonService dungeons = null, Dungeons.DungeonCatalog dungeonCatalog = null, Guilds.IGuildService guilds = null,
         Huntaholic.IHuntaholicService huntaholic = null, ReturnPoints.IReturnPointService returnPoints = null,
-        INpcScriptService npcScripts = null)
+        INpcScriptService npcScripts = null, IOptions<GameRuleOptions> rules = null, Func<DateTime> localNow = null)
     {
+        _events = rules?.Value?.Events ?? new List<GameEventWindow>();
+        _localNow = localNow ?? (() => DateTime.Now);
         _npcScripts = npcScripts;
         _returnPoints = returnPoints;
         _huntaholic = huntaholic;
@@ -458,7 +462,7 @@ public class NpcDialogService : INpcDialogService
 
             // The Lua exporter retained only the prefix of concatenated dungeon arguments. Recover it
             // from the contacted NPC, never from client-supplied Lua or a global last-selected dungeon.
-            var menu = definition.Menu.Select(entry => new NpcDialogMenuEntry
+            var menu = ShownMenu(definition.Menu).Select(entry => new NpcDialogMenuEntry
             {
                 Label = entry.Label,
                 Trigger = dungeonId != 0 && entry.Trigger.TrimEnd().EndsWith('(')
@@ -479,6 +483,16 @@ public class NpcDialogService : INpcDialogService
             client.Connection.Send(GameNpcDialogPackets.BuildDialog(npcHandle, definition.Title, definition.Text, menu));
         }
         return true;
+    }
+
+    /// <summary>
+    /// The entries of a catalogue menu, an event's left out while its event is closed (<see cref="NpcEvents"/>): the
+    /// town NPCs offered Halloween candy all year. A hidden entry is never advertised, so it cannot be selected either.
+    /// </summary>
+    private IEnumerable<NpcDialogMenuEntry> ShownMenu(IEnumerable<NpcDialogMenuEntry> menu)
+    {
+        var now = _localNow();
+        return menu.Where(entry => NpcEvents.IsMenuShown(entry.Trigger, _events, now));
     }
 
     private static FrozenDictionary<int, string> CompileContacts(Dictionary<int, string> contacts)
@@ -556,7 +570,7 @@ public class NpcDialogService : INpcDialogService
                 : _contacts.TryGetValue(npcId, out function) && _dialogs.TryGetValue(function, out var compiled)
                     ? compiled.Definition : new NpcDialogDefinition();
             var menu = new List<NpcDialogMenuEntry>(offers);
-            menu.AddRange(basis.Menu);
+            menu.AddRange(ShownMenu(basis.Menu));
             ShowDynamic(client, handle, revision, new NpcDialogDefinition { Title = basis.Title, Text = basis.Text, Menu = menu }, 0, 0);
         }
         catch (Exception exception) { _logger.Error(exception, "Could not show quests for NPC {npcId}", npcId); }

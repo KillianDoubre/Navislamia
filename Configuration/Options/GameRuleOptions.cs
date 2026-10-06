@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Navislamia.Configuration.Options;
 
 /// <summary>
@@ -54,4 +56,25 @@ public class GameRuleOptions
     /// merchants, test helpers) and shows those flagged "not on a test server" (bit 29).
     /// </summary>
     public bool ServiceServer { get; set; } = true;
+
+    /// <summary>
+    /// The seasonal events this server runs, each with its yearly window. The official Lua knows no date: an event's
+    /// NPCs and menu entries were added to the scripts for the event and taken out after it. Here they stay hidden
+    /// until an entry opens their event (<c>NpcEvents</c>, docs/packet-specs/socle-pnj-evenements.md); none by default.
+    /// </summary>
+    public List<GameEventWindow> Events { get; set; } = new();
+}
+
+/// <summary>
+/// One seasonal event and its yearly window: <c>From</c> and <c>To</c> are <c>MM-dd</c>, both included, in the server's
+/// local date; a window whose end comes before its start spans the new year (<c>12-20</c> to <c>01-05</c>).
+/// </summary>
+public class GameEventWindow
+{
+    /// <summary>The event: Halloween, Christmas, Valentine, Easter, NewYear, or a script function's own name.</summary>
+    public string Name { get; set; }
+
+    public string From { get; set; }
+
+    public string To { get; set; }
 }
