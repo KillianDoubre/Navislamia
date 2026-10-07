@@ -2093,6 +2093,11 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   lance un buff ou un soin sans garde d'apprentissage. `DevConsole/item-use.73.json`
   (`tools/export_item_use_catalog.py`, 1 788 consommables Epic 7) recouvre les champs de la base et porte
   ces compétences de récupération.
+- **Monture par objet** (`docs/packet-specs/socle-monture-objet.md`) : l'effet `TOGGLE_STATE` (8) porte l'objet en
+  `WEAR_RIDE_ITEM` (22) et pose son état `EF_RIDING` (200) sans fin, ou le retire si cet objet porté l'a posé ; refus
+  `AccessDenied` à un cavalier ou en donjon, **avant** l'accusé. `Riding.ItemRiding` (vitesse `value_0 ÷ 7`, plus
+  d'attaque ni de sort, chute à la mort, sur un coup, en lieu interdit, au retrait de l'objet) se déduit de
+  `ConnectionInfo.ItemRide` **et** de `ActiveBuffs` : un état retiré par n'importe quel chemin met pied à terre.
 - **Délai de réutilisation** : par `cool_time_group` **1 à 40 seulement**, `cool_time × 100` ticks, comme
   NGemity (`Player.cpp:2091-2092`, `2165-2166`) ; un groupe 0 n'arme aucun délai (18 objets Epic 7 ont un
   `cool_time` sans groupe : un délai que le client ne peut pas afficher refuserait une utilisation qu'il

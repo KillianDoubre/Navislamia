@@ -22,6 +22,9 @@ public interface ICastInterrupts
     void ApplyCooldownProc(Combat.CombatActor owner, Combat.CooldownProc proc) { }
 
     void ApplyState(GameClient client, int stateId, int level, uint duration) { }
+
+    /// <summary><c>RemoveState(code)</c> on the player, as <see cref="ISkillCastService.RemoveState(GameClient,int)"/>.</summary>
+    bool RemoveState(GameClient client, int stateId) => false;
 }
 
 /// <summary>The relay a single <see cref="ISkillCastService"/> attaches to.</summary>
@@ -48,4 +51,6 @@ public sealed class CastInterrupts : ICastInterrupts
         _listener?.ApplyCooldownProc(owner, proc);
 
     public void ApplyState(GameClient client, int stateId, int level, uint duration) => _listener?.ApplyState(client, stateId, level, duration);
+
+    public bool RemoveState(GameClient client, int stateId) => _listener?.RemoveState(client, stateId) ?? false;
 }

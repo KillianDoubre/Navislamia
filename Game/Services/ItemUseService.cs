@@ -7,6 +7,7 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services.Pets;
+using Navislamia.Game.Services.Stats;
 using Serilog;
 
 namespace Navislamia.Game.Services;
@@ -29,12 +30,19 @@ public class ItemUseService : IItemUseService
 
     private readonly Progression.ITitleService _titles;
     private readonly Huntaholic.IHuntaholicCatalog _huntaholics;
+    private readonly Stats.IStateCatalog _stateCatalog;
+    private readonly IEquipmentService _equipment;
+    private readonly IPkFieldService _pkFields;
 
     public ItemUseService(ICharacterService characterService, IItemUseCatalog catalog,
         IPetSummonService petSummon, ISkillCastService states, IStatService stats,
         Progression.ITitleService titles = null, Huntaholic.IHuntaholicCatalog huntaholics = null,
-        IRecallFeatherService recall = null)
+        IRecallFeatherService recall = null, Stats.IStateCatalog stateCatalog = null,
+        IEquipmentService equipment = null, IPkFieldService pkFields = null)
     {
+        _stateCatalog = stateCatalog;
+        _equipment = equipment;
+        _pkFields = pkFields;
         _huntaholics = huntaholics;
         _titles = titles;
         _characterService = characterService;
@@ -162,6 +170,18 @@ public class ItemUseService : IItemUseService
             }
         }
 
+        // TOGGLE_STATE (a ride item): on, off, or refused before anything else happens (docs/packet-specs/socle-monture-objet.md).
+        if (hasFields && fields.StateId is > 0 && HasEffect(fields, ItemEffectInstant.ToggleState))
+        {
+            var toggle = await ToggleStateAsync(client, item, request.ItemHandle, (int)fields.StateId.Value,
+                fields.StateLevel);
+            if (toggle != ResultCode.Success)
+            {
+                client.SendResult(UseItemRequestId, (ushort)toggle, value);
+                return;
+            }
+        }
+
         // NGemity erases the unit inside Player::UseItem, so the stack update (TS_SC_UPDATE_ITEM_COUNT,
         // or TS_SC_DESTROY_ITEM for the last unit) leaves before the result.
         if (_catalog.IsConsumedOnUse((int)item.ItemResourceId))
@@ -221,6 +241,65 @@ public class ItemUseService : IItemUseService
         {
             _petSummon.OfferRename(client);
         }
+    }
+
+    /// <summary>
+    /// <c>ITEM_EFFECT_INSTANT::TOGGLE_STATE</c> (<c>StructCreature.cpp:4601-4645</c>): the state on while the ride item
+    /// that carries it is worn goes off; otherwise a riding state is refused to a rider or where riding is refused,
+    /// the item goes to <c>WEAR_RIDE_ITEM</c> (22) and the state goes on without end. ACCESS_DENIED on a refusal.
+    /// </summary>
+    private async Task<ResultCode> ToggleStateAsync(GameClient client, ItemEntity item, uint itemHandle, int stateId,
+        int stateLevel)
+    {
+        var info = client.ConnectionInfo;
+        var worn = item.WearInfo == ItemWearType.RideItem && item.EquippedBySummonId is null;
+        bool active;
+        lock (info.BuffLock)
+        {
+            active = info.ActiveBuffs.Exists(buff => buff.StateId == stateId);
+        }
+
+        if (active && worn)
+        {
+            _states.RemoveState(client, stateId);
+            return ResultCode.Success;
+        }
+
+        RidingStateValues riding = default;
+        var isRiding = _stateCatalog?.TryGetRiding(stateId, out riding) == true;
+        if (isRiding)
+        {
+            var (x, y) = info.PositionAt(ServerClock.Now);
+            if (info.RideHandle != 0 || Riding.ItemRiding.IsRiding(info)
+                || !Riding.ItemRiding.IsMountablePlace(x, y, _pkFields?.LocationType(info) ?? (short)0))
+            {
+                return ResultCode.AccessDenied;
+            }
+        }
+
+        if (!worn && (_equipment is null || !await _equipment.EquipRideItemAsync(client, itemHandle)))
+        {
+            return ResultCode.AccessDenied;
+        }
+
+        if (!_states.ApplyPermanentState(client, stateId, stateLevel))
+        {
+            return ResultCode.AccessDenied;
+        }
+
+        if (isRiding)
+        {
+            info.ItemRide = new Riding.ItemRide(stateId, riding, itemHandle);
+        }
+
+        return ResultCode.Success;
+    }
+
+    private static bool HasEffect(Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields,
+        ItemEffectInstant effect)
+    {
+        return (fields.BaseTypes is not null && Array.IndexOf(fields.BaseTypes, (short)effect) >= 0)
+               || (fields.OptTypes is not null && Array.IndexOf(fields.OptTypes, (short)effect) >= 0);
     }
 
     private void ApplyEffects(GameClient client,

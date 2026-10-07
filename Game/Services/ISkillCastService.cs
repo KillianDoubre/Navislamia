@@ -31,6 +31,12 @@ public interface ISkillCastService
     void ApplyCooldownProc(Combat.CombatActor owner, Combat.CooldownProc proc) { }
 
     void ApplyState(GameClient client, int stateId, int stateLevel, uint durationTicks);
+
+    /// <summary>
+    /// <c>AddState(code, owner, level, t, -1, true)</c>: puts a state without end on the player (a ride item's riding
+    /// state), <c>end_time = -1</c> on the wire, then refreshes the stats. False when the stacking rule refuses it.
+    /// </summary>
+    bool ApplyPermanentState(GameClient client, int stateId, int stateLevel) => false;
     void ApplyMonsterState(GameClient client, int stateId, int stateLevel, uint durationTicks, long monsterId) =>
         ApplyState(client, stateId, stateLevel, durationTicks);
 

@@ -32,4 +32,21 @@ public interface IStateCatalog
     /// <see cref="Casting.StateRule.None"/> for an unknown id, which then shares no group with anything.
     /// </summary>
     Casting.StateRule GetRule(int stateId) => Casting.StateRule.None;
+
+    /// <summary>
+    /// The values of an <c>EF_RIDING</c> state (<see cref="RidingStateValues"/>), read from its
+    /// <see cref="GetRule"/>; false for any other state.
+    /// </summary>
+    bool TryGetRiding(int stateId, out RidingStateValues values)
+    {
+        var rule = GetRule(stateId);
+        if (rule.EffectType != RidingStateValues.EffectType)
+        {
+            values = default;
+            return false;
+        }
+
+        values = RidingStateValues.From(rule.Values);
+        return true;
+    }
 }

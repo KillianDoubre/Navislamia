@@ -247,6 +247,7 @@ public partial class CombatService : ICombatService
         // The attack session outlives the player's death, so a swing already scheduled when the killing
         // blow landed would keep hitting from a corpse: dead attackers stop here.
         if (!visible || !MonsterAiRules.IsAlive(info.CharacterHp) || Creatures.SummonFall.IsActive(info, ServerClock.Now)
+            || Riding.ItemRiding.IsRiding(info)
             || !_worldState.IsAlive(session.TargetInstanceId)
             || !_worldState.TryGetInstance(session.TargetInstanceId, out var instance))
         {
@@ -511,6 +512,15 @@ public partial class CombatService : ICombatService
         {
             // A rider hit, or killed, can fall off its summon (StructPlayer::onDamage / onDead).
             _creatures?.PlayerDamaged(target, damage, !MonsterAiRules.IsAlive(info.CharacterHp));
+
+            // A ride item's rider falls off when killed, or 1 + value_6 times in 100 when hit (StructPlayer::onDead,
+            // StructCreature::onDamage); the fall only takes the riding state away (StructPlayer::UnMount).
+            if (Riding.ItemRiding.Current(info) is { } ride
+                && (!MonsterAiRules.IsAlive(info.CharacterHp)
+                    || (damage > 0 && Riding.ItemRiding.FallsOnHit(ride.Values, false, _random.Next))))
+            {
+                _casts?.RemoveState(target, ride.StateId);
+            }
         }
 
         if (wasAlive && !MonsterAiRules.IsAlive(info.CharacterHp))
@@ -711,7 +721,7 @@ public partial class CombatService : ICombatService
     internal bool IsAttackable(ConnectionInfo info)
     {
         var now = ServerClock.Now;
-        if (info.RideHandle != 0 || Creatures.SummonFall.IsActive(info, now))
+        if (info.RideHandle != 0 || Riding.ItemRiding.IsRiding(info) || Creatures.SummonFall.IsActive(info, now))
         {
             return false;
         }

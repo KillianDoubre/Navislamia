@@ -291,6 +291,12 @@ public class GameClient : Client
             speed = riding;
         }
 
+        // A ride item's mount moves at its state's speed (onMoveRequest: GetRealRidingSpeed under HasRidingState).
+        if (Navislamia.Game.Services.Riding.ItemRiding.Speed(ConnectionInfo, speed) is { } itemRiding)
+        {
+            speed = itemRiding;
+        }
+
         ConnectionInfo.MoveSpeed = speed;
         switch (verdict)
         {

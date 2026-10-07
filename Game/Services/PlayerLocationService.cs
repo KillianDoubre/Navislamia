@@ -88,20 +88,23 @@ public sealed class PlayerLocationService : IPlayerLocationService, IDisposable
     private readonly IPlayerVisibilityService _players;
     private readonly IPkModeService _pkMode;
     private readonly Compete.ICompeteService _compete;
+    private readonly Casting.ICastInterrupts _casts;
     private readonly Random _random;
     private readonly Func<DateTime> _localTime;
     private readonly CancellationTokenSource _stop = new();
 
     public PlayerLocationService(IMapService maps, IWorldLocationService locations, IPlayerVisibilityService players,
-        IPkModeService pkMode = null, Compete.ICompeteService compete = null)
-        : this(maps, locations, players, pkMode, compete, null, null, runTicks: true)
+        IPkModeService pkMode = null, Compete.ICompeteService compete = null, Casting.ICastInterrupts casts = null)
+        : this(maps, locations, players, pkMode, compete, null, null, runTicks: true, casts)
     {
     }
 
     public PlayerLocationService(IMapService maps, IWorldLocationService locations, IPlayerVisibilityService players,
-        IPkModeService pkMode, Compete.ICompeteService compete, Random random, Func<DateTime> localTime, bool runTicks)
+        IPkModeService pkMode, Compete.ICompeteService compete, Random random, Func<DateTime> localTime, bool runTicks,
+        Casting.ICastInterrupts casts = null)
     {
         _maps = maps;
+        _casts = casts;
         _locations = locations;
         _players = players;
         _pkMode = pkMode;
@@ -175,6 +178,12 @@ public sealed class PlayerLocationService : IPlayerLocationService, IDisposable
         {
             // COMPETE_END_BY_ENTERING_SAFETY_ZONE.
             _compete?.Leave(client, Compete.CompeteEndType.LeftField);
+        }
+
+        // GameProc.cpp:638 and StructPlayer::ChangeLocation: a rider who comes where riding is refused gets off.
+        if (Riding.ItemRiding.Current(info) is { } ride && !Riding.ItemRiding.IsMountablePlace(x, y, location.LocationType))
+        {
+            _casts?.RemoveState(client, ride.StateId);
         }
     }
 

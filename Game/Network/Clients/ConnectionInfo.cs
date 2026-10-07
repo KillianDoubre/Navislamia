@@ -280,6 +280,13 @@ public class ConnectionInfo
     public uint RideHandle { get; set; }
 
     /// <summary>
+    /// The riding state a ride item put on (<c>m_nRidingStateCode</c>) and its values, null when not riding one.
+    /// Read through <see cref="Navislamia.Game.Services.Riding.ItemRiding.Current"/>, which drops it once the state
+    /// is no longer among <see cref="ActiveBuffs"/>.
+    /// </summary>
+    public Navislamia.Game.Services.Riding.ItemRide ItemRide { get; set; }
+
+    /// <summary>
     /// <c>m_nTurnOnPkModeTime</c>/<c>m_nTurnOffPkModeTime</c>: the ar_time ticks at which a requested PK switch takes
     /// effect, 0 when none is pending, both under <see cref="PkModeLock"/>.
     /// </summary>
@@ -878,6 +885,7 @@ public class ConnectionInfo
         TamingCardItemId = 0;
         TamingTargetInstanceId = -1;
         RideHandle = 0;
+        ItemRide = null;
         TurnOnPkAt = 0;
         TurnOffPkAt = 0;
         ActivePet = null;

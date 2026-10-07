@@ -739,7 +739,8 @@ public partial class SkillCastService : ISkillCastService
             return false;
         }
 
-        if (info.CharacterHp <= 0 || Creatures.SummonFall.IsActive(info, now))
+        // IsSkillCastable / IsMagicCastable: nothing is cast from a ride item's mount (onCastSkill, NOT_ACTABLE).
+        if (info.CharacterHp <= 0 || Creatures.SummonFall.IsActive(info, now) || Riding.ItemRiding.IsRiding(info))
         {
             error = ResultCode.NotActable;
             return false;
@@ -1106,6 +1107,17 @@ public partial class SkillCastService : ISkillCastService
         var now = ServerClock.Now;
         ApplyState(client, stateId, 0, stateLevel, now, unchecked(now + durationTicks));
         SendStatRefresh(client, client.ConnectionInfo);
+    }
+
+    public bool ApplyPermanentState(GameClient client, int stateId, int stateLevel)
+    {
+        if (!ApplyState(client, stateId, 0, stateLevel, ServerClock.Now, NeverExpires))
+        {
+            return false;
+        }
+
+        SendStatRefresh(client, client.ConnectionInfo);
+        return true;
     }
 
     public bool ApplyItemSkill(GameClient client, int skillId, int skillLevel)

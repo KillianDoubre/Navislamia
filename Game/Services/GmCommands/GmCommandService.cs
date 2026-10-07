@@ -212,6 +212,12 @@ public partial class GmCommandService : IGmCommandService
 
             case GmCommand.Unride:
                 _creatures?.Unmount(client);
+                // UnMount takes a ride item's riding state away too.
+                if (Riding.ItemRiding.Current(info) is { } itemRide)
+                {
+                    _skillCastService.RemoveState(client, itemRide.StateId);
+                }
+
                 break;
 
             case GmCommand.Standup:

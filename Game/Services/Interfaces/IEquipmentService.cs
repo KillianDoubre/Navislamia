@@ -28,4 +28,11 @@ public interface IEquipmentService
     /// could wear (levels, rank, class, race, job depth); anything that is not worn passes.
     /// </summary>
     bool CanWear(Navislamia.Game.Network.Clients.ConnectionInfo info, long itemResourceId) => true;
+
+    /// <summary>
+    /// <c>Puton(WEAR_RIDE_ITEM, pItem)</c> for a ride item used (<c>TOGGLE_STATE</c>): the item goes to slot 22, the
+    /// one there back to the bag, with the 287s, the stats and the 202 a 200 would send but no result of its own.
+    /// False when it cannot be worn.
+    /// </summary>
+    Task<bool> EquipRideItemAsync(GameClient client, uint itemHandle) => Task.FromResult(false);
 }

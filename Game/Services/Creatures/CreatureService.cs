@@ -1597,9 +1597,6 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
     /// <summary><c>GameRule::UNMOUNT_PENALTY</c>: a fall costs 5 % of the rider's max HP.</summary>
     public const float UnmountPenalty = 0.05f;
 
-    /// <summary>The location types a summon cannot be ridden in (<c>IsMountable</c>: secret and instance dungeons,
-    /// battle arena, prayer hall).</summary>
-    private static readonly short[] UnmountableLocations = { 12, 14, 15, 16 };
 
     /// <summary>
     /// <c>/ride &lt;handle&gt;</c>, <c>StructPlayer::MountSummon</c>: the master, able to act, not sitting, not in a
@@ -1617,11 +1614,11 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
 
         var (x, y) = info.PositionAt(ServerClock.Now);
-        var mountable = info.RideHandle == 0 && info.CharacterHp > 0 && !info.IsSitting
+        var mountable = info.RideHandle == 0 && !Riding.ItemRiding.IsRiding(info)
+                        && info.CharacterHp > 0 && !info.IsSitting
                         && !SummonFall.IsActive(info, ServerClock.Now)
                         && presence is { Hp: > 0 } && card is not null && IsRidable(card)
-                        && !Progression.MonsterRewardBonuses.InDungeon(x, y)
-                        && Array.IndexOf(UnmountableLocations, _pkFields?.LocationType(info) ?? (short)0) < 0;
+                        && Riding.ItemRiding.IsMountablePlace(x, y, _pkFields?.LocationType(info) ?? (short)0);
         if (!mountable)
         {
             client.Connection.Send(GameSummonPackets.BuildMountSummon(info.CharacterHandle, summonHandle, 0, 0, false));

@@ -27,14 +27,16 @@ public class EquipmentService : IEquipmentService
     private readonly IItemWearCatalog _wearCatalog;
     private readonly IPlayerVisibilityService _visibility;
     private readonly Weight.ICarriedWeightService _weights;
+    private readonly Casting.ICastInterrupts _casts;
     private readonly FrozenDictionary<int, JobWearFields> _jobs;
     private readonly bool _depthFlags;
 
     public EquipmentService(ICharacterService characterService, IStatService statService,
         IItemWearCatalog wearCatalog, IPlayerVisibilityService visibility,
-        IJobResourceRepository jobs, Weight.ICarriedWeightService weights = null)
+        IJobResourceRepository jobs, Weight.ICarriedWeightService weights = null, Casting.ICastInterrupts casts = null)
     {
         _weights = weights;
+        _casts = casts;
         _characterService = characterService;
         _statService = statService;
         _wearCatalog = wearCatalog;
@@ -185,6 +187,12 @@ public class EquipmentService : IEquipmentService
             {
                 client.SendResult(UnequipRequestId, (ushort)ResultCode.NotExist, 0);
                 return;
+            }
+
+            // StructPlayer::putoffItem: taking the ride item off ends the ride.
+            if ((ItemWearType)request.Position == ItemWearType.RideItem)
+            {
+                EndItemRide(client);
             }
 
             var handle = info.CharacterHandle;
@@ -354,6 +362,12 @@ public class EquipmentService : IEquipmentService
             var handle = info.CharacterHandle;
             if (result.Displaced is not null)
             {
+                // The ride item displaced from slot 22 ends the ride it carried (StructPlayer::putoffItem).
+                if (slot == ItemWearType.RideItem)
+                {
+                    EndItemRide(client);
+                }
+
                 SendItemWear(client, handle, result.Displaced);
             }
 
@@ -365,6 +379,33 @@ public class EquipmentService : IEquipmentService
             _logger.Error(exception, "Could not equip item {itemHandle} at slot {position} for {clientTag}",
                 itemHandle, slot, client.ClientTag);
             return new EquipStep((ushort)ResultCode.DBError, null);
+        }
+    }
+
+    public async Task<bool> EquipRideItemAsync(GameClient client, uint itemHandle)
+    {
+        var info = client.ConnectionInfo;
+        if (await JudgeWearAsync(info, itemHandle) != (ushort)ResultCode.Success)
+        {
+            return false;
+        }
+
+        var step = await EquipAtSlotAsync(client, info, itemHandle, ItemWearType.RideItem);
+        if (!step.Succeeded)
+        {
+            return false;
+        }
+
+        SendStatInfo(client, info, info.CharacterHandle, step.Character);
+        PublishWear(client, step.Character);
+        return true;
+    }
+
+    private void EndItemRide(GameClient client)
+    {
+        if (Riding.ItemRiding.Current(client.ConnectionInfo) is { } ride)
+        {
+            _casts?.RemoveState(client, ride.StateId);
         }
     }
 
