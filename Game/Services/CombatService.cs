@@ -1114,9 +1114,16 @@ public partial class CombatService : ICombatService
             lootFactor = 0;
         }
 
-        var lootOwner = contribution.FirstOrDefault()?.Representative ?? client;
+        // StructMonster::onDead: the pick_up_order is the three best groups by contribution (greaterByContribute), and a
+        // raid boss's loot carries none, its party breaking up at once.
+        var byContribution = contribution.OrderByDescending(group => group.Factor).Select(group => group.Representative)
+            .ToArray();
+        var lootOwner = byContribution.FirstOrDefault() ?? client;
+        var following = byContribution.Skip(1).Take(2).ToArray();
+        var unclaimed = instance.IsDungeonRaidMonster && instance.MonsterType >= 13;
         if (_guilds?.IsObjective(instanceId) != true && (!instance.IsDungeonRaidMonster || instance.MonsterType >= 13))
-            _groundItemService.DropForMonster(lootOwner, instance.MonsterId, dropX, dropY, instance.Z, instanceId, lootFactor);
+            _groundItemService.DropForMonster(lootOwner, instance.MonsterId, dropX, dropY, instance.Z, instanceId,
+                lootFactor, following, unclaimed);
         AwardKill(client, instanceId, targetHandle, instance, lootFactor, dropX, dropY, instance.Z, info.Layer, contribution);
         if (_quests is not null)
             foreach (var member in _parties.RewardMembers(client, dropX, dropY, info.Layer))
@@ -1169,8 +1176,13 @@ public partial class CombatService : ICombatService
         MonsterKillReward reward, float x, float y, float z, byte layer, IReadOnlyList<MonsterRewardGroup> contribution)
     {
         if (reward.Gold > 0 && (!monster.IsDungeonRaidMonster || monster.MonsterType >= 13))
-            _groundItemService.DropGoldForMonster(contribution.FirstOrDefault()?.Representative ?? killer,
-                reward.Gold, x, y, z, instanceId);
+        {
+            var byContribution = contribution.OrderByDescending(group => group.Factor)
+                .Select(group => group.Representative).ToArray();
+            _groundItemService.DropGoldForMonster(byContribution.FirstOrDefault() ?? killer, reward.Gold, x, y, z,
+                instanceId, byContribution.Skip(1).Take(2).ToArray(),
+                monster.IsDungeonRaidMonster && monster.MonsterType >= 13);
+        }
         foreach (var group in contribution)
         {
             var members = _parties.RewardMembers(group.Representative, x, y, layer).Distinct().ToArray();

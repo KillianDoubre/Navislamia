@@ -22,7 +22,14 @@ public class GroundItemService : IGroundItemService
 {
     private const int TickIntervalMs = 1000;
     private const float ScatterRadius = 30f;
-    private const float PickupRange = 300f;
+    /// <summary>
+    /// <c>GameRule::GetPickableRange()</c>: 20 units (<c>0x140200F00</c>, <c>mov eax,0x14</c>), to which
+    /// <c>onTakeItem</c> adds half the taker's unit size (<c>GetUnitSize()/2</c>).
+    /// </summary>
+    public const float PickableRange = 20f;
+
+    /// <summary>The reach of a taker of the default unit size (12): 20 + 6 = 26 units.</summary>
+    public const float PickupRange = PickableRange + CombatRange.PlayerUnitSize / 2;
     private const ushort TakeRequestId = (ushort)GamePackets.TM_CS_TAKE_ITEM;
 
     private readonly ILogger _logger = Log.ForContext<GroundItemService>();
@@ -63,7 +70,11 @@ public class GroundItemService : IGroundItemService
     }
 
     public void DropForMonster(GameClient killer, int monsterId, float x, float y, float z,
-        long monsterInstanceId = 0, double lootFactor = 1)
+        long monsterInstanceId = 0, double lootFactor = 1) =>
+        DropForMonster(killer, monsterId, x, y, z, monsterInstanceId, lootFactor, null, false);
+
+    public void DropForMonster(GameClient killer, int monsterId, float x, float y, float z, long monsterInstanceId,
+        double lootFactor, IReadOnlyList<GameClient> following, bool unclaimed)
     {
         var entries = _catalog.GetDrops(monsterId);
         if (entries.Count == 0)
@@ -112,6 +123,8 @@ public class GroundItemService : IGroundItemService
                 OwnerHandle = info.CharacterHandle,
                 PartyId = info.PartyId,
                 MonsterDrop = true,
+                Unclaimed = unclaimed,
+                FollowingSlots = FollowingSlots(following, unclaimed),
                 DropTime = dropTime,
                 ExpiresAt = expiresAt
             };
@@ -163,7 +176,17 @@ public class GroundItemService : IGroundItemService
     }
 
     public void DropGoldForMonster(GameClient killer, long amount, float x, float y, float z,
-        long monsterInstanceId = 0)
+        long monsterInstanceId = 0) => DropGoldForMonster(killer, amount, x, y, z, monsterInstanceId, null, false);
+
+    /// <summary>Slots 1 and 2: the next two contributing groups, never more (<c>if( ++nCount &gt;= 3 ) break</c>).</summary>
+    private static GroundItemSlot[] FollowingSlots(IReadOnlyList<GameClient> following, bool unclaimed) =>
+        unclaimed || following is null
+            ? Array.Empty<GroundItemSlot>()
+            : following.Where(group => group is not null).Take(GroundItemPickupRules.Slots - 1)
+                .Select(GroundItemSlot.Of).ToArray();
+
+    public void DropGoldForMonster(GameClient killer, long amount, float x, float y, float z, long monsterInstanceId,
+        IReadOnlyList<GameClient> following, bool unclaimed)
     {
         if (amount <= 0) return;
         var p = NextScatter();
@@ -173,6 +196,7 @@ public class GroundItemService : IGroundItemService
             X = x + p.X, Y = y + p.Y, Z = z, Layer = killer.ConnectionInfo.Layer,
             Owner = killer, OwnerHandle = killer.ConnectionInfo.CharacterHandle,
             PartyId = killer.ConnectionInfo.PartyId, MonsterDrop = true,
+            Unclaimed = unclaimed, FollowingSlots = FollowingSlots(following, unclaimed),
             DropTime = _clock(),
             ExpiresAt = DateTime.UtcNow + _rates.GroundItemLifetime
         };
@@ -271,7 +295,8 @@ public class GroundItemService : IGroundItemService
         // names the master, whoever takes (ItemPickupOrder.hPlayer[i] == pClient->GetHandle()).
         var info = client.ConnectionInfo;
         var taker = info.CharacterHandle;
-        float x = info.X, y = info.Y;
+        // pTaker->GetCurrentPosition( GetArTime() ): where the walk the server accepted has brought the taker.
+        var (x, y) = info.PositionAt(ServerClock.Now);
         if (takerHandle != 0 && takerHandle != taker)
         {
             lock (info.PetLock)
@@ -332,7 +357,20 @@ public class GroundItemService : IGroundItemService
             return false;
         }
 
-        return WithinPickupRange(owner.ConnectionInfo, item)
+        // The range is judged from the pet, which walked to the object (onTakeItem with the pet as pTaker).
+        var info = owner.ConnectionInfo;
+        float petX, petY;
+        lock (info.PetLock)
+        {
+            if (info.ActivePet is not { } pet || pet.Handle != petHandle)
+            {
+                return false;
+            }
+
+            (petX, petY) = pet.PositionAt(ServerClock.Now);
+        }
+
+        return WithinPickupRange(info.Layer, petX, petY, item)
             && await TakeAsync(owner, item, petHandle) == ResultCode.Success;
     }
 
@@ -353,16 +391,38 @@ public class GroundItemService : IGroundItemService
     private bool CanTake(GameClient picker, GroundItem item) =>
         // IsTakeableQuestItem: a quest item stays its owner's, whatever the time since the fall.
         item.QuestItem ? FirstSlotNamesPicker(picker, item)
-            : GroundItemPickupRules.CanPickUp(unchecked(_clock() - item.DropTime), OccupiedSlots(item),
-                FirstSlotNamesPicker(picker, item));
+            : GroundItemPickupRules.CanPickUp(unchecked(_clock() - item.DropTime), SlotsNaming(picker, item));
 
     /// <summary>
     /// What the master's pet may collect: the client's <c>SGameItem::IsPickable</c>, which drives the official pet,
     /// on top of the server's own rule (<see cref="GroundItemPickupRules.PetMayCollect"/>).
     /// </summary>
     private bool PetMayCollect(GameClient owner, GroundItem item) => CanTake(owner, item)
-        && GroundItemPickupRules.PetMayCollect(unchecked(_clock() - item.DropTime), OccupiedSlots(item),
-            FirstSlotNamesPicker(owner, item));
+        && GroundItemPickupRules.PetMayCollect(unchecked(_clock() - item.DropTime), SlotsNaming(owner, item));
+
+    /// <summary>
+    /// For each filled slot of the order, in order, whether it designates <paramref name="picker"/>: slot 0 by
+    /// <see cref="FirstSlotNamesPicker"/>, slots 1 and 2 by their handle or their party.
+    /// </summary>
+    private bool[] SlotsNaming(GameClient picker, GroundItem item)
+    {
+        if (OccupiedSlots(item) == 0)
+        {
+            return Array.Empty<bool>();
+        }
+
+        var slots = new bool[1 + item.FollowingSlots.Length];
+        slots[0] = FirstSlotNamesPicker(picker, item);
+        var handle = picker.ConnectionInfo.CharacterHandle;
+        for (var i = 0; i < item.FollowingSlots.Length; i++)
+        {
+            var slot = item.FollowingSlots[i];
+            slots[i + 1] = ReferenceEquals(slot.Holder, picker) || (slot.Handle != 0 && slot.Handle == handle)
+                || (slot.PartyId != 0 && _parties is not null && _parties.CanTakeDrop(slot.Holder, picker, slot.PartyId));
+        }
+
+        return slots;
+    }
 
     /// <summary>
     /// How many slots of the order are filled. Slots 1 and 2 are never filled here (see
@@ -521,11 +581,11 @@ public class GroundItemService : IGroundItemService
         }
     }
 
-    private static bool WithinPickupRange(ConnectionInfo info, GroundItem item)
+    private static bool WithinPickupRange(byte layer, float x, float y, GroundItem item)
     {
-        if (info.Layer != item.Layer) return false;
-        var dx = info.X - item.X;
-        var dy = info.Y - item.Y;
+        if (layer != item.Layer) return false;
+        var dx = x - item.X;
+        var dy = y - item.Y;
         return dx * dx + dy * dy <= PickupRange * PickupRange;
     }
 
@@ -604,9 +664,12 @@ public class GroundItemService : IGroundItemService
             // client's window keep counting from the fall, otherwise a late arrival would see the object
             // locked 30 s longer than it is.
             var dropTime = unchecked(item.DropTime + info.ClientClockOffset);
+            var second = item.FollowingSlots.Length > 0 ? item.FollowingSlots[0] : null;
+            var third = item.FollowingSlots.Length > 1 ? item.FollowingSlots[1] : null;
             client.Connection.Send(GameSpawnPackets.BuildEnterItem(item.Handle, item.X, item.Y, item.Z,
                 item.Layer, item.ItemCode, item.Count, dropTime, item.HasPickupOrder ? item.OwnerHandle : 0,
-                item.MonsterDrop ? (uint)(item.PartyId ?? 0) : 0));
+                item.MonsterDrop && !item.Unclaimed ? (uint)(item.PartyId ?? 0) : 0,
+                second?.Handle ?? 0, (uint)(second?.PartyId ?? 0), third?.Handle ?? 0, (uint)(third?.PartyId ?? 0)));
         }
     }
 

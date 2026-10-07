@@ -79,7 +79,8 @@ public partial class CastMechanicsTests
         h.Service.ProcessPeriodicStates(201); h.Service.ProcessPeriodicStates(401);
         h.World.IsAlive(InstanceId).Should().BeFalse(); h.World.GetHp(InstanceId).Should().Be(0);
         h.World.GetStates(InstanceId).Should().BeEmpty();
-        A.CallTo(() => drops.DropForMonster(h.Client, 2101, A<float>._, A<float>._, A<float>._, InstanceId, A<double>._))
+        A.CallTo(() => drops.DropForMonster(h.Client, 2101, A<float>._, A<float>._, A<float>._, InstanceId, A<double>._,
+                A<System.Collections.Generic.IReadOnlyList<GameClient>>._, A<bool>._))
             .MustHaveHappenedOnceExactly();
         h.Connection.Sent.Count(p => PacketId(p) == 406).Should().Be(1);
         h.Connection.Sent.Should().Contain(p => PacketId(p) == 500, "the ordinary monster death status is published");

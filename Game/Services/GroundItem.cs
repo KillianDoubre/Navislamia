@@ -3,6 +3,15 @@ using Navislamia.Game.Network.Clients;
 
 namespace Navislamia.Game.Services;
 
+/// <summary>One slot of a <c>pick_up_order</c> after the first: the group's representative, its handle when alone, its party.</summary>
+public sealed record GroundItemSlot(GameClient Holder, uint Handle, long PartyId)
+{
+    /// <summary>The slot of a contributing group: a party by its id, a player alone by its handle.</summary>
+    public static GroundItemSlot Of(GameClient representative) => representative.ConnectionInfo.PartyId is { } party
+        ? new GroundItemSlot(representative, 0, party)
+        : new GroundItemSlot(representative, representative.ConnectionInfo.CharacterHandle, 0);
+}
+
 public class GroundItem
 {
     public int TakenBy;
@@ -27,7 +36,19 @@ public class GroundItem
     /// (<c>StructMonster.cpp:1673, 1768</c>, <c>SetPickupOrder</c>); an object a player drops has an empty order,
     /// which anybody takes at once and the client shows as open to all (state 3).
     /// </summary>
-    public bool HasPickupOrder => MonsterDrop || QuestItem;
+    public bool HasPickupOrder => (MonsterDrop && !Unclaimed) || QuestItem;
+
+    /// <summary>
+    /// A raid boss's loot (<c>IsDungeonRaidMonster() &amp;&amp; GetMonsterType() &gt;= MONSTER_TYPE_HIGHEST_1_STAR</c>,
+    /// <c>StructMonster.cpp:2064-2068</c>): its party breaks up at once, so the official clears every slot.
+    /// </summary>
+    public bool Unclaimed { get; init; }
+
+    /// <summary>
+    /// Slots 1 and 2 of the order: the second and third contributing groups of the kill, a player alone by its handle,
+    /// a party by its id (<c>StructMonster.cpp:2061-2085</c>). Slot 0 is <see cref="OwnerHandle"/>/<see cref="PartyId"/>.
+    /// </summary>
+    public GroundItemSlot[] FollowingSlots { get; init; } = Array.Empty<GroundItemSlot>();
 
     /// <summary>
     /// The instant the object fell, in <c>ar_time</c> ticks of the <b>server</b> clock

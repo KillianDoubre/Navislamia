@@ -172,6 +172,7 @@ public class MonsterRewardIntegrationTests
         h.Parties.TryHandleCommand(ana, "/pshare " + mode);
         h.Kill(ana);
         var enter = h.GoldEnter(bo); var handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8));
+        StorageTestHarness.StandOn(bo, enter);
         await h.Ground.TakeAsync(bo, handle);
         StorageTestHarness.Session(ana).CharacterGold.Should().Be(51); StorageTestHarness.Session(bo).CharacterGold.Should().Be(50);
         StorageTestHarness.Session(far).CharacterGold.Should().Be(0);
@@ -269,7 +270,15 @@ public class MonsterRewardIntegrationTests
     public async Task A_pet_can_pick_up_gold_for_its_owner_without_creating_an_inventory_item()
     {
         var h = new Harness(); var player = h.Player(1, "Solo"); h.Kill(player);
-        var handle = BinaryPrimitives.ReadUInt32LittleEndian(h.GoldEnter(player).AsSpan(8));
+        var enter = h.GoldEnter(player);
+        var handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8));
+        // The pet stands on the pile it collects (the range is judged from it).
+        StorageTestHarness.Session(player).ActivePet = new Navislamia.Game.Services.Pets.ActivePet(987, 1,
+            new Navislamia.Game.Services.PetWorldEntry
+            {
+                X = BinaryPrimitives.ReadSingleLittleEndian(enter.AsSpan(12)),
+                Y = BinaryPrimitives.ReadSingleLittleEndian(enter.AsSpan(16))
+            }, collectRange: 60);
         (await h.Ground.TakeForPetAsync(player, handle, 987)).Should().BeFalse("the pet waits 30 s, even for its master");
         h.Now += GroundItemPickupRules.FirstDeadlineTicks + 1;
         (await h.Ground.TakeForPetAsync(player, handle, 987)).Should().BeTrue();
@@ -285,6 +294,7 @@ public class MonsterRewardIntegrationTests
     {
         var h = new Harness(); var player = h.Player(1, "Solo"); h.Kill(player);
         var handle = BinaryPrimitives.ReadUInt32LittleEndian(h.GoldEnter(player).AsSpan(8));
+        StorageTestHarness.StandOn(player, h.GoldEnter(player));
         h.Connections[player].FailPacket = GamePackets.TM_SC_TAKE_ITEM_RESULT;
         await h.Ground.TakeAsync(player, handle);
         h.Connections[player].FailPacket = null;

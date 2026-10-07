@@ -447,3 +447,19 @@ utilise un tas d'or de monstre, qui porte un ordre), `PetPickupTests.A_dropped_o
 - **Serveur officiel Gala Lab** : `reference/epic7part4/server/2012-11/CaptainHerlockServer.exe` + `.pdb` (branche `gameserver_release/2011-12-12`, build 2012-11-22, RSDS `4fab8d7b…`, age 1) — `onTakeItem` 0x140134080, `GetArTime` 0x140011B10, `MonsterDropItemToWorld` 0x140043CC0 (`m_nDropTime` à 0x140043D76), `GameRule::GetPickableRange` 0x140200F00, `ItemCollector::onProcess` 0x140382E10 ; types `TS_ENTER::ItemInfo` (0x826C), `TS_ENTER::TS_ITEM_PICK_UP_ORDER` (0x825F), `StructItem::ITEM_PICK_UP_ORDER` (0x7FC5), `takePriority` (0x137FF).
 - **Client 7.3** : `reference/client73/SFrame.exe` (lecture seule, pas de PDB) — `SetPickUpOrder` 0x6CA200, `IsPickable` 0x6CA270, `Process` 0x6CA340 (seuils 0x6CA475 / 0x6CA493 / 0x6CA4B2).
 - **Client de décembre 2011 avec PDB** : `reference/epic7part4/client-pdb/2011-12-14-part4-design/SFrame_Release.exe` + `.pdb` — `SGameItem::SetPickUpOrder` 0x6C7D50, `SGameItem::IsPickable(unsigned int,int)` 0x6C7DC0, `SGameItem::Process(unsigned long,unsigned long)` 0x6C7E90, `GetArTime` 0x6F1890 ; types `SMSG_ENTER::ItemInfo`, `SMSG_ENTER::TS_ITEM_PICK_UP_ORDER`, `TS_ENTER::TS_ITEM_PICK_UP_ORDER`.
+
+
+## Portée officielle et trois emplacements — livrés le 2026-10-07
+
+- **Portée** : `onTakeItem` refuse `TOO_FAR` au-delà de `GameRule::GetPickableRange()` (20) + `pTaker->GetUnitSize() / 2`,
+  mesurée depuis `GetCurrentPosition(GetArTime())` du preneur. Ici : `GroundItemService.PickupRange` = 20 + 12 / 2 = **26**,
+  depuis `ConnectionInfo.PositionAt(now)` (le chemin accepté), ou depuis le familier quand c'est lui qui prend
+  (`TakeAsync` avec son handle, `TakeForPetAsync`, qui jugeait jusqu'ici depuis le maître). Les 300 unités sont retirées.
+- **Emplacements 1 et 2** : `StructMonster::onDead` trie les parties virtuelles par contribution (`greaterByContribute`) et
+  en écrit trois au plus, un joueur seul par son handle, un groupe par son id (`StructMonster.cpp:2052-2085`). Ici : les
+  groupes de `MonsterContribution.Resolve` triés par `Factor`, le premier devient le propriétaire (emplacement 0), les deux
+  suivants `GroundItem.FollowingSlots`, écrits à `hPlayer[1..2]` @50/54 et `nPartyID[1..2]` @62/66. La fenêtre
+  (`GroundItemPickupRules.CanPickUp`) parcourt les emplacements remplis : celui qui nomme le preneur accepte, les autres
+  refusent jusqu'à 3000 ticks puis +1000 par emplacement sauté. Le familier suit `SGameItem::IsPickable` sur les trois.
+- **Boss de raid** (`IsDungeonRaidMonster() && GetMonsterType() >= 13`) : ordre vide, comme l'officiel (`GroundItem.Unclaimed`).
+- Tests : `GroundItemTakeWindowTests` (deuxième groupe entre 30 et 40 s, boss de raid, 26 unités), `PetPickupTests`.

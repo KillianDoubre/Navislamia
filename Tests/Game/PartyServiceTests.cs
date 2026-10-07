@@ -347,7 +347,8 @@ public partial class PartyServiceTests
 
         // The gold falls on the ground once, announced from the corpse; no wallet moves at the kill.
         (Info(ana).CharacterGold + Info(bo).CharacterGold).Should().Be(0);
-        A.CallTo(() => ground.DropGoldForMonster(ana, 20, 1000, 2000, A<float>._, 0)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => ground.DropGoldForMonster(ana, 20, 1000, 2000, A<float>._, 0,
+            A<System.Collections.Generic.IReadOnlyList<GameClient>>._, A<bool>._)).MustHaveHappenedOnceExactly();
         Frames(ana, GamePackets.TM_SC_GOLD_UPDATE).Should().BeEmpty("the kill sends no 1001");
 
         // The chaos gain is announced twice: the region frame around the corpse and the property the client
@@ -437,6 +438,8 @@ public partial class PartyServiceTests
             BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(58, 4)).Should().Be(1);
             var handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8, 4));
             Clear(ana, bo, outsider);
+            StorageTestHarness.StandOn(outsider, enter);
+            StorageTestHarness.StandOn(bo, enter);
 
             await ground.TakeAsync(outsider, handle);
             await ground.TakeAsync(bo, handle);

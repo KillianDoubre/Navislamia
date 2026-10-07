@@ -54,6 +54,7 @@ public class GroundItemVisibilityTests
         Sent(peer).Clear();
         A.CallTo(() => characters.AddItemAsync("owner", 603002, 1))
             .Returns(new ItemEntity { Id = 8, ItemResourceId = 603002, Amount = 1 });
+        StorageTestHarness.StandOn(owner, ownerEnter);
         await ground.TakeAsync(owner, handle);
         Sent(owner).Should().Contain(frame => IsLeave(frame, handle));
         Sent(peer).Should().ContainSingle(frame => IsLeave(frame, handle));

@@ -63,7 +63,11 @@ public class GroundItemTakeWindowTests
 
         // A monster's gold pile: the kind of object that carries a pick_up_order (StructMonster::SetPickupOrder).
         _ground.DropGoldForMonster(_owner, 100, 1100, 1000, 0);
-        _handle = BinaryPrimitives.ReadUInt32LittleEndian(Enter(_owner).AsSpan(8, 4));
+        var enter = Enter(_owner);
+        _handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8, 4));
+        // onTakeItem's reach is 20 + half the taker's size: both stand on the pile, the window is what is tested.
+        StorageTestHarness.StandOn(_owner, enter);
+        StorageTestHarness.StandOn(_stranger, enter);
     }
 
     /// <summary><c>IsTakeableQuestItem</c>: a quest item stays its owner's, whatever the time since the fall.</summary>
@@ -71,7 +75,10 @@ public class GroundItemTakeWindowTests
     public async Task Take_KeepsAQuestItemToItsOwnerAfterTheWindow()
     {
         _ground.DropQuestItem(_owner, 603002, 1100, 1000, 0);
-        var quest = BinaryPrimitives.ReadUInt32LittleEndian(Enter(_owner).AsSpan(8, 4));
+        var questEnter = Enter(_owner);
+        var quest = BinaryPrimitives.ReadUInt32LittleEndian(questEnter.AsSpan(8, 4));
+        StorageTestHarness.StandOn(_owner, questEnter);
+        StorageTestHarness.StandOn(_stranger, questEnter);
         _now += 10 * GroundItemPickupRules.FirstDeadlineTicks;
 
         await _ground.TakeAsync(_stranger, quest);
@@ -151,10 +158,71 @@ public class GroundItemTakeWindowTests
         var handle = BinaryPrimitives.ReadUInt32LittleEndian(Enter(_owner).AsSpan(8, 4));
         BinaryPrimitives.ReadInt32LittleEndian(Enter(_owner).AsSpan(58, 4)).Should().Be(7, "nPartyID[0]");
         A.CallTo(() => _parties.CanTakeDrop(_owner, _stranger, 7L)).Returns(true);
+        StorageTestHarness.StandOn(_stranger, Enter(_owner));
 
         await _ground.TakeAsync(_stranger, handle);
 
         Result(_stranger).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.Success));
+    }
+
+    /// <summary>
+    /// Slot 1 of the order (StructMonster::onDead, the second contributing group) is written on the wire and takes once
+    /// slot 0's deadline has passed, ten seconds before anybody else (3000 then 4000 ticks).
+    /// </summary>
+    [Test]
+    public async Task Take_TheSecondContributingGroupTakesBetweenThirtyAndFortySeconds()
+    {
+        var third = NewPlayer("third", 3000, 1100);
+        _ground.DropGoldForMonster(_owner, 100, 1100, 1000, 0, 0, new[] { _stranger }, false);
+        var enter = Enter(_owner);
+        var handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8, 4));
+        BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(46, 4)).Should().Be(OwnerHandle, "hPlayer[0]");
+        BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(50, 4)).Should().Be(StrangerHandle, "hPlayer[1]");
+        StorageTestHarness.StandOn(_stranger, enter);
+        StorageTestHarness.StandOn(third, enter);
+
+        _now += GroundItemPickupRules.FirstDeadlineTicks - 1;
+        await _ground.TakeAsync(_stranger, handle);
+        Result(_stranger).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.AccessDenied));
+
+        _now += 1;
+        await _ground.TakeAsync(third, handle);
+        Result(third).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.AccessDenied),
+            "a group the order does not name waits for slot 1's deadline too");
+        await _ground.TakeAsync(_stranger, handle);
+        Result(_stranger).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.Success));
+    }
+
+    /// <summary>A raid boss's loot carries no order (StructMonster.cpp:2064-2068): anybody takes it at once.</summary>
+    [Test]
+    public async Task Take_ARaidBossLootIsOpenToEverybodyAtOnce()
+    {
+        _ground.DropGoldForMonster(_owner, 100, 1100, 1000, 0, 0, new[] { _stranger }, true);
+        var enter = Enter(_owner);
+        BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(46, 4)).Should().Be(0u);
+        BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(50, 4)).Should().Be(0u);
+        var third = NewPlayer("third", 3000, 1100);
+        StorageTestHarness.StandOn(third, enter);
+
+        await _ground.TakeAsync(third, BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8, 4)));
+
+        Result(third).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.Success));
+    }
+
+    /// <summary>The reach is the official 20 + half the taker's size: 26 units for a player.</summary>
+    [Test]
+    public async Task Take_RefusesTooFarBeyondTwentySixUnits()
+    {
+        var enter = Enter(_owner);
+        var x = BinaryPrimitives.ReadSingleLittleEndian(enter.AsSpan(12, 4));
+        var y = BinaryPrimitives.ReadSingleLittleEndian(enter.AsSpan(16, 4));
+        StorageTestHarness.StandAt(_owner, x + 27, y);
+        await _ground.TakeAsync(_owner, _handle);
+        Result(_owner).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.TooFar));
+
+        StorageTestHarness.StandAt(_owner, x + 25, y);
+        await _ground.TakeAsync(_owner, _handle);
+        Result(_owner).Should().Be(((ushort)GamePackets.TM_CS_TAKE_ITEM, (ushort)ResultCode.Success));
     }
 
     /// <summary>The pet path shares the window: nothing to go for before the deadline, the object after it.</summary>

@@ -60,6 +60,44 @@ public static class GroundItemPickupRules
     /// the slot that may name the asker is the first filled one, every further filled slot naming somebody
     /// else. A card that fills slots 1 and 2 asks per slot and generalises this loop.
     /// </remarks>
+    /// <summary>
+    /// The full loop of <c>onTakeItem</c> over the filled slots, in order: <paramref name="slotNamesMe"/>[i] tells
+    /// whether filled slot <c>i</c> designates the asker. The first slot that does accepts at once; a slot that names
+    /// somebody else refuses until its deadline (3000 ticks, +1000 per slot already skipped); past the last filled
+    /// slot, everybody is accepted.
+    /// </summary>
+    public static bool CanPickUp(uint elapsedTicks, System.ReadOnlySpan<bool> slotNamesMe)
+    {
+        var deadline = FirstDeadlineTicks;
+        foreach (var namesMe in slotNamesMe)
+        {
+            if (namesMe) return true;
+            if (elapsedTicks < deadline) return false;
+            deadline += SlotStepTicks;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// <c>SGameItem::IsPickable</c> over the filled slots: the client's state (1 past 3000 ticks, 2 past 4000, 3 past
+    /// 5000) honours slot <c>i</c> when <c>i &lt; state</c>, and state 3 is everybody; an empty order is state 3.
+    /// </summary>
+    public static bool PetMayCollect(uint elapsedTicks, System.ReadOnlySpan<bool> slotNamesMe)
+    {
+        if (slotNamesMe.IsEmpty) return true;
+        var state = elapsedTicks > FirstDeadlineTicks + 2 * SlotStepTicks ? 3
+            : elapsedTicks > FirstDeadlineTicks + SlotStepTicks ? 2
+            : elapsedTicks > FirstDeadlineTicks ? 1 : 0;
+        if (state == 3) return true;
+        for (var i = 0; i < state && i < slotNamesMe.Length; i++)
+        {
+            if (slotNamesMe[i]) return true;
+        }
+
+        return false;
+    }
+
     public static bool CanPickUp(uint elapsedTicks, int occupiedSlots, bool firstSlotNamesMe)
     {
         if (occupiedSlots <= 0 || firstSlotNamesMe) return true;

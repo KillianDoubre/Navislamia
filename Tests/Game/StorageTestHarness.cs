@@ -114,6 +114,19 @@ internal static class StorageTestHarness
     /// <c>Client.ConnectionInfo</c> is internal, so the test assembly reads the session it was given
     /// through reflection instead of widening the production surface for the tests' sake.
     /// </summary>
+    /// <summary>Stands the character still at (<paramref name="x"/>, <paramref name="y"/>): position and destination alike.</summary>
+    public static void StandAt(GameClient client, float x, float y)
+    {
+        var info = Session(client);
+        info.X = info.DestinationX = x;
+        info.Y = info.DestinationY = y;
+    }
+
+    /// <summary>Stands the character on the object a <c>TM_SC_ENTER</c> announced (x @12, y @16).</summary>
+    public static void StandOn(GameClient client, byte[] enterFrame) => StandAt(client,
+        System.Buffers.Binary.BinaryPrimitives.ReadSingleLittleEndian(enterFrame.AsSpan(12, 4)),
+        System.Buffers.Binary.BinaryPrimitives.ReadSingleLittleEndian(enterFrame.AsSpan(16, 4)));
+
     public static ConnectionInfo Session(GameClient client)
     {
         var property = typeof(Client).GetProperty("ConnectionInfo",

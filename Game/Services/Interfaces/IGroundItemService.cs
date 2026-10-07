@@ -18,6 +18,20 @@ public interface IGroundItemService
     void DropForMonster(GameClient killer, int monsterId, float x, float y, float z,
         long monsterInstanceId = 0, double lootFactor = 1);
     void DropGoldForMonster(GameClient killer, long amount, float x, float y, float z, long monsterInstanceId = 0);
+
+    /// <summary>
+    /// The loot of a kill with its whole <c>pick_up_order</c> (<c>StructMonster::onDead</c>): <paramref name="killer"/>
+    /// is the first contributing group's representative, <paramref name="following"/> the next two, and
+    /// <paramref name="unclaimed"/> a raid boss's loot, whose order the official leaves empty.
+    /// </summary>
+    void DropForMonster(GameClient killer, int monsterId, float x, float y, float z, long monsterInstanceId,
+        double lootFactor, System.Collections.Generic.IReadOnlyList<GameClient> following, bool unclaimed) =>
+        DropForMonster(killer, monsterId, x, y, z, monsterInstanceId, lootFactor);
+
+    /// <summary>The gold pile of a kill, with the same order as its loot.</summary>
+    void DropGoldForMonster(GameClient killer, long amount, float x, float y, float z, long monsterInstanceId,
+        System.Collections.Generic.IReadOnlyList<GameClient> following, bool unclaimed) =>
+        DropGoldForMonster(killer, amount, x, y, z, monsterInstanceId);
     void DropQuestItem(GameClient owner, int itemId, float x, float y, float z);
 
     /// <summary>

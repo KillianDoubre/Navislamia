@@ -49,8 +49,7 @@ public class PetPickupTests
         var info = StorageTestHarness.Session(client);
         info.CharacterHandle = handle;
         info.CharacterName = name;
-        info.X = 1000;
-        info.Y = 1000;
+        StorageTestHarness.StandAt(client, 1000, 1000);
         return (client, connection);
     }
 
@@ -154,7 +153,7 @@ public class PetPickupTests
         var (master, connection) = NewMaster("Master");
         var handle = await DropOne(master, connection);
         var info = StorageTestHarness.Session(master);
-        info.X = 1500;
+        StorageTestHarness.StandAt(master, 1500, 1000);
         A.CallTo(() => _characters.AddItemAsync("Master", 603002, 1))
             .Returns(new ItemEntity { Id = 8, ItemResourceId = 603002, Amount = 1 });
 
@@ -176,7 +175,7 @@ public class PetPickupTests
         var (master, connection) = NewMaster("Master");
         var handle = await DropOne(master, connection);
         var info = StorageTestHarness.Session(master);
-        info.X = 1500;
+        StorageTestHarness.StandAt(master, 1500, 1000);
         info.ActivePet = new ActivePet(PetHandle, 1, new PetWorldEntry { X = 1010, Y = 1000 });
 
         await _service.TakeAsync(master, PetHandle, handle);
@@ -193,6 +192,9 @@ public class PetPickupTests
         var handle = await DropOne(master, connection);
         A.CallTo(() => _characters.AddItemAsync("Master", 603002, 1))
             .Returns(new ItemEntity { Id = 8, ItemResourceId = 603002, Amount = 1 });
+        // The pet walked to the object: the range is judged from it.
+        StorageTestHarness.Session(master).ActivePet =
+            new ActivePet(PetHandle, 1, new PetWorldEntry { X = 1000, Y = 1000 }, collectRange: 60);
 
         (await _service.TakeForPetAsync(master, handle, PetHandle)).Should().BeTrue();
 
@@ -208,5 +210,17 @@ public class PetPickupTests
             "item_taker tells the client which actor plays the pick-up animation");
 
         (await _service.TakeForPetAsync(master, handle, PetHandle)).Should().BeFalse("the item is gone");
+    }
+
+    [Test]
+    public async Task TakeForPet_IsJudgedFromThePetNotFromItsMaster()
+    {
+        // onTakeItem with the pet as pTaker: a pet still 100 units from the object does not take it, wherever its master.
+        var (master, connection) = NewMaster("Master");
+        var handle = await DropOne(master, connection);
+        StorageTestHarness.Session(master).ActivePet =
+            new ActivePet(PetHandle, 1, new PetWorldEntry { X = 1100, Y = 1000 }, collectRange: 60);
+
+        (await _service.TakeForPetAsync(master, handle, PetHandle)).Should().BeFalse();
     }
 }

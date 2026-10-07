@@ -526,10 +526,12 @@ authentic rate**; the `CreatureCardDrop` rate adds a factor to a slot whose dire
 A ground item is `TS_SC_ENTER` with `type = ET_StaticObject (2)` and `objType = EOT_Item (2)`, 70 bytes:
 the shared header through `objType`, then `code` as the 8-byte randomized `EncodedInt` (the `npc_id`
 encoding), `count` as uint64, and a `pick_up_order` block of `drop_time` plus three player handles and
-three party ids. Only `drop_time` and the first handle are filled; parties do not exist yet.
+three party ids. The three slots are the three best contributing groups of the kill (a player alone by handle, a party by id), empty
+for a raid boss's loot (`StructMonster::onDead`).
 
 `TS_CS_TAKE_ITEM` (`204`, Epic < 9.6.3) is `taker_handle` @7 + `item_handle` @11, 15 bytes. Pickup checks
-range (300 units), claims the item with an `Interlocked` compare-exchange so a double request cannot
+the official range (`GetPickableRange` 20 + half the taker's size = 26 units, from the taker's current position, the pet's
+for a pet), claims the item with an `Interlocked` compare-exchange so a double request cannot
 duplicate it, then writes a new `ItemEntity` at `max(Idx) + 1`. The reply order is
 `TS_SC_TAKE_ITEM_RESULT` (`210`: `item_handle` + `item_taker`, 15 bytes), then `TS_SC_LEAVE`, a one-record
 `TS_SC_INVENTORY` and the result. **`210` is what plays the pick-up animation** — its `item_taker` tells
