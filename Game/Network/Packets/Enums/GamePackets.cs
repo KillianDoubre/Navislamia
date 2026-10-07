@@ -441,13 +441,21 @@ public enum GamePackets : ushort
 
     // TM_CS/SC_*FARM* / FOSTER / RETRIEVE / NURSE / 6000-6008 : the creature farm socle. All nine ids are
     // X(<id>, true) in rzu under a "// Since EPIC_7_3" marker, so 7.3 keeps the plain ids and no field of the
-    // family is version gated. Only the six ids the server reads or emits are declared; the three result frames
-    // 6003/6005/6007 stay undeclared until a lot emits them (their `result` values are not established).
+    // family is version gated. The ids the server reads or emits are declared: the five the client sends
+    // (6000, 6002, 6004, 6006, 6008) and two answers — 6001, the window's content, and 6005, whose `result`
+    // byte is established (1 = the card is regained, 0 = refused, docs/packet-specs/6004-retrieve-creature.md
+    // §5.3). 6003 and 6007, the two results no lot emits yet, stay undeclared until their own lot establishes
+    // their `result` values.
     // See docs/packet-specs/socle-ferme-creatures.md (the frames) and socle-ferme-creatures-officielle.md (the farm).
     TM_CS_REQUEST_FARM_INFO = 6000,
     TM_SC_FARM_INFO = 6001,
     TM_CS_FOSTER_CREATURE = 6002,
     TM_CS_RETRIEVE_CREATURE = 6004,
+    // TM_SC_RESULT_RETRIEVE (6005): the answer to a retrieval. Declared here, next to the request it answers,
+    // with its receive arm in the same commit — the farm family is grouped by id and no member of it is
+    // version gated. It is placed at the end of the block rather than right after 6004 so that the insertion
+    // point stays out of the line the sibling farm branches (6002, 6006) already claim.
+    TM_SC_RESULT_RETRIEVE = 6005,
     TM_CS_NURSE_CREATURE = 6006,
     TM_CS_REQUEST_FARM_MARKET = 6008,
     // TM_CS_HUNTAHOLIC_JOIN_INSTANCE : entering a HuntaHolic lobby room, X(4004, true) in rzu — a single

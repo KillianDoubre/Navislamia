@@ -14,9 +14,11 @@ namespace Navislamia.Game.Network.Packets.Game;
 /// "message non traité", which is an independent confirmation of the direction of each frame.
 ///
 /// Only the frames this lot needs are modelled. The server reads <c>6000</c>, <c>6002</c>, <c>6004</c>,
-/// <c>6006</c> and <c>6008</c> and emits one answer, <c>6001</c>; the three result frames
-/// <c>6003</c>/<c>6005</c>/<c>6007</c> carry a <c>result</c> byte whose values no reference establishes and
-/// are therefore neither declared nor emitted (see docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5).
+/// <c>6006</c> and <c>6008</c> and emits two answers: <c>6001</c>, the window's content, and <c>6005</c>,
+/// the answer to a retrieval, whose <c>result</c> byte is established — 1 the card is regained, 0 refused
+/// (docs/packet-specs/6004-retrieve-creature.md §5.3) — so that id is declared and emitted. <c>6003</c> and
+/// <c>6007</c>, the two results no lot emits yet, stay undeclared until their own lot establishes their
+/// <c>result</c> values (see docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5).
 ///
 /// Nothing here decides when a farm fills, what a ticket costs or how long a creature stays: the entries come from
 /// the farm's storage (<c>CreatureFarmService</c>, docs/packet-specs/socle-ferme-creatures-officielle.md §5.6), and
@@ -37,6 +39,33 @@ public static class GameFarmPackets
     /// plus the single <c>creature_card_handle</c> the client writes at offset 7.
     /// </summary>
     public const int CreatureCardHandleLength = HeaderSize + 4;
+
+    /// <summary>
+    /// Total size of <c>TM_SC_RESULT_RETRIEVE</c> (6005), the answer to a retrieval: the 7-byte header and the
+    /// single <c>result</c> byte. The 7.3 server builds exactly 8 bytes in <c>onRetrieveCreature</c>
+    /// (<c>movl $0x8,0x80(%rsp)</c> and <c>movw $0x1775,0x84(%rsp)</c>, 0x14011e7e1-0x14011e7eb) and the client
+    /// reads one byte at +7 and nothing else (<c>mov 0x7(%ecx),%dl</c>, 0x67231e).
+    /// See docs/packet-specs/6004-retrieve-creature.md §3.3.
+    /// </summary>
+    public const int ResultRetrieveLength = HeaderSize + 1;
+
+    /// <summary>Offset of <c>result</c> in <c>TM_SC_RESULT_RETRIEVE</c> (6005): the first byte after the header.</summary>
+    public const int ResultRetrieveOffset = HeaderSize;
+
+    /// <summary>
+    /// The retrieval is accepted: the card is rendered, the farmed experience granted and the farm row removed
+    /// (<c>GameMessage.cpp:11916</c>, and the 7.3 binary's <c>setne</c> at 0x14011e801-0x14011e803). The value
+    /// is 1 even when no experience is granted, because the cap of the summon's own curve was reached
+    /// (docs/packet-specs/6004-retrieve-creature.md §5.3, §5.5 point 7).
+    /// </summary>
+    public const byte RetrieveResultAccepted = 1;
+
+    /// <summary>
+    /// The retrieval is refused: any failed exit of <c>RegainSummon</c> — the card is not the character's, it
+    /// is not farmed, no farm row names it, it carries no summon, or its summon's form is neither the first
+    /// nor the second one (an evolved form is refused, §5.5 point 2).
+    /// </summary>
+    public const byte RetrieveResultRefused = 0;
 
     /// <summary>
     /// Offset of <c>summons</c> in <c>TM_SC_FARM_INFO</c> (6001) — the <c>int8</c> entry counter, and the
@@ -337,5 +366,28 @@ public static class GameFarmPackets
         }
 
         packet[6] = checksum;
+    }
+
+    /// <summary>
+    /// <c>TM_SC_RESULT_RETRIEVE</c> (6005): the 7-byte header and the <c>result</c> byte at +7, 8 bytes total. The
+    /// reference answers once the frame is well formed (docs/packet-specs/6004-retrieve-creature.md §5.2): the
+    /// value is passed verbatim — the client never tests it, it copies it into its own event object — and a
+    /// malformed request is not answered at all, so 0 always means a refusal of a well formed request.
+    /// <para>
+    /// The builder sits at the end of the class rather than next to <c>BuildFarmInfo</c> so that its insertion
+    /// point stays out of the zone the sibling farm branches already claim.
+    /// </para>
+    /// </summary>
+    public static byte[] BuildResultRetrieve(byte result)
+    {
+        var packet = new byte[ResultRetrieveLength];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2),
+            (ushort)GamePackets.TM_SC_RESULT_RETRIEVE);
+
+        packet[ResultRetrieveOffset] = result;
+
+        WriteChecksum(packet);
+        return packet;
     }
 }
