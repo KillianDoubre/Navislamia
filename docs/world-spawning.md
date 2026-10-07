@@ -82,8 +82,14 @@ of them, and the Epic 7 Lua mostly adds a monster or two to a group the 9.4 one 
 
 **Not modelled**: the official server only registers `raid_respawn` populations in `g_vRaidMonsterRespawnInfo`,
 which `GameContent::AddRespawnObjectToWorld` never reads; the importer still adds them to the open-world
-area like the field ones (unchanged by this fix). The rare-mob auto traps (`id % 100` in 41/43/44/46/49) are
-skipped by the Lua unless `game.use_auto_trap` is 1; the importer keeps them.
+area like the field ones (unchanged by this fix).
+
+**Auto Traps.** The rare monsters whose id is below 310000 and ends in 41, 43, 44, 46 or 49 (92 ids, only ever in
+`Raremob_ID`) are the anti-bot "Auto Traps": hitting one brings state 5997 for 24 h (defences, attack and speed cut)
+and `set_auto_user` (`ETC_run_monster_skill.lua`). The Lua respawns them only when `game.use_auto_trap` is 1, which
+the official `GameRule::bUseAutoTrap` defaults to. The importer keeps them (3 907 instances in 2 239 areas) and
+`MonsterSpawns:UseAutoTrap` (default true, the official value) decides at load (`MonsterInstanceFactory.IsAutoTrap`);
+`appsettings.Dev.json` turns it off.
 
 Regenerate it with:
 

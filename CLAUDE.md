@@ -349,6 +349,9 @@ The catalog is generated from the client's own NFS boxes and the Epic 7 `monster
 against IDs decoded from the Epic 7.3 client `db_monster.rdb`. **A box is `raw × 42 + map index × 16128`**
 (official `MapLoader::LoadRegionInfo`, `TILE_LENGTH`); the importer used `raw × 48`, which stretched every
 box by 8/7 and put monsters on the trainee island's start points (`docs/world-spawning.md`). Rendering and streaming have been validated in game.
+**The "Auto Trap" monsters are the official anti-bot traps** (rare ids below 310000 ending in 41/43/44/46/49, 3 907
+instances): hitting one brings state 5997 for 24 h and `set_auto_user`. `MonsterSpawns:UseAutoTrap` is the official
+`game.use_auto_trap` (default true, `appsettings.Dev.json` sets false), applied by `MonsterInstanceFactory.IsAutoTrap`.
 
 ## Targeting and action cancel
 

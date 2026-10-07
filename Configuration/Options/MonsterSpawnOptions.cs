@@ -6,6 +6,13 @@ public class MonsterSpawnOptions
 {
     /// <summary>Official game.change_monster_drop_set: select Exp2/Jp2 and the alternate money/chaos bounds.</summary>
     public bool UseSecondaryRewards { get; set; }
+
+    /// <summary>
+    /// Official <c>game.use_auto_trap</c> (<c>GameRule::bUseAutoTrap</c>, true by default): whether the anti-bot
+    /// "Auto Trap" rare monsters of <c>monster_respawn.lua</c> stand in the world. False leaves them out, as the Lua
+    /// does when the setting is not 1.
+    /// </summary>
+    public bool UseAutoTrap { get; set; } = true;
     public List<MonsterSpawnPoint> Spawns { get; set; } = new();
     public List<MonsterSpawnArea> Areas { get; set; } = new();
 }

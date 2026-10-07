@@ -28,6 +28,11 @@ public static class MonsterInstanceFactory
         {
             foreach (var population in area.Monsters)
             {
+                if (!Stands(options, population))
+                {
+                    continue;
+                }
+
                 AddInstances(instances, resourcesById, ref instanceId,
                     population.ResourceId, population.ResourceId, population.Count,
                     area.Left, area.Top, area.Right, area.Bottom, isBlocked, area.Layer, area.IsDungeonRaidMonster);
@@ -69,7 +74,10 @@ public static class MonsterInstanceFactory
         {
             foreach (var population in area.Monsters)
             {
-                ids.Add(population.ResourceId);
+                if (Stands(options, population))
+                {
+                    ids.Add(population.ResourceId);
+                }
             }
         }
 
@@ -150,6 +158,17 @@ public static class MonsterInstanceFactory
         return (x, y);
     }
 
+    /// <summary>
+    /// <c>monster_respawn.lua</c>: a rare monster below 310000 whose id ends in 41, 43, 44, 46 or 49 is an anti-bot
+    /// "Auto Trap" (attacking it brings the 5997 punishment and <c>set_auto_user</c>, <c>ETC_run_monster_skill.lua</c>),
+    /// respawned only when <c>game.use_auto_trap</c> is 1. These ids are only ever rare monsters in the Lua.
+    /// </summary>
+    public static bool IsAutoTrap(int monsterId) =>
+        monsterId is > 0 and < 310000 && (monsterId % 100) is 41 or 43 or 44 or 46 or 49;
+
+    private static bool Stands(MonsterSpawnOptions options, MonsterSpawnPopulation population) =>
+        options.UseAutoTrap || !IsAutoTrap(population.ResourceId);
+
     private static int GetInstanceCount(MonsterSpawnOptions options)
     {
         long count = 0;
@@ -163,7 +182,10 @@ public static class MonsterInstanceFactory
         {
             foreach (var population in area.Monsters)
             {
-                count += Math.Max(0, population.Count);
+                if (Stands(options, population))
+                {
+                    count += Math.Max(0, population.Count);
+                }
             }
         }
 

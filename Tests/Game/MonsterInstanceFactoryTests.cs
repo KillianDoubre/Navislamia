@@ -92,6 +92,47 @@ public class MonsterInstanceFactoryTests
             monster.Y >= 126096 && monster.Y <= 126960);
     }
 
+    [TestCase(true, 5)]
+    [TestCase(false, 3)]
+    public void Build_LeavesTheAutoTrapsOut_WhenGameUseAutoTrapIsOff(bool useAutoTrap, int expected)
+    {
+        // monster_respawn.lua: the rare 5049 (id % 100 = 49, below 310000) is an Auto Trap, respawned only when
+        // game.use_auto_trap is 1; 1003 is an ordinary monster of the same box.
+        var options = new MonsterSpawnOptions
+        {
+            UseAutoTrap = useAutoTrap,
+            Areas =
+            {
+                new MonsterSpawnArea
+                {
+                    Left = 18942, Top = 5040, Right = 19446, Bottom = 5292,
+                    Monsters =
+                    {
+                        new MonsterSpawnPopulation { ResourceId = 1003, Count = 3 },
+                        new MonsterSpawnPopulation { ResourceId = 5049, Count = 2 }
+                    }
+                }
+            }
+        };
+        var resources = new[]
+        {
+            new MonsterResourceEntity { Id = 1003, Level = 1, Hp = 50 },
+            new MonsterResourceEntity { Id = 5049, Level = 1, Hp = 50 }
+        };
+
+        MonsterInstanceFactory.Build(options, resources).Should().HaveCount(expected);
+        MonsterInstanceFactory.GetRequiredResourceIds(options).Contains(5049).Should().Be(useAutoTrap);
+    }
+
+    [TestCase(5041, true)]
+    [TestCase(10049, true)]
+    [TestCase(150044, true)]
+    [TestCase(5042, false)]
+    [TestCase(310041, false)]
+    [TestCase(1003, false)]
+    public void IsAutoTrap_FollowsTheLuaTagAndCeiling(int monsterId, bool trap) =>
+        MonsterInstanceFactory.IsAutoTrap(monsterId).Should().Be(trap);
+
     [Test]
     public void Build_GivesTheMonsterItsRealMaxHp_FromStatResourceLevelAndColumn()
     {
