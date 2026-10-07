@@ -205,13 +205,43 @@ public partial class GmCommandServiceTests
     }
 
     [Test]
-    public async Task Battle_DefaultsToOn()
+    public async Task Battle_AndNormal_OnTheCharactersHandle_AreWhatTheClientSendsWhenItDraws()
+    {
+        // SFrame.exe sends "/battle %u" and "/normal %u" itself (onBattleMode / onNormalMode): no chat answer.
+        var (client, connection) = NewClient(permission: 0);
+
+        await _service.HandleAsync(client, $"/battle {CharacterHandle}", Array.Empty<GameClient>());
+        await _service.HandleAsync(client, $"/normal {CharacterHandle}", Array.Empty<GameClient>());
+
+        StatusChanges(connection).Select(change => change.Status).Should().Equal(CreatureStatus.BattleMode, 0u);
+        Replies(connection).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Battle_OnASummonsHandle_SetsTheSummonsStance()
+    {
+        var (client, connection) = NewClient(permission: 0);
+        var info = StorageTestHarness.Session(client);
+        var summon = new SummonPresence(0x40000077, new SummonWorldEntry(), 0, 0, 0);
+        info.Summons = new[] { summon };
+
+        await _service.HandleAsync(client, "/battle 1073741943", Array.Empty<GameClient>());
+
+        summon.BattleMode.Should().BeTrue();
+        StatusChanges(connection).Single().Status.Should().Be(CreatureStatus.BattleMode);
+    }
+
+    [Test]
+    public async Task Battle_WithoutAHandleOrWithSomeoneElses_IsDroppedSilently()
     {
         var (client, connection) = NewClient(permission: 0);
 
         await _service.HandleAsync(client, "/battle", Array.Empty<GameClient>());
+        await _service.HandleAsync(client, "/battle 12345", Array.Empty<GameClient>());
+        await _service.HandleAsync(client, "/normal", Array.Empty<GameClient>());
 
-        StatusChanges(connection).Single().Status.Should().Be(CreatureStatus.BattleMode);
+        StatusChanges(connection).Should().BeEmpty();
+        Replies(connection).Should().BeEmpty();
     }
 
     [Test]

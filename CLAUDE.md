@@ -1669,7 +1669,9 @@ exact JP cost then calls `LevelingService.ApplyJobLevelUp` (JP balance unchanged
 sequence), `/learn` is `SaveLearnedSkillAsync` with the JP untouched and ignores the job restriction,
 `/buff` is `ISkillCastService.ApplyState` after an `IStateCatalog.Exists` check, and `/immortal` is a
 session flag `ICombatService.RollMonsterHit` turns into a zero-damage swing. A command
-therefore cannot produce a state the game itself cannot. `/sitdown`, `/battle` and `/walk` are session states carried by
+therefore cannot produce a state the game itself cannot. **The client sends `/battle %u` and `/normal %u` itself** (the
+character's or a summon's handle) when it draws and sheathes (official `onBattleMode`/`onNormalMode`): they set the stance
+and answer nothing. `/sitdown`, `/battle` and `/walk` are session states carried by
 `ActorStatus.ForPlayer`, which now composes PK, sitting, battle mode and walking — **every status send
 must pass all four**, the mask being a snapshot.
 

@@ -106,11 +106,11 @@ public static class GameSpawnPackets
     /// </param>
     public static byte[] BuildEnterSummon(uint handle, float x, float y, float z, byte layer,
         int hp, int maxHp, int mp, int maxMp, int level, float faceDir, bool isFirstEnter,
-        uint masterHandle, uint summonCode, string name, byte enhance)
+        uint masterHandle, uint summonCode, string name, byte enhance, bool battleMode = false)
     {
         const int length = HeaderSize + 1 + 4 + 12 + 1 + 1 + 38 + 4 + 8 + NameSize + 1;
         var packet = BuildEnterCreature(length, handle, x, y, z, layer, hp, level, 0, ObjectTypeSummon,
-            faceDir, ActorStatus.ForSummon(), maxHp: maxHp, mp: mp, maxMp: maxMp, isFirstEnter: isFirstEnter);
+            faceDir, ActorStatus.ForSummon(battleMode), maxHp: maxHp, mp: mp, maxMp: maxMp, isFirstEnter: isFirstEnter);
 
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(64, 4), masterHandle);
         WriteEncodedInt(packet.AsSpan(68, 8), summonCode);

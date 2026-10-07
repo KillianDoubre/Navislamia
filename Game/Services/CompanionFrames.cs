@@ -13,6 +13,9 @@ public sealed record SummonPresence(uint Handle, SummonWorldEntry Entry, float X
     public int Hp { get; set; } = Entry.Hp;
     public int Mp { get; set; } = Entry.Mp;
     public bool Held { get; set; }
+
+    /// <summary><c>StructSummon::m_bIsBattleMode</c>, set by <c>/battle</c> and <c>/normal</c>.</summary>
+    public bool BattleMode { get; set; }
     public Dictionary<int, int> ActiveAuras { get; } = new();
     public System.Func<uint, (float X, float Y)> PositionProvider { get; set; }
     public (float X, float Y) PositionAt(uint tick) => PositionProvider?.Invoke(tick) ?? (X, Y);
@@ -115,7 +118,7 @@ public static class CompanionFrames
         var position = summon.PositionAt(now ?? ServerClock.Now);
         return GameSpawnPackets.BuildEnterSummon(summon.Handle, position.X, position.Y, entry.Z, summon.Layer,
             summon.Hp, (int)summon.Stats.MaxHp, summon.Mp, (int)summon.Stats.MaxMp, entry.Level, entry.FaceDirection, isFirstEnter,
-            masterHandle, (uint)entry.Code, entry.Name, entry.Enhance);
+            masterHandle, (uint)entry.Code, entry.Name, entry.Enhance, summon.BattleMode);
     }
 
     public static List<byte[]> SummonStates(SummonPresence summon)

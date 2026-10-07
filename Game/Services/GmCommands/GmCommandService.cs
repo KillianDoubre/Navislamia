@@ -77,6 +77,37 @@ public partial class GmCommandService : IGmCommandService
         _stateCatalog = stateCatalog;
     }
 
+    /// <summary>
+    /// <c>onBattleMode</c> / <c>onNormalMode</c> (<c>GameMessage.cpp:1890-1960</c>): the client itself sends
+    /// <c>/battle %u</c> and <c>/normal %u</c> (<c>SFrame.exe</c>) with the handle of the character or of one of its
+    /// summons when it draws or sheathes. The stance of that creature changes and its status goes to whoever sees
+    /// it; anything else — no handle, someone else's — is dropped without a word, as the official does.
+    /// </summary>
+    private static void SetBattleMode(GameClient client, string[] args, bool on)
+    {
+        var info = client.ConnectionInfo;
+        if (args.Length < 1 || !uint.TryParse(args[0], out var handle) || handle == 0)
+        {
+            return;
+        }
+
+        if (handle == info.CharacterHandle)
+        {
+            info.IsBattleMode = on;
+            client.SendActorStatus();
+            return;
+        }
+
+        var summon = Array.Find(info.Summons, s => s.Handle == handle);
+        if (summon is null)
+        {
+            return;
+        }
+
+        summon.BattleMode = on;
+        client.SendToSelfAndObservers(GameCharacterPackets.BuildStatusChange(handle, ActorStatus.ForSummon(on)));
+    }
+
     public async Task HandleAsync(GameClient client, string message, IEnumerable<GameClient> everyone)
     {
         var info = client.ConnectionInfo;
@@ -226,14 +257,8 @@ public partial class GmCommandService : IGmCommandService
                 break;
 
             case GmCommand.Battle:
-                if (!GmCommandRules.TryParseSwitch(line.Args, true, out var battle))
-                {
-                    Usage(client, definition);
-                    break;
-                }
-
-                info.IsBattleMode = battle;
-                client.SendActorStatus();
+            case GmCommand.Normal:
+                SetBattleMode(client, line.Args, definition.Command == GmCommand.Battle);
                 break;
 
             case GmCommand.Walk:

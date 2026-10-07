@@ -114,7 +114,8 @@ These go through the same command handler but need no permission.
 | `/rates` | Shows the effective rates, read-only. |
 | `/sitdown` | Sits down (stops your attack). Refused while dead. |
 | `/standup` | Stands up. |
-| `/battle [on\|off]` | Battle stance; `on` by default. |
+| `/battle <handle>` | Battle stance on for the character or one of its summons (`onBattleMode`); the client sends it itself (`/battle %u`) when it draws. |
+| `/normal <handle>` | Battle stance off (`onNormalMode`); the client sends `/normal %u`. Both stay silent on a bad handle. |
 | `/walk [on\|off]` | Walks instead of running; without an argument, toggles. |
 | `/ride <summon handle>` | Mounts your summon (Creature Riding); if already mounted, dismounts. |
 | `/unride` | Dismounts. |

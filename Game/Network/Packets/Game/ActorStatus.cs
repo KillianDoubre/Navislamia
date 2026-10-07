@@ -79,11 +79,11 @@ public static class ActorStatus
     public static uint ForNpc(uint questMark = 0) => questMark;
 
     /// <summary>
-    /// A summon's mask: no summon flag is established for 7.3 — NGemity sends the value of
-    /// <c>UNIT_FIELD_STATUS</c> (<c>Unit.cpp:110</c>) which nothing ever sets for a summon — so it reads 0
-    /// like <see cref="ForNpc"/>. See <c>docs/packet-specs/socle-invocation-monde.md</c> §3.1, offset 26.
+    /// A summon's mask: the official <c>GetStatusCode</c> gives a summon the battle stance only
+    /// (<c>FLAG_BATTLE_MODE</c>, set by <c>/battle</c>); NGemity sends <c>UNIT_FIELD_STATUS</c>, which nothing sets.
+    /// See <c>docs/packet-specs/socle-invocation-monde.md</c> §3.1, offset 26.
     /// </summary>
-    public static uint ForSummon() => 0u;
+    public static uint ForSummon(bool battleMode = false) => battleMode ? CreatureStatus.BattleMode : 0u;
 
     /// <summary>
     /// A familier's (pet's) mask: like <see cref="ForSummon"/>, no pet flag is established for Epic 7.3 —
