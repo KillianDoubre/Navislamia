@@ -441,14 +441,18 @@ public enum GamePackets : ushort
 
     // TM_CS/SC_*FARM* / FOSTER / RETRIEVE / NURSE / 6000-6008 : the creature farm socle. All nine ids are
     // X(<id>, true) in rzu under a "// Since EPIC_7_3" marker, so 7.3 keeps the plain ids and no field of the
-    // family is version gated. Only the six ids the server reads or emits are declared; the three result frames
-    // 6003/6005/6007 stay undeclared until a lot emits them (their `result` values are not established).
+    // family is version gated. Only the ids the server reads or emits are declared; the two other result
+    // frames 6003/6005 stay undeclared until their own lots emit them (they belong to the deposit and the
+    // retrieval, branches hermes/packet-6002-foster-creature and hermes/packet-6004-retrieve-creature).
+    // 6007 IS declared, because the nursing lot emits it: its `result` is 0 FAILED / 1 NO_REWARD / 2
+    // REWARDED, established for 7.3 (docs/packet-specs/6006-nurse-creature.md §3.2-§3.3).
     // See docs/packet-specs/socle-ferme-creatures.md (the frames) and socle-ferme-creatures-officielle.md (the farm).
     TM_CS_REQUEST_FARM_INFO = 6000,
     TM_SC_FARM_INFO = 6001,
     TM_CS_FOSTER_CREATURE = 6002,
     TM_CS_RETRIEVE_CREATURE = 6004,
     TM_CS_NURSE_CREATURE = 6006,
+    TM_SC_RESULT_NURSE = 6007,
     TM_CS_REQUEST_FARM_MARKET = 6008,
     // TM_CS_HUNTAHOLIC_JOIN_INSTANCE : entering a HuntaHolic lobby room, X(4004, true) in rzu — a single
     // unconditional entry, so no version gating, no id variant and no gated payload field. Only this id of

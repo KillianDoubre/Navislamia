@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Navislamia.Game.DataAccess.Contexts;
+using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Network.Packets.Game;
 using Serilog;
@@ -27,6 +28,14 @@ public sealed record FarmedSummon(long Id, int Slot, long CardItemId, int MaxLev
 /// </summary>
 public sealed record FarmedSummonDeposit(string CharacterName, int Slot, long CardItemId, int MaxLevel,
     bool IsUsingCracker, bool IsCash, DateTime RegistrationTime, int Duration);
+
+/// <summary>
+/// A nursing request's target, as <c>NurseSummon</c> reads it (<c>StructPlayer.cpp:11423-11456</c>): the
+/// card's identifier — the UID the reference compares against the farm rows — its flag, whether the
+/// character owns a farm row naming it, and that row's nursing time. The store returns null instead when
+/// the handle resolves no card of the character at all, which is the reference's first refusal.
+/// </summary>
+public sealed record FarmNursingTarget(long CardItemId, ItemFlag Flag, bool IsInFarm, DateTime? NursingTime);
 
 /// <summary>
 /// The creature farm's storage (docs/packet-specs/socle-ferme-creatures-officielle.md §5.6 point 1): the
@@ -54,6 +63,14 @@ public interface ICreatureFarmStore
     /// poses no flag (<c>StructPlayer.cpp:11423-11467</c>). Returns false when the card is not farmed.
     /// </summary>
     Task<bool> SetNursingTimeAsync(string characterName, long cardItemId, DateTime nursingTime);
+
+    /// <summary>
+    /// Reads everything a nursing decides on, by the card's handle: the card the handle names and the farm
+    /// row that names it. The <c>creature_card_handle</c> of 6006 is the item's id, as every other handle of
+    /// the farm family (<c>ItemFixedInfo.FromItem</c>: <c>Handle = (uint)item.Id</c>). Null when the
+    /// character owns no such card — the reference's <c>FindItem</c> failure. Two reads, and no write.
+    /// </summary>
+    Task<FarmNursingTarget> LoadNursingTargetAsync(string characterName, long cardItemHandle);
 
     /// <summary>
     /// Removes a farm row and clears the card's <c>ITEM_FLAG_FARMED_SUMMON</c>. The retrieval's experience
@@ -166,6 +183,31 @@ public sealed class CreatureFarmStore : ICreatureFarmStore
         row.NursingTime = nursingTime;
         await db.SaveChangesAsync();
         return true;
+    }
+
+    public async Task<FarmNursingTarget> LoadNursingTargetAsync(string characterName, long cardItemHandle)
+    {
+        if (string.IsNullOrEmpty(characterName))
+        {
+            return null;
+        }
+
+        await using var db = new TelecasterContext(_options);
+        // The card must belong to the character: the reference resolves the handle inside the player's own
+        // inventory (FindItem, StructPlayer.cpp:11425-11426), never across characters.
+        var card = await db.Items.AsNoTracking()
+            .Where(i => i.Id == cardItemHandle && i.Character.CharacterName == characterName)
+            .Select(i => new { i.Id, i.Flag })
+            .FirstOrDefaultAsync();
+        if (card is null)
+        {
+            return null;
+        }
+
+        // The reference compares the card's UID against the farm rows (GetItemUID, :11432-11437); here the
+        // row's own CardItemId is that UID, so the match is the row's existence.
+        var row = await FarmRowAsync(db, characterName, card.Id);
+        return new FarmNursingTarget(card.Id, card.Flag, row is not null, row?.NursingTime);
     }
 
     public async Task<bool> RemoveAsync(string characterName, long cardItemId)

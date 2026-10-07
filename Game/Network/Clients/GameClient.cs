@@ -1150,11 +1150,15 @@ public class GameClient : Client
     }
 
     /// <summary>
-    /// TM_CS_NURSE_CREATURE (6006), the farm's "ministration" buttons (one per slot in the client): the same
-    /// 11-byte frame as 6004. Read and logged, never answered, for the same reasons as 6004.
-    /// See docs/packet-specs/socle-ferme-creatures.md §5.2, §5.3.
+    /// TM_CS_NURSE_CREATURE (6006), the farm's "ministration" buttons (one per farm slot in the client): the
+    /// same 11-byte frame as 6004, carrying the handle of the card being ministered. The answer the client
+    /// always waits for is the 8-byte TM_SC_RESULT_NURSE (6007) carrying 0 FAILED, 1 NO_REWARD or 2 REWARDED
+    /// (<see cref="Navislamia.Game.Services.Creatures.CreatureFarmService.NurseAsync"/>). A frame whose
+    /// length is not 11 is malformed, not a request: the client writes the length in hard, and no reference
+    /// establishes an answer to one, so it is only logged and never answered.
+    /// See docs/packet-specs/6006-nurse-creature.md §3.1-§3.3, §5.1 and §7.7 (the repository's silence policy).
     /// </summary>
-    private void HandleNurseCreature(byte[] buffer)
+    private async Task HandleNurseCreatureAsync(byte[] buffer)
     {
         if (!GameFarmPackets.TryReadNurseCreature(buffer, out var creatureCardHandle))
         {
@@ -1169,6 +1173,24 @@ public class GameClient : Client
             _logger.Debug(
                 "TM_CS_NURSE_CREATURE ({id}) Length: {length} received from {clientTag}: card_handle={cardHandle}",
                 (ushort)GamePackets.TM_CS_NURSE_CREATURE, buffer.Length, ClientTag, creatureCardHandle);
+        }
+
+        var farm = _networkService.CreatureFarmService;
+        if (farm is null)
+        {
+            // A harness without a farm owes the verdict all the same: FAILED leaves the client silent.
+            Connection.Send(GameFarmPackets.BuildResultNurse(NurseResult.Failed));
+            return;
+        }
+
+        // Started without being awaited by the receive loop: what it throws would go unobserved.
+        try
+        {
+            await farm.NurseAsync(this, creatureCardHandle);
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not answer the nursing request of {clientTag}", ClientTag);
         }
     }
 
@@ -3705,11 +3727,13 @@ public class GameClient : Client
 
             // The creature farm (ferme de créatures) socle: TM_CS_REQUEST_FARM_INFO (6000),
             // TM_CS_FOSTER_CREATURE (6002), TM_CS_RETRIEVE_CREATURE (6004), TM_CS_NURSE_CREATURE (6006) and
-            // TM_CS_REQUEST_FARM_MARKET (6008). The five frames are read and bounded and only 6000 is answered
-            // (with a TM_SC_FARM_INFO, 6001) filled from the farm's storage; the result frames 6003/6005/6007
-            // carry a `result` byte whose values no reference establishes and stay undeclared. The arms must
-            // stay before the throwing switch below — a member of GamePackets that reaches it breaks the
-            // receive loop. See docs/packet-specs/socle-ferme-creatures-officielle.md §5.6.
+            // TM_CS_REQUEST_FARM_MARKET (6008). The five frames are read and bounded; 6000 is answered with a
+            // TM_SC_FARM_INFO (6001) and 6006 with a TM_SC_RESULT_NURSE (6007), both filled from the farm's
+            // storage. The two other result frames 6003/6005 belong to the deposit and the retrieval (MR #84
+            // and #86) and stay undeclared here. The arms must stay before the throwing switch below — a
+            // member of GamePackets that reaches it breaks the
+            // receive loop. See docs/packet-specs/socle-ferme-creatures-officielle.md §5.6 and
+            // docs/packet-specs/6006-nurse-creature.md §5.1.
             if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO)
             {
                 _ = HandleRequestFarmInfoAsync(msgBuffer);
@@ -3730,7 +3754,7 @@ public class GameClient : Client
 
             if (header.ID == (ushort)GamePackets.TM_CS_NURSE_CREATURE)
             {
-                HandleNurseCreature(msgBuffer);
+                _ = HandleNurseCreatureAsync(msgBuffer);
                 continue;
             }
 
@@ -3747,6 +3771,16 @@ public class GameClient : Client
             if (header.ID == (ushort)GamePackets.TM_SC_FARM_INFO)
             {
                 _logger.Warning("Server to client packet TM_SC_FARM_INFO ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
+            // TM_SC_RESULT_NURSE (6007) is a server to client packet of the same family: the 7.3 client routes
+            // it (0x672280) and builds none. Same treatment, same reason.
+            // See docs/packet-specs/6006-nurse-creature.md §3.3.
+            if (header.ID == (ushort)GamePackets.TM_SC_RESULT_NURSE)
+            {
+                _logger.Warning("Server to client packet TM_SC_RESULT_NURSE ({id}) received from {clientTag}",
                     header.ID, ClientTag);
                 continue;
             }

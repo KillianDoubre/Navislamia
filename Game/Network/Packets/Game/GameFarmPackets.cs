@@ -7,6 +7,27 @@ using Navislamia.Game.Network.Packets.Enums;
 namespace Navislamia.Game.Network.Packets.Game;
 
 /// <summary>
+/// The <c>result</c> byte of <c>TM_SC_RESULT_NURSE</c> (6007) — the nursing's verdict, established for 7.3
+/// by two concordant sources (official <c>GameMessage.h:3954-3959</c> and the client's own branch
+/// <c>0x613c94-0x613d24</c>). <c>0</c> leaves the client silent, <c>1</c> and <c>2</c> show two distinct
+/// message boxes and mark the slot as nursed. See docs/packet-specs/6006-nurse-creature.md §3.2-§3.3.
+/// </summary>
+public enum NurseResult : byte
+{
+    /// <summary>
+    /// <c>0</c>: <c>NurseSummon</c> refused — the handle resolves no card, the card is not deposited, or the
+    /// entry was already nursed since the last 06:00. The client answers with total silence.
+    /// </summary>
+    Failed = 0,
+
+    /// <summary><c>1</c>: the nursing went through and the farm's script granted nothing.</summary>
+    NoReward = 1,
+
+    /// <summary><c>2</c>: the nursing went through and the farm's script granted the gift.</summary>
+    Rewarded = 2,
+}
+
+/// <summary>
 /// The creature farm (ferme de créatures) socle, <c>6000</c>-<c>6008</c>. All nine ids are
 /// <c>X(&lt;id&gt;, true)</c> in rzu under a <c>// Since EPIC_7_3</c> marker, so 7.3 keeps the plain ids and no
 /// field of the family is version gated. The 7.3 client routes exactly the four server to client ids
@@ -14,9 +35,11 @@ namespace Navislamia.Game.Network.Packets.Game;
 /// "message non traité", which is an independent confirmation of the direction of each frame.
 ///
 /// Only the frames this lot needs are modelled. The server reads <c>6000</c>, <c>6002</c>, <c>6004</c>,
-/// <c>6006</c> and <c>6008</c> and emits one answer, <c>6001</c>; the three result frames
-/// <c>6003</c>/<c>6005</c>/<c>6007</c> carry a <c>result</c> byte whose values no reference establishes and
-/// are therefore neither declared nor emitted (see docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5).
+/// <c>6006</c> and <c>6008</c> and emits <c>6001</c> and, since the nursing lot, <c>6007</c>; the two other
+/// result frames <c>6003</c>/<c>6005</c> belong to the deposit and the retrieval and are neither declared
+/// nor emitted here (see docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5 and
+/// docs/packet-specs/6006-nurse-creature.md §3.2-§3.3 for the established values of <c>6007</c>'s
+/// <c>result</c>).
 ///
 /// Nothing here decides when a farm fills, what a ticket costs or how long a creature stays: the entries come from
 /// the farm's storage (<c>CreatureFarmService</c>, docs/packet-specs/socle-ferme-creatures-officielle.md §5.6), and
@@ -37,6 +60,20 @@ public static class GameFarmPackets
     /// plus the single <c>creature_card_handle</c> the client writes at offset 7.
     /// </summary>
     public const int CreatureCardHandleLength = HeaderSize + 4;
+
+    /// <summary>
+    /// Total size of <c>TM_SC_RESULT_NURSE</c> (6007): the header plus the single <c>result</c> byte. The 7.3
+    /// server writes the length 8 in hard (<c>movl $0x8</c> at <c>0x140126cd9</c>) and the client reads no
+    /// more than <c>+7</c> (<c>mov 0x7(%ecx),%dl</c> at <c>0x6722be</c>).
+    /// </summary>
+    public const int ResultNurseLength = HeaderSize + 1;
+
+    /// <summary>
+    /// Offset of <c>result</c> in <c>TM_SC_RESULT_NURSE</c> (6007): the first byte after the header, and the
+    /// only field of the frame — <c>i8</c> per rzu <c>TS_SC_RESULT_NURSE.h</c> and the official
+    /// <c>GameMessage.h:3954-3959</c>.
+    /// </summary>
+    public const int ResultNurseResultOffset = HeaderSize;
 
     /// <summary>
     /// Offset of <c>summons</c> in <c>TM_SC_FARM_INFO</c> (6001) — the <c>int8</c> entry counter, and the
@@ -286,6 +323,26 @@ public static class GameFarmPackets
         {
             WriteSummonEntry(packet.AsSpan(GetSummonEntryOffset(i), SummonEntrySize), summons![i]);
         }
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>
+    /// <c>TM_SC_RESULT_NURSE</c> (6007), the answer to <c>TM_CS_NURSE_CREATURE</c> (6006): <c>result</c>
+    /// (<c>i8</c>) at offset 7, 8 bytes in all. The frame the client routes at <c>0x672280</c>; a
+    /// <c>Failed</c> leaves it silent, the two other values make it show its message box and mark the slot
+    /// as nursed. The gift itself is never in this frame — the farm's script inserts it (see
+    /// docs/packet-specs/6006-nurse-creature.md §3.3, §5.3).
+    /// </summary>
+    public static byte[] BuildResultNurse(NurseResult result)
+    {
+        var packet = new byte[ResultNurseLength];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2),
+            (ushort)GamePackets.TM_SC_RESULT_NURSE);
+
+        packet[ResultNurseResultOffset] = (byte)result;
 
         WriteChecksum(packet);
         return packet;
