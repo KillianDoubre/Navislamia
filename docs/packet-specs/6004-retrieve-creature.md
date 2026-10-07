@@ -552,3 +552,52 @@ protégé) :
   dette nommée par `CreatureFarmService.cs:32-37` (le socle la laisse au dépôt et à la reprise).
 - Savoir complet et questions ouvertes : `docs/packet-specs/6004-retrieve-creature.md`.
 ```
+
+---
+
+## 11. Ce que le lot d'implémentation a écrit
+
+Branche `hermes/packet-6004-retrieve-creature`, commits `0b68e53` (code) et `8f2af44` (tests).
+
+| geste | fichier / point d'accroche |
+|---|---|
+| `TM_SC_RESULT_RETRIEVE = 6005` déclaré, commentaire de famille mis à jour | `Game/Network/Packets/Enums/GamePackets.cs` |
+| `ResultRetrieveLength`, `ResultRetrieveOffset`, `RetrieveResultAccepted/Refused`, `BuildResultRetrieve` | `Game/Network/Packets/Game/GameFarmPackets.cs` |
+| `HandleRetrieveCreatureAsync` (lecture bornée à 11, réponse **toujours** envoyée, refus sur exception), bras de dispatch `6004`, bras log-and-drop de `6005` | `Game/Network/Clients/GameClient.cs` |
+| `ICreatureFarmService.RetrieveCreatureAsync` + `RegainAsync` partagé + retour automatique des entrées échues dans `SendFarmInfoAsync` (jeton `@1158` sur `CHAT_NOTICE`) | `Game/Services/Creatures/CreatureFarmService.cs` |
+| `ICreatureService.GainExperience` exposé à la couture (`force: true`) | `Game/Services/Creatures/CreatureService.cs` |
+| paramètre `creatureFarmService` du harnais | `Tests/Game/StorageTestHarness.cs` |
+| 16 tests : offsets de la trame 6005, bras de réception, `RegainSummon`, entrée échue | `Tests/Game/CreatureFarmRetrieveTests.cs` |
+| `TheThreeResultIds_AreNotDeclared` → `TheResultIdsNoLotEmits_AreNotDeclared`, cas 6004 retiré du test paramétré | `Tests/Game/FarmPacketsTests.cs` |
+
+Aucun champ `NON ÉTABLI` n'a été deviné. Deux décisions d'implémentation à connaître :
+
+1. **Le formulaire refusé est « tout autre entier ».** `RegainAsync` accepte `resource.Form == 1` ou `2` et
+   refuse le reste, y compris `0` — valeur qu'un `SummonResource` sans formulaire porterait (le dépôt s'en
+   garde ailleurs par `Math.Max(1, resource.Form)`, `CreatureService.FormOf`). Aucune donnée du dépôt ne
+   porte `Form = 0` (les configurations de tests posent 1/2/3) et la fiche ne tranche que « 1 ou 2 » : c'est
+   la lecture littérale retenue.
+2. **Le handler vérifie la session après l'`await`** (patron de `SendDonationRankingAsync`) : `CharacterHandle`
+   et `CharacterName` sont capturés avant l'écriture de la ferme et la réponse ne part que vers la même
+   session. Une reconnexion pendant le geste ne reçoit donc pas un `6005` qu'elle n'a pas demandé.
+
+### 11.1 Mesure de collision avec `hermes/packet-6002-foster-creature`
+
+Le lot `6002` (dépôt, réponse `6003`) n'est pas encore sur `master` : les deux branches écrivent dans les
+mêmes fichiers. Mesuré avec `git merge-tree --write-tree --name-only hermes/packet-6002-foster-creature 8f2af44` :
+
+```
+Game/Network/Clients/GameClient.cs
+Game/Network/Packets/Enums/GamePackets.cs
+Game/Network/Packets/Game/GameFarmPackets.cs
+Tests/Game/FarmPacketsTests.cs
+Tests/Game/StorageTestHarness.cs
+```
+
+Cinq conflits, tous dans des **commentaires, des listes de paramètres ou des cas de test**, jamais dans la
+logique. La résolution est une union, dans les deux sens : `6003` **et** `6005` déclarés, les deux bras de
+dispatch (chacun à côté d'une ancre distincte : `6002` dans le bloc de famille, `6005` à côté de
+`TM_SC_REGION_ACK`), les deux paramètres du harnais, les deux jeux de cas de test. Un essai de fusion local a
+compilé sans aucune erreur C# — l'échec de fin de build était un `MSB3021` « No space left on device » du
+tmpfs `/tmp` (512 Mo) du conteneur, pas une erreur de code ; le conteneur ne permet donc pas de conclure
+l'exécution des tests sur l'arbre fusionné. La fusion elle-même revient à Killian.
