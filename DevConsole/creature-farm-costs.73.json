@@ -1,0 +1,438 @@
+{
+  "CreatureFarmTicketCosts": {
+    "Rows": [
+      {
+        "Rate": 0,
+        "Form": 1,
+        "EnhanceLevel": 0,
+        "TicketCount": 1
+      },
+      {
+        "Rate": 0,
+        "Form": 1,
+        "EnhanceLevel": 1,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 0,
+        "Form": 1,
+        "EnhanceLevel": 2,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 0,
+        "Form": 1,
+        "EnhanceLevel": 3,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 0,
+        "Form": 1,
+        "EnhanceLevel": 4,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 0,
+        "Form": 1,
+        "EnhanceLevel": 5,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 0,
+        "Form": 2,
+        "EnhanceLevel": 0,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 0,
+        "Form": 2,
+        "EnhanceLevel": 1,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 0,
+        "Form": 2,
+        "EnhanceLevel": 2,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 0,
+        "Form": 2,
+        "EnhanceLevel": 3,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 0,
+        "Form": 2,
+        "EnhanceLevel": 4,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 0,
+        "Form": 2,
+        "EnhanceLevel": 5,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 1,
+        "Form": 1,
+        "EnhanceLevel": 0,
+        "TicketCount": 1
+      },
+      {
+        "Rate": 1,
+        "Form": 1,
+        "EnhanceLevel": 1,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 1,
+        "Form": 1,
+        "EnhanceLevel": 2,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 1,
+        "Form": 1,
+        "EnhanceLevel": 3,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 1,
+        "Form": 1,
+        "EnhanceLevel": 4,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 1,
+        "Form": 1,
+        "EnhanceLevel": 5,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 1,
+        "Form": 2,
+        "EnhanceLevel": 0,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 1,
+        "Form": 2,
+        "EnhanceLevel": 1,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 1,
+        "Form": 2,
+        "EnhanceLevel": 2,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 1,
+        "Form": 2,
+        "EnhanceLevel": 3,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 1,
+        "Form": 2,
+        "EnhanceLevel": 4,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 1,
+        "Form": 2,
+        "EnhanceLevel": 5,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 2,
+        "Form": 1,
+        "EnhanceLevel": 0,
+        "TicketCount": 1
+      },
+      {
+        "Rate": 2,
+        "Form": 1,
+        "EnhanceLevel": 1,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 2,
+        "Form": 1,
+        "EnhanceLevel": 2,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 2,
+        "Form": 1,
+        "EnhanceLevel": 3,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 2,
+        "Form": 1,
+        "EnhanceLevel": 4,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 2,
+        "Form": 1,
+        "EnhanceLevel": 5,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 2,
+        "Form": 2,
+        "EnhanceLevel": 0,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 2,
+        "Form": 2,
+        "EnhanceLevel": 1,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 2,
+        "Form": 2,
+        "EnhanceLevel": 2,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 2,
+        "Form": 2,
+        "EnhanceLevel": 3,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 2,
+        "Form": 2,
+        "EnhanceLevel": 4,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 2,
+        "Form": 2,
+        "EnhanceLevel": 5,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 3,
+        "Form": 1,
+        "EnhanceLevel": 0,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 3,
+        "Form": 1,
+        "EnhanceLevel": 1,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 3,
+        "Form": 1,
+        "EnhanceLevel": 2,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 3,
+        "Form": 1,
+        "EnhanceLevel": 3,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 3,
+        "Form": 1,
+        "EnhanceLevel": 4,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 3,
+        "Form": 1,
+        "EnhanceLevel": 5,
+        "TicketCount": 5
+      },
+      {
+        "Rate": 3,
+        "Form": 2,
+        "EnhanceLevel": 0,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 3,
+        "Form": 2,
+        "EnhanceLevel": 1,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 3,
+        "Form": 2,
+        "EnhanceLevel": 2,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 3,
+        "Form": 2,
+        "EnhanceLevel": 3,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 3,
+        "Form": 2,
+        "EnhanceLevel": 4,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 3,
+        "Form": 2,
+        "EnhanceLevel": 5,
+        "TicketCount": 15
+      },
+      {
+        "Rate": 4,
+        "Form": 1,
+        "EnhanceLevel": 0,
+        "TicketCount": 2
+      },
+      {
+        "Rate": 4,
+        "Form": 1,
+        "EnhanceLevel": 1,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 4,
+        "Form": 1,
+        "EnhanceLevel": 2,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 4,
+        "Form": 1,
+        "EnhanceLevel": 3,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 4,
+        "Form": 1,
+        "EnhanceLevel": 4,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 4,
+        "Form": 1,
+        "EnhanceLevel": 5,
+        "TicketCount": 5
+      },
+      {
+        "Rate": 4,
+        "Form": 2,
+        "EnhanceLevel": 0,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 4,
+        "Form": 2,
+        "EnhanceLevel": 1,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 4,
+        "Form": 2,
+        "EnhanceLevel": 2,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 4,
+        "Form": 2,
+        "EnhanceLevel": 3,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 4,
+        "Form": 2,
+        "EnhanceLevel": 4,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 4,
+        "Form": 2,
+        "EnhanceLevel": 5,
+        "TicketCount": 15
+      },
+      {
+        "Rate": 5,
+        "Form": 1,
+        "EnhanceLevel": 0,
+        "TicketCount": 3
+      },
+      {
+        "Rate": 5,
+        "Form": 1,
+        "EnhanceLevel": 1,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 5,
+        "Form": 1,
+        "EnhanceLevel": 2,
+        "TicketCount": 4
+      },
+      {
+        "Rate": 5,
+        "Form": 1,
+        "EnhanceLevel": 3,
+        "TicketCount": 5
+      },
+      {
+        "Rate": 5,
+        "Form": 1,
+        "EnhanceLevel": 4,
+        "TicketCount": 5
+      },
+      {
+        "Rate": 5,
+        "Form": 1,
+        "EnhanceLevel": 5,
+        "TicketCount": 6
+      },
+      {
+        "Rate": 5,
+        "Form": 2,
+        "EnhanceLevel": 0,
+        "TicketCount": 9
+      },
+      {
+        "Rate": 5,
+        "Form": 2,
+        "EnhanceLevel": 1,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 5,
+        "Form": 2,
+        "EnhanceLevel": 2,
+        "TicketCount": 12
+      },
+      {
+        "Rate": 5,
+        "Form": 2,
+        "EnhanceLevel": 3,
+        "TicketCount": 15
+      },
+      {
+        "Rate": 5,
+        "Form": 2,
+        "EnhanceLevel": 4,
+        "TicketCount": 15
+      },
+      {
+        "Rate": 5,
+        "Form": 2,
+        "EnhanceLevel": 5,
+        "TicketCount": 18
+      }
+    ]
+  }
+}

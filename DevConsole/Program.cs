@@ -123,6 +123,7 @@ public class Program
         ConfigureFieldProps(services, context);
         ConfigureMarketCatalog(services, context);
         ConfigurePetCatalog(services, context);
+        ConfigureCreatureFarmTicketCosts(services, context);
         ConfigureJobLevelCosts(services, context);
         ConfigureCreatureCatalog(services, context);
         ConfigureHuntaholicCatalog(services, context);
@@ -244,6 +245,30 @@ public class Program
             .Deserialize<PetCatalogOptions>() ?? new PetCatalogOptions();
 
         services.Configure<PetCatalogOptions>(options => options.Pets = catalog.Pets);
+    }
+
+    /// <summary>
+    /// The creature-farm ticket-cost table (<c>creature-farm-costs.73.json</c>,
+    /// <c>tools/export_creature_farm_costs.py</c>): the line <c>(rate, form, enhance_level)</c> of a deposited
+    /// card, which no frame carries. Without it every key answers 0 — the answer the official
+    /// <c>GameContent::GetCreatureFarmTicketCount</c> gives for a key it does not carry — so every deposition is
+    /// refused, never accepted unpriced.
+    /// </summary>
+    private static void ConfigureCreatureFarmTicketCosts(IServiceCollection services, HostBuilderContext context)
+    {
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "creature-farm-costs.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            services.Configure<CreatureFarmTicketCostOptions>(_ => { });
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("CreatureFarmTicketCosts")
+            .Deserialize<CreatureFarmTicketCostOptions>() ?? new CreatureFarmTicketCostOptions();
+
+        services.Configure<CreatureFarmTicketCostOptions>(options => options.Rows = catalog.Rows);
     }
 
     /// <summary>
