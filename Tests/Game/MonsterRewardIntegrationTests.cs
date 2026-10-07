@@ -141,6 +141,7 @@ public class MonsterRewardIntegrationTests
         enter.AsSpan(26, 8).ToArray().Should().Equal(new byte[8]);
         BinaryPrimitives.ReadInt64LittleEndian(enter.AsSpan(34)).Should().Be(101);
         var handle = BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(8));
+        StorageTestHarness.StandOn(player, enter);
         await h.Ground.TakeAsync(player, handle); await h.Ground.TakeAsync(player, handle);
         info.CharacterGold.Should().Be(101);
         Fake.GetCalls(h.Characters).Should().BeEmpty("gold is not an inventory row");
@@ -186,6 +187,7 @@ public class MonsterRewardIntegrationTests
         var h = new Harness(); var ana = h.Player(1, "Ana"); var bo = h.Player(2, "Bo"); h.Join(ana, bo);
         StorageTestHarness.Session(bo).CharacterGold = GoldRules.MaxCarried;
         h.Kill(ana); var handle = BinaryPrimitives.ReadUInt32LittleEndian(h.GoldEnter(ana).AsSpan(8));
+        StorageTestHarness.StandOn(ana, h.GoldEnter(ana));
         await h.Ground.TakeAsync(ana, handle);
         StorageTestHarness.Session(ana).CharacterGold.Should().Be(0); StorageTestHarness.Session(bo).CharacterGold.Should().Be(GoldRules.MaxCarried);
         h.Now += GroundItemPickupRules.FirstDeadlineTicks + 1;
@@ -208,6 +210,8 @@ public class MonsterRewardIntegrationTests
         var handles = h.Connections[player].Sent.Where(p => Harness.Id(p) == GamePackets.TM_SC_ENTER && p[25] == 2)
             .Select(p => BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(8))).ToArray();
         handles.Should().HaveCount(2);
+        StorageTestHarness.StandOn(player, h.Connections[player].Sent.First(p => Harness.Id(p) == GamePackets.TM_SC_ENTER
+            && p[25] == 2 && BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(8)) == handles[0]));
         await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(() => h.Ground.TakeAsync(player, handles[0]))));
         StorageTestHarness.Session(player).CharacterGold.Should().Be(101);
     }

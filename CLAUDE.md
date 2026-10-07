@@ -1606,7 +1606,10 @@ premiers octets de chaque enregistrement de 703), 706 = 19, 707 = 11 + 4 × H, 7
 
 - `QuestService` lit les 765 définitions importées et `QuestLinkResource`. Au contact, il ajoute les
   offres admissibles au dialogue du PNJ ; `quest_info(code)` ouvre `QUEST|code|textID`, titre conservé,
-  types 3/7/8 et boutons littéraux `START`, `REJECT`, `NULL`, `REWARD`, `OK`.
+  types 3/7/8 et boutons littéraux `START`, `REJECT`, `NULL`, `REWARD`, `OK`. **Les déclencheurs sont
+  ceux de l'officiel à la lettre** (`QuestTriggers` : `start_quest( %d, %d )`, `end_quest( %d, %d )`,
+  `REWARD` = le code) : le client refabrique `end_quest( %d, %d )` lui-même, et une chaîne sans espaces
+  n'était dans aucun menu annoncé — le bouton « Complete » ne faisait rien (fiche, revue du 2026-10-07).
 - Les commandes de dialogue sont une grammaire fermée et doivent avoir été annoncées. Acceptation
   et remise vérifient aussi le PNJ visible et le code de quête du dialogue courant. Une réponse
   asynchrone périmée ne peut pas rouvrir un dialogue fermé ou remplacé.

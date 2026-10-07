@@ -193,18 +193,22 @@ public sealed class QuestService : IQuestService, IDisposable
                 await Completions(db, character.Id), await Acceptances(db, character.Id),
                 await FavorAsync(db, character.Id, resource, npcId))) return null;
             dialog.Text = $"QUEST|{code}|{link.TextIdStart}";
-            dialog.Menu.Add(new NpcDialogMenuEntry { Label = "START", Trigger = $"start_quest({code},{link.TextIdStart})" });
+            // StructPlayer::ShowQuestInfo (StructPlayer.cpp:5474-5477): the official writes "start_quest( %d, %d )".
+            dialog.Menu.Add(new NpcDialogMenuEntry { Label = "START", Trigger = QuestTriggers.Start(code, link.TextIdStart) });
             dialog.Menu.Add(new NpcDialogMenuEntry { Label = "REJECT" });
         }
         else if (quest.Progress == QuestRules.Finishable && link.FlagEnd == "1")
         {
             dialog.Text = $"QUEST|{code}|{link.TextIdEnd}";
+            // StructPlayer::ShowQuestInfo (StructPlayer.cpp:5479-5509): one "end_quest( %d, %d )" per optional reward up to the
+            // first empty one, or "end_quest( %d, -1 )" without any, then REWARD whose trigger is the quest code. The 7.3
+            // client builds the string it sends itself from that very format (SFrame.exe 0x62db50), so the menu must
+            // advertise it to the letter, spaces included.
             var rewards = Rewards(resource);
-            for (var i = 0; i < rewards.Length; i++)
-                if (rewards[i].Id > 0 && rewards[i].Count > 0)
-                    dialog.Menu.Add(new NpcDialogMenuEntry { Label = "NULL", Trigger = $"end_quest({code},{i})" });
-            if (dialog.Menu.Count == 0) dialog.Menu.Add(new NpcDialogMenuEntry { Label = "NULL", Trigger = $"end_quest({code},-1)" });
-            dialog.Menu.Add(new NpcDialogMenuEntry { Label = "REWARD" });
+            for (var i = 0; i < rewards.Length && rewards[i].Id > 0; i++)
+                dialog.Menu.Add(new NpcDialogMenuEntry { Label = "NULL", Trigger = QuestTriggers.End(code, i) });
+            if (dialog.Menu.Count == 0) dialog.Menu.Add(new NpcDialogMenuEntry { Label = "NULL", Trigger = QuestTriggers.End(code, -1) });
+            dialog.Menu.Add(new NpcDialogMenuEntry { Label = "REWARD", Trigger = code.ToString(System.Globalization.CultureInfo.InvariantCulture) });
         }
         else
         {
@@ -609,6 +613,13 @@ public sealed class QuestService : IQuestService, IDisposable
         return Enumerable.Range(0, r.Type == 103 ? 6 : 3).Where(i => v[i * 2] > 0 && v[i * 2 + 1] > 0)
             .GroupBy(i => v[i * 2]).Select(g => new KeyValuePair<int, long>(g.Key, g.Sum(i => (long)v[i * 2 + 1])));
     }
+    /// <summary>The official quest triggers, written to the letter the way the client formats them back.</summary>
+    public static class QuestTriggers
+    {
+        public static string Start(int code, int textId) => $"start_quest( {code}, {textId} )";
+        public static string End(int code, int reward) => $"end_quest( {code}, {reward} )";
+    }
+
     private static (int Id, int Level, int Count)[] Rewards(QuestResourceEntity r) => new[]
     {
         (r.OptionalRewardId1, r.OptionalRewardLevel1, r.OptionalRewardQuantity1), (r.OptionalRewardId2, r.OptionalRewardLevel2, r.OptionalRewardQuantity2),

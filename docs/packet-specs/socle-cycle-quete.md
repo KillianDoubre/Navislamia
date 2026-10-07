@@ -660,7 +660,8 @@ le comportement actuel.
 Le contact ajoute les quêtes disponibles au dialogue existant. Chaque offre utilise
 `quest_info(code)` ; sa page conserve le titre du PNJ et affiche `QUEST|code|textID`. Les types
 3/7/8 et les libellés littéraux correspondent à la référence. Une quête terminable affiche un
-déclencheur `end_quest(code,index)` par récompense disponible, ou `-1` si aucune n'existe.
+déclencheur `end_quest( code, index )` par récompense disponible, ou `-1` si aucune n'existe
+(format exact de l'officiel, espaces compris : voir *Revue du 2026-10-07*).
 La sélection doit appartenir au menu courant ; le PNJ, ses drapeaux et les conditions sont revérifiés
 lors de l'écriture. Une révision de dialogue bloque les réponses asynchrones périmées.
 
@@ -804,3 +805,22 @@ protégé, `navis-ref` et `navis-dev` ne l'écrivent pas.
 - Détail, sources et réserves : `docs/packet-specs/socle-cycle-quete.md`.
 ```
 
+## Revue du 2026-10-07 — le bouton « Complete » ne validait pas la quête
+
+Constat en jeu : le clic sur « Complete » joue son son, mais la quête reste en cours. Le serveur écrivait
+`start_quest(code,textID)` et `end_quest(code,index)` sans espaces, et le déclencheur de `REWARD` vide. Le
+client 7.3 ne renvoie pas le texte annoncé : il **refabrique** la commande depuis son propre format
+`end_quest( %d, %d )` (`SFrame.exe`, `0x62db50` ; format `VA 0x00a2f150`). La chaîne reçue,
+`end_quest( 1005, -1 )`, n'était donc dans aucun menu annoncé, et `NpcDialogService` la rejetait en
+silence.
+
+Corrigé selon `StructPlayer::ShowQuestInfo` du serveur officiel (`StructPlayer.cpp:5474-5509`) :
+
+- `START` → `start_quest( %d, %d )` ;
+- un `NULL` → `end_quest( %d, %d )` par récompense optionnelle **jusqu'à la première vide** (l'officiel
+  s'arrête là, il ne saute pas les trous), sinon `end_quest( %d, -1 )` ;
+- `REWARD` a pour déclencheur **le code de la quête**, plus une chaîne vide.
+
+`QuestTriggers` (dans `QuestService`) écrit les deux formats. La lecture (`NpcDialogService`) accepte les
+espaces autour des arguments, et un déclencheur refusé est maintenant journalisé (64 caractères au plus),
+ce qui aurait montré la cause tout de suite. **À vérifier en jeu.**

@@ -221,11 +221,11 @@ public class QuestLifecycleTests
         dialogs.Contact(_client, contact);
         await Until(() => StorageTestHarness.Session(_client).NpcDialogTriggers.Contains("quest_info(1005)"));
         dialogs.Select(_client, Selection("quest_info(1005)"));
-        await Until(() => StorageTestHarness.Session(_client).NpcDialogTriggers.Contains("start_quest(1005,101)"));
+        await Until(() => StorageTestHarness.Session(_client).NpcDialogTriggers.Contains("start_quest( 1005, 101 )"));
         Encoding.ASCII.GetString(_connection.Sent.Last()).Should().Contain("@90301101").And.Contain("QUEST|1005|101").And.Contain("START").And.Contain("REJECT");
-        dialogs.Select(_client, Selection("start_quest(1005,999)"));
+        dialogs.Select(_client, Selection("start_quest( 1005, 999 )"));
         await using (var db = Db()) (await db.CharacterQuests.CountAsync()).Should().Be(0);
-        dialogs.Select(_client, Selection("start_quest(1005,101)"));
+        dialogs.Select(_client, Selection("start_quest( 1005, 101 )"));
         await Until(() => _connection.Sent.Any(p => Encoding.ASCII.GetString(p).Contains("START|SUCCESS|1005")));
         (await Quest()).Progress.Should().Be(QuestRules.InProgress);
         (await Quest()).StartId.Should().Be(101, "startID is the accepted NPC text id, not the NPC resource id");
@@ -368,7 +368,8 @@ public class QuestLifecycleTests
     {
         _resource.Type = 401; await Start();
         var dialog = await _service.GetQuestDialogAsync(_client, 3011, 1005, "@90301101");
-        dialog.Menu.Select(m => m.Trigger).Should().Equal("end_quest(1005,5)", "");
+        // ShowQuestInfo stops at the first empty optional reward: slot 5 alone offers no choice, and REWARD carries the code.
+        dialog.Menu.Select(m => m.Trigger).Should().Equal("end_quest( 1005, -1 )", "1005");
         _resource.Type = 999;
         (await _service.GetNpcOffersAsync(_client, 3011)).Should().BeEmpty();
     }

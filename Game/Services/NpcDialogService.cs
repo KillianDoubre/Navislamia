@@ -231,7 +231,8 @@ public class NpcDialogService : INpcDialogService
         {
             if (info.NpcDialogHandle == 0 || !info.NpcDialogTriggers.Contains(trigger))
             {
-                _logger.Warning("Rejected unexpected NPC dialog trigger from {clientTag}", client.ClientTag);
+                _logger.Warning("Rejected unexpected NPC dialog trigger {trigger} from {clientTag}",
+                    trigger.Length > 64 ? trigger[..64] : trigger, client.ClientTag);
                 return;
             }
 
@@ -591,7 +592,9 @@ public class NpcDialogService : INpcDialogService
     {
         try
         {
-            var match = Regex.Match(trigger, @"\A(quest_info|start_quest|end_quest)\(([0-9]+)(?:,(-?[0-9]+))?\)\z");
+            // The official writes its arguments with spaces ("end_quest( %d, %d )"), and so does the 7.3 client.
+            var match = Regex.Match(trigger,
+                @"\A(quest_info|start_quest|end_quest)\(\s*([0-9]+)\s*(?:,\s*(-?[0-9]+)\s*)?(?:,\s*-?[0-9]+\s*)?\)\z");
             if (!match.Success || !int.TryParse(match.Groups[2].Value, out var code)) return;
             var info = client.ConnectionInfo;
             int npcId;
