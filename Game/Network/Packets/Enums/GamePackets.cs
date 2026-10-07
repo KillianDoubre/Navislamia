@@ -443,8 +443,9 @@ public enum GamePackets : ushort
     // X(<id>, true) in rzu under a "// Since EPIC_7_3" marker, so 7.3 keeps the plain ids and no field of the
     // family is version gated. The ids the server reads or emits are declared: the five the client sends
     // (6000, 6002, 6004, 6006, 6008) and the answers 6001 (the window's content), 6003 (a deposition, 1 accepted /
-    // 0 refused, docs/packet-specs/6002-foster-creature.md §5.6) and 6005 (a retrieval, 1 regained / 0 refused,
-    // 6004-retrieve-creature.md §5.3).
+    // 0 refused, docs/packet-specs/6002-foster-creature.md §5.6), 6005 (a retrieval, 1 regained / 0 refused,
+    // 6004-retrieve-creature.md §5.3) and 6007 (a nursing, 0 FAILED / 1 NO_REWARD / 2 REWARDED,
+    // 6006-nurse-creature.md §3.2-§3.3).
     // See docs/packet-specs/socle-ferme-creatures.md (the frames) and socle-ferme-creatures-officielle.md (the farm).
     TM_CS_REQUEST_FARM_INFO = 6000,
     TM_SC_FARM_INFO = 6001,
@@ -457,6 +458,7 @@ public enum GamePackets : ushort
     // point stays out of the line the sibling farm branches (6002, 6006) already claim.
     TM_SC_RESULT_RETRIEVE = 6005,
     TM_CS_NURSE_CREATURE = 6006,
+    TM_SC_RESULT_NURSE = 6007,
     TM_CS_REQUEST_FARM_MARKET = 6008,
     // TM_CS_HUNTAHOLIC_JOIN_INSTANCE : entering a HuntaHolic lobby room, X(4004, true) in rzu — a single
     // unconditional entry, so no version gating, no id variant and no gated payload field. Only this id of

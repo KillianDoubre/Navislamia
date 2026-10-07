@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -108,6 +109,40 @@ public class ScriptService : IScriptService
             catch (Exception ex) { _logger.LogError(ex, "Lua execution failed"); return 0; }
         }
     }
+
+    /// <summary>
+    /// Calls a global Lua function and returns its value as a string: the official server's own way of
+    /// reading a chunk's verdict (<c>return NPC_Creature_Farm_nurse_handler()</c>, compared to <c>"1"</c>).
+    /// Null when the function is unknown, returns nothing, or raises — the caller's "no script" case.
+    /// </summary>
+    public string CallGlobalFunction(string function)
+    {
+        if (string.IsNullOrEmpty(function)) return null;
+        lock (_gate)
+        {
+            try
+            {
+                var entry = _luaVm.Globals.Get(function);
+                if (entry is null || entry.Type != DataType.Function) return null;
+
+                var value = _luaVm.Call(entry);
+                return value.Type switch
+                {
+                    DataType.String => value.String,
+                    DataType.Number => value.Number.ToString(CultureInfo.InvariantCulture),
+                    DataType.Boolean => value.Boolean ? "1" : "0",
+                    DataType.Nil or DataType.Void => null,
+                    _ => value.ToObject()?.ToString(),
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lua call of {function} failed", function);
+                return null;
+            }
+        }
+    }
+
     public bool RunMonsterTrigger(string function, MonsterScriptContext context)
     {
         lock (_gate)

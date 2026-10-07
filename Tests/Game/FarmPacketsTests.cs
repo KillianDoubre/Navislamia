@@ -106,6 +106,7 @@ public class FarmPacketsTests
         ((ushort)GamePackets.TM_CS_FOSTER_CREATURE).Should().Be(6002);
         ((ushort)GamePackets.TM_CS_RETRIEVE_CREATURE).Should().Be(6004);
         ((ushort)GamePackets.TM_CS_NURSE_CREATURE).Should().Be(6006);
+        ((ushort)GamePackets.TM_SC_RESULT_NURSE).Should().Be(6007);
         ((ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET).Should().Be(6008);
 
         // Every id of the family is X(<id>, true) in rzu under "// Since EPIC_7_3": no remapping for 7.3, so
@@ -115,20 +116,19 @@ public class FarmPacketsTests
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_FOSTER_CREATURE).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_NURSE_CREATURE).Should().BeTrue();
+        Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_NURSE).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET).Should().BeTrue();
     }
 
     [Test]
-    public void OnlyTheResultIdsNoLotEmits_StayUndeclared()
+    public void EveryResultIdOfTheFamily_IsDeclared()
     {
-        // 6003 (a deposition, 1 accepted / 0 refused) and 6005 (a retrieval, 1 taken back / 0 refused) carry
-        // established result bytes and their lots emit them: declared, each with its receive arm (transversal
-        // rule 4).
-        Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_FOSTER).Should().BeTrue();
+        // 6003 (a deposition, 1 accepted / 0 refused), 6005 (a retrieval, 1 taken back / 0 refused) and 6007 (a
+        // nursing, 0 failed / 1 no reward / 2 rewarded) carry established result bytes and their lots emit them:
+        // declared, each with its receive arm (transversal rule 4).
         ((ushort)GamePackets.TM_SC_RESULT_FOSTER).Should().Be(6003);
-        Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_RETRIEVE).Should().BeTrue();
         ((ushort)GamePackets.TM_SC_RESULT_RETRIEVE).Should().Be(6005);
-        Enum.IsDefined(typeof(GamePackets), (ushort)6007).Should().BeFalse();
+        Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_NURSE).Should().BeTrue();
     }
 
     [Test]
@@ -619,11 +619,12 @@ public class FarmPacketsTests
 
     [TestCase((ushort)GamePackets.TM_CS_REQUEST_FARM_INFO, 8, TestName = "Receive_MalformedFarmInfoRequestIsDropped")]
     [TestCase((ushort)GamePackets.TM_CS_FOSTER_CREATURE, 27, TestName = "Receive_MalformedFosterCreatureIsDropped")]
-    [TestCase((ushort)GamePackets.TM_CS_NURSE_CREATURE, 11, TestName = "Receive_NurseCreatureIsReadAndNotAnswered")]
     [TestCase((ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET, 7,
         TestName = "Receive_FarmMarketRequestIsReadAndNotAnswered")]
-    public void FarmFrames_NeverThrowAndOnlySomeAreAnswered(ushort id, int length)
+    public void FarmFrames_NeverThrowAndTheUnansweredOnesStaySilent(ushort id, int length)
     {
+        // 6006 is not in this list any more: the nursing lot answers it with a 6007
+        // (CreatureFarmNurseTests.TheNurseRequestIsDispatchedAndAnsweredWithTheVerdict).
         var frame = ClientFrame(id, length);
         var connection = new StorageTestHarness.FrameConnection(frame);
         var client = StorageTestHarness.NewGameClient(connection);
@@ -631,9 +632,9 @@ public class FarmPacketsTests
         var receive = () => client.OnDataReceived(connection.BytesAvailable);
 
         receive.Should().NotThrow();
-        connection.Sent.Should().BeEmpty("no reference establishes an answer for 6006 and 6008, a malformed 6000 "
-            + "or a 6002 that declares no stack while claiming 27 bytes is only logged, and 6004 is answered with "
-            + "its own result frame (CreatureFarmRetrieveTests)");
+        connection.Sent.Should().BeEmpty("no reference establishes an answer for 6008, a malformed 6000 or a 6002 "
+            + "that declares no stack while claiming 27 bytes is only logged, and 6004 and 6006 are answered with "
+            + "their own result frames (CreatureFarmRetrieveTests, CreatureFarmNurseTests)");
     }
 
     [Test]

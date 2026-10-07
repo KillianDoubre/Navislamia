@@ -223,4 +223,35 @@ public static class CreatureFarmRules
         new(slot, experience, name, durationSeconds,
             ElapsedSeconds(registrationTime, now), RefreshSeconds(nursingTime, now),
             (byte)(isCash ? 1 : 0), (byte)(isUsingCracker ? 1 : 0), cardInfo);
+
+    /// <summary>
+    /// The global Lua function the nursing gesture calls, and the only place the gift lives: the 7.3 server
+    /// runs the chunk <c>return NPC_Creature_Farm_nurse_handler()</c> (string at <c>0x140412128</c>) and
+    /// inserts the object from inside that script (officiel <c>NPC_Creature_farm.lua:52-59</c>). Its name is
+    /// 7.3; its body is not in this repository (A VERIFIER 1).
+    /// </summary>
+    public const string NurseHandlerFunction = "NPC_Creature_Farm_nurse_handler";
+
+    /// <summary>
+    /// Whether <c>NurseSummon</c> accepts a nursing (<c>StructPlayer.cpp:11423-11467</c>, 7.3
+    /// <c>0x1400d63a0</c>): the handle must have resolved a card, that card must carry
+    /// <c>ITEM_FLAG_FARMED_SUMMON</c> (bit 27), it must be one of the character's farm rows, and that entry
+    /// must not have been nursed since the last 06:00. The window is the very clock the <c>6001</c>'s
+    /// <c>refresh_time</c> reads: no refresh left (<see cref="RefreshSeconds"/> == 0) is the same statement
+    /// as the reference's <c>nursing_time &lt; refresh</c>.
+    /// </summary>
+    public static bool CanNurse(FarmNursingTarget target, DateTime now) =>
+        target is not null
+        && IsFarmed(target.Flag)
+        && target.IsInFarm
+        && RefreshSeconds(target.NursingTime, now) == 0;
+
+    /// <summary>
+    /// The <c>6007</c>'s <c>result</c> once the nursing went through: the script's own answer, compared to
+    /// the string <c>"1"</c> (7.3 constant at <c>0x140412120</c>; officiel <c>GameMessage.cpp:11931-11938</c>).
+    /// A missing script, or any other return, is therefore a <c>NO_REWARD</c> — never a <c>FAILED</c>, which
+    /// the reference reserves for the <c>false</c> of <c>NurseSummon</c>.
+    /// </summary>
+    public static NurseResult NurseVerdict(string nurseHandlerResult) =>
+        nurseHandlerResult == "1" ? NurseResult.Rewarded : NurseResult.NoReward;
 }
