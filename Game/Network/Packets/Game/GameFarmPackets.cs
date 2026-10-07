@@ -8,9 +8,10 @@ namespace Navislamia.Game.Network.Packets.Game;
 
 /// <summary>
 /// The <c>result</c> byte of <c>TM_SC_RESULT_NURSE</c> (6007) — the nursing's verdict, established for 7.3
-/// by two concordant sources (official <c>GameMessage.h:3954-3959</c> and the client's own branch
-/// <c>0x613c94-0x613d24</c>). <c>0</c> leaves the client silent, <c>1</c> and <c>2</c> show two distinct
-/// message boxes and mark the slot as nursed. See docs/packet-specs/6006-nurse-creature.md §3.2-§3.3.
+/// by two concordant sources (the official <c>onNurseCreature</c>, <c>GameMessage.cpp:11921-11941</c>, and
+/// the client's own branch <c>0x613c94-0x613d24</c>). <c>0</c> leaves the client silent, <c>1</c> and
+/// <c>2</c> show two distinct message boxes and mark the slot as nursed. See
+/// docs/packet-specs/6006-nurse-creature.md §3.2-§3.3.
 /// </summary>
 public enum NurseResult : byte
 {

@@ -1156,7 +1156,7 @@ public class GameClient : Client
     /// (<see cref="Navislamia.Game.Services.Creatures.CreatureFarmService.NurseAsync"/>). A frame whose
     /// length is not 11 is malformed, not a request: the client writes the length in hard, and no reference
     /// establishes an answer to one, so it is only logged and never answered.
-    /// See docs/packet-specs/6006-nurse-creature.md §3.1-§3.3, §5.1 and §7.7 (the repository's silence policy).
+    /// See docs/packet-specs/6006-nurse-creature.md §3.1-§3.3, §5.1 and §7.6 (the repository's silence policy).
     /// </summary>
     private async Task HandleNurseCreatureAsync(byte[] buffer)
     {
