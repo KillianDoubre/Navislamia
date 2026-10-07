@@ -14,9 +14,10 @@ namespace Navislamia.Game.Network.Packets.Game;
 /// "message non traité", which is an independent confirmation of the direction of each frame.
 ///
 /// Only the frames this lot needs are modelled. The server reads <c>6000</c>, <c>6002</c>, <c>6004</c>,
-/// <c>6006</c> and <c>6008</c> and emits one answer, <c>6001</c>; the three result frames
-/// <c>6003</c>/<c>6005</c>/<c>6007</c> carry a <c>result</c> byte whose values no reference establishes and
-/// are therefore neither declared nor emitted (see docs/packet-specs/socle-ferme-creatures.md §5.2, §7.5).
+/// <c>6006</c> and <c>6008</c> and emits two answers: <c>6001</c> for the window's content, and <c>6003</c>
+/// for a deposition. The <c>result</c> byte of <c>6003</c> is established — 1 accepted, 0 refused
+/// (docs/packet-specs/6002-foster-creature.md §5.6) — so the id is declared and emitted; <c>6005</c> and
+/// <c>6007</c>, whose own <c>result</c> values no reference establishes, stay undeclared.
 ///
 /// Nothing here decides when a farm fills, what a ticket costs or how long a creature stays: the entries come from
 /// the farm's storage (<c>CreatureFarmService</c>, docs/packet-specs/socle-ferme-creatures-officielle.md §5.6), and
@@ -89,6 +90,30 @@ public static class GameFarmPackets
 
     /// <summary>Size of one <c>ticket_info</c> entry of 6002, and of one <c>cracker_info</c> entry: 8 bytes.</summary>
     public const int FosterStackEntrySize = 8;
+
+    /// <summary>
+    /// Total size of <c>TM_SC_RESULT_FOSTER</c> (6003), the answer to 6002: the 7-byte header and the single
+    /// <c>result</c> byte. The 7.3 server builds exactly 8 bytes (<c>movl $0x8</c> and <c>movw $0x1773</c> in
+    /// <c>onFosterCreature</c>, 0x14011e681-0x14011e6b6) and the client reads one byte at +7 and nothing else
+    /// (<c>mov 0x7(%ecx),%dl</c>, 0x67225e). See docs/packet-specs/6002-foster-creature.md §3.3.
+    /// </summary>
+    public const int FosterResultLength = HeaderSize + 1;
+
+    /// <summary>Offset of <c>result</c> in <c>TM_SC_RESULT_FOSTER</c> (6003): the first byte after the header.</summary>
+    public const int FosterResultOffset = HeaderSize;
+
+    /// <summary>
+    /// The deposition is accepted: card, tickets and crackers validated, the farm row written and the stacks
+    /// removed. (<c>GameMessage.cpp:11905</c> <c>? 1 : 0</c>; the 7.3 binary's <c>setne</c>, 0x14011e6a3.)
+    /// </summary>
+    public const byte FosterResultAccepted = 1;
+
+    /// <summary>
+    /// The deposition is refused: any failed exit of <c>FosterCreature</c> — unknown card, not in the bag, not
+    /// the player's, no summon, no cost for the key, missing or heterogeneous tickets and crackers, full farm,
+    /// refused write (<c>GameMessage.cpp:11854-11893</c>).
+    /// </summary>
+    public const byte FosterResultRefused = 0;
 
     /// <summary>
     /// One entry of the <c>ticket_info</c> array of 6002: the handle of the stack the client offers and how
@@ -286,6 +311,26 @@ public static class GameFarmPackets
         {
             WriteSummonEntry(packet.AsSpan(GetSummonEntryOffset(i), SummonEntrySize), summons![i]);
         }
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
+    /// <summary>
+    /// <c>TM_SC_RESULT_FOSTER</c> (6003): the 7-byte header and the <c>result</c> byte at +7, 8 bytes total.
+    /// The reference answers unconditionally once the frame is well formed
+    /// (docs/packet-specs/6002-foster-creature.md §5.6): <see cref="FosterResultAccepted"/> when the card was
+    /// taken in, <see cref="FosterResultRefused"/> on any failed exit. The value is passed verbatim — the
+    /// client copies the byte into its internal event without ever testing it.
+    /// </summary>
+    public static byte[] BuildResultFoster(byte result)
+    {
+        var packet = new byte[FosterResultLength];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2),
+            (ushort)GamePackets.TM_SC_RESULT_FOSTER);
+
+        packet[FosterResultOffset] = result;
 
         WriteChecksum(packet);
         return packet;
