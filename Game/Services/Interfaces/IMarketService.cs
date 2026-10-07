@@ -17,4 +17,11 @@ public interface IMarketService
     /// only ever holds a market that really was announced.
     /// </summary>
     bool Open(GameClient client, uint npcHandle, string marketName);
+
+    /// <summary>
+    /// <c>SendMarketInfo(pClient, 0, pInfo)</c>: a market no NPC sells, opened by a window of its own (the creature
+    /// farm's 6008), so <c>TM_SC_MARKET</c> carries <c>npc_handle = 0</c>. False, and nothing sent, when the
+    /// catalogue does not know the market or holds no line of it.
+    /// </summary>
+    bool OpenWithoutNpc(GameClient client, string marketName) => false;
 }

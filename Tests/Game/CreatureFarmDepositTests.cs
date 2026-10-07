@@ -198,6 +198,58 @@ public class CreatureFarmDepositTests
     }
 
     [Test]
+    public async Task ACardWithALimitedDuration_StaysOutOfTheFarm()
+    {
+        // FarmSummon: pCard->IsExpireItem() (decrease_type 1 or 2) refuses before anything is spent.
+        var farm = new Harness();
+        farm.Items.Add(TicketResource, ItemType.FarmPass, TicketDuration, isCash: false);
+        farm.Items.Expiring.Add(CardResource);
+        farm.Holds(TicketHandle, TicketResource, 5);
+
+        (await farm.Service.FosterCreatureAsync(farm.Client, Tickets(2))).Should().BeFalse();
+        farm.Deposits.Should().BeEmpty();
+        farm.Erased.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task AnEnhancedCardWithItsEtherealDurabilitySpent_StaysOutOfTheFarm()
+    {
+        // !GetCurrentEtherealDurability() && GetMaxEtherealDurability(): the +3 card's maximum is 6.
+        var farm = new Harness(etherealDurability: 0);
+        farm.Items.Add(TicketResource, ItemType.FarmPass, TicketDuration, isCash: false);
+        farm.Holds(TicketHandle, TicketResource, 5);
+
+        (await farm.Service.FosterCreatureAsync(farm.Client, Tickets(2))).Should().BeFalse();
+        farm.Deposits.Should().BeEmpty();
+    }
+
+    [TestCase(0, 0, false, TestName = "IsWornOut_ACardWithoutAMaximumNeverWearsOut")]
+    [TestCase(0, 6, true, TestName = "IsWornOut_ASpentDurabilityWearsOut")]
+    [TestCase(1, 6, false, TestName = "IsWornOut_ADurabilityLeftKeepsTheCard")]
+    public void IsWornOut_FollowsTheOfficialTest(int current, int max, bool wornOut) =>
+        CreatureFarmRules.IsWornOut(current, max).Should().Be(wornOut);
+
+    [Test]
+    public void TheItemCatalog_ReadsTheLimitedDurationFromDecreaseType()
+    {
+        var repository = A.Fake<Navislamia.Game.DataAccess.Repositories.Interfaces.IItemResourceRepository>();
+        A.CallTo(() => repository.GetFarmFields()).Returns(new[]
+        {
+            new Navislamia.Game.DataAccess.Repositories.Interfaces.ItemFarmFields(1, ItemType.Etc, null, null),
+            new Navislamia.Game.DataAccess.Repositories.Interfaces.ItemFarmFields(2, ItemType.Etc, null, null,
+                ItemDecreaseTimeType.DecreaseInGame),
+            new Navislamia.Game.DataAccess.Repositories.Interfaces.ItemFarmFields(3, ItemType.Etc, null, null,
+                ItemDecreaseTimeType.DecreaseAlways),
+        });
+        var catalog = new CreatureFarmItemCatalog(repository);
+
+        catalog.IsExpireItem(1).Should().BeFalse();
+        catalog.IsExpireItem(2).Should().BeTrue();
+        catalog.IsExpireItem(3).Should().BeTrue();
+        catalog.IsExpireItem(4).Should().BeFalse();
+    }
+
+    [Test]
     public void TheCostSeam_ReadsTheSocleTable()
     {
         var cost = CreatureFarmTicketCost.FromOptions(new CreatureFarmTicketCostOptions
@@ -615,6 +667,10 @@ public class CreatureFarmDepositTests
         public void Add(int itemResourceId, ItemType type, int durationSeconds = 0, bool isCash = false) =>
             _rows[itemResourceId] = (type, durationSeconds, isCash);
 
+        public HashSet<int> Expiring { get; } = new();
+
+        public bool IsExpireItem(int itemResourceId) => Expiring.Contains(itemResourceId);
+
         public bool TryGetClass(int itemResourceId, out ItemType itemType)
         {
             if (_rows.TryGetValue(itemResourceId, out var row))
@@ -664,7 +720,7 @@ public class CreatureFarmDepositTests
 
         public Harness(int cost = 2, int[] taken = null, bool withSummon = true, ItemFlag flag = ItemFlag.None,
             int summonResource = SummonResource, int? storageId = null, uint cardHandle = CardHandle,
-            int rowId = 77, string characterName = Farmer, int summonLevel = 1)
+            int rowId = 77, string characterName = Farmer, int summonLevel = 1, int etherealDurability = 6)
         {
             _rowId = rowId;
             Cost.Count = cost;
@@ -678,6 +734,7 @@ public class CreatureFarmDepositTests
                 Amount = 1,
                 Flag = flag,
                 Enhance = 3,
+                EtherealDurability = etherealDurability,
                 WearInfo = ItemWearType.None,
                 StorageId = storageId,
             };
@@ -719,6 +776,12 @@ public class CreatureFarmDepositTests
             Summons = new List<SummonResourceOptions>
             {
                 new() { Id = SummonResource, Rate = 4, Form = 2, CardId = CardResource, Name = "Lamia" },
+            },
+            // CreatureEnhance's card_durability: a +3 card can wear out, a +0 card cannot.
+            Enhance = new List<CreatureEnhanceOptions>
+            {
+                new() { Level = 0, CardDurability = 0, SlotAmount = 2 },
+                new() { Level = 3, CardDurability = 6, SlotAmount = 4 },
             },
         }));
         public FarmItems Items { get; }

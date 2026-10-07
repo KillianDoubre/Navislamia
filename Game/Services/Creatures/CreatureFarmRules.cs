@@ -41,6 +41,9 @@ public static class CreatureFarmRules
     /// <summary>The farm keeper's menu action (<c>NPC_Creature_Farm_contact</c>) that opens the window.</summary>
     public const string WindowFunction = "show_creature_farm_window";
 
+    /// <summary>The market the farm window's shop button opens (<c>GetMarketInfo( "creature_farm" )</c>).</summary>
+    public const string MarketName = "creature_farm";
+
     /// <summary><c>TS_SC_DIALOG::TYPE_CREATURE_FARM_WINDOW</c> (<c>GameMessage.h:2287</c>).</summary>
     public const int WindowDialogType = 9;
 
@@ -112,6 +115,10 @@ public static class CreatureFarmRules
 
         return held ? "the card is formed, its summon is out or it sits on a belt slot" : null;
     }
+
+    /// <summary><c>!GetCurrentEtherealDurability() &amp;&amp; GetMaxEtherealDurability()</c>: a durability that exists and is spent.</summary>
+    public static bool IsWornOut(int currentEtherealDurability, int maxEtherealDurability) =>
+        maxEtherealDurability > 0 && currentEtherealDurability <= 0;
 
     public static bool IsFarmed(ItemFlag flag) => flag != ItemFlag.None && (Raw(flag) & FarmedSummonMask) != 0;
 

@@ -21,6 +21,12 @@ public interface ICreatureFarmItemCatalog
     /// carries no such option slot.
     /// </summary>
     bool TryGetTicket(int itemResourceId, out int durationSeconds, out bool isCash);
+
+    /// <summary>
+    /// <c>StructItem::IsExpireItem</c> (<c>StructItem.cpp:778-784</c>): the resource's <c>decrease_type</c> is
+    /// <c>DECREASE_ON_GAME</c> (1) or <c>DECREASE_ALWAYS</c> (2), an item with a limited duration.
+    /// </summary>
+    bool IsExpireItem(int itemResourceId) => false;
 }
 
 /// <summary>
@@ -56,6 +62,10 @@ public sealed class CreatureFarmItemCatalog : ICreatureFarmItemCatalog
         itemType = default;
         return false;
     }
+
+    public bool IsExpireItem(int itemResourceId) =>
+        _fields.TryGetValue(itemResourceId, out var field)
+        && field.DecreaseType is ItemDecreaseTimeType.DecreaseInGame or ItemDecreaseTimeType.DecreaseAlways;
 
     public bool TryGetTicket(int itemResourceId, out int durationSeconds, out bool isCash)
     {

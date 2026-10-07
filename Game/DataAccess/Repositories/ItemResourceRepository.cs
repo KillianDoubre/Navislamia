@@ -171,7 +171,7 @@ public class ItemResourceRepository : IItemResourceRepository
     {
         return _context.ItemResources
             .AsNoTracking()
-            .Select(item => new ItemFarmFields((int)item.Id, item.ItemType, item.OptVar1, item.OptVar2))
+            .Select(item => new ItemFarmFields((int)item.Id, item.ItemType, item.OptVar1, item.OptVar2, item.DecreaseType))
             .ToList();
     }
 

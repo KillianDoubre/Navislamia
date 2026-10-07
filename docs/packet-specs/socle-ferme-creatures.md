@@ -551,3 +551,16 @@ et [More about Epic 7.2](http://rappelzladyluck.blogspot.com/2011/01/more-about-
 9 12 12 15 15 18 (5). La ligne « Basic » du tableau Gala Lab (3 6 6 9 9 12) est la rareté 0, forme 2 : **le
 nombre de tickets exigé par une 6002 est établi par le client**. Restent inconnus : l'expérience par jour, l'effet
 des crackers, le contenu des cadeaux, le lien ticket ↔ durée et les valeurs de `result`.
+
+
+## Marché de la ferme (6008) — livré le 2026-10-07
+
+Source : `onRequestFarmMarket` (`GameMessage.cpp:11943-11952`, serveur officiel 2015) : `GetMarketInfo("creature_farm")`,
+puis `SendMarketInfo(pClient, 0, pInfo)`. La réponse à 6008 est donc `TM_SC_MARKET` (250) avec `npc_handle = 0`, et
+`SendMarketInfo` mémorise ce marché comme dernier contacté, celui que `onBuyItem` (251) relit. Ici :
+`CreatureFarmService.OpenMarket` → `IMarketService.OpenWithoutNpc`, puis `ConnectionInfo.OpenMarketName = "creature_farm"`.
+Le catalogue 7.3 porte deux lignes : 710005 (ticket 3 jours, 200 000) et 710006 (ticket 7 jours, 400 000). Rien n'est envoyé
+si le marché manque au catalogue, comme l'officiel qui sort sans réponse.
+
+NON ÉTABLI : la 251 exige ici un dialogue de PNJ encore ouvert (celui de Sonya, qui reste courant après l'ouverture de la
+fenêtre) ; l'officiel ne lit que le dernier marché contacté.

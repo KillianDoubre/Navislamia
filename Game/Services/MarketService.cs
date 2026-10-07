@@ -60,4 +60,20 @@ public class MarketService : IMarketService
             client.ClientTag, marketName, npcHandle, lines.Count);
         return true;
     }
+
+    public bool OpenWithoutNpc(GameClient client, string marketName)
+    {
+        if (string.IsNullOrWhiteSpace(marketName) || !_catalog.TryGetMarket(marketName, out var lines)
+            || lines.Count == 0)
+        {
+            _logger.Warning("Unknown market {market} for {clientTag}: no TM_SC_MARKET was sent", marketName,
+                client.ClientTag);
+            return false;
+        }
+
+        client.Connection.Send(GameTradePackets.BuildMarketInfo(0, lines));
+        _logger.Debug("{clientTag} opened market {market} without an NPC, {lines} lines", client.ClientTag,
+            marketName, lines.Count);
+        return true;
+    }
 }

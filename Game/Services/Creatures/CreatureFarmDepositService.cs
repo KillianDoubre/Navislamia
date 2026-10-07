@@ -309,6 +309,24 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
             return null;
         }
 
+        // FarmSummon (StructPlayer.cpp:11274-11276): a card with a limited duration, or one whose ethereal durability
+        // is spent, stays out of the farm. A summon card's maximum is its enhance level's card_durability
+        // (StructItem::GetMaxEtherealDurability), 0 at +0, so only an enhanced card can be worn out.
+        if (_items.IsExpireItem((int)record.Card.ItemResourceId))
+        {
+            _logger.Warning("Refused a deposition of {characterName}: card {handle} has a limited duration",
+                characterName, cardHandle);
+            return null;
+        }
+
+        if (CreatureFarmRules.IsWornOut(record.Card.EtherealDurability,
+                _creatures.Enhance((int)record.Card.Enhance).CardDurability))
+        {
+            _logger.Warning("Refused a deposition of {characterName}: card {handle} has no ethereal durability left",
+                characterName, cardHandle);
+            return null;
+        }
+
         if (!_creatures.TryGetSummon(record.Summon.SummonResourceId, out var summon))
         {
             _logger.Warning("Refused a deposition of {characterName}: summon resource {resource} of card {handle} "

@@ -550,4 +550,7 @@ Corrections apportées à la fusion, la fiche ci-dessus restant la trace du lot 
   vendable.
 - **La fenêtre s'ouvre** : `show_creature_farm_window()` du PNJ 11467 envoie `TS_SC_DIALOG` type 9 `CreatureFarm`
   (`SCRIPT_ShowCreatureFarmWindow`). 6008 (marché de la ferme) reste sans réponse.
-- Non repris, faute de champ dans le dépôt : le refus d'une carte à durée limitée ou à durabilité éthérée épuisée.
+- **Repris le 2026-10-07** : une carte à durée limitée (`StructItem::IsExpireItem`, `decrease_type` 1 ou 2 de la ressource,
+  lu par `CreatureFarmItemCatalog.IsExpireItem`) ou à durabilité éthérée épuisée (`!current && max`, le maximum d'une
+  carte étant `CreatureEnhance.card_durability` de son amélioration, 0 à +0, `CreatureFarmRules.IsWornOut`) est refusée
+  avant toute écriture.

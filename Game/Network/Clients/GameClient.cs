@@ -1268,9 +1268,9 @@ public class GameClient : Client
     }
 
     /// <summary>
-    /// TM_CS_REQUEST_FARM_MARKET (6008), the farm's ticket-buy button. Read and bounded, never answered: rzu and
-    /// NGemity declare no answer to 6008 and the 7.3 client routes no incoming frame for it, so what this
-    /// request expects is not established. See docs/packet-specs/socle-ferme-creatures.md §5.2, §7.7.
+    /// TM_CS_REQUEST_FARM_MARKET (6008), the farm window's shop button: official onRequestFarmMarket answers with the
+    /// TM_SC_MARKET (250) of the creature_farm market, npc_handle 0 (GameMessage.cpp:11943-11952,
+    /// docs/packet-specs/socle-ferme-creatures.md §7.7).
     /// </summary>
     private void HandleRequestFarmMarket(byte[] buffer)
     {
@@ -1283,6 +1283,7 @@ public class GameClient : Client
 
         _logger.Debug("TM_CS_REQUEST_FARM_MARKET ({id}) Length: {length} received from {clientTag}",
             (ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET, buffer.Length, ClientTag);
+        _networkService.CreatureFarmService?.OpenMarket(this);
     }
 
     private void HandleAttackRequest(byte[] buffer)

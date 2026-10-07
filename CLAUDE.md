@@ -2942,7 +2942,9 @@ Aucune de ces valeurs n'est devinée.
   `6002-foster-creature.md`, coût de `creature-farm-costs.73.json` lu du `db_creaturefarm.rdb` 7.3, `socle-cout-tickets-ferme.md`),
   6004 → 6005 (`RegainSummon`, `6004-retrieve-creature.md`, aussi pour une entrée expirée lue par 6000), 6006 → 6007
   (`NurseSummon` puis `NPC_Creature_Farm_nurse_handler` porté : une chance sur deux d'un objet 710009, `6006-nurse-creature.md`). La fenêtre s'ouvre par
-  `show_creature_farm_window()` (3000 type 9, `CreatureFarm`). 6008 reste lu sans réponse (`TM_SC_MARKET` 250 à faire).
+  `show_creature_farm_window()` (3000 type 9, `CreatureFarm`). 6008 ouvre le marché `creature_farm` (250, `npc_handle = 0`,
+  tickets 710005/710006), retenu comme marché d'achat de la 251 (`CreatureFarmService.OpenMarket`). Le dépôt refuse aussi une
+  carte à durée limitée (`decrease_type` 1/2) ou à durabilité éthérée épuisée (maximum = `CreatureEnhance.card_durability`).
 - **Une carte en ferme quitte le sac du client** comme chez l'officiel (`PopItem`) : 254 et 302 au dépôt, 301 et 207 à la
   reprise (`ICreatureService.OnCardFarmedAsync`), aucune 207 ne la montre (`BuildInventory`), et `HeldItemRules` comme la
   formation la refusent ; la ligne `Items` garde son propriétaire, seul le bit 27 la marque. **Les heures de la ferme

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.Services.Interfaces;
 using Serilog;
 
 namespace Navislamia.Game.Services.Creatures;
@@ -49,6 +50,13 @@ public interface ICreatureFarmService
     /// </para>
     /// </summary>
     Task<NurseResult> NurseAsync(GameClient client, uint creatureCardHandle);
+
+    /// <summary>
+    /// <c>onRequestFarmMarket</c> (<c>GameMessage.cpp:11943-11952</c>): the farm window's shop button (6008) opens the
+    /// <c>creature_farm</c> market with <c>npc_handle = 0</c>, which becomes the market a 251 buys from
+    /// (<c>SetLastContactMarket</c>). False when that market is unknown.
+    /// </summary>
+    bool OpenMarket(GameClient client) => false;
 }
 
 /// <summary>
@@ -76,6 +84,7 @@ public sealed class CreatureFarmService : ICreatureFarmService
     private readonly Navislamia.Game.Scripting.IScriptService _scripts;
     private readonly ICharacterService _characters;
     private readonly Random _random;
+    private readonly IMarketService _markets;
 
     /// <param name="localNow">
     /// The local server clock, as for the nursing reset at 06:00 (<c>StructPlayer.cpp:11439-11456</c>).
@@ -96,8 +105,9 @@ public sealed class CreatureFarmService : ICreatureFarmService
     public CreatureFarmService(ICreatureFarmStore store, Func<DateTime> localNow = null,
         ICreatureService creatures = null, ICreatureCatalog catalog = null,
         Navislamia.Game.Scripting.IScriptService scripts = null, ICharacterService characters = null,
-        Random random = null)
+        Random random = null, IMarketService markets = null)
     {
+        _markets = markets;
         _characters = characters;
         _random = random ?? Random.Shared;
         _store = store;
@@ -316,6 +326,18 @@ public sealed class CreatureFarmService : ICreatureFarmService
     /// name the verdict. Every step below corresponds to one line of the reference's <c>NurseSummon</c> plus
     /// its caller; nothing here decides the gift, which the script inserts itself.
     /// </summary>
+    public bool OpenMarket(GameClient client)
+    {
+        if (string.IsNullOrEmpty(client?.ConnectionInfo?.CharacterName) || _markets is null
+            || !_markets.OpenWithoutNpc(client, CreatureFarmRules.MarketName))
+        {
+            return false;
+        }
+
+        client.ConnectionInfo.OpenMarketName = CreatureFarmRules.MarketName;
+        return true;
+    }
+
     public async Task<NurseResult> NurseAsync(GameClient client, uint creatureCardHandle)
     {
         var characterName = client?.ConnectionInfo?.CharacterName;

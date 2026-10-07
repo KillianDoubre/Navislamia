@@ -57,7 +57,8 @@ public readonly record struct ItemSellFields(int Id, int Rank, int Price);
 /// / 402 <c>CREATURE_FOOD</c>) and the two option arrays a ticket carries its duration (<c>OptVar1[0]</c>,
 /// seconds) and its premium flag (<c>OptVar2[0] == 1</c>) in.
 /// </summary>
-public readonly record struct ItemFarmFields(int Id, ItemType ItemType, decimal[] OptVar1, decimal[] OptVar2);
+public readonly record struct ItemFarmFields(int Id, ItemType ItemType, decimal[] OptVar1, decimal[] OptVar2,
+    ItemDecreaseTimeType DecreaseType = ItemDecreaseTimeType.Permanent);
 
 public readonly record struct ItemUseFields(int Id, int UseMinLevel, int UseMaxLevel, ItemBaseType BaseType,
     bool RenamesPet = false, int CoolTime = 0, short CoolTimeGroup = 0,
