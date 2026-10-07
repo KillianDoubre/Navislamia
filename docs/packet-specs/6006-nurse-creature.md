@@ -259,6 +259,47 @@ un cas par valeur de `result` (0/1/2) et par refus de `NurseSummon` (poignée in
 soin déjà fait avant 06:00, soin autorisé après 06:00) ; `dotnet build` et `dotnet test` en code 0, sans
 baisse du nombre de tests.
 
+### 5.7 Ce que le lot livre (implementé)
+
+Branche `hermes/packet-6006-nurse-creature`. Tout le savoir durable du lot est ici ; rien n'a été deviné et
+aucune constante 2015 n'a été portée.
+
+* **`GamePackets`** : `TM_SC_RESULT_NURSE = 6007` déclaré et le commentaire de la famille corrigé (6003/6005
+  restent non déclarés, ils appartiennent aux MR #84/#86). L'aiguillage de `GameClient` gagne son bras :
+  6007 est journalisé et **abandonné** (patron de 6001) — enum et aiguillage ont bougé ensemble, aucun membre
+  ne peut atteindre le `switch` final.
+* **`GameFarmPackets`** : `NurseResult` (`Failed = 0`, `NoReward = 1`, `Rewarded = 2`), `ResultNurseLength = 8`,
+  `ResultNurseResultOffset = 7` et `BuildResultNurse` — le seul écrivain de la trame. La somme de contrôle est
+  calculée comme pour toutes les trames du dépôt (réserve 5 inchangée).
+* **`CreatureFarmStore.LoadNursingTargetAsync(personnage, poignée)`** : deux lectures, aucune écriture. La
+  poignée `6006` est **l'id de l'objet** (`ItemFixedInfo.FromItem` : `Handle = (uint)item.Id`) ; la carte est
+  résolue dans l'inventaire du personnage, et la comparaison d'UID du §5.2 devient l'existence de la ligne de
+  ferme nommant cette carte (`CardItemId`). Retour `null` = `FindItem` en échec.
+* **`CreatureFarmRules`** : `NurseHandlerFunction = "NPC_Creature_Farm_nurse_handler"`, `CanNurse` (les quatre
+  conditions du §5.2, dans l'ordre) et `NurseVerdict` (retour comparé à `"1"`). La fenêtre du 06:00 réutilise
+  `RefreshSeconds(nursing_time, now) == 0` — la même horloge, donc la même fonction, que le `refresh_time` du
+  `6001` : aucune seconde logique de temps n'a été ajoutée. **`ITEM_FLAG_NURSED_SUMMON` (bit 28) n'est ni lu
+  ni posé** : les sources officielles tranchent pour « aucun drapeau » (réserve 3).
+* **`CreatureFarmService.NurseAsync`** : `NurseSummon` puis son appelant, dans l'ordre du §5.1 — décider,
+  **écrire** `nursing_time` (`SetNursingTimeAsync`, et rien d'autre : ni drapeau, ni ticket), appeler le
+  script, répondre. Toute refus rend `FAILED` (0) **et un 6007 est bien envoyé** : le client attend cette
+  réponse pour chaque 6006 qu'il a lui-même construit. Une lecture ou une écriture qui échoue répond aussi
+  `FAILED` (silence côté client) plutôt que de casser la session ; une session sans personnage ne répond rien.
+  Une trame 6006 malformée n'est pas répondue (politique du dépôt, réserve 6).
+* **Suture Lua — `IScriptService.CallGlobalFunction(nom)`** (nouveau membre, implémentation par défaut
+  `null`) : le contrat du §5.4 n'avait pas d'équivalent (`RunString` rend le succès de l'exécution, pas la
+  valeur du chunk). Il appelle la fonction globale et rend sa valeur sous forme de chaîne (`"1"`, `"0"`, …),
+  ou `null` si la fonction est absente ou lève. `ScriptService` l'implémente sur son interpréteur.
+* **Recette** : 24 tests neufs dans `Tests/Game/CreatureFarmNurseTests.cs` (offsets des deux trames, les trois
+  valeurs de verdict, chacune des quatre conditions, le geste de bout en bout sur un store simulé — 0/1/2,
+  ligne de ferme disparue avant l'écriture, script absent, session sans personnage —, l'interpréteur réel
+  (`ScriptService` et MoonSharp : valeur du chunk, fonction absente, chunk qui lève) et l'aiguillage : 6006
+  répondu, 6006 malformé muet, 6007 entrant abandonné) ; `FarmPacketsTests` suit (6007
+  déclaré et routé, 6003/6005 non déclarés, 6006 retiré de la liste des trames muettes).
+  `dotnet build` et `dotnet test` en code 0 : **4031 tests passés, 0 échec** (dont les 24 de
+  `Tests/Game/CreatureFarmNurseTests.cs`, comptés par `--filter`) ; le total mesuré avant le lot n'a pas été
+  relevé sur cette branche, seul le plancher de 366 est contractuel.
+
 ---
 
 ## 6. Écarts assumés avec NGemity
@@ -361,6 +402,14 @@ Fiches du dépôt à lire avec celle-ci : `docs/packet-specs/socle-ferme-creatur
    dépôt : silence, `GameClient.cs:1152-1164`) et comportement quand le script Lua de la ferme est absent
    (officiel : Le script est toujours appelé, tout ce qui n'est pas `"1"` vaut `NO_REWARD`, jamais
    `FAILED`). Confirmer ces deux politiques.
+7. **Interpréteur du script de ferme** (§5.7, livré par ce lot) : le lot appelle
+   `NPC_Creature_Farm_nurse_handler()` par `IScriptService.CallGlobalFunction`, donc dans l'interpréteur
+   global de `ScriptService` (celui qui charge `<racine>/Scripts/**.lua`). Or `insert_item` n'est lié que dans
+   le bac à sable des dialogues (`NpcScriptService.cs:382-391`) : un script de ferme chargé dans
+   l'interpréteur global échouerait sur `insert_item` et rendrait `NO_REWARD` — sans effet visible pour le
+   joueur, mais sans cadeau non plus. **Décision demandée** : lier `insert_item` dans l'interpréteur global,
+   ou déplacer l'appel dans le bac à sable des dialogues (qui devrait alors rendre la valeur du chunk) ?
+   Cette question commande la réserve 1 : sans script chargé, aucun `REWARDED` n'est servi.
 
 ---
 
@@ -378,5 +427,8 @@ Fiches du dépôt à lire avec celle-ci : `docs/packet-specs/socle-ferme-creatur
 > consommé. Le cadeau (`710009`, « Creature's Present » / « Cadeau du Refuge ») n'est **pas** dans 6007 :
 > il est inséré par le script Lua `NPC_Creature_Farm_nurse_handler()` (`insert_item(710009, 1)` si
 > `math.random(1,10) < 6`, valeur 2015), dont la valeur de retour texte `"1"` vaut `REWARDED` ; script
-> absent ou autre retour ⇒ `NO_REWARD`, jamais `FAILED`. Le lot n'a aucune dépendance sur les MR #84/#86.
+> absent ou autre retour ⇒ `NO_REWARD`, jamais `FAILED`. **Livré** : `TM_SC_RESULT_NURSE = 6007` est déclaré
+> et routé (log et abandon d'un 6007 entrant), et `CreatureFarmService.NurseAsync` sert le verdict — le
+> script de ferme n'étant pas dans le dépôt, c'est `NO_REWARD` qui part aujourd'hui (A VERIFIER 7).
+> Le lot n'a aucune dépendance sur les MR #84/#86.
 > Tout le savoir est dans `docs/packet-specs/6006-nurse-creature.md`.
