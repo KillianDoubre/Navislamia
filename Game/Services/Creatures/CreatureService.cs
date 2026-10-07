@@ -2747,9 +2747,19 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             return;
         }
 
-        if (targetHandle == 0 || !info.TryResolveMonster(targetHandle, out var instanceId) || !_world.IsAlive(instanceId))
+        if (targetHandle == 0)
         {
             StopSwing(summonHandle, client);
+            return;
+        }
+
+        if (!info.TryResolveMonster(targetHandle, out var instanceId) || !_world.IsAlive(instanceId))
+        {
+            // onAttackRequest: an attack in progress ends, otherwise the master is told the target does not exist.
+            _logger.Debug("{clientTag} summon {summon} cannot attack {target}: no such living monster",
+                client.ClientTag, summonHandle, targetHandle);
+            if (!StopSwing(summonHandle, client))
+                client.Connection.Send(GameStateResultPackets.CantAttack(summonHandle, targetHandle, ResultCode.NotExist));
             return;
         }
 
@@ -2764,6 +2774,8 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             return;
         }
 
+        _logger.Debug("{clientTag} summon {summon} attacks monster {target} (instance {instance})",
+            client.ClientTag, summonHandle, targetHandle, instanceId);
         lock (_lock)
         {
             _swings[summonHandle] = new SummonSwing
@@ -2776,19 +2788,36 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
     }
 
-    private void StopSwing(uint summonHandle, GameClient client)
+    private bool StopSwing(uint summonHandle, GameClient client)
     {
         SummonSwing swing;
         lock (_lock)
         {
             if (!_swings.Remove(summonHandle, out swing))
             {
-                return;
+                return false;
             }
         }
 
         var target = client.ConnectionInfo.GetMonsterHandle(swing.TargetInstanceId);
         client.Connection.Send(GameAttackPackets.BuildEndAttack(summonHandle, target));
+        return true;
+    }
+
+    /// <summary>Whether the summon's last move has not ended yet at <paramref name="now"/> (<c>IsMoving(t)</c>).</summary>
+    private bool SummonIsMoving(uint handle, uint now)
+    {
+        lock (_lock)
+        {
+            if (!_moves.TryGetValue(handle, out var move))
+            {
+                return false;
+            }
+
+            var end = MonsterMovement.EndTick(move.StartTick, CombatRange.Distance(move.X, move.Y, move.DestX, move.DestY),
+                move.Speed);
+            return unchecked((int)(end - now)) > 0;
+        }
     }
 
     private (float X, float Y) SummonPosition(uint handle, uint now)
@@ -2840,9 +2869,17 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
             }
 
             var tick = ServerClock.Now;
+            // processAttack: a creature still walking neither strikes nor reports TOO_FAR; it is judged where it stops.
+            if (SummonIsMoving(handle, tick))
+            {
+                swing.NextSwingAt = now.AddMilliseconds(200);
+                continue;
+            }
+
             var (sx, sy) = SummonPosition(handle, tick);
             var (mx, my) = _world.GetPosition(swing.TargetInstanceId);
-            if (CombatRange.Distance(sx, sy, mx, my) > CreatureRules.SummonReach(resource, monster.Size, monster.Scale))
+            if (!CreatureRules.SummonInReach(resource, sx, sy, mx, my, monster.Size, monster.Scale,
+                    _world.IsMoving(swing.TargetInstanceId)))
             {
                 // StructSummon::onCantAttack: TS_SC_CANT_ATTACK (102) TOO_FAR to the master, once a second. The 7.3
                 // client walks its summon only on that answer — SCreatureStateMachine::OnNetInput turns a TOO_FAR with
@@ -2852,6 +2889,9 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
                     || unchecked((int)(tick - swing.LastCantAttackTick)) > (int)CantAttackIntervalTicks)
                 {
                     swing.LastCantAttackTick = tick == 0 ? 1u : tick;
+                    if (_logger.IsEnabled(Serilog.Events.LogEventLevel.Debug))
+                        _logger.Debug("{clientTag} summon {summon} too far from monster {target}: {distance} units",
+                            client.ClientTag, handle, monsterHandle, (int)CombatRange.Distance(sx, sy, mx, my));
                     client.Connection.Send(GameStateResultPackets.CantAttack(handle, monsterHandle, ResultCode.TooFar));
                 }
 

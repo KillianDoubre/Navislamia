@@ -422,3 +422,24 @@ fois par 100 ticks (`StructSummon::onCantAttack`, sans la garde « immobile » d
 `StructPlayer::onCantAttack` (même code, seulement quand le joueur ne marche pas) n'est pas porté : l'attaque du joueur
 marche déjà, son client l'amenant à portée de lui-même. À reprendre si un joueur reste planté devant un monstre qui
 s'éloigne.
+
+## 12. La créature ne frappait toujours pas : portée sans marge (2026-10-07)
+
+Constat en jeu après le §11 : la créature ne frappe toujours pas un monstre. Trois écarts avec
+`StructCreature::processAttack` (`StructCreature.cpp:4159-4292`), la même fonction pour le joueur et l'invocation :
+
+- **marge de portée** : l'officiel compare la distance entre les corps à `GetRealAttackRange() × 1.2`, × 1.5 si la
+  cible marche. Le joueur l'avait déjà (`CastRules.InRange`), pas l'invocation (`CreatureRules.SummonReach`, retiré).
+  Avec une portée d'arme de 2,4 unités (`attack_range` 0,2), un client qui arrête sa créature juste au bord de **sa**
+  portée recevait TOO_FAR, la relançait sur place sans qu'elle bouge, et ainsi de suite sans coup. C'est la cause
+  la plus probable du constat, **pas prouvée en jeu**. Une colonne vide vaut la portée par défaut de 0,5 m
+  (`DEFAULT_ATTACK_RANGE`, `CalculateStat.cpp:447`) au lieu de 0 ;
+- **créature en marche** : `if( IsMoving( t ) ) return;`. Une créature encore en route ne frappe pas et ne reçoit
+  pas de TOO_FAR ; elle est jugée là où elle s'arrête. Avant, le TOO_FAR repartait chaque seconde pendant la marche,
+  ce qui relançait l'attaque côté client au milieu de son chemin ;
+- **cible absente** : `onAttackRequest` répond 102 `NOT_EXIST` au maître quand aucune attaque n'est en cours
+  (`GameMessage.cpp:960`). Le serveur se taisait.
+
+`CreatureService` journalise maintenant en Debug chaque demande d'attaque de créature, chaque refus et chaque
+TOO_FAR (avec la distance), pour le prochain essai en jeu. Tests : `CreatureTests`, les trois cas ci-dessus.
+

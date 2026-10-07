@@ -383,6 +383,69 @@ public partial class CreatureTests
         A.CallTo(() => h.Combat.ApplyDamage(h.Client, A<long>._, A<uint>._, A<int>._, A<int>._)).MustNotHaveHappened();
     }
 
+    private static void PlaceSummon(Harness h, uint handle, float x, float y, float destX, float destY)
+    {
+        var waypoint = new byte[8];
+        BinaryPrimitives.WriteSingleLittleEndian(waypoint.AsSpan(0, 4), destX);
+        BinaryPrimitives.WriteSingleLittleEndian(waypoint.AsSpan(4, 4), destY);
+        h.Service.MoveSummon(h.Client, handle, x, y, 0, 0, waypoint);
+    }
+
+    [Test]
+    public void A_summon_stopped_at_the_edge_of_its_reach_strikes_within_the_official_slack()
+    {
+        var h = new Harness();
+        Bind(h);
+        h.Service.Summon(h.Client, 60);
+        var handle = h.Info.Summons[0].Handle;
+        A.CallTo(() => h.Combat.GetMonsterStats(0)).Returns(new StatBlock());
+        // Bodies 19.8 + 60, weapon 12 × 0.2 = 2.4: 82.2 between the centres, ×1.2 on the weapon gives 82.68
+        // (processAttack). A client that stops its creature a hair past 82.2 used to get TOO_FAR forever.
+        PlaceSummon(h, handle, 100 + 82.5f, 100, 100 + 82.5f, 100);
+
+        h.Service.SummonAttack(h.Client, handle, Harness.MonsterHandle);
+        h.Service.ProcessSwings(DateTime.UtcNow.AddSeconds(1));
+
+        A.CallTo(() => h.Combat.ApplyDamage(h.Client, 0, Harness.MonsterHandle, A<int>._, A<int>._))
+            .MustHaveHappenedOnceExactly();
+        h.Ids.Should().NotContain((ushort)GamePackets.TM_SC_CANT_ATTACK);
+    }
+
+    [Test]
+    public void A_walking_summon_neither_strikes_nor_reports_too_far_until_it_stops()
+    {
+        var h = new Harness();
+        Bind(h);
+        h.Service.Summon(h.Client, 60);
+        var handle = h.Info.Summons[0].Handle;
+        A.CallTo(() => h.Combat.GetMonsterStats(0)).Returns(new StatBlock());
+        // The client walks the creature 3000 units away from the monster: processAttack waits while IsMoving(t).
+        PlaceSummon(h, handle, 100 + 3000, 100, 100 + 6000, 100);
+
+        h.Service.SummonAttack(h.Client, handle, Harness.MonsterHandle);
+        h.Service.ProcessSwings(DateTime.UtcNow.AddSeconds(1));
+
+        h.Ids.Should().NotContain((ushort)GamePackets.TM_SC_CANT_ATTACK);
+        A.CallTo(() => h.Combat.ApplyDamage(h.Client, A<long>._, A<uint>._, A<int>._, A<int>._)).MustNotHaveHappened();
+    }
+
+    [Test]
+    public void A_summon_sent_at_an_unknown_target_tells_its_master_it_does_not_exist()
+    {
+        var h = new Harness();
+        Bind(h);
+        h.Service.Summon(h.Client, 60);
+        var handle = h.Info.Summons[0].Handle;
+
+        h.Service.SummonAttack(h.Client, handle, 0x4000_0099);
+
+        // onAttackRequest: no such target and no attack in progress → 102 NOT_EXIST to the master.
+        var refusal = h.Sent.Single(p => BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4, 2))
+                                         == (ushort)GamePackets.TM_SC_CANT_ATTACK);
+        BinaryPrimitives.ReadUInt32LittleEndian(refusal.AsSpan(7, 4)).Should().Be(handle);
+        BinaryPrimitives.ReadInt32LittleEndian(refusal.AsSpan(15, 4)).Should().Be((int)ResultCode.NotExist);
+    }
+
     [Test]
     public void A_summon_enters_with_its_stats_and_swings_with_its_buffed_ones()
     {

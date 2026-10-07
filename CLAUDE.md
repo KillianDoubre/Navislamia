@@ -2341,6 +2341,8 @@ ouvrent une (`NpcDialogService.OpensConfirmation`), et aucun Lua Epic 7 n'appell
   **Le serveur ne fait jamais marcher une invocation vers sa cible** : hors de portée il envoie au maître une 102
   `TOO_FAR` (1 par seconde, `StructSummon::onCantAttack`), sur laquelle le client relance l'attaque de la créature et
   la fait cheminer (`SCreatureStateMachine::OnNetInput`) ; sans elle la créature ne bougeait pas (`102-cant-attack.md` §11).
+  **La portée est celle du joueur** (`CreatureRules.SummonInReach` → `CastRules.InRange`, ×1,2 ou ×1,5), et une créature
+  encore en marche n'est pas jugée (§12) : sans la marge, une créature arrêtée au bord recevait TOO_FAR sans fin.
 - Écarts (fiche §15.5) : ligne `Summons` créée dès l'apprivoisement, `ITEM_FLAG_TAMING` gardé en session.
 - **Suite livrée** (`socle-invocations-progression.md`) : stats officielles (`stat_id`, `CreatureEnhance`,
   `CreatureLevelBonus`, coefficient 0,7 + Creature Mastery, niveau de combat du maître), expérience de chasse

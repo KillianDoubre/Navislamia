@@ -70,13 +70,22 @@ public static class CreatureRules
     public static StatBlock SummonStats(SummonResourceInfo summon, int level, SummonStatContext context) =>
         SummonProgression.Stats(summon, level, context);
 
+    /// <summary>The official default reach of a unit whose <c>attack_range</c> is empty (<c>GameRule::DEFAULT_ATTACK_RANGE</c>).</summary>
+    public const float DefaultAttackRange = 0.5f;
+
     /// <summary>
-    /// The reach between a summon and a monster: <c>12 × attack_range</c> plus both body radii
-    /// (<c>Unit::GetRealAttackRange</c>, <c>Object::GetUnitSize</c>), the rule <see cref="CombatRange"/> uses.
+    /// Whether a summon reaches a monster, the rule of <c>StructCreature::processAttack</c> (StructCreature.cpp:4265-4292)
+    /// the player's swing already follows: the distance between the two bodies (half a unit size off each centre)
+    /// against <c>12 × attack_range</c> (<c>GetRealAttackRange</c>, the column ×100 at load, MonsterLoader.cpp:766),
+    /// times 1.2, or 1.5 on a walking target. An empty column is the default 0.5 m (CalculateStat.cpp:447). The
+    /// slack was missing: a client that stopped its creature right at the edge of its own reach got TOO_FAR forever.
     /// </summary>
-    public static float SummonReach(SummonResourceInfo summon, float monsterSize, float monsterScale) =>
-        12f * summon.AttackRange + (CombatRange.UnitSize(summon.Size, summon.Scale)
-                                    + CombatRange.UnitSize(monsterSize, monsterScale)) * 0.5f;
+    public static bool SummonInReach(SummonResourceInfo summon, float summonX, float summonY, float monsterX,
+        float monsterY, float monsterSize, float monsterScale, bool monsterMoving) =>
+        Casting.CastRules.InRange(Casting.CastRules.WeaponRange,
+            (summon.AttackRange > 0 ? summon.AttackRange : DefaultAttackRange) * 100f, summonX, summonY,
+            CombatRange.UnitSize(summon.Size, summon.Scale), monsterX, monsterY,
+            CombatRange.UnitSize(monsterSize, monsterScale), monsterMoving);
 
     public static string TrimName(string name) =>
         string.IsNullOrEmpty(name) ? "Creature" : name.Length <= MaxNameLength ? name : name[..MaxNameLength];
