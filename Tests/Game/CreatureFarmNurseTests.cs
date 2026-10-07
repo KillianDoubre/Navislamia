@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Threading.Tasks;
 using FakeItEasy;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Enums;
@@ -267,6 +268,48 @@ public class CreatureFarmNurseTests
         A.CallTo(() => bench.Store.LoadNursingTargetAsync(A<string>._, A<long>._)).MustNotHaveHappened();
     }
 
+    [Test]
+    public async Task ARealLuaHandlerReturningOneIsServedAsTheRewardedVerdict()
+    {
+        // The official contract end to end on the repository's own interpreter: the chunk returns 1, and that
+        // is what makes the frame carry 2. Nothing else can turn it into a REWARDED.
+        var scripts = new ScriptService(A.Fake<ILogger<ScriptService>>());
+        scripts.RunString("function NPC_Creature_Farm_nurse_handler() return 1 end").Should().Be(1);
+
+        var bench = new Bench(Morning, scripts: scripts);
+        A.CallTo(() => bench.Store.LoadNursingTargetAsync("Killian", 7))
+            .Returns(new FarmNursingTarget(7, DepositedCard, true, null));
+        A.CallTo(() => bench.Store.SetNursingTimeAsync("Killian", 7, Morning)).Returns(true);
+
+        var verdict = await bench.Service.NurseAsync(bench.Client, 7);
+
+        verdict.Should().Be(NurseResult.Rewarded);
+        bench.Frame[7].Should().Be(2);
+    }
+
+    [Test]
+    public void TheGlobalCallReadsTheChunksOwnValue()
+    {
+        // The seam the lot added (IScriptService.CallGlobalFunction): RunString renders the success of the
+        // execution, this one renders the value the chunk hands back.
+        var scripts = new ScriptService(A.Fake<ILogger<ScriptService>>());
+
+        scripts.CallGlobalFunction(CreatureFarmRules.NurseHandlerFunction).Should().BeNull("no script is loaded");
+        scripts.RunString("function NPC_Creature_Farm_nurse_handler() return 1 end").Should().Be(1);
+        scripts.CallGlobalFunction(CreatureFarmRules.NurseHandlerFunction).Should().Be("1");
+        scripts.RunString("function NPC_Creature_Farm_nurse_handler() return 0 end").Should().Be(1);
+        scripts.CallGlobalFunction(CreatureFarmRules.NurseHandlerFunction).Should().Be("0");
+    }
+
+    [Test]
+    public void TheGlobalCallOfABrokenChunkIsNullRatherThanAThrow()
+    {
+        var scripts = new ScriptService(A.Fake<ILogger<ScriptService>>());
+        scripts.RunString("function NPC_Creature_Farm_nurse_handler() error('boom') end").Should().Be(1);
+
+        scripts.CallGlobalFunction(CreatureFarmRules.NurseHandlerFunction).Should().BeNull();
+    }
+
     // --- the receive loop ---------------------------------------------------------------------------------
 
     [Test]
@@ -339,16 +382,18 @@ public class CreatureFarmNurseTests
     {
         private readonly StorageTestHarness.FrameConnection _connection = new(Array.Empty<byte>());
 
-        public Bench(DateTime now, string characterName = "Killian")
+        public Bench(DateTime now, string characterName = "Killian", IScriptService scripts = null)
         {
+            Store = A.Fake<ICreatureFarmStore>();
+            Scripts = scripts ?? A.Fake<IScriptService>();
             Client = StorageTestHarness.NewGameClient(_connection);
             StorageTestHarness.Session(Client).CharacterName = characterName;
             Service = new CreatureFarmService(Store, () => now, Scripts);
         }
 
-        public ICreatureFarmStore Store { get; } = A.Fake<ICreatureFarmStore>();
+        public ICreatureFarmStore Store { get; }
 
-        public IScriptService Scripts { get; } = A.Fake<IScriptService>();
+        public IScriptService Scripts { get; }
 
         public GameClient Client { get; }
 
