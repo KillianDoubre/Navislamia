@@ -1162,11 +1162,18 @@ public class GameClient : Client
     }
 
     /// <summary>
-    /// TM_CS_RETRIEVE_CREATURE (6004), the farm's "regain" button: the card the player takes back. Read and
-    /// logged, never answered — 6005's <c>result</c> values are not established and the server holds no farm
-    /// state to act on. See docs/packet-specs/socle-ferme-creatures.md §5.2, §5.3.
+    /// TM_CS_RETRIEVE_CREATURE (6004), the farm's "regain" button: the card the player takes back. The frame is
+    /// read bounded to its 11 bytes, the retrieval runs through the farm's seam, and the answer is
+    /// TM_SC_RESULT_RETRIEVE (6005) — 1 when the card was taken back, 0 on any refused exit
+    /// (<see cref="Navislamia.Game.Services.Creatures.ICreatureFarmService.RetrieveCreatureAsync"/>).
+    /// <para>
+    /// A frame whose length is not 11 is malformed, not a request: the client builds only that one form and the
+    /// 7.3 server never tests the length, so a malformed one is only logged and nothing is answered. A
+    /// well formed one is <b>always</b> answered, including when the retrieval throws — a refused answer is
+    /// better than a client left without one. See docs/packet-specs/6004-retrieve-creature.md §5.3, §5.5.
+    /// </para>
     /// </summary>
-    private void HandleRetrieveCreature(byte[] buffer)
+    private async Task HandleRetrieveCreatureAsync(byte[] buffer)
     {
         if (!GameFarmPackets.TryReadRetrieveCreature(buffer, out var creatureCardHandle))
         {
@@ -1181,6 +1188,37 @@ public class GameClient : Client
             _logger.Debug(
                 "TM_CS_RETRIEVE_CREATURE ({id}) Length: {length} received from {clientTag}: card_handle={cardHandle}",
                 (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE, buffer.Length, ClientTag, creatureCardHandle);
+        }
+
+        var characterHandle = ConnectionInfo.CharacterHandle;
+        var characterName = ConnectionInfo.CharacterName;
+        var farm = _networkService.CreatureFarmService;
+        var retrieved = false;
+        if (farm is null)
+        {
+            // A harness without a farm: nothing could be taken back, and the refusal says so.
+            _logger.Warning("TM_CS_RETRIEVE_CREATURE ({id}) received from {clientTag} without a farm service",
+                (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE, ClientTag);
+        }
+        else
+        {
+            try
+            {
+                retrieved = await farm.RetrieveCreatureAsync(this, creatureCardHandle);
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Could not retrieve card {cardHandle} for {clientTag}",
+                    creatureCardHandle, ClientTag);
+            }
+        }
+
+        // The session may have moved on while the farm was being written: the answer goes to the same one.
+        if (ConnectionInfo.CharacterHandle == characterHandle && ConnectionInfo.CharacterName == characterName)
+        {
+            Connection.Send(GameFarmPackets.BuildResultRetrieve(retrieved
+                ? GameFarmPackets.RetrieveResultAccepted
+                : GameFarmPackets.RetrieveResultRefused));
         }
     }
 
@@ -2850,6 +2888,19 @@ public class GameClient : Client
                 continue;
             }
 
+            // TM_SC_RESULT_RETRIEVE (6005) is the answer to a retrieval: a server to client packet, declared by
+            // the 6004 lot, which the 7.3 client routes on entry and builds none. An incoming one is a protocol
+            // anomaly, not a request, so it is logged and dropped instead of reaching the "Unknown Packet Type"
+            // throw below. The arm sits next to the isolated TM_SC_REGION_ACK one rather than in the farm family
+            // block, whose insertion zone the sibling farm branches already share.
+            // See docs/packet-specs/6004-retrieve-creature.md §5.3.
+            if (header.ID == (ushort)GamePackets.TM_SC_RESULT_RETRIEVE)
+            {
+                _logger.Warning("Server to client packet TM_SC_RESULT_RETRIEVE ({id}) received from {clientTag}",
+                    header.ID, ClientTag);
+                continue;
+            }
+
             // TM_SC_GET_CHAOS (213) and TM_SC_ITEM_DROP_INFO (282): the two frames of a monster's death
             // (docs/packet-specs/socle-recompenses-monstres.md §3.2, §3.5). Both are server to client only —
             // the 7.3 client builds neither — so an incoming one is a protocol anomaly, logged and dropped
@@ -3740,12 +3791,12 @@ public class GameClient : Client
 
             // The creature farm (ferme de créatures) socle: TM_CS_REQUEST_FARM_INFO (6000),
             // TM_CS_FOSTER_CREATURE (6002), TM_CS_RETRIEVE_CREATURE (6004), TM_CS_NURSE_CREATURE (6006) and
-            // TM_CS_REQUEST_FARM_MARKET (6008). 6000 is answered with a TM_SC_FARM_INFO (6001) filled from the
-            // farm's storage, and a well formed 6002 with a TM_SC_RESULT_FOSTER (6003) — 1 accepted, 0 refused
-            // (docs/packet-specs/6002-foster-creature.md §5.6); the other three stay read and unanswered, their
-            // own result frames (6005/6007) still undeclared. The arms must stay before the throwing switch
-            // below — a member of GamePackets that reaches it breaks the receive loop.
-            // See docs/packet-specs/socle-ferme-creatures-officielle.md §5.6.
+            // TM_CS_REQUEST_FARM_MARKET (6008). The five frames are read and bounded; 6000 is answered with a
+            // TM_SC_FARM_INFO (6001) filled from the farm's storage, a well formed 6002 with a TM_SC_RESULT_FOSTER
+            // (6003, 1 accepted / 0 refused, 6002-foster-creature.md §5.6) and 6004 with the result of its
+            // retrieval (TM_SC_RESULT_RETRIEVE, 6005: 1 = card taken back, 0 = refused). The arms must stay before
+            // the throwing switch below — a member of GamePackets that reaches it breaks the receive loop.
+            // See docs/packet-specs/socle-ferme-creatures-officielle.md §5.6 and 6004-retrieve-creature.md §5.6.
             if (header.ID == (ushort)GamePackets.TM_CS_REQUEST_FARM_INFO)
             {
                 _ = HandleRequestFarmInfoAsync(msgBuffer);
@@ -3760,7 +3811,7 @@ public class GameClient : Client
 
             if (header.ID == (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE)
             {
-                HandleRetrieveCreature(msgBuffer);
+                _ = HandleRetrieveCreatureAsync(msgBuffer);
                 continue;
             }
 

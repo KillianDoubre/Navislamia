@@ -121,12 +121,13 @@ public class FarmPacketsTests
     [Test]
     public void OnlyTheResultIdsNoLotEmits_StayUndeclared()
     {
-        // 6003's `result` byte is established — 1 accepted, 0 refused (§5.6 of 6002-foster-creature.md) — and
-        // the deposit lot emits it: it is declared, with its receive arm (transversal rule 4). 6005 and 6007
-        // still carry a `result` byte whose values no reference establishes, so they stay undeclared.
+        // 6003 (a deposition, 1 accepted / 0 refused) and 6005 (a retrieval, 1 taken back / 0 refused) carry
+        // established result bytes and their lots emit them: declared, each with its receive arm (transversal
+        // rule 4).
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_FOSTER).Should().BeTrue();
         ((ushort)GamePackets.TM_SC_RESULT_FOSTER).Should().Be(6003);
-        Enum.IsDefined(typeof(GamePackets), (ushort)6005).Should().BeFalse();
+        Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_RETRIEVE).Should().BeTrue();
+        ((ushort)GamePackets.TM_SC_RESULT_RETRIEVE).Should().Be(6005);
         Enum.IsDefined(typeof(GamePackets), (ushort)6007).Should().BeFalse();
     }
 
@@ -618,8 +619,6 @@ public class FarmPacketsTests
 
     [TestCase((ushort)GamePackets.TM_CS_REQUEST_FARM_INFO, 8, TestName = "Receive_MalformedFarmInfoRequestIsDropped")]
     [TestCase((ushort)GamePackets.TM_CS_FOSTER_CREATURE, 27, TestName = "Receive_MalformedFosterCreatureIsDropped")]
-    [TestCase((ushort)GamePackets.TM_CS_RETRIEVE_CREATURE, 11,
-        TestName = "Receive_RetrieveCreatureIsReadAndNotAnswered")]
     [TestCase((ushort)GamePackets.TM_CS_NURSE_CREATURE, 11, TestName = "Receive_NurseCreatureIsReadAndNotAnswered")]
     [TestCase((ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET, 7,
         TestName = "Receive_FarmMarketRequestIsReadAndNotAnswered")]
@@ -632,9 +631,9 @@ public class FarmPacketsTests
         var receive = () => client.OnDataReceived(connection.BytesAvailable);
 
         receive.Should().NotThrow();
-        connection.Sent.Should().BeEmpty("no reference establishes an answer for 6004, 6006 and 6008, and the 6002 "
-            + "here declares no stack while claiming 27 bytes, so it is malformed and only logged "
-            + "(docs/packet-specs/6002-foster-creature.md §5.6)");
+        connection.Sent.Should().BeEmpty("no reference establishes an answer for 6006 and 6008, a malformed 6000 "
+            + "or a 6002 that declares no stack while claiming 27 bytes is only logged, and 6004 is answered with "
+            + "its own result frame (CreatureFarmRetrieveTests)");
     }
 
     [Test]

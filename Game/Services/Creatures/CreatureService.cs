@@ -100,6 +100,13 @@ public interface ICreatureService
 
     int FormOf(CreatureCard card);
 
+    /// <summary>
+    /// <c>StructSummon::AddExp</c> then <c>onExpChange</c> for a gain the caller already capped.
+    /// <paramref name="force"/> skips the <c>level² × 200</c> limit of a hunting gain: the farm's gain is only
+    /// capped by the summon's own curve (docs/packet-specs/6004-retrieve-creature.md §5.5 point 6).
+    /// </summary>
+    void GainExperience(GameClient master, CreatureCard card, long gain, bool force = false);
+
     (int Hp, int MaxHp, int Mp, int MaxMp) VitalsOf(GameClient client, CreatureCard card);
 
     void SetSummonVitals(GameClient master, CreatureCard card, int hp, int mp);
