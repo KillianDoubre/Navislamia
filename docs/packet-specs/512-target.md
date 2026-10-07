@@ -35,3 +35,10 @@ indique également « Seems unused » (`TS_SC_TARGET.h:5`). **L'ajout du 512 à 
 raccordement Navislamia demandé pour exploiter ce paquet**, pas un appelant démontré du C++.
 Le comportement officiel d'assistance par chat est conservé. L'effet visuel exact et la
 compatibilité de ces deux notifications doivent être vérifiés en jeu.
+
+## Retiré de `/passist` le 2026-10-07
+
+`onPartyAssist` (`GameMessage.cpp`) ne fait qu'écrire `ASSIST|cible|` sur la ligne `@PARTY` : ni `TS_SC_TARGET`, ni
+changement de la cible du demandeur. `/passist` suit désormais l'officiel à l'identique (la traduction du handle de
+monstre par observateur reste, nos handles de monstre étant propres à chaque client). `GameClient.SetTarget` et son 512
+restent disponibles mais n'ont plus d'appelant, comme `SendTargetMsg` dans la source officielle.

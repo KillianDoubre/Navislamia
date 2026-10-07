@@ -25,6 +25,10 @@ public partial class PartyServiceTests
         Info(bo).TargetHandle = 0x40000099;
         _parties.TryHandleCommand(ana, "/passist 2").Should().BeTrue();
         Lines(ana).Should().Equal("ASSIST|1073741825|"); Lines(bo).Should().BeEmpty();
+        // onPartyAssist only prints the line: no TS_SC_TARGET (512), and the asker's own target is untouched.
+        ((StorageTestHarness.FrameConnection)ana.Connection).Sent
+            .Should().NotContain(frame => System.BitConverter.ToUInt16(frame, 4) == 512);
+        Info(ana).TargetHandle.Should().Be(0u);
         Clear(ana); Info(outsider).PartyId = Info(ana).PartyId;
         _parties.TryHandleCommand(ana, "/passist 3");
         Lines(ana).Should().BeEmpty("a forged session party id is not membership");

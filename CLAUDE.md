@@ -2273,10 +2273,9 @@ Détails et NON ÉTABLI : `docs/packet-specs/322-show-summon-name-change.md`.
 
 ### Paquets 512/514 — cible et SP
 
-512 = **11 octets**, cible unique du joueur destinataire. `GameClient.SetTarget` envoie
-au joueur seul ; `/passist` l'utilise avec la traduction des handles de monstres et garde
-la ligne ASSIST officielle. Le C++ définit SendTargetMsg sans appelant retrouvé : ce
-raccordement est une adaptation explicite. Aucune boucle d'écho 511/512.
+512 = **11 octets**, cible unique du joueur destinataire. `GameClient.SetTarget` l'envoie au joueur seul mais n'a
+plus d'appelant : `/passist` n'écrit que la ligne ASSIST officielle (avec la traduction des handles de monstres),
+comme `onPartyAssist`, dont le C++ ne fait rien d'autre. Aucune boucle d'écho 511/512.
 514 = **15 octets**, handle + deux int16 (SP/maxSP), au maître seul : chargement,
 recalcul, évolution et changement de SP. Base 1000, bonus 10031/10032 du maître,
 options/états du bit 23 interprétés comme MaxSP sur l'invocation. SP sauvegardés dans

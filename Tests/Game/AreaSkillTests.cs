@@ -209,6 +209,18 @@ public class AreaSkillTests
         public List<byte[]> Frames(GameClient client, SkillPacketType type) => Connections[client].Sent
             .Where(f => BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(4)) == 401 && f[31] == (byte)type).ToList();
         public void Dispose() => Effects.Dispose();
+
+        /// <summary>
+        /// The instant a ground skill's actor started, read from the caster's own ENTER of it (start_time @30, minus the
+        /// caster's clock offset). Not the cooldown minus its length: the cooldown is armed on an earlier read of the
+        /// clock than the fire, and under load the two reads fall one tick apart.
+        /// </summary>
+        public uint GroundStart(GameClient caster)
+        {
+            var enter = Connections[caster].Sent.Single(p => p.Length == 38 && p[25] == 5);
+            return unchecked(BinaryPrimitives.ReadUInt32LittleEndian(enter.AsSpan(30))
+                             - StorageTestHarness.Session(caster).ClientClockOffset);
+        }
     }
 
     [TestCase(261)] [TestCase(271)] [TestCase(30011)]
@@ -337,7 +349,7 @@ public class AreaSkillTests
         using var h = new Harness(); var caster = h.Client(); var v = Vars(9); v[6] = 2; v[8] = 1; v[10] = 1;
         var service = h.PlayerService(Row(271, v, required: 2));
         h.Cast(service, caster, target: 0);
-        var now = unchecked(StorageTestHarness.Session(caster).SkillCooldowns[9000] - 100);
+        var now = h.GroundStart(caster);
         h.World.GetHp(0).Should().Be(975);
         h.Frames(caster, SkillPacketType.Complete).Should().ContainSingle();
         h.World.BeginWalk(0, 300, 100, 255); h.World.StopMove(0);
@@ -469,7 +481,7 @@ public class AreaSkillTests
     {
         using var h = new Harness(); var caster = h.Client(); var v = Vars(9); v[6] = 5; v[8] = 1; v[10] = 2;
         h.Cast(h.PlayerService(Row(271, v, required: 2)), caster, target: 0);
-        var now = unchecked(StorageTestHarness.Session(caster).SkillCooldowns[9000] - 100);
+        var now = h.GroundStart(caster);
         A.CallTo(() => h.Stats.Compute(A<ConnectionInfo>._)).Returns(new CharacterStatResult(new StatBlock { MagicPoint = 999 }, new StatBlock()));
         h.Effects.Tick(now + 100);
         A.CallTo(() => h.Combat.RollHit(caster, 0, 400, DamageKind.Magical, A<int>._, A<int>._)).MustHaveHappenedTwiceExactly();
@@ -550,9 +562,9 @@ public class AreaSkillTests
     {
         using var h = new Harness(); var caster = h.Client(); var v = Vars(9); v[6] = 2; v[8] = 1; v[10] = 1;
         h.Cast(h.PlayerService(Row(271, v, required: 2)), caster, target: 0);
-        var now = unchecked(StorageTestHarness.Session(caster).SkillCooldowns[9000] - 100);
         var ownEnter = h.Connections[caster].Sent.Single(p => p.Length == 38 && p[25] == 5);
         var propHandle = BinaryPrimitives.ReadUInt32LittleEndian(ownEnter.AsSpan(8));
+        var now = h.GroundStart(caster);
         var watcher = h.Client(101); StorageTestHarness.Session(watcher).ClientClockOffset = 30;
         h.Effects.Tick(now + 50);
         var enter = h.Connections[watcher].Sent.Single(p => p.Length == 38 && p[25] == 5);
