@@ -2926,8 +2926,7 @@ Aucune de ces valeurs n'est devinée.
 ### Socle ferme de créatures — 6000-6008
 
 - Les neuf ids sont `X(<id>, true)` chez rzu sous « Since EPIC_7_3 » : 7.3 garde les ids nus, aucun champ
-  n'est gaté. Seuls les six que le serveur lit ou émet sont déclarés ; les trois trames de résultat
-  6003/6005/6007 restent non déclarées tant que les valeurs de leur `result` ne sont pas établies.
+  n'est gaté. Les cinq trames du client et les quatre réponses (6001, 6003, 6005, 6007) sont déclarées.
 - **Le socle est en place** (`docs/packet-specs/socle-ferme-creatures-officielle.md`, logique : la source officielle
   2015 confrontée au binaire 2012-11 ; NGemity n'a rien, rzu que les structures) : table `CreatureFarms`
   (`CreatureFarmEntity`, Telecaster, `Version0026_CreatureFarm`) — une ligne par invocation déposée, `slot` 0-base,
@@ -2939,11 +2938,15 @@ Aucune de ces valeurs n'est devinée.
   ×1,5, EXP/h 137 700 et 347 264 ; l'EXP n'est appliquée qu'à la reprise. `refresh_time` = premier 06:00 (heure
   locale) **après le dernier soin** moins maintenant, 0 si jamais soigné ; `elasped_time` se compte en UTC
   (`timestamptz` relu en UTC). Le PNJ de la ferme est **11467** (`NPC_Creature_Farm_contact`).
-- 6002 (`19 + 8 × T + 8 × C`), 6004 et 6006 (11 octets, `card_handle` @7) et 6008 (7 octets) sont lus,
-  bornés, journalisés — **jamais répondus** tant que leurs lots n'existent pas ; 6003/6005/6007 restent non déclarées.
-  La fenêtre (`show_creature_farm_window()`, dialogue 3000 type 9) **n'est pas encore ouverte**, pour que le client
-  n'envoie pas de dépôt sans réponse. La réponse à 6008 n'est pas une trame de ferme : `TM_SC_MARKET` 250
-  (`creature_farm`), avec `npc_handle = 0` non mesuré côté client.
+- **Dépôt, reprise et soin sont livrés** (PR #84-#87, revue du 2026-10-07) : 6002 → 6003 (`CreatureFarmDepositService`,
+  `6002-foster-creature.md`, coût de `creature-farm-costs.73.json` lu du `db_creaturefarm.rdb` 7.3, `socle-cout-tickets-ferme.md`),
+  6004 → 6005 (`RegainSummon`, `6004-retrieve-creature.md`, aussi pour une entrée expirée lue par 6000), 6006 → 6007
+  (`NurseSummon` puis `NPC_Creature_Farm_nurse_handler`, `6006-nurse-creature.md`). La fenêtre s'ouvre par
+  `show_creature_farm_window()` (3000 type 9, `CreatureFarm`). 6008 reste lu sans réponse (`TM_SC_MARKET` 250 à faire).
+- **Une carte en ferme quitte le sac du client** comme chez l'officiel (`PopItem`) : 254 et 302 au dépôt, 301 et 207 à la
+  reprise (`ICreatureService.OnCardFarmedAsync`), aucune 207 ne la montre (`BuildInventory`), et `HeldItemRules` comme la
+  formation la refusent ; la ligne `Items` garde son propriétaire, seul le bit 27 la marque. **Les heures de la ferme
+  s'écrivent en UTC** (`CreatureFarmStore`) : Npgsql 8 refuse une heure locale dans un `timestamptz`.
 - `card_info` réutilise le motif d'objet de 75 octets (`ItemFixedInfoWriter`) ; dans une entrée, `using_cash`/
   `using_cracker` sont relatifs à l'entrée (+43/+44). Formats des trames : `docs/packet-specs/socle-ferme-creatures.md`.
 

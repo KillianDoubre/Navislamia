@@ -556,8 +556,10 @@ public class Program
         // elle rend 0 pour toute clé et tout dépôt est refusé au lieu d'être accepté sans vérification.
         services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmItemCatalog,
             Navislamia.Game.Services.Creatures.CreatureFarmItemCatalog>();
-        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmTicketCost,
-            Navislamia.Game.Services.Creatures.CreatureFarmTicketCost>();
+        // The deposit's cost table is the socle's creature-farm-costs.73.json (ConfigureCreatureFarmTicketCosts).
+        services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmTicketCost>(provider =>
+            Navislamia.Game.Services.Creatures.CreatureFarmTicketCost.FromOptions(
+                provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<CreatureFarmTicketCostOptions>>().Value));
         services.AddSingleton<Navislamia.Game.Services.Creatures.ICreatureFarmDepositService,
             Navislamia.Game.Services.Creatures.CreatureFarmDepositService>();
         services.AddSingleton<IPlayerLocationService, PlayerLocationService>();

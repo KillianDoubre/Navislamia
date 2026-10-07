@@ -26,6 +26,12 @@ public static class HeldItemRules
             return false;
         }
 
+        // A card at the creature farm is out of the bag in the official (FarmSummon's PopItem): nothing takes it.
+        if (IsFarmedCard(info, itemId))
+        {
+            return false;
+        }
+
         // A reference read, like the player visibility: the pet path takes the locks in the other order.
         if (info.ActivePet is { } pet && pet.CageHandle == unchecked((uint)itemId))
         {
@@ -38,6 +44,15 @@ public static class HeldItemRules
     /// <summary>Whether every item of <paramref name="itemIds"/> may leave the bag.</summary>
     public static bool AreErasable(ConnectionInfo info, IEnumerable<long> itemIds) =>
         itemIds.All(itemId => IsErasable(info, itemId));
+
+    /// <summary>Whether card <paramref name="cardId"/> is at the creature farm (<c>ITEM_FLAG_FARMED_SUMMON</c>).</summary>
+    public static bool IsFarmedCard(ConnectionInfo info, long cardId)
+    {
+        lock (info.SummonLock)
+        {
+            return info.CreatureCards.TryGetValue(cardId, out var card) && CreatureFarmRules.IsFarmed(card.Flag);
+        }
+    }
 
     /// <summary>Whether the summon of card <paramref name="cardId"/> is in the world.</summary>
     public static bool IsCardInWorld(ConnectionInfo info, long cardId)

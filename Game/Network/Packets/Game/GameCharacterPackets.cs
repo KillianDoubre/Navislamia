@@ -149,8 +149,18 @@ public static class GameCharacterPackets
                               ?? Array.Empty<ItemEntity>());
     }
 
+    /// <remarks>
+    /// A card at the creature farm (<c>ITEM_FLAG_FARMED_SUMMON</c>) is left out: the official <c>FarmSummon</c> takes
+    /// it out of the inventory (<c>PopItem</c>, <c>TS_SC_DESTROY_ITEM</c>) and <c>RegainSummon</c> pushes it back, while
+    /// here the row keeps its owner and only the flag marks it (docs/packet-specs/6002-foster-creature.md).
+    /// </remarks>
     public static IReadOnlyList<byte[]> BuildInventory(ItemEntity[] items)
     {
+        if (Array.Exists(items, item => Navislamia.Game.Services.Creatures.CreatureFarmRules.IsFarmed(item.Flag)))
+        {
+            items = Array.FindAll(items, item => !Navislamia.Game.Services.Creatures.CreatureFarmRules.IsFarmed(item.Flag));
+        }
+
         var packets = new List<byte[]>(Math.Max(1, (items.Length + MaxInventoryItemsPerPacket - 1) / MaxInventoryItemsPerPacket));
 
         if (items.Length == 0)

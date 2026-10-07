@@ -135,6 +135,80 @@ public class CreatureFarmDepositTests
         farm.Erased[1].ItemHandle.Should().Be(CrackerHandle);
     }
 
+    // --- FarmSummon's own refusals (StructPlayer.cpp:11264-11300) ------------------------------------------
+
+    [Test]
+    public async Task AnOrdinaryTicket_RefusesASummonNotBelowItsMaster_AndNothingIsSpent()
+    {
+        var farm = new Harness(summonLevel: FarmerLevel);
+        farm.Items.Add(TicketResource, ItemType.FarmPass, TicketDuration, isCash: false);
+        farm.Holds(TicketHandle, TicketResource, 5);
+
+        (await farm.Service.FosterCreatureAsync(farm.Client, Tickets(2))).Should().BeFalse();
+
+        farm.Deposits.Should().BeEmpty();
+        farm.Erased.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task APremiumTicket_TakesASummonAboveItsMaster()
+    {
+        var farm = new Harness(summonLevel: FarmerLevel + 10);
+        farm.Items.Add(TicketResource, ItemType.FarmPass, TicketDuration, isCash: true);
+        farm.Holds(TicketHandle, TicketResource, 5);
+
+        (await farm.Service.FosterCreatureAsync(farm.Client, Tickets(2))).Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ASummonAtTheFarmsCeiling_IsRefused()
+    {
+        var farm = new Harness(summonLevel: CreatureFarmRules.MaxLevel);
+        farm.Items.Add(TicketResource, ItemType.FarmPass, TicketDuration, isCash: true);
+        farm.Holds(TicketHandle, TicketResource, 5);
+
+        (await farm.Service.FosterCreatureAsync(farm.Client, Tickets(2))).Should().BeFalse();
+        farm.Erased.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task AFormedCard_StaysOutOfTheFarm()
+    {
+        var farm = new Harness();
+        farm.Items.Add(TicketResource, ItemType.FarmPass, TicketDuration, isCash: false);
+        farm.Holds(TicketHandle, TicketResource, 5);
+        StorageTestHarness.Session(farm.Client).SummonSlots = new long[] { CardHandle, 0, 0, 0, 0, 0 };
+
+        (await farm.Service.FosterCreatureAsync(farm.Client, Tickets(2))).Should().BeFalse();
+        farm.Deposits.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ADeposition_TakesTheCardOutOfTheClientsBag()
+    {
+        // FarmSummon's PopItem and RemoveSummon: the session and the client follow the card to the farm.
+        var farm = new Harness();
+        farm.Items.Add(TicketResource, ItemType.FarmPass, TicketDuration, isCash: false);
+        farm.Holds(TicketHandle, TicketResource, 5);
+
+        (await farm.Service.FosterCreatureAsync(farm.Client, Tickets(2))).Should().BeTrue();
+
+        A.CallTo(() => farm.CreatureService.OnCardFarmedAsync(farm.Client, CardHandle, true))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Test]
+    public void TheCostSeam_ReadsTheSocleTable()
+    {
+        var cost = CreatureFarmTicketCost.FromOptions(new CreatureFarmTicketCostOptions
+        {
+            Rows = new List<CreatureFarmTicketCostRowOptions> { new() { Rate = 3, Form = 2, EnhanceLevel = 5, TicketCount = 15 } },
+        });
+
+        cost.GetTicketCount(3, 2, 5).Should().Be(15);
+        cost.GetTicketCount(3, 3, 5).Should().Be(0);
+    }
+
     [Test]
     public async Task WithoutATicketCost_EveryDepositionIsRefused()
     {
@@ -590,13 +664,13 @@ public class CreatureFarmDepositTests
 
         public Harness(int cost = 2, int[] taken = null, bool withSummon = true, ItemFlag flag = ItemFlag.None,
             int summonResource = SummonResource, int? storageId = null, uint cardHandle = CardHandle,
-            int rowId = 77, string characterName = Farmer)
+            int rowId = 77, string characterName = Farmer, int summonLevel = 1)
         {
             _rowId = rowId;
             Cost.Count = cost;
             Items = new FarmItems();
 
-            var summon = withSummon ? new SummonEntity { SummonResourceId = summonResource } : null;
+            var summon = withSummon ? new SummonEntity { SummonResourceId = summonResource, Lv = summonLevel } : null;
             var card = new ItemEntity
             {
                 Id = cardHandle,
@@ -633,11 +707,13 @@ public class CreatureFarmDepositTests
             StorageTestHarness.Session(Client).CharacterName = characterName;
             StorageTestHarness.Session(Client).CharacterLevel = FarmerLevel;
 
-            Service = new CreatureFarmDepositService(Characters, Store, Creatures, Items, Cost, () => Now);
+            Service = new CreatureFarmDepositService(Characters, Store, Creatures, Items, Cost, () => Now,
+                CreatureService);
         }
 
         public ICharacterService Characters { get; } = A.Fake<ICharacterService>();
         public ICreatureFarmStore Store { get; } = A.Fake<ICreatureFarmStore>();
+        public ICreatureService CreatureService { get; } = A.Fake<ICreatureService>();
         public ICreatureCatalog Creatures { get; } = new CreatureCatalog(Options.Create(new CreatureCatalogOptions
         {
             Summons = new List<SummonResourceOptions>

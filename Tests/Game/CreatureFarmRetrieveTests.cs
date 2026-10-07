@@ -366,6 +366,47 @@ public class CreatureFarmRetrieveTests
             .MustNotHaveHappened();
     }
 
+    [Test]
+    public async Task FarmInfo_ReadsTheStoredUtcRegistrationAgainstTheLocalClock()
+    {
+        // Npgsql reads a timestamptz back as UTC while the service's clock is the local one: an entry registered an
+        // hour ago with a two-hour ticket is still running, whatever the server's time zone.
+        var (_, store, creatures, catalog) = Harness();
+        var localNow = new DateTime(2026, 10, 7, 12, 0, 0, DateTimeKind.Local);
+        var service = new CreatureFarmService(store, () => localNow, creatures, catalog);
+        var registered = localNow.ToUniversalTime().AddHours(-1);
+        A.CallTo(() => store.LoadAsync("Farmer"))
+            .Returns(Task.FromResult<System.Collections.Generic.IReadOnlyList<FarmedSummon>>(
+                new[] { Row(CardHandle, 60, false, registered, 7200) }));
+        var connection = new StorageTestHarness.FrameConnection(Array.Empty<byte>());
+        var client = StorageTestHarness.NewGameClient(connection);
+        StorageTestHarness.Session(client).CharacterName = "Farmer";
+
+        await service.SendFarmInfoAsync(client);
+
+        connection.Sent.Should().ContainSingle();
+        connection.Sent[0][7].Should().Be(1, "the entry is listed, not retrieved");
+        A.CallTo(store).Where(call => call.Method.Name == nameof(ICreatureFarmStore.RemoveAsync))
+            .MustNotHaveHappened();
+    }
+
+    [Test]
+    public async Task ARetrieval_PutsTheCardBackInTheClientsBag()
+    {
+        // RegainSummon's PushItem and AddSummon: the session and the client get the card back.
+        var (service, store, creatures, _) = Harness();
+        A.CallTo(() => store.LoadAsync("Farmer"))
+            .Returns(Task.FromResult<System.Collections.Generic.IReadOnlyList<FarmedSummon>>(
+                new[] { Row(CardHandle, 60, false, _now.AddHours(-2), 86400) }));
+        A.CallTo(() => creatures.FindCard(A<ConnectionInfo>._, CardHandle)).Returns(Card());
+        A.CallTo(() => store.RemoveAsync("Farmer", CardHandle)).Returns(Task.FromResult(true));
+        var client = Client();
+
+        (await service.RetrieveCreatureAsync(client, CardHandle)).Should().BeTrue();
+
+        A.CallTo(() => creatures.OnCardFarmedAsync(client, CardHandle, false)).MustHaveHappenedOnceExactly();
+    }
+
     // --- helpers -------------------------------------------------------------------------------------
 
     private GameClient Client()

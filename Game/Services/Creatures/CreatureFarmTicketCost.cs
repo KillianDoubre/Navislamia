@@ -46,6 +46,18 @@ public sealed class CreatureFarmTicketCost : ICreatureFarmTicketCost
         }
     }
 
+    /// <summary>The table the server loads at startup: <c>creature-farm-costs.73.json</c> (docs/packet-specs/socle-cout-tickets-ferme.md).</summary>
+    public static CreatureFarmTicketCost FromOptions(Navislamia.Configuration.Options.CreatureFarmTicketCostOptions options)
+    {
+        var rows = new List<CreatureFarmTicketCostRow>();
+        foreach (var row in options?.Rows ?? new List<Navislamia.Configuration.Options.CreatureFarmTicketCostRowOptions>())
+        {
+            rows.Add(new CreatureFarmTicketCostRow(row.Rate, row.Form, row.EnhanceLevel, row.TicketCount));
+        }
+
+        return new CreatureFarmTicketCost(rows);
+    }
+
     public int GetTicketCount(int rate, int form, int enhanceLevel) =>
         _costs.TryGetValue((rate, form, enhanceLevel), out var cost) ? cost : 0;
 }

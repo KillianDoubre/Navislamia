@@ -46,6 +46,7 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
     private readonly ICreatureFarmItemCatalog _items;
     private readonly ICreatureFarmTicketCost _costs;
     private readonly Func<DateTime> _localNow;
+    private readonly ICreatureService _creatureService;
 
     /// <param name="localNow">
     /// The local server clock the farm row's <c>registration_time</c> is stamped with, as for the nursing
@@ -53,8 +54,9 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
     /// </param>
     public CreatureFarmDepositService(ICharacterService characters, ICreatureFarmStore store,
         ICreatureCatalog creatures, ICreatureFarmItemCatalog items, ICreatureFarmTicketCost costs,
-        Func<DateTime> localNow = null)
+        Func<DateTime> localNow = null, ICreatureService creatureService = null)
     {
+        _creatureService = creatureService;
         _characters = characters;
         _store = store;
         _creatures = creatures;
@@ -88,7 +90,7 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
             return false;
         }
 
-        var (cardItemId, enhance, summonResource) = card.Value;
+        var (cardItemId, enhance, summonResource, summonLevel) = card.Value;
 
         // GameContent::GetCreatureFarmTicketCount(GetRate(), GetTransformLevel(), GetEnhance()) (:11866): the
         // rate and the form come from the summon the card holds, the enhance from the card itself, as
@@ -221,6 +223,15 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
             return false;
         }
 
+        // FarmSummon's own refusals (StructPlayer.cpp:11264-11300), before anything is written.
+        var refusal = CreatureFarmRules.DepositRefusal(summonLevel, summonResource.Form, isCash,
+            client.ConnectionInfo.CharacterLevel, !HeldItemRules.IsErasable(client.ConnectionInfo, cardItemId));
+        if (refusal is not null)
+        {
+            _logger.Warning("Refused a deposition of {characterName}: {reason}", characterName, refusal);
+            return false;
+        }
+
         // FindSuitableFarmSlot(isCash) (:11830-11845, called :11877): slot 0 for the ordinary tickets, 1..2 for
         // the premium ones.
         var farm = await _store.LoadAsync(characterName);
@@ -255,6 +266,12 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
             client.Connection.Send(GameCharacterPackets.BuildEraseItem(erased));
         }
 
+        // PopItem and RemoveSummon: the card leaves the client's bag and creature window, and the session knows it farmed.
+        if (_creatureService is not null)
+        {
+            await _creatureService.OnCardFarmedAsync(client, cardItemId, farmed: true);
+        }
+
         _logger.Information("Deposited card {card} of {characterName} in farm slot {slot} for {duration}s "
             + "(cash {isCash}, cracker {cracker}, max level {maxLevel})", cardItemId, characterName, slot,
             duration, isCash, crackers.Count > 0, maxLevel);
@@ -266,7 +283,7 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
     /// every step, as <c>GetSummonStruct()</c> being null or <c>IsInInventory()</c> being false does in the
     /// reference (:11744-11760).
     /// </summary>
-    private async Task<(long CardId, int Enhance, SummonResourceInfo SummonResource)?>
+    private async Task<(long CardId, int Enhance, SummonResourceInfo SummonResource, int SummonLevel)?>
         LoadCardAsync(string characterName, uint cardHandle)
     {
         var state = await _characters.GetCreatureStateAsync(characterName, _creatures.CardIds);
@@ -299,7 +316,7 @@ public sealed class CreatureFarmDepositService : ICreatureFarmDepositService
             return null;
         }
 
-        return (record.Card.Id, (int)record.Card.Enhance, summon);
+        return (record.Card.Id, (int)record.Card.Enhance, summon, Math.Max(1, record.Summon.Lv));
     }
 
     /// <summary>The stack a handle names, null unless it is a live stack of the character's bag.</summary>

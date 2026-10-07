@@ -38,6 +38,12 @@ public static class CreatureFarmRules
     /// </summary>
     public const int MaxLevel = 100;
 
+    /// <summary>The farm keeper's menu action (<c>NPC_Creature_Farm_contact</c>) that opens the window.</summary>
+    public const string WindowFunction = "show_creature_farm_window";
+
+    /// <summary><c>TS_SC_DIALOG::TYPE_CREATURE_FARM_WINDOW</c> (<c>GameMessage.h:2287</c>).</summary>
+    public const int WindowDialogType = 9;
+
     /// <summary>The level ceiling of the first summon form: <b>60</b> (<c>0x1404096b8</c>), identical in 2015.</summary>
     public const int NormalFormLevelCap = 60;
 
@@ -83,6 +89,30 @@ public static class CreatureFarmRules
     private static ItemFlag FromRaw(uint raw) => raw == 0 ? ItemFlag.None : unchecked((ItemFlag)raw);
 
     /// <summary>The card carries <c>ITEM_FLAG_FARMED_SUMMON</c> — it is deposited in the farm.</summary>
+    /// <summary>
+    /// The refusals of <c>StructPlayer::FarmSummon</c> (<c>StructPlayer.cpp:11264-11300</c>) a deposition still meets
+    /// once its tickets are judged, in the reference's order; null when the summon may go to the farm. A summon at
+    /// <see cref="MaxLevel"/> or at its form's ceiling has nothing to gain, an ordinary ticket refuses a summon not
+    /// below its master's level, and a formed card, a card whose summon is out or one on a belt slot stays
+    /// (<paramref name="held"/>, <see cref="HeldItemRules"/>).
+    /// </summary>
+    public static string DepositRefusal(int summonLevel, int form, bool isCash, int characterLevel, bool held)
+    {
+        if (summonLevel >= MaxLevel
+            || (form == 1 && summonLevel >= NormalFormLevelCap)
+            || (form == 2 && summonLevel >= GrowthFormLevelCap))
+        {
+            return $"the summon's level {summonLevel} is at the farm's ceiling for form {form}";
+        }
+
+        if (!isCash && summonLevel >= characterLevel)
+        {
+            return $"an ordinary ticket takes no summon of level {summonLevel} at or above its master's {characterLevel}";
+        }
+
+        return held ? "the card is formed, its summon is out or it sits on a belt slot" : null;
+    }
+
     public static bool IsFarmed(ItemFlag flag) => flag != ItemFlag.None && (Raw(flag) & FarmedSummonMask) != 0;
 
     /// <summary>The card carries <c>ITEM_FLAG_NURSED_SUMMON</c>.</summary>

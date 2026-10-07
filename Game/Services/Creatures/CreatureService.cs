@@ -107,6 +107,14 @@ public interface ICreatureService
     /// </summary>
     void GainExperience(GameClient master, CreatureCard card, long gain, bool force = false);
 
+    /// <summary>
+    /// A card went to the creature farm (<paramref name="farmed"/>) or came back: the session's card follows its
+    /// <c>ITEM_FLAG_FARMED_SUMMON</c>, and the client loses it from the bag and the creature window
+    /// (<c>FarmSummon</c>: <c>PopItem</c> → <c>TS_SC_DESTROY_ITEM</c>, <c>RemoveSummon</c> → 302) or gets it back
+    /// (<c>RegainSummon</c>: <c>PushItem</c> → <c>AddSummon</c> 301, <c>SendItemMessage</c> 207).
+    /// </summary>
+    Task OnCardFarmedAsync(GameClient client, long cardId, bool farmed) => Task.CompletedTask;
+
     (int Hp, int MaxHp, int Mp, int MaxMp) VitalsOf(GameClient client, CreatureCard card);
 
     void SetSummonVitals(GameClient master, CreatureCard card, int hp, int mp);
@@ -640,6 +648,47 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
                 .Select(id => info.CreatureCards.GetValueOrDefault(id))
                 .Where(card => card is { HasSummon: true })
                 .ToList();
+        }
+    }
+
+    public async Task OnCardFarmedAsync(GameClient client, long cardId, bool farmed)
+    {
+        var info = client.ConnectionInfo;
+        CreatureCard card;
+        lock (info.SummonLock)
+        {
+            card = info.CreatureCards.GetValueOrDefault(cardId);
+            if (card is not null)
+            {
+                card.Flag = farmed ? CreatureFarmRules.WithFarmedSummon(card.Flag)
+                    : CreatureFarmRules.WithoutFarmedSummon(card.Flag);
+            }
+        }
+
+        if (farmed)
+        {
+            client.Connection.Send(GameCharacterPackets.BuildDestroyItem(unchecked((uint)cardId)));
+            if (card is { HasSummon: true, InfoSent: true })
+            {
+                client.Connection.Send(GameSummonPackets.BuildRemoveSummonInfo(card.Handle));
+                card.InfoSent = false;
+            }
+
+            return;
+        }
+
+        if (card is { HasSummon: true })
+        {
+            SendSummonInfo(client, card);
+        }
+
+        var item = await _characters.GetItemByHandleAsync(info.CharacterName, unchecked((uint)cardId));
+        if (item is not null)
+        {
+            foreach (var frame in GameCharacterPackets.BuildInventory(new[] { item }))
+            {
+                client.Connection.Send(frame);
+            }
         }
     }
 
@@ -2214,7 +2263,9 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
     {
         lock (info.SummonLock)
         {
-            return info.CreatureCards.TryGetValue(cardId, out var card) && card.IsBound && card.Amount > 0;
+            // A card at the farm is out of the bag (FarmSummon's PopItem): it cannot be formed.
+            return info.CreatureCards.TryGetValue(cardId, out var card) && card.IsBound && card.Amount > 0
+                   && !CreatureFarmRules.IsFarmed(card.Flag);
         }
     }
 

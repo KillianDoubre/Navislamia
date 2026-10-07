@@ -312,6 +312,17 @@ public class NpcDialogService : INpcDialogService
             return;
         }
 
+        // show_creature_farm_window() (NPC 11467, SCRIPT_ShowCreatureFarmWindow): an empty TS_SC_DIALOG of
+        // TYPE_CREATURE_FARM_WINDOW (9) titled "CreatureFarm" opens the farm window, which asks its content with
+        // 6000 and deposits, retrieves and nurses with 6002/6004/6006. The dialog stays current, like the auction
+        // window's (docs/packet-specs/socle-ferme-creatures-officielle.md).
+        if (ReadFunctionName(trigger) == Creatures.CreatureFarmRules.WindowFunction)
+        {
+            client.Connection.Send(GameNpcDialogPackets.BuildDialog(npcHandle, "CreatureFarm", string.Empty,
+                Array.Empty<NpcDialogMenuEntry>(), Creatures.CreatureFarmRules.WindowDialogType));
+            return;
+        }
+
         // A merchant trigger is answered with TM_SC_MARKET (250), which opens the trade window; the
         // catalogue lines come from the market the trigger names. The NPC dialog is deliberately left
         // current — the window is additive, and leaving it lets the guard above validate a second

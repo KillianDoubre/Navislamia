@@ -161,7 +161,7 @@ public sealed class CreatureFarmStore : ICreatureFarmStore
             MaxLevel = deposit.MaxLevel,
             IsUsingCracker = deposit.IsUsingCracker,
             IsCash = deposit.IsCash,
-            RegistrationTime = deposit.RegistrationTime,
+            RegistrationTime = ToUtc(deposit.RegistrationTime),
             Duration = deposit.Duration,
             NursingTime = null,
         };
@@ -180,7 +180,7 @@ public sealed class CreatureFarmStore : ICreatureFarmStore
             return false;
         }
 
-        row.NursingTime = nursingTime;
+        row.NursingTime = ToUtc(nursingTime);
         await db.SaveChangesAsync();
         return true;
     }
@@ -234,6 +234,13 @@ public sealed class CreatureFarmStore : ICreatureFarmStore
         await db.SaveChangesAsync();
         return true;
     }
+
+    /// <summary>
+    /// The two columns are <c>timestamp with time zone</c>, which Npgsql only writes from a UTC
+    /// <see cref="DateTime"/>: the gestures stamp them with the local server clock (the 06:00 reset is local), so a
+    /// local value would throw at <c>SaveChanges</c> on the real database while every fake store accepts it.
+    /// </summary>
+    private static DateTime ToUtc(DateTime value) => value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
 
     private static Task<CreatureFarmEntity> FarmRowAsync(TelecasterContext db, string characterName, long cardItemId) =>
         db.CreatureFarms.FirstOrDefaultAsync(f => f.CardItemId == cardItemId

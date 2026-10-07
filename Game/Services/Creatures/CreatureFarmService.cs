@@ -280,6 +280,9 @@ public sealed class CreatureFarmService : ICreatureFarmService
                 row.Slot, characterName);
         }
 
+        // PushItem and AddSummon: the card comes back to the client's bag and creature window.
+        await _creatures.OnCardFarmedAsync(client, row.CardItemId, farmed: false);
+
         _logger.Debug("Farm entry {slot} of {characterName} retrieved: card {cardItemId}, form {form}, " +
             "{hours} farmed hours, {gain} experience granted", row.Slot, characterName, row.CardItemId, form,
             hours, gain);
@@ -291,7 +294,7 @@ public sealed class CreatureFarmService : ICreatureFarmService
     /// ticket covers a window, and an entry past its end is retrieved on the next farm read.
     /// </summary>
     private static bool IsExpired(FarmedSummon row, DateTime now) =>
-        row.RegistrationTime.AddSeconds(row.Duration > 0 ? row.Duration : 0) < now;
+        CreatureFarmRules.ElapsedSeconds(row.RegistrationTime, now) > Math.Max(0, row.Duration);
 
     /// <summary>
     /// The notice of a retrieval the player did not ask for: the reference sends the token

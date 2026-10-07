@@ -530,3 +530,24 @@ protégé) :
   dont la ressource ne porte **pas de durée** exploitable (`OptVar1[0] ≤ 0`).
 - Savoir complet et questions ouvertes : `docs/packet-specs/6002-foster-creature.md`.
 ```
+
+## Revue d'intégration du 2026-10-07 (Claude, fusion des PR #84, #85, #86, #87)
+
+Corrections apportées à la fusion, la fiche ci-dessus restant la trace du lot :
+
+- **Heures en UTC.** Le dépôt et le soin écrivaient `DateTime.Now` (heure locale) dans des colonnes
+  `timestamp with time zone` : Npgsql 8 lève une exception au `SaveChanges`, que les magasins factices des tests ne
+  voient pas. `CreatureFarmStore` convertit en UTC à l'écriture. L'expiration d'une entrée (`IsExpired`, 6000)
+  comparait l'heure UTC relue en base à l'heure locale : elle passe par `CreatureFarmRules.ElapsedSeconds`.
+- **Table des coûts branchée.** `ICreatureFarmTicketCost` était enregistré vide (tout dépôt refusé) alors que le socle
+  de la PR #86 charge `creature-farm-costs.73.json` : `CreatureFarmTicketCost.FromOptions`.
+- **Refus de `FarmSummon` ajoutés au dépôt** (`StructPlayer.cpp:11264-11300`, `CreatureFarmRules.DepositRefusal`) :
+  invocation au plafond (100, forme 1 à 60, forme 2 à 115), ticket ordinaire pour une invocation pas sous le niveau du
+  maître, carte formée, invocation sortie ou carte de ceinture (`HeldItemRules`).
+- **La carte quitte le sac du client** (`PopItem` → 254, `RemoveSummon` → 302 ; `PushItem` → 207, `AddSummon` → 301) :
+  `ICreatureService.OnCardFarmedAsync`, `BuildInventory` n'envoie jamais une carte au bit 27, `HeldItemRules` et la
+  formation la refusent. Le choix « la carte reste dans le sac » laissait une carte en ferme invocable, échangeable et
+  vendable.
+- **La fenêtre s'ouvre** : `show_creature_farm_window()` du PNJ 11467 envoie `TS_SC_DIALOG` type 9 `CreatureFarm`
+  (`SCRIPT_ShowCreatureFarmWindow`). 6008 (marché de la ferme) reste sans réponse.
+- Non repris, faute de champ dans le dépôt : le refus d'une carte à durée limitée ou à durabilité éthérée épuisée.
