@@ -453,3 +453,7 @@ Corrections apportées à la fusion, la fiche ci-dessus restant la trace du lot 
 - **La fenêtre s'ouvre** : `show_creature_farm_window()` du PNJ 11467 envoie `TS_SC_DIALOG` type 9 `CreatureFarm`
   (`SCRIPT_ShowCreatureFarmWindow`). 6008 (marché de la ferme) reste sans réponse.
 - Non repris, faute de champ dans le dépôt : le refus d'une carte à durée limitée ou à durabilité éthérée épuisée.
+- **Le gestionnaire officiel est porté** (`NPC_Creature_farm.lua:52-59` de la source 2015) : aucun interpréteur ici ne
+  charge ce script avec un `insert_item` lié au joueur, donc sans script le soin répondait toujours `NO_REWARD`.
+  `CreatureFarmService.NurseGiftAsync` tire `1..10`, et sous 6 donne un objet 710009 (« 크리쳐의 선물 ») avec sa 207 et
+  répond `REWARDED` ; un script chargé garde la main.

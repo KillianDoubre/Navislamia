@@ -8,6 +8,8 @@ using Navislamia.Game.DataAccess.Entities.Enums;
 using Navislamia.Game.Network.Clients;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
+using Navislamia.Game.Services;
 using Navislamia.Game.Services.Creatures;
 using Navislamia.Game.Scripting;
 
@@ -238,12 +240,32 @@ public class CreatureFarmNurseTests
         bench.Frame[7].Should().Be(2);
     }
 
-    [Test]
-    public async Task AMissingScriptIsANoRewardNeverAFailed()
+    [TestCase(6, NurseResult.NoReward, TestName = "WithoutAScript_TheOfficialHandlerGivesNothingOnASixOrMore")]
+    [TestCase(5, NurseResult.Rewarded, TestName = "WithoutAScript_TheOfficialHandlerGivesTheGiftBelowSix")]
+    public async Task WithoutAScript_TheOfficialHandlerDecides(int draw, NurseResult expected)
     {
-        // The farm's script is not in the repository: the nursing still goes through and is written, and the
-        // client is told NO_REWARD (1) — the official server never turns a missing script into FAILED (0).
-        var bench = new Bench(Morning);
+        // NPC_Creature_farm.lua:52-59, ported: math.random(1, 10) < 6 inserts item 710009 and returns 1.
+        var bench = new Bench(Morning, draw: draw);
+        A.CallTo(() => bench.Store.LoadNursingTargetAsync("Killian", 7))
+            .Returns(new FarmNursingTarget(7, DepositedCard, true, null));
+        A.CallTo(() => bench.Store.SetNursingTimeAsync("Killian", 7, Morning)).Returns(true);
+        A.CallTo(() => bench.Scripts.CallGlobalFunction(A<string>._)).Returns(null);
+        A.CallTo(() => bench.Characters.AddItemAsync("Killian", CreatureFarmRules.NurseGiftItem, 1))
+            .Returns(new ItemEntity { Id = 99, ItemResourceId = CreatureFarmRules.NurseGiftItem, Amount = 1 });
+
+        var verdict = await bench.Service.NurseAsync(bench.Client, 7);
+
+        verdict.Should().Be(expected);
+        A.CallTo(() => bench.Characters.AddItemAsync("Killian", CreatureFarmRules.NurseGiftItem, 1))
+            .MustHaveHappened(expected == NurseResult.Rewarded ? 1 : 0, Times.Exactly);
+    }
+
+    [Test]
+    public async Task AMissingScriptIsNeverAFailed()
+    {
+        // The nursing still goes through and is written: the official server never turns the script's answer into
+        // FAILED (0), which only NurseSummon's refusal gives.
+        var bench = new Bench(Morning, draw: 10);
         A.CallTo(() => bench.Store.LoadNursingTargetAsync("Killian", 7))
             .Returns(new FarmNursingTarget(7, DepositedCard, true, null));
         A.CallTo(() => bench.Store.SetNursingTimeAsync("Killian", 7, Morning)).Returns(true);
@@ -382,13 +404,21 @@ public class CreatureFarmNurseTests
     {
         private readonly StorageTestHarness.FrameConnection _connection = new(Array.Empty<byte>());
 
-        public Bench(DateTime now, string characterName = "Killian", IScriptService scripts = null)
+        public Bench(DateTime now, string characterName = "Killian", IScriptService scripts = null, int draw = 10)
         {
             Store = A.Fake<ICreatureFarmStore>();
             Scripts = scripts ?? A.Fake<IScriptService>();
             Client = StorageTestHarness.NewGameClient(_connection);
             StorageTestHarness.Session(Client).CharacterName = characterName;
-            Service = new CreatureFarmService(Store, () => now, scripts: Scripts);
+            Service = new CreatureFarmService(Store, () => now, scripts: Scripts, characters: Characters,
+                random: new FixedDraw(draw));
+        }
+
+        public ICharacterService Characters { get; } = A.Fake<ICharacterService>();
+
+        private sealed class FixedDraw(int value) : Random
+        {
+            public override int Next(int minValue, int maxValue) => value;
         }
 
         public ICreatureFarmStore Store { get; }

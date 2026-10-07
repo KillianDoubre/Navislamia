@@ -262,6 +262,12 @@ public static class CreatureFarmRules
     /// </summary>
     public const string NurseHandlerFunction = "NPC_Creature_Farm_nurse_handler";
 
+    /// <summary>The creature's gift (<c>insert_item( 710009, 1 )</c> of the official nursing handler).</summary>
+    public const int NurseGiftItem = 710009;
+
+    /// <summary>The handler's draw: <c>math.random(1, 10) &lt; 6</c>, one chance in two.</summary>
+    public static bool NurseGiftDrawn(int draw) => draw < 6;
+
     /// <summary>
     /// Whether <c>NurseSummon</c> accepts a nursing (<c>StructPlayer.cpp:11423-11467</c>, 7.3
     /// <c>0x1400d63a0</c>): the handle must have resolved a card, that card must carry

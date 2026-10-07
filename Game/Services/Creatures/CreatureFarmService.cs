@@ -74,6 +74,8 @@ public sealed class CreatureFarmService : ICreatureFarmService
     private readonly ICreatureService _creatures;
     private readonly ICreatureCatalog _catalog;
     private readonly Navislamia.Game.Scripting.IScriptService _scripts;
+    private readonly ICharacterService _characters;
+    private readonly Random _random;
 
     /// <param name="localNow">
     /// The local server clock, as for the nursing reset at 06:00 (<c>StructPlayer.cpp:11439-11456</c>).
@@ -93,8 +95,11 @@ public sealed class CreatureFarmService : ICreatureFarmService
     /// </param>
     public CreatureFarmService(ICreatureFarmStore store, Func<DateTime> localNow = null,
         ICreatureService creatures = null, ICreatureCatalog catalog = null,
-        Navislamia.Game.Scripting.IScriptService scripts = null)
+        Navislamia.Game.Scripting.IScriptService scripts = null, ICharacterService characters = null,
+        Random random = null)
     {
+        _characters = characters;
+        _random = random ?? Random.Shared;
         _store = store;
         _localNow = localNow ?? (() => DateTime.Now);
         _creatures = creatures;
@@ -365,13 +370,49 @@ public sealed class CreatureFarmService : ICreatureFarmService
         // The write precedes the script, as in the reference: NurseSummon stores the time and returns true,
         // only then does the caller run the chunk and read its verdict (StructPlayer.cpp:11458-11462,
         // GameMessage.cpp:11931-11938).
-        var verdict =
-            CreatureFarmRules.NurseVerdict(_scripts?.CallGlobalFunction(CreatureFarmRules.NurseHandlerFunction));
+        var scripted = _scripts?.CallGlobalFunction(CreatureFarmRules.NurseHandlerFunction);
+        var verdict = scripted is not null
+            ? CreatureFarmRules.NurseVerdict(scripted)
+            : await NurseGiftAsync(client, characterName);
         _logger.Debug("TM_SC_RESULT_NURSE ({id}) for {characterName}: card {cardId} nursed at {nursingTime}, " +
             "farm script verdict {verdict}",
             (ushort)Network.Packets.Enums.GamePackets.TM_SC_RESULT_NURSE, characterName, target.CardItemId, now,
             (byte)verdict);
         return Answer(client, verdict);
+    }
+
+    /// <summary>
+    /// The official <c>NPC_Creature_Farm_nurse_handler</c> (<c>NPC_Creature_farm.lua:52-59</c>), ported because no
+    /// interpreter here loads it with an <c>insert_item</c> bound to the player: <c>math.random(1, 10) &lt; 6</c> gives one
+    /// <see cref="CreatureFarmRules.NurseGiftItem"/> and answers 1, anything else 0. The gift goes to the bag with its 207.
+    /// </summary>
+    private async Task<NurseResult> NurseGiftAsync(GameClient client, string characterName)
+    {
+        if (!CreatureFarmRules.NurseGiftDrawn(_random.Next(1, 11)))
+        {
+            return NurseResult.NoReward;
+        }
+
+        if (_characters is not null)
+        {
+            try
+            {
+                var gift = await _characters.AddItemAsync(characterName, CreatureFarmRules.NurseGiftItem, 1);
+                if (gift is not null)
+                {
+                    foreach (var frame in GameCharacterPackets.BuildInventory(new[] { gift }))
+                    {
+                        client.Connection.Send(frame);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, "Could not give the nursing gift to {characterName}", characterName);
+            }
+        }
+
+        return NurseResult.Rewarded;
     }
 
     /// <summary>The <c>6007</c> the client waits for: always sent, and returned for the caller's log.</summary>
