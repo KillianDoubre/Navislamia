@@ -106,6 +106,7 @@ public class FarmPacketsTests
         ((ushort)GamePackets.TM_CS_FOSTER_CREATURE).Should().Be(6002);
         ((ushort)GamePackets.TM_CS_RETRIEVE_CREATURE).Should().Be(6004);
         ((ushort)GamePackets.TM_CS_NURSE_CREATURE).Should().Be(6006);
+        ((ushort)GamePackets.TM_SC_RESULT_NURSE).Should().Be(6007);
         ((ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET).Should().Be(6008);
 
         // Every id of the family is X(<id>, true) in rzu under "// Since EPIC_7_3": no remapping for 7.3, so
@@ -115,17 +116,19 @@ public class FarmPacketsTests
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_FOSTER_CREATURE).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_RETRIEVE_CREATURE).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_NURSE_CREATURE).Should().BeTrue();
+        Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_NURSE).Should().BeTrue();
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET).Should().BeTrue();
     }
 
     [Test]
-    public void TheThreeResultIds_AreNotDeclared()
+    public void TheTwoOtherResultIds_AreNotDeclared()
     {
-        // 6003, 6005 and 6007 carry a `result` byte whose values no reference establishes: the lot emits none
-        // of them, and a declared member must be routed (transversal rule 4).
+        // 6003 and 6005 carry a `result` byte that belongs to the deposit and the retrieval (MR #84, #86):
+        // neither lot is here, and a declared member must be routed (transversal rule 4). 6007, on the other
+        // hand, is declared by the nursing lot — its values are established and it is emitted.
         Enum.IsDefined(typeof(GamePackets), (ushort)6003).Should().BeFalse();
         Enum.IsDefined(typeof(GamePackets), (ushort)6005).Should().BeFalse();
-        Enum.IsDefined(typeof(GamePackets), (ushort)6007).Should().BeFalse();
+        Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_SC_RESULT_NURSE).Should().BeTrue();
     }
 
     [Test]
@@ -618,11 +621,12 @@ public class FarmPacketsTests
     [TestCase((ushort)GamePackets.TM_CS_FOSTER_CREATURE, 27, TestName = "Receive_FosterCreatureIsReadAndNotAnswered")]
     [TestCase((ushort)GamePackets.TM_CS_RETRIEVE_CREATURE, 11,
         TestName = "Receive_RetrieveCreatureIsReadAndNotAnswered")]
-    [TestCase((ushort)GamePackets.TM_CS_NURSE_CREATURE, 11, TestName = "Receive_NurseCreatureIsReadAndNotAnswered")]
     [TestCase((ushort)GamePackets.TM_CS_REQUEST_FARM_MARKET, 7,
         TestName = "Receive_FarmMarketRequestIsReadAndNotAnswered")]
-    public void FarmFrames_NeverThrowAndOnlyTheFarmInfoRequestIsAnswered(ushort id, int length)
+    public void FarmFrames_NeverThrowAndTheUnansweredOnesStaySilent(ushort id, int length)
     {
+        // 6006 is not in this list any more: the nursing lot answers it with a 6007
+        // (CreatureFarmNurseTests.TheNurseRequestIsDispatchedAndAnsweredWithTheVerdict).
         var frame = ClientFrame(id, length);
         var connection = new StorageTestHarness.FrameConnection(frame);
         var client = StorageTestHarness.NewGameClient(connection);
@@ -630,7 +634,7 @@ public class FarmPacketsTests
         var receive = () => client.OnDataReceived(connection.BytesAvailable);
 
         receive.Should().NotThrow();
-        connection.Sent.Should().BeEmpty("no reference establishes an answer for 6002, 6004, 6006 and 6008, and a "
+        connection.Sent.Should().BeEmpty("no reference establishes an answer for 6002, 6004 and 6008, and a "
             + "malformed 6000 is only logged");
     }
 
