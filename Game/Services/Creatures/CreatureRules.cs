@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Navislamia.Game.DataAccess.Entities.Enums;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.Services.Stats;
 
 namespace Navislamia.Game.Services.Creatures;
@@ -42,6 +43,39 @@ public static class CreatureRules
         (ItemFlag)unchecked((int)(Raw(flag) | TamingRules.SummonCardMask));
 
     public static bool IsBound(ItemFlag flag) => TamingRules.IsBoundSummonCard(flag);
+
+    /// <summary>
+    /// <c>DB_Login</c> (DB_Login.cpp:1240-1242): a bound card carries its creature's summon code, set again from the
+    /// summon row when they differ. The 7.3 client reads it at offset 71 of the item record (the field the repository
+    /// names <c>appearance_code</c>, kept in <see cref="ItemEntity.AppearanceCode"/>) for every creature portrait
+    /// (SFrame.exe <c>0x4a69a0</c>, <c>creature_faceicon</c>); a card the code was never written on shows no creature.
+    /// Returns whether a card changed.
+    /// </summary>
+    public static bool SyncCardSummonCodes(IEnumerable<ItemEntity> items, IEnumerable<SummonEntity> summons)
+    {
+        if (items is null || summons is null)
+        {
+            return false;
+        }
+
+        var codes = new Dictionary<long, int>();
+        foreach (var summon in summons)
+        {
+            codes[summon.CardItemId] = summon.SummonResourceId;
+        }
+
+        var changed = false;
+        foreach (var item in items)
+        {
+            if (IsBound(item.Flag) && codes.TryGetValue(item.Id, out var code) && item.AppearanceCode != code)
+            {
+                item.AppearanceCode = code;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
 
     private static uint Raw(ItemFlag flag) => flag == ItemFlag.None ? 0u : unchecked((uint)flag);
 

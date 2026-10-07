@@ -2239,6 +2239,9 @@ Fiche complète et références : `docs/packet-specs/socle-artisanat-objets.md`.
   Control (1801), une invocation dehors ne peut pas être retirée, et la formation résultante est
   **toujours** renvoyée avec l'`open_dialog` reçu.
 - Le `throw` final porte désormais l'id (`Unknown Packet Type 303`) : l'erreur nomme le paquet orphelin.
+- **Une carte liée nomme sa créature à l'offset 71 de l'enregistrement d'objet** (`Items.AppearanceCode`, le
+  `summon_code` de l'officiel) : le client 7.3 y lit tous les portraits de créature. Écrit à l'apprivoisement, à
+  l'évolution et resynchronisé à l'entrée en jeu (`CreatureRules.SyncCardSummonCodes`, fiche §16).
 - Détail et réserves : `docs/packet-specs/324-get-summon-setup-info.md`.
 
 ### Passifs qui posent un état au combat (2026-10-05)

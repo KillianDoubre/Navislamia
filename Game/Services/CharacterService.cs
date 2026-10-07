@@ -177,7 +177,14 @@ public partial class CharacterService : ICharacterService
         return RunExclusiveAsync(characterName, async repository =>
         {
             var character = await repository.GetAccountCharacterWithItemsAsync(accountName, characterName);
-            if (character is not null && CharacterDefaults.Apply(character))
+            // CharacterDefaults first, then DB_Login's card summon codes, before the inventory leaves.
+            var changed = character is not null && CharacterDefaults.Apply(character);
+            if (character?.Items is { Count: > 0 } items && items.Any(item => Creatures.CreatureRules.IsBound(item.Flag)))
+            {
+                changed |= Creatures.CreatureRules.SyncCardSummonCodes(items, await repository.GetSummonsAsync(character.Id));
+            }
+
+            if (changed)
             {
                 await repository.SaveChangesAsync();
             }
@@ -1597,6 +1604,8 @@ public partial class CharacterService : ICharacterService
                 Amount = 1,
                 WearInfo = ItemWearType.None,
                 Flag = Creatures.CreatureRules.WithSummonFlag(ItemFlag.None),
+                // ProcTame: pItem->SetSummonCode( nSummonCode ) — the card names its creature (offset 71).
+                AppearanceCode = summonCode,
                 GenerateBySource = ItemGenerateSource.Taming,
                 Idx = character.Items.Count == 0
                     ? InventoryArrange.FirstIndex
@@ -1632,8 +1641,30 @@ public partial class CharacterService : ICharacterService
 
             var summon = NewSummon(character, cardItemId, summonCode, summonName, hp, mp);
             repository.AddSummon(summon);
+            card.AppearanceCode = summonCode;
             await repository.SaveChangesAsync();
             return summon;
+        });
+    }
+
+    public Task<ItemEntity> SetCardSummonCodeAsync(string characterName, long cardItemId, int summonCode)
+    {
+        return RunExclusiveAsync<ItemEntity>(characterName, async repository =>
+        {
+            var character = await repository.GetCharacterByNameWithItemsAsync(characterName);
+            var card = character?.Items?.FirstOrDefault(item => item.Id == cardItemId);
+            if (card is null || !Creatures.CreatureRules.IsBound(card.Flag))
+            {
+                return null;
+            }
+
+            if (card.AppearanceCode != summonCode)
+            {
+                card.AppearanceCode = summonCode;
+                await repository.SaveChangesAsync();
+            }
+
+            return card;
         });
     }
 

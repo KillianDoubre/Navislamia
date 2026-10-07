@@ -31,11 +31,10 @@ public readonly record struct ItemFixedInfo(
     int AppearanceCode)
 {
     /// <summary>
-    /// Reads an inventory item into the wire motif. The two fields the inventory serializer never
-    /// filled stay zero: <c>elemental_effect.remain_time</c> (offset 59) and <c>appearance_code</c>
-    /// (offset 71). The content of <c>appearance_code</c> is not established for this client — 0 is
-    /// the only value the repository has ever put on the wire (docs/packet-specs/socle-encheres.md
-    /// §8.3).
+    /// Reads an inventory item into the wire motif. <c>elemental_effect.remain_time</c> (offset 59) stays
+    /// zero. Offset 71 (<c>appearance_code</c> for rzu) is <see cref="ItemEntity.AppearanceCode"/>: on a
+    /// bound creature card it is the creature's summon code, which the 7.3 client reads for every creature
+    /// portrait (SFrame.exe <c>0x4a69a0</c>; docs/packet-specs/324-get-summon-setup-info.md §16).
     /// </summary>
     public static ItemFixedInfo FromItem(ItemEntity item)
     {

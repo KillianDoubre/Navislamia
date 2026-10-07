@@ -202,6 +202,8 @@ public class SummonMountEvolutionTests
         A.CallTo(() => h.Characters.SaveSummonProgressAsync("Ana", A<IReadOnlyList<SummonProgress>>.That.Matches(p =>
             p.Single().SummonResourceId == 2102 && p.Single().PreviousSummonResourceIds[0] == 2101)))
             .MustHaveHappened();
+        A.CallTo(() => h.Characters.SetCardSummonCodeAsync("Ana", h.Card.ItemId, 2102))
+            .MustHaveHappened(); // DoEvolution: the card takes the new code
     }
 
     [Test]
@@ -307,6 +309,7 @@ public class SummonMountEvolutionTests
         var tamed = await service.CommitTamingAsync("Ana", 50, true, 2101, "RossParr", 100, 50);
         tamed.RemainingAmount.Should().Be(1, "a success consumes the card even with a mirror");
         tamed.MirrorRemaining.Should().Be(0, "the mirror breaks on a success too");
+        tamed.NewCard.AppearanceCode.Should().Be(2101, "ProcTame: SetSummonCode, the card names its creature");
 
         (await service.CommitTamingAsync("Ana", 50, false, 2101, null, 0, 0)).RemainingAmount
             .Should().Be(0, "no mirror left: the failure burns the card");

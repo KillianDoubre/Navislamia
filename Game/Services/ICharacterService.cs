@@ -289,6 +289,13 @@ public interface ICharacterService
     Task<SummonEntity> CreateSummonAsync(string characterName, long cardItemId, int summonCode, string summonName,
         int hp, int mp) => Task.FromResult<SummonEntity>(null);
 
+    /// <summary>
+    /// <c>StructSummon::DoEvolution</c>: the bound card takes its creature's new summon code (offset 71 of the item
+    /// record); the card as written, or null when it is not one of the character's bound cards.
+    /// </summary>
+    Task<ItemEntity> SetCardSummonCodeAsync(string characterName, long cardItemId, int summonCode) =>
+        Task.FromResult<ItemEntity>(null);
+
     /// <summary>The six formation slots (card item ids) and the main summon, written together.</summary>
     Task<bool> SaveCreatureFormationAsync(string characterName, long[] slots, long? mainSummonId) =>
         Task.FromResult(false);

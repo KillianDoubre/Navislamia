@@ -656,3 +656,36 @@ apprivoisée, invocation non allouée) en `Information`, et la formation renvoy�
 
 **À revérifier en jeu** avec Creature Control 3 et deux cartes apprivoisées (170, 173) : si l'affichage reste faux alors
 que le journal n'écarte aucune carte, le défaut est ailleurs (301 de la deuxième invocation) et ce paragraphe sera repris.
+
+## 16. Pas de portrait de créature dans la fenêtre de formation (2026-10-07)
+
+Bug noté : les emplacements de la fenêtre de formation n'affichent pas l'image de la créature. Lecture de
+`SFrame.exe` :
+
+- un emplacement garde le handle de sa carte (`[fenêtre+0x4ac+4i]`, `0x561e5f`) et la retrouve dans **l'inventaire
+  du client** (`0x4a4c40` : objets dont le handle est à `+8`) ; trouvée, `0x55fdd0` pose l'icône de la carte
+  (`creatureform_cardslot%02d`) et `0x55fee0` le portrait (`creature_faceicon%02d`, `0x5bb150`) ;
+- le portrait vient de `0x4a69a0(carte)`, qui rend le champ `+0x4f` de l'objet client, cherché ensuite dans
+  `db_creature.rdb` (`0x42af00`, initialiseur `push 0xa10f08`) ; le nom de fichier de l'icône est à `+0x17a` de
+  l'enregistrement trouvé, l'amélioration (`+0x28`) ajoute un suffixe ;
+- l'objet client est l'enregistrement du fil décalé de 8 : handle `+8` = 0, code `+0xc` = 4, amélioration `+0x28` =
+  32, châsses `+0x2e` = 38, type élémentaire `+0x42` = 58 et ses valeurs `+0x43/+0x47/+0x4b` = 59/63/67,
+  `wear_position` `+0x53` = 75, `own_summon_handle` `+0x55` = 77 (`0x54e6b0` les lit tous). **`+0x4f` est donc
+  l'offset 71 du fil**, le champ que rzu appelle `appearance_code` (gaté `>= EPIC_7_4`) et que ce dépôt envoyait à 0 ;
+  seules les fonctions des fenêtres de créature (`0x5bb…`, six appelants) le lisent.
+
+C'est le `summon_code` de l'officiel : `ProcTame` crée la carte avec le code de la carte vide puis
+`SetSummonCode(nSummonCode)` (`GameProc.cpp:214-216`), `DB_Login` le recopie de la ligne d'invocation quand il diffère
+(`DB_Login.cpp:1240-1242`), et `DoEvolution` l'écrit puis renvoie la carte (`StructSummon.cpp:1263-1282`). Sans lui,
+une carte apprivoisée ne nomme aucune créature pour le client.
+
+Corrigé : le code est rangé dans `Items.AppearanceCode` (aucune migration, la colonne existe et part à l'offset 71) —
+à l'apprivoisement (`CommitTamingAsync`), à la création d'une invocation pour une carte qui n'en avait pas (la carte
+est renvoyée), à l'évolution (`SetCardSummonCodeAsync`, puis 207) et, pour les cartes existantes, au chargement
+d'entrée en jeu, avant l'inventaire (`CreatureRules.SyncCardSummonCodes`). Tests : `CardSummonCodeTests`, et les tests
+d'apprivoisement et d'évolution de `SummonMountEvolutionTests`. **À vérifier en jeu.**
+
+Pas porté : l'officiel 2015 écrit aussi dans les châsses 1… d'une carte les niveaux de l'invocation (formes
+précédentes puis niveau courant, `fillItemBaseInfo`). Aucune lecture de ces châsses n'a été cherchée dans la fenêtre
+7.3 : à regarder si le niveau affiché d'une carte est faux.
+

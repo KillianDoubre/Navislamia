@@ -1890,7 +1890,32 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
         }
 
         _ = SaveProgressAsync(info, new[] { card });
+        // DoEvolution: the card takes the new summon code and goes back to the client (SendItemMessage), which reads
+        // the creature's portrait from it.
+        _ = SendCardSummonCodeAsync(client, card.ItemId, target.Id);
         return true;
+    }
+
+    private async Task SendCardSummonCodeAsync(GameClient client, long cardItemId, int summonCode)
+    {
+        try
+        {
+            var item = await _characters.SetCardSummonCodeAsync(client.ConnectionInfo.CharacterName, cardItemId, summonCode);
+            if (item is null)
+            {
+                return;
+            }
+
+            foreach (var frame in GameCharacterPackets.BuildInventory(new[] { item }))
+            {
+                client.Connection.Send(frame);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not write the summon code of card {card} for {clientTag}", cardItemId,
+                client.ClientTag);
+        }
     }
 
     // ---- taming -----------------------------------------------------------------------------------------------
@@ -2220,10 +2245,16 @@ public sealed partial class CreatureService : ICreatureService, ICreatureEventLi
                 continue;
             }
 
-            if (!card.HasSummon && !await CreateSummonAsync(info, card))
+            if (!card.HasSummon)
             {
-                Array.Clear(resolved, Array.IndexOf(resolved, cardId), 1);
-                continue;
+                if (!await CreateSummonAsync(info, card))
+                {
+                    Array.Clear(resolved, Array.IndexOf(resolved, cardId), 1);
+                    continue;
+                }
+
+                // The card now names its creature (CreateSummonAsync wrote the code): the client gets it again.
+                await SendCardSummonCodeAsync(client, card.ItemId, card.SummonCode);
             }
 
             if (!card.InfoSent)
