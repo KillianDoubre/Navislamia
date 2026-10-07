@@ -310,6 +310,74 @@ Faits mesurés, sans choix de jeu :
 5. **Rien de tout cela n'est observable comme un bug** : le client ne teste jamais l'octet `result`, il le
    remet à son interface (fiche `6002` §5.6 et §7 point 4).
 
+### 5.5 Ce que le lot a effectivement livré (`navis-dev`)
+
+Le socle a livré les **étapes 1 à 4 du §5.3** et s'est arrêté devant l'**étape 5**, comme le §0 point 1 le
+conclut (`(b)`) : le seul geste de la fiche — « fournir les lignes au constructeur déjà écrit » (§5.2) —
+n'existe que sur `hermes/packet-6002-foster-creature` (MR `#84`), qui n'est pas mergée. **Aucun fichier de
+cette branche n'a été recopié** : `ICreatureFarmTicketCost`, `CreatureFarmTicketCost`,
+`CreatureFarmTicketCostRow` et `CreatureFarmDepositService` restent absents de cette branche, et ni
+`GamePackets` ni `GameClient` ne sont touchés — rien ne change donc à l'exécution, la table n'étant encore
+qu'une donnée chargée sans consommateur.
+
+1. **`tools/export_creature_farm_costs.py`** — lit le `.rdb` retenu au §4 (en-tête 128 o, `u32` à `0x80`,
+   `count` enregistrements de quatre `uint8` à partir de `0x84`) et écrit
+   `DevConsole/creature-farm-costs.73.json`. Il **refuse** une taille autre que `128 + 4 + N × 4`, un
+   `ticket_count` inférieur à 1 (0 reste la réponse réservée à la clé absente, §5.1), une clé dupliquée, un
+   ordre non croissant et un corps qui ne couvre pas le produit cartésien des trois colonnes qu'il déclare
+   (même discipline que `export_pet_catalog.py` et `export_monster_drops.py`). Le CSV 9.4 n'est pas une
+   entrée de l'outil.
+2. **`DevConsole/creature-farm-costs.73.json`** (committé) — enveloppe `CreatureFarmTicketCosts.Rows`, une
+   ligne par clé, quatre champs dans l'ordre du binaire (`Rate`, `Form`, `EnhanceLevel`, `TicketCount`).
+   Déclaré dans `DevConsole/DevConsole.csproj` (`PreserveNewest`), donc présent à la racine de contenu
+   comme les douze autres catalogues.
+3. **`Configuration/Options/CreatureFarmTicketCostOptions.cs`** — `List<CreatureFarmTicketCostRowOptions> Rows`,
+   la ligne portant `Rate`, `Form`, `EnhanceLevel` et `TicketCount`.
+4. **`DevConsole/Program.cs`** — `ConfigureCreatureFarmTicketCosts(services, context)`, sur le patron de
+   `ConfigurePetCatalog` (§5.3 point 4) : fichier absent → options vides, **aucune exception** ; appelé avec
+   les autres catalogues. C'est le seul branchement du lot dans du code existant.
+5. **Étape 5, différée au lot de merge de `#84`** — le jour où la couture arrive sur `master`, remplacer
+   son enregistrement sans ligne par une fabrique qui lit `IOptions<CreatureFarmTicketCostOptions>` et
+   mappe chaque ligne sur `CreatureFarmTicketCostRow(Rate, Form, EnhanceLevel, TicketCount)`. Rien d'autre
+   du socle ne bouge : outil, catalogue, options et chargement sont déjà là.
+
+**Deux écarts assumés :**
+
+- **§5.3 point 3 écrit `List<CreatureFarmTicketCostRow> Rows`.** Ce type est défini dans `Game`
+  (`CreatureFarmTicketCost.cs:33` de la branche `6002`), et le projet `Configuration` ne référence pas
+  `Game` (`Configuration.csproj` : aucune `ProjectReference`) : la classe d'options porte donc son propre
+  DTO de ligne, `CreatureFarmTicketCostRowOptions`, comme `PetResourceRow` le fait pour les familiers, et
+  la correspondance entre les deux types se fait à l'enregistrement (étape 5). Aucun des fichiers de
+  `6002` n'est recopié — c'est ce que le §0 point 1 (`(b)`) impose.
+- **L'outil n'a pas pu être exécuté ici** : le conteneur ne porte aucun interpréteur Python
+  (`which python3 python` → vide, image `Microsoft/dotnet/sdk:8.0`, et rien n'est installé). Le catalogue
+  committé a été produit en lisant le même `.rdb` octet par octet (en-tête 128 o, `u32` = 72 à `0x80`,
+  72 enregistrements de 4 octets à partir de `0x84`) et **recoupe §3.1 à la valeur près** : 72 clés, aucun
+  doublon, produit `0..5 × 1..2 × 0..5` complet, aucune clé hors produit, valeurs 1..18, ordre croissant,
+  et contrôle de la somme `132 + 72 × 4 = 420`. **Réserve** : une ré-exécution de l'outil sur une machine
+  avec Python doit reproduire le fichier committé à l'octet ; l'écriture est le même
+  `json.dump(indent=2)` et l'ordre des lignes est celui du fichier source, mais ce point n'est pas prouvé
+  par exécution.
+
+**Tests** — `Tests/Game/CreatureFarmTicketCostCatalogTests.cs`, six tests (le compte total passe de 4008
+sur `master` à **4014**, `Failed: 0`), `dotnet build Navislamia.sln -c Debug` et
+`dotnet test Tests/Tests.csproj` tous deux en **code 0**, 139 avertissements dont aucun ne vient des
+fichiers du lot :
+
+- **les positions** : chaque ligne du catalogue porte exactement quatre champs dans l'ordre `Rate`, `Form`,
+  `EnhanceLevel`, `TicketCount` (vérifié sur les 72 lignes), et deux lignes à quatre valeurs deux à deux
+  différentes — `(3, 1, 0, 2)` et `(3, 2, 5, 15)` — prouvent chaque position par sa valeur ; 72 lignes,
+  `72 × 4 = 288` valeurs, le corps de 288 octets du fichier source ;
+- **la clé** : les 72 clés sont le produit `0..5 × 1..2 × 0..5`, uniques, dans l'ordre croissant où le
+  fichier client les stocke ;
+- **les valeurs** : les 72 lignes comparées à la table mesurée en §3.1, `min = 1`, `max = 18`, aucune ligne
+  à 0 ;
+- **le cas « aucune ligne »** : aucune ligne `form 3` — les 35 invocations de `form 3` que le client
+  connaît (§7.2) — et la recherche sur une telle clé rend **0**, la valeur qui refuse le dépôt, tandis
+  qu'une clé servie rend sa ligne (`(5, 2, 5)` → 18) ;
+- **le catalogue absent** : les options par défaut portent une liste vide et toute clé rend 0 — le
+  comportement du §5.4 point 1, obtenu par construction et non par exception.
+
 ---
 
 ## 6. Écarts assumés
@@ -445,7 +513,9 @@ protégé) :
   le `form 2` vaut 7..10 au lieu de 3..12 : **ne pas l'importer** en 7.3).
 - Chargement : outil hors ligne `tools/export_creature_farm_costs.py` → `DevConsole/creature-farm-costs.73.json`
   (committé, déclaré dans `DevConsole.csproj`) → lue au démarrage en `System.Text.Json`, comme les autres
-  catalogues ; fichier absent = pas de ligne = tout dépôt refusé, jamais d'exception.
+  catalogues ; fichier absent = pas de ligne = tout dépôt refusé, jamais d'exception. La couture qui consomme
+  la table (`ICreatureFarmTicketCost`, `CreatureFarmTicketCost`) vient du lot `6002` (MR `#84`) : c'est à son
+  enregistrement DI que les lignes sont passées, pas au socle.
 - 35 des 141 invocations que le client 7.3 connaît sont `form 3` et sa propre table n'en price aucune : la
   question « la ferme 7.3 acceptait-elle une `form 3` ? » reste ouverte (A VERIFIER 2).
 - Savoir complet : `docs/packet-specs/socle-cout-tickets-ferme.md`.
