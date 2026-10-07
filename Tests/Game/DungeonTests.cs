@@ -80,10 +80,10 @@ public partial class DungeonTests
     public void Imported_resources_preserve_regions_levels_and_all_difficulties()
     {
         _catalog.Dungeons.Should().HaveCount(21);
-        _catalog.Instances.Should().HaveCount(9);
-        _catalog.Types.Should().HaveCount(37);
-        // 1 654 rows, of which 894 name a monster the 7.3 client does not know (filtre-ressources-73.md).
-        _catalog.Respawns.Should().HaveCount(760);
+        // The Epic 7 instances only, Vulcanus and Cubric: 40000-70000 are 9.4 content (socle-donjons-instances-secrets.md).
+        _catalog.Instances.Keys.Should().BeEquivalentTo(new[] { 20000, 30000 });
+        _catalog.Types.Should().HaveCount(15);
+        _catalog.Respawns.Should().HaveCount(572);
         _catalog.Secrets.Should().HaveCount(6);
         _catalog.NpcDungeons.Should().HaveCount(12);
         _catalog.Dungeons[130000].LocalFlag.Should().Be(1);
@@ -134,22 +134,32 @@ public partial class DungeonTests
         A.CallTo(() => _warp.Warp(A<GameClient>._, A<float>._, A<float>._, A<byte>._)).MustNotHaveHappened();
     }
 
-    [TestCase(149, 0, ResultCode.AccessDenied)]
-    [TestCase(150, 0, ResultCode.Success)]
-    [TestCase(159, 2, ResultCode.AccessDenied)]
-    [TestCase(160, 2, ResultCode.Success)]
-    [TestCase(300, 0, ResultCode.Success)]
-    [TestCase(301, 0, ResultCode.AccessDenied)]
-    [TestCase(170, 4, ResultCode.AccessDenied)]
+    [TestCase(149, 12, ResultCode.AccessDenied)]
+    [TestCase(150, 12, ResultCode.Success)]
+    [TestCase(159, 13, ResultCode.AccessDenied)]
+    [TestCase(160, 13, ResultCode.Success)]
+    [TestCase(300, 13, ResultCode.Success)]
+    [TestCase(301, 13, ResultCode.AccessDenied)]
+    [TestCase(170, 14, ResultCode.AccessDenied)]
     public async Task Instance_difficulty_checks_lower_inclusive_upper_exclusive(int level, int type, ResultCode expected)
-        => (await _service.ExecuteAsync(Player(level: level), PropScript.Parse($"warp_to_instance_dungeon(40000,{type})"))).Should().Be(expected);
+    {
+        // Vulcanus' fourteen level brackets; its twenty keys are in the bag.
+        var player = Player(level: level);
+        A.CallTo(() => _characters.GetCarriedItemsAsync(StorageTestHarness.Session(player).CharacterName)).Returns(new[]
+        {
+            new ItemEntity { Id = 20, ItemResourceId = 1000401, Amount = 20, WearInfo = ItemWearType.None }
+        });
+        A.CallTo(() => _characters.ApplyCraftAsync(A<string>._, A<IReadOnlyList<CraftConsumption>>._, null))
+            .Returns(new CraftCommitResult(CraftCommitOutcome.Success, new[] { (20u, 0L) }, null));
+        (await _service.ExecuteAsync(player, PropScript.Parse($"warp_to_instance_dungeon(20000,{type})"))).Should().Be(expected);
+    }
 
     [Test]
     public async Task Members_share_a_room_and_other_groups_get_another_layer()
     {
         var leader = Player(1); var member = Player(2); var other = Player(3);
         Group(10, leader, member); Group(11, other);
-        var action = PropScript.Parse("warp_to_instance_dungeon(40000,0)");
+        var action = PropScript.Parse("warp_to_instance_dungeon(30000,0)");
         (await _service.ExecuteAsync(leader, action)).Should().Be(ResultCode.Success);
         (await _service.ExecuteAsync(member, action)).Should().Be(ResultCode.Success);
         (await _service.ExecuteAsync(other, action)).Should().Be(ResultCode.Success);
@@ -161,29 +171,19 @@ public partial class DungeonTests
     public async Task Solo_instances_are_private_and_cannot_be_nested()
     {
         var one = Player(1); var two = Player(2);
-        var action = PropScript.Parse("warp_to_instance_dungeon(40000,0)");
+        var action = PropScript.Parse("warp_to_instance_dungeon(30000,0)");
         (await _service.ExecuteAsync(one, action)).Should().Be(ResultCode.Success);
         (await _service.ExecuteAsync(two, action)).Should().Be(ResultCode.Success);
         StorageTestHarness.Session(one).Layer.Should().NotBe(StorageTestHarness.Session(two).Layer);
-        (await _service.ExecuteAsync(one, PropScript.Parse("warp_to_instance_dungeon(41001,0)"))).Should().Be(ResultCode.NotActable);
-    }
-
-    [Test]
-    public async Task Another_member_cannot_change_the_running_difficulty()
-    {
-        var leader = Player(1); var member = Player(2);
-        Group(10, leader, member);
-        await _service.ExecuteAsync(leader, PropScript.Parse("warp_to_instance_dungeon(40000,0)"));
-        (await _service.ExecuteAsync(member, PropScript.Parse("warp_to_instance_dungeon(40000,1)"))).Should().Be(ResultCode.NotActable);
-        StorageTestHarness.Session(member).Layer.Should().Be(0);
+        (await _service.ExecuteAsync(one, PropScript.Parse("warp_to_instance_dungeon(20000,0)"))).Should().Be(ResultCode.NotActable);
     }
 
     [Test]
     public async Task Leaving_restores_the_entry_point_and_last_member_destroys_room()
     {
         var player = Player();
-        var key = new DungeonRoomKey(DungeonRoomKind.Instance, 40000, -1);
-        await _service.ExecuteAsync(player, PropScript.Parse("warp_to_instance_dungeon(40000,0)"));
+        var key = new DungeonRoomKey(DungeonRoomKind.Instance, 30000, -1);
+        await _service.ExecuteAsync(player, PropScript.Parse("warp_to_instance_dungeon(30000,0)"));
         _rooms.Find(key).Should().NotBeNull();
         (await _service.ExecuteAsync(player, PropScript.Parse("exit_instance_dungeon()"))).Should().Be(ResultCode.Success);
         StorageTestHarness.Session(player).Layer.Should().Be(0);
@@ -195,7 +195,7 @@ public partial class DungeonTests
     public async Task Logout_restores_public_position_before_it_is_saved()
     {
         var player = Player();
-        await _service.ExecuteAsync(player, PropScript.Parse("warp_to_instance_dungeon(40000,0)"));
+        await _service.ExecuteAsync(player, PropScript.Parse("warp_to_instance_dungeon(30000,0)"));
         _rooms.OnWorldExit(player);
         StorageTestHarness.Session(player).Layer.Should().Be(0);
         StorageTestHarness.Session(player).X.Should().Be(120000);
@@ -207,7 +207,7 @@ public partial class DungeonTests
     {
         var leader = Player(1); var member = Player(2);
         Group(10, leader, member);
-        var action = PropScript.Parse("warp_to_instance_dungeon(40000,0)");
+        var action = PropScript.Parse("warp_to_instance_dungeon(30000,0)");
         await _service.ExecuteAsync(leader, action); await _service.ExecuteAsync(member, action);
         A.CallTo(() => _party.DungeonParty(member)).Returns(null);
         await _service.SweepAsync();
@@ -303,7 +303,7 @@ public partial class DungeonTests
     }
 
     [Test]
-    public async Task All_twenty_imported_instance_choices_dispatch_to_their_resources()
+    public async Task None_of_the_vanguards_twenty_94_instance_choices_exists_in_73()
     {
         using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory,
             "../../../../DevConsole/npc-dialogs.73.json")));
@@ -313,11 +313,9 @@ public partial class DungeonTests
         entries.Should().HaveCount(20);
         foreach (var entry in entries)
         {
-            var player = Player();
             var action = PropScript.Parse(entry.Trigger);
-            (await _service.ExecuteAsync(player, action)).Should().Be(ResultCode.Success, entry.Trigger);
-            StorageTestHarness.Session(player).X.Should().Be(_catalog.Instances[action.DungeonId].X);
-            _rooms.OnWorldExit(player);
+            _catalog.Instances.Should().NotContainKey(action.DungeonId, entry.Trigger);
+            (await _service.ExecuteAsync(Player(), action)).Should().Be(ResultCode.NotExist, entry.Trigger);
         }
     }
 

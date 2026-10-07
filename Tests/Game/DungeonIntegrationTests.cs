@@ -68,6 +68,31 @@ public class DungeonIntegrationTests
         A.CallTo(() => service.ConfirmAsync(A<GameClient>._, A<PropAction>._)).MustNotHaveHappened();
     }
 
+    [Test]
+    public void The_vanguards_advertise_no_instance_the_73_catalogue_does_not_declare()
+    {
+        // NPC_Teleport_instanceDuneGeon_contact comes from the 9.4 Lua: its twenty choices lead to 40000-50000, which 7.3
+        // does not have (labels absent from db_string.rdb). The 7.3 client knows the Vanguard's title and warning only.
+        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            TestContext.CurrentContext.TestDirectory, "../../../../DevConsole/npc-dialogs.73.json")));
+        var options = System.Text.Json.JsonSerializer.Deserialize<NpcDialogOptions>(
+            json.RootElement.GetProperty("NpcDialogCatalog"))!;
+        var service = A.Fake<IDungeonService>();
+        var dialogs = new NpcDialogService(Options.Create(options), A.Fake<IWarpService>(), A.Fake<IStorageService>(),
+            A.Fake<IMarketService>(), dungeons: service,
+            dungeonCatalog: new DungeonCatalog(Options.Create(new DungeonOptions { TimeZone = "UTC" })));
+        var player = Player();
+        var info = StorageTestHarness.Session(player);
+        info.SpawnedNpcIdsByHandle[50] = 11812;
+
+        dialogs.Contact(player, Contact(50));
+
+        info.NpcDialogHandle.Should().Be(50u, "the Vanguard still talks");
+        info.NpcDialogTriggers.Should().NotContain(t => t.StartsWith("warp_to_instance_dungeon"));
+        dialogs.Select(player, Select("warp_to_instance_dungeon(40000, 0)"));
+        A.CallTo(() => service.ExecuteAsync(A<GameClient>._, A<PropAction>._)).MustNotHaveHappened();
+    }
+
     [TestCase("enter_instance_dungeon(40000)", true)]
     [TestCase("enter_secret_dungeon(70101)", true)]
     [TestCase("leave_instance_dungeon(40000)", true)]

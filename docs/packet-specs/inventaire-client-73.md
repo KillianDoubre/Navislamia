@@ -120,8 +120,9 @@ Manquent :
 
 ### Données après le filtre 7.3 (`filtre-ressources-73.md`)
 
-- Les instances 50000, 60000 et 70000 n'ont plus aucun monstre (tous inconnus du client 7.3) ; 40000, 41001, 42001
-  et 43001 en ont perdu une partie. Savoir si ces instances existent seulement en 7.3.
+- ~~Les instances 50000, 60000 et 70000 n'ont plus aucun monstre (tous inconnus du client 7.3) ; 40000, 41001, 42001
+  et 43001 en ont perdu une partie. Savoir si ces instances existent seulement en 7.3.~~ Elles n'existent pas en 7.3
+  (absentes des tables Epic 7, libellés absents du client) : retirées le 2026-10-07 (`socle-donjons-instances-secrets.md`).
 - ~~134 lignes hors du jeu 7.3 gardées par littéral, à revoir une à une~~ : RlwjZDsY, audit individuel, 99 supprimées et 35 références typées conservées (`audit-litteraux-73.md`).
 - ~~`StringResources` (102 256 lignes) non filtrée~~ : RlwjZDsY, codes bornés à `db_string.rdb` ; les 102256 actuels sont déjà connus.
 - ~~Un nouvel `import_epic7.py` réinsère les lignes Epic 7 hors client sans rejouer le filtre~~ : lbQQRm8S, filtrage final obligatoire ; `--plan` vérifié en lecture seule.
@@ -133,7 +134,7 @@ Manquent :
 - Boutique payante et coffre commercial (10001 et suivants, 9000/9001) : **à faire**.
 - Ferme de créatures (6000-6008) : **à porter** depuis le serveur officiel (cartes Trello `xyPQkALO`, 6002, 6004,
   6006 ; source dans `reference/official2015/` sur le VPS).
-- Instances 50000, 60000 et 70000 (voir ci-dessus) : à vérifier.
+- ~~Instances 50000, 60000 et 70000 (voir ci-dessus) : à vérifier.~~ Vérifié : contenu 9.4, retiré.
 - Anti-triche 54, 57 et 59 : à prendre en charge si une utilité est trouvée.
 
 ### Avant d'ouvrir à de vrais joueurs

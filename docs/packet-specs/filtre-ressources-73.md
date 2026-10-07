@@ -76,7 +76,8 @@ python tools/prune_to_client73.py <dossier> --apply    # une transaction
 
 ## NON ÉTABLI
 
-- Les instances 50000-70000 restent déclarées sans monstre : leur entrée est-elle seulement possible en 7.3 ?
+- ~~Les instances 50000-70000 restent déclarées sans monstre : leur entrée est-elle seulement possible en 7.3 ?~~
+  Non : 40000-70000 sont du contenu 9.4, retiré le 2026-10-07 (`socle-donjons-instances-secrets.md`, fin).
 
 ## 5. Audit individuel et chaînes client (RlwjZDsY)
 

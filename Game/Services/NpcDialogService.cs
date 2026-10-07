@@ -499,12 +499,27 @@ public class NpcDialogService : INpcDialogService
 
     /// <summary>
     /// The entries of a catalogue menu, an event's left out while its event is closed (<see cref="NpcEvents"/>): the
-    /// town NPCs offered Halloween candy all year. A hidden entry is never advertised, so it cannot be selected either.
+    /// town NPCs offered Halloween candy all year. An entry leading to an instance dungeon the 7.3 catalogue does not
+    /// declare is left out too: the Vanguards' menu (<c>NPC_Teleport_instanceDuneGeon_contact</c>) comes from the 9.4 Lua
+    /// and offers instances 40000-50000, whose labels the 7.3 client does not have (docs/packet-specs/
+    /// socle-donjons-instances-secrets.md, *Instances 40000-70000*). A hidden entry is never advertised, so it cannot be
+    /// selected either.
     /// </summary>
     private IEnumerable<NpcDialogMenuEntry> ShownMenu(IEnumerable<NpcDialogMenuEntry> menu)
     {
         var now = _localNow();
-        return menu.Where(entry => NpcEvents.IsMenuShown(entry.Trigger, _events, now));
+        return menu.Where(entry => NpcEvents.IsMenuShown(entry.Trigger, _events, now) && LeadsToKnownInstance(entry.Trigger));
+    }
+
+    private bool LeadsToKnownInstance(string trigger)
+    {
+        if (_dungeonCatalog is null || !trigger.Contains("instance_dungeon", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var action = PropScript.Parse(trigger);
+        return action.Kind != PropActionKind.EnterInstanceDungeon || _dungeonCatalog.Instances.ContainsKey(action.DungeonId);
     }
 
     private static FrozenDictionary<int, string> CompileContacts(Dictionary<int, string> contacts)

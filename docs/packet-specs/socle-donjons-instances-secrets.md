@@ -69,7 +69,8 @@ de raid/siège. Un joueur qui ne satisfait plus les règles retourne à sa posit
 
 ## Vérification en jeu
 
-1. Au téléporteur des instances, tester les cinq destinations et les quatre difficultés : 20 choix.
+1. ~~Au téléporteur des instances, tester les cinq destinations et les quatre difficultés : 20 choix.~~ Ces
+   destinations n'existent pas en 7.3 (voir *Instances 40000-70000*, fin de fiche).
 2. Entrer avec deux membres du même groupe ; un autre groupe doit voir ses propres monstres.
 3. Tester sous le niveau minimum, un changement de difficulté pendant une visite, puis quitter le groupe.
 4. Quitter une instance, revenir au lobby et se reconnecter : vérifier la position extérieure.
@@ -167,3 +168,30 @@ par Navislamia ne sont plus annoncées ici. Les commandes `/graid` et `/graidcan
 et les accès officiels par props/téléporteurs conservent leur chemin. Ne pas inventer de chaîne.
 Tests : quatre variantes de `DungeonTests.Siege_manager_emits_only_official_client_labels`.
 Vérifier en jeu les textes localisés, les taxes et le téléporteur du siège pendant ses horaires.
+
+## Instances 40000-70000 : contenu 9.4, retiré (2026-10-07)
+
+Après le filtre 7.3, les instances 50000, 60000 et 70000 n'avaient plus aucun monstre, et 40000-43001 un quart des leurs
+(`filtre-ressources-73.md`). Vérification :
+
+| source | 20000 Vulcanus | 30000 Cubric | 40000-43001 | 50000 | 60000, 70000 |
+| --- | --- | --- | --- | --- | --- |
+| `InstanceDungeonResource` Epic 7 (`data/epic7`) | oui | oui | non | non | non |
+| export 9.4 (`data/sqlserver`) | oui | oui | oui | oui | oui |
+| monstres connus du client 7.3 | 294/294 | 32/32 | 4/16 (8/32 pour 43001) | 0/52 | 0/11 |
+| tuile de carte dans le client | `m012_001` | — | `m002_001` | **absente** (`m002_008`) | `m009_000`, `m011_000` |
+
+Les libellés du menu qui y mène (`NPC_Teleport_instanceDuneGeon_contact`, PNJ 11812-11815, les « Vanguard ») sont
+`@690000090`-`@690000093` et `@690000141`-`@690000144` : **aucun n'est dans le `db_string.rdb` du client** (ni dans
+`db_scriptstring.rdb`), alors que son titre (`@90605758`…) et son texte (`@90605763`, « It is dangerous here. Please leave.
+If you are not at least level 160… ») y sont. Le Lua 2015 n'ouvre ce menu qu'au niveau 160 ; il vient du Lua 9.4, qui a
+servi au catalogue des dialogues. Le PNJ 13000 n'est pas dans le client.
+
+Décision : 7.3 n'a que Vulcanus et Cubric. `tools/export_dungeon_resources.py` lisait les tables d'instance de l'export
+9.4 ; il ne garde plus que les ids de l'`InstanceDungeonResource` Epic 7 (7 instances, 22 difficultés, 188 réapparitions
+et 152 props retirés de `dungeon-resources.json`, rien d'autre ne change). `NpcDialogService` n'annonce plus une entrée de
+menu qui mène à une instance absente du catalogue : les Vanguards parlent (titre, avertissement, « Goodbye ») sans
+proposer les 20 choix. Les tests de mécanique des salles passent sur Cubric (groupes) et Vulcanus (tranches de niveau) ;
+celui de la difficulté imposée aux membres d'un groupe n'a plus de données où s'appliquer (aucune instance 7.3 n'accepte
+un groupe et plusieurs difficultés) et a été retiré, la règle restant dans le code. Les tuiles `m009_000`/`m011_000`
+existent dans le client : ce qu'elles portent en 7.3 n'a pas été cherché.

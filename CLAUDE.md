@@ -2986,7 +2986,8 @@ retiré des listes d'amis des autres) et MJ `block_chat`, `check_auto_user`, `fo
 
 - **Donjons** (`docs/packet-specs/socle-donjons-instances-secrets.md`, `Game/Services/Dungeons/`) : catalogue régional
   embarqué (`tools/export_dungeon_resources.py`), `enter_dungeon`/`exit_dungeon` jugés (niveau, horaires régionaux,
-  fermeture), les 20 choix d'instance, Vulcanus (20 clés), raids et sièges, donjons secrets ; salles privées sur les
+  fermeture), Vulcanus (20 clés) et Cubric, **seules instances de 7.3** (40000-70000 sont du 9.4 : retirées, et le menu des
+  Vanguards ne les propose plus), raids et sièges, donjons secrets ; salles privées sur les
   couches 2-127 (`DungeonRooms`), libérées par la sortie, le warp, la résurrection et la déconnexion. Une couche privée
   retrouvée en base à la connexion renvoie au point d'apparition public.
 - **Guildes** (`docs/packet-specs/socle-guildes-alliances-sieges.md`, `Game/Services/Guilds/`, migration

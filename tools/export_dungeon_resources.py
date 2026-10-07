@@ -172,6 +172,17 @@ def main():
         'MinLevel': int(props[str(prop_id)]['limit_min_level']),
         'MaxLevel': int(props[str(prop_id)]['limit_max_level'])} for prop_id in used if str(prop_id) in props]
     data['VulcanusRewards'] = vulcanus_rewards(args.lua)
+    # The instance dungeons are the Epic 7 InstanceDungeonResource's (20000 Vulcanus, 30000 Cubric): 40000-43001 and
+    # 50000-70000 only exist in the 9.4 export, their monsters are 9.x ones (none of 50000-70000's is known to the 7.3
+    # client, a quarter of 40000-43001's), the tile of 50000 is absent from the client and the Vanguards' menu labels
+    # leading there are not in its db_string.rdb (socle-donjons-instances-secrets.md, *Instances 40000-70000*).
+    epic7_instances = ROOT / 'data/epic7/InstanceDungeonResource.csv'
+    if epic7_instances.exists():
+        with epic7_instances.open(encoding='utf-8-sig', newline='') as source:
+            kept = {int(r['id']) for r in csv.DictReader(source)}
+        data['Instances'] = [r for r in data['Instances'] if r['Id'] in kept]
+        for key in ('Types', 'Respawns', 'InstanceProps'):
+            data[key] = [r for r in data[key] if r['DungeonId'] in kept]
     if args.client_monsters:
         import sys
         sys.path.insert(0, str(ROOT / 'tools'))
