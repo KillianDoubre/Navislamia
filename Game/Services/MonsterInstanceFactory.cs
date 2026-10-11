@@ -133,7 +133,8 @@ public static class MonsterInstanceFactory
                 (float)resource.AttackRange, (float)resource.Size, (float)resource.Scale,
                 resource.TamingId, resource.TamingPercentage, combat, resource.MonsterSkillLinkId,
                 resource.MonsterGroup, resource.GroupFirstAttack != 0, Layer: layer, Rewards: rewards,
-                IsDungeonRaidMonster: raid, MonsterType: resource.MonsterType, CreatureGroup: resource.Grp));
+                IsDungeonRaidMonster: raid, MonsterType: resource.MonsterType, CreatureGroup: resource.Grp,
+                FightType: resource.FightType));
         }
     }
 

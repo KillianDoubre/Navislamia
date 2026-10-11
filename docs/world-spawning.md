@@ -115,3 +115,21 @@ Loaded 40566 monster instances from 0 spawn points and 4082 official areas (<cou
 
 Visibility synchronization is silent during normal movement. Startup logs retain indexed object and
 catalog counts, while synchronization failures are still reported as errors.
+
+## Training grounds (2026-10-11)
+
+The towns' combat training grounds (전투 수련장) of Rondo, Laksy's Anchor, Katan, Horizon and Secroute hold 150
+training scarecrows (수련용 허수아비, 99 000 000 HP, levels 1 to 190: ids 1801/1901 and x0801/x0901). The official
+server places them in `server_init.lua`, `rare_mob()`, one `respawn_rare_mob( -1, 12000, x, y, monster, 1, 0 )` each:
+`SCRIPT_AddRareMobRespawnInfo` (ScriptNPC.cpp) registers a 1 × 1 box with `is_wandering` = 0. Nothing ran that script,
+so they never stood. `tools/export_training_grounds.py <server_init.lua> --client-monsters <db_monster.rdb>` writes them
+to the catalog's `Spawns` (point spawns, radius 0); every id is in the 7.3 client. The other `rare_mob()` entries (rare
+bosses, El Kasia's statues, Espoir's 185002) are not taken. They respawn with the open world's delay, not the
+script's 12 000 ticks.
+
+The scarecrows are `fight_type` 6 (`FIGHT_TYPE_TRAP`). `MonsterFightType` ports `StructMonster::IsAttackable` and
+`IsMovable` (StructMonster.cpp:2363-2411), which nothing read before: an environment object, a connector, a trap, an
+auto trap, a runaway and an immortal dummy never attack (no aggro, no retaliation, no skill); a connector, a trap, an
+auto trap, a not-movable monster and an immortal dummy never wander, chase or walk home. A training scarecrow takes the
+hits, never moves and never answers.
+

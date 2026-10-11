@@ -16,7 +16,7 @@ public class MonsterWorldStateTests
 {
     private const long InstanceId = 0;
 
-    private static MonsterWorldState BuildState(int hp, int firstAttack = 0)
+    private static MonsterWorldState BuildState(int hp, int firstAttack = 0, int fightType = 0)
     {
         var options = new MonsterSpawnOptions
         {
@@ -29,7 +29,8 @@ public class MonsterWorldStateTests
                 // Max HP is the hp column plus 20 per level (MonsterCombatStats): the instance gets exactly `hp`.
                 new MonsterResourceEntity
                 {
-                    Id = 2101, Level = 5, Hp = hp - 20 * 5, Race = 1, FirstAttack = firstAttack
+                    Id = 2101, Level = 5, Hp = hp - 20 * 5, Race = 1, FirstAttack = firstAttack,
+                    FightType = fightType
                 }
             });
 
@@ -95,6 +96,35 @@ public class MonsterWorldStateTests
         // The monster starts at its origin and interpolates toward the destination over time, so it is
         // still near the origin the instant the move begins — it does not teleport to the destination.
         Distance(state.GetPosition(InstanceId), (1000f, 2000f)).Should().BeLessThanOrEqualTo(1f);
+    }
+
+    [TestCase(MonsterFightType.Trap, Description = "a town's training scarecrow")]
+    [TestCase(MonsterFightType.NotMovable)]
+    [TestCase(MonsterFightType.ImmortalDummy)]
+    public void A_monster_that_cannot_walk_never_wanders(int fightType)
+    {
+        var state = BuildState(100, fightType: fightType);
+        var now = DateTime.UtcNow;
+
+        state.TryBeginWander(InstanceId, now, WanderSpeed, out _).Should().BeFalse();
+        state.TryBeginWander(InstanceId, now.AddSeconds(15), WanderSpeed, out _).Should().BeFalse();
+        state.GetPosition(InstanceId).Should().Be((1000f, 2000f));
+    }
+
+    [TestCase(MonsterFightType.Normal, true, true)]
+    [TestCase(MonsterFightType.Environment, false, true)]
+    [TestCase(MonsterFightType.DungeonConnector, false, false)]
+    [TestCase(MonsterFightType.Boss, true, true)]
+    [TestCase(MonsterFightType.Agent, true, true)]
+    [TestCase(MonsterFightType.AutoTrap, false, false)]
+    [TestCase(MonsterFightType.Trap, false, false)]
+    [TestCase(MonsterFightType.NotMovable, true, false)]
+    [TestCase(MonsterFightType.Runaway, false, true)]
+    [TestCase(MonsterFightType.ImmortalDummy, false, false)]
+    public void Fight_type_rules_are_StructMonster_IsAttackable_and_IsMovable(int fightType, bool attacks, bool walks)
+    {
+        MonsterFightType.CanAttack(fightType).Should().Be(attacks);
+        MonsterFightType.IsMovable(fightType).Should().Be(walks);
     }
 
     [Test]

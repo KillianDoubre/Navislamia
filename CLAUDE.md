@@ -599,7 +599,10 @@ every monster in combat. The pure decisions live in `MonsterAiRules` (`Idle`/`Ac
 `Attack`/`Drop`), which is what the tests exercise; the service is the I/O shell.
 
 - **Retaliation**: when a player's swing lands without killing, `CombatService.ApplyDamage` calls
-  `MonsterWorldState.SetAggro(instanceId, client)`. **Every** monster retaliates, aggressive or not.
+  `MonsterWorldState.SetAggro(instanceId, client)`. **Every** monster retaliates, aggressive or not — except the
+  `fight_type`s `StructMonster::IsAttackable` refuses (`MonsterFightType`: traps such as the towns' 150 training
+  scarecrows, auto traps, environment objects, connectors, runaways, immortal dummies), and those it calls immovable
+  never wander, chase or walk home (`docs/world-spawning.md`, *Training grounds*).
 - **Aggro on sight**: a monster with `FirstAttack` (the `f_fisrt_attack` column — a frozen source typo
   — set on 5 478 of 8 164) and no target takes a player it is streamed to and within `visibleRange`.
 - **Chase**: while the target is beyond the melee reach and the monster is within `chaseRange` of home,

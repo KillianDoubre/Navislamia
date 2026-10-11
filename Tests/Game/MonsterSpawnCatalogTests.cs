@@ -28,6 +28,18 @@ public class MonsterSpawnCatalogTests
     }
 
     [Test]
+    public void The_towns_training_grounds_hold_their_scarecrows_at_fixed_points()
+    {
+        // server_init.lua rare_mob(): Rondo, Laksy's Anchor, Katan, Horizon and Secroute (export_training_grounds.py).
+        var spawns = Catalog().Spawns;
+        spawns.Should().HaveCount(150);
+        spawns.Should().OnlyContain(s => s.Count == 1 && s.Radius == 0
+                                         && (s.MonsterId % 10000 == 801 || s.MonsterId % 10000 == 901
+                                             || s.MonsterId == 1801 || s.MonsterId == 1901));
+        spawns.Should().Contain(s => s.MonsterId == 1801 && s.X == 139159 && s.Y == 107701, "Rondo, area 3");
+    }
+
+    [Test]
     public void Every_area_is_a_tile_aligned_box_inside_its_own_map()
     {
         var areas = Catalog().Areas;

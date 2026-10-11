@@ -694,6 +694,12 @@ public partial class MonsterWorldState
     {
         order = default;
 
+        // StructMonster::IsMovable: a trap (the towns' training scarecrows), a connector or an immortal dummy stands.
+        if (TryGetInstance(instanceId, out var self) && !MonsterFightType.IsMovable(self.FightType))
+        {
+            return false;
+        }
+
         lock (_stateLock)
         {
             if (_respawnAt.ContainsKey(instanceId))

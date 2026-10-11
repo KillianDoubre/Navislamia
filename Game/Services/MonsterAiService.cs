@@ -119,7 +119,7 @@ public class MonsterAiService
 
             foreach (var (instance, mx, my) in _candidates)
             {
-                if (instance.Layer != info.Layer) continue;
+                if (instance.Layer != info.Layer || !MonsterFightType.CanAttack(instance.FightType)) continue;
                 if (_guilds?.CanDamage(client, instance.InstanceId) == false) continue;
                 var instanceId = instance.InstanceId;
                 var action = MonsterAiRules.Decide(false, true, true, false,
@@ -151,6 +151,10 @@ public class MonsterAiService
 
             var info = enemy.ConnectionInfo;
             if (_guilds?.CanDamage(enemy, instanceId) == false) { _worldState.ClearAggro(instanceId); continue; }
+
+            // StructMonster::IsAttackable: a trap (a training scarecrow), an environment object or an immortal dummy
+            // takes the hits and never answers them.
+            if (!MonsterFightType.CanAttack(instance.FightType)) { _worldState.ClearAggro(instanceId); continue; }
 
             uint handle;
             bool streamed;
@@ -267,6 +271,12 @@ public class MonsterAiService
     private void ChaseTo(GameClient client, long instanceId, uint handle, float mx, float my,
         ConnectionInfo info, float targetX, float targetY, float reach)
     {
+        // StructMonster::IsMovable: a monster that cannot walk only strikes what comes within its reach.
+        if (_worldState.TryGetInstance(instanceId, out var self) && !MonsterFightType.IsMovable(self.FightType))
+        {
+            return;
+        }
+
         var (x, y) = MonsterAiRules.ChaseStep(mx, my, targetX, targetY, reach);
 
         // Let a move already heading to about the same spot play out rather than restarting the
@@ -358,7 +368,8 @@ public class MonsterAiService
 
         _worldState.ClearAggro(instanceId);
 
-        if (!hasHome)
+        if (!hasHome || (_worldState.TryGetInstance(instanceId, out var standing)
+                         && !MonsterFightType.IsMovable(standing.FightType)))
         {
             return;
         }

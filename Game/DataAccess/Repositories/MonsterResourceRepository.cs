@@ -58,6 +58,7 @@ public class MonsterResourceRepository : IMonsterResourceRepository
                 MonsterGroup = resource.MonsterGroup,
                 Grp = resource.Grp,
                 GroupFirstAttack = resource.GroupFirstAttack,
+                FightType = resource.FightType,
                 // The reward columns of the death (docs/packet-specs/socle-recompenses-monstres.md §10.1):
                 // everything absent from this projection is lost, since a projected entity is not tracked.
                 Exp = resource.Exp,
