@@ -189,35 +189,103 @@ public partial class SkillCastService : ISkillCastService
         return TryCast(client, request, true) ? ResultCode.Success : ResultCode.NotActable;
     }
 
-    private bool TryCast(GameClient client, GameActionPackets.SkillRequest request, bool serverInitiated)
+    public bool IsCastItemSkill(int skillId) =>
+        _catalog.TryGet(skillId, out var fields) && fields.Kind == SkillCastKind.Return;
+
+    /// <summary>The tries <c>TOWN_PORTAL</c> makes around a blocked return point before staying where it is.</summary>
+    public const int TownPortalTries = 300;
+
+    /// <summary>How far around a blocked return point <c>TOWN_PORTAL</c> looks (<c>XRandom( pos.x - 60, pos.x + 60 )</c>).</summary>
+    public const int TownPortalSpread = 60;
+
+    public void TownPortal(GameClient client)
     {
         var info = client.ConnectionInfo;
-        if (request.Caster != info.CharacterHandle && request.Caster != 0)
+        if (info.RespawnX == 0 && info.RespawnY == 0)
+        {
+            return;
+        }
+
+        float x = info.RespawnX, y = info.RespawnY;
+        var tries = 0;
+        while (_monsterState.IsBlockedPoint(x, y))
+        {
+            x = info.RespawnX + Random.Shared.Next(-TownPortalSpread, TownPortalSpread + 1);
+            y = info.RespawnY + Random.Shared.Next(-TownPortalSpread, TownPortalSpread + 1);
+            if (++tries > TownPortalTries)
+            {
+                // "Fail To Warp With Given Position": the warp stays where the player stands.
+                (x, y) = info.PositionAt(ServerClock.Now);
+                break;
+            }
+        }
+
+        info.IsSitting = false;
+        // The channels are not modelled: the open world's layer (the return point's own, RespawnLayer).
+        _warpService.Warp(client, x, y, info.RespawnLayer);
+    }
+
+    public void ReturnTo(GameClient client, float x, float y, byte layer)
+    {
+        client.ConnectionInfo.IsSitting = false;
+        _warpService.Warp(client, x, y, layer);
+    }
+
+    public ResultCode CastItemSkill(GameClient client, int skillId, int skillLevel, uint targetHandle, uint itemHandle,
+        Action<GameClient> onFire)
+    {
+        var info = client.ConnectionInfo;
+        var (x, y) = info.PositionAt(ServerClock.Now);
+        var level = (byte)Math.Clamp(skillLevel, 1, byte.MaxValue);
+        // onItemUseEffect: the return feathers target the item itself (its position travels with it), the rest the user.
+        var target = skillId is BuffCatalog.ReturnFeatherSkill or BuffCatalog.ReturnBackFeatherSkill
+            ? itemHandle
+            : targetHandle == 0 ? info.CharacterHandle : targetHandle;
+        var request = new GameActionPackets.SkillRequest((ushort)skillId, info.CharacterHandle, target, x, y, info.Z,
+            (sbyte)info.Layer, level);
+        TryCast(client, request, false, new ItemCast(level, itemHandle, onFire), out var failure);
+        return failure;
+    }
+
+    private bool TryCast(GameClient client, GameActionPackets.SkillRequest request, bool serverInitiated) =>
+        TryCast(client, request, serverInitiated, null, out _);
+
+    private bool TryCast(GameClient client, GameActionPackets.SkillRequest request, bool serverInitiated, ItemCast item,
+        out ResultCode failure)
+    {
+        // An item's cast answers its 253 instead (UseItem returns CastSkill's code): no failed ST_Casting then.
+        bool Refuse(ResultCode code, out ResultCode reason)
+        {
+            reason = code;
+            if (item is null) SendCastFailed(client, request, code);
+            return false;
+        }
+
+        failure = ResultCode.Success;
+        var info = client.ConnectionInfo;
+        if (item is null && request.Caster != info.CharacterHandle && request.Caster != 0)
         { CastSummon(client, request); return false; }
         var now = ServerClock.Now;
 
         // The instance game spells are never learned: only the server casts them (4250/4251), never a 400.
         if (!serverInitiated && _catalog.TryGet(request.SkillId, out var asked) && asked.Kind == SkillCastKind.InstanceGame)
         {
-            SendCastFailed(client, request, ResultCode.AccessDenied);
-            return false;
+            return Refuse(ResultCode.AccessDenied, out failure);
         }
 
         lock (_lock)
             if (_casting.Contains(client))
-            { SendCastFailed(client, request, ResultCode.NotActable); return false; }
+            { return Refuse(ResultCode.NotActable, out failure); }
 
         if (!TryValidate(client, request, now, out var fields, out var targetInstanceId, out var skillLevel,
-                out var error))
+                out var error, item))
         {
-            SendCastFailed(client, request, error);
-            return false;
+            return Refuse(error, out failure);
         }
 
         if (!InCastRange(info, fields, targetInstanceId, now))
         {
-            SendCastFailed(client, request, ResultCode.TooFar);
-            return false;
+            return Refuse(ResultCode.TooFar, out failure);
         }
 
         var castDelay = BuffCurve.CastDelayTicks(fields, skillLevel);
@@ -228,8 +296,7 @@ public partial class SkillCastService : ISkillCastService
             castDelay = (uint)Math.Max(0, castProp.CastingTime);
             if (!_propUse.TryBeginCast(targetInstanceId, client, unchecked(now + castDelay + PropCastGrace)))
             {
-                SendCastFailed(client, request, ResultCode.NotActable);
-                return false;
+                return Refuse(ResultCode.NotActable, out failure);
             }
 
             holdsProp = true;
@@ -237,7 +304,7 @@ public partial class SkillCastService : ISkillCastService
 
         request = request with { SkillLevel = skillLevel };
         var pending = new PendingCast(request, fields, skillLevel, targetInstanceId, now, unchecked(now + castDelay))
-        { PlayerTarget = ResolvePlayerTarget(targetInstanceId) };
+        { PlayerTarget = ResolvePlayerTarget(targetInstanceId), Item = item };
 
         // One cast at a time: a second request while one is being cast is refused, never queued.
         lock (info.CastLock)
@@ -245,8 +312,7 @@ public partial class SkillCastService : ISkillCastService
             if (info.PendingCast is not null)
             {
                 if (holdsProp) _propUse.EndCast(targetInstanceId, client);
-                SendCastFailed(client, request, ResultCode.NotActable);
-                return false;
+                return Refuse(ResultCode.NotActable, out failure);
             }
 
             if (castDelay > 0)
@@ -480,6 +546,17 @@ public partial class SkillCastService : ISkillCastService
                 }
 
                 fireSent = true;
+                break;
+            case SkillCastKind.Return:
+                // TOWN_PORTAL / RETURN_FEATHER / RETURN_BACK_FEATHER: the item use carries the effect (the feather is
+                // spent, the back feather written, the warp), since it knows the item and the character's bag.
+                if (cast.Item?.OnFire is not { } onFire)
+                {
+                    SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Cancel, 0, 0);
+                    return;
+                }
+
+                onFire(client);
                 break;
             case SkillCastKind.InstanceGame:
                 // WARP_TO_HUNTAHOLIC_LOBBY judges again when it fires: a refusal is the skill's failed result.
@@ -726,7 +803,8 @@ public partial class SkillCastService : ISkillCastService
     }
 
     private bool TryValidate(GameClient client, GameActionPackets.SkillRequest request, uint now,
-        out CastableBuffFields fields, out long targetInstanceId, out byte skillLevel, out ResultCode error)
+        out CastableBuffFields fields, out long targetInstanceId, out byte skillLevel, out ResultCode error,
+        ItemCast item = null)
     {
         var info = client.ConnectionInfo;
         fields = default;
@@ -752,9 +830,21 @@ public partial class SkillCastService : ISkillCastService
             return false;
         }
 
+        // A return spell is never learned: only an item casts it (onItemUseEffect), at the item's level; a 400 asking
+        // for one is refused like any skill not learned.
+        if (fields.Kind == SkillCastKind.Return)
+        {
+            if (item is null)
+            {
+                error = ResultCode.AccessDenied;
+                return false;
+            }
+
+            skillLevel = item.SkillLevel;
+        }
         // A prop's activate skill is never learned: the client casts it because the prop advertises
         // it, so the learned list is the wrong gate and the prop itself is the authorisation.
-        if (fields.Kind == SkillCastKind.InstanceGame)
+        else if (fields.Kind == SkillCastKind.InstanceGame)
         {
             // StructSkill::Cast's IsHuntaholicLobbyEnterableOwner for 64818; 64827 has no check of its own.
             skillLevel = 1;

@@ -12,6 +12,13 @@ public readonly record struct SkillPassiveFields(
 
 public enum SkillCastKind
 {
+    /// <summary>
+    /// The item return spells, all effect 604 and dispatched on their ids by <c>StructSkill::ProcSkill</c>:
+    /// 6007 <c>SKILL_TOWN_PORTAL</c> (Return Scroll), 6020 <c>SKILL_RETURN_FEATHER</c> and 6021
+    /// <c>SKILL_RETURN_BACK_FEATHER</c>. Never learned: only an item casts them (<c>onItemUseEffect</c>).
+    /// </summary>
+    Return = 100,
+
     Buff,
     Aura,
     Heal,

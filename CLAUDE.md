@@ -2106,6 +2106,10 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
   lance un buff ou un soin sans garde d'apprentissage. `DevConsole/item-use.73.json`
   (`tools/export_item_use_catalog.py`, 1 788 consommables Epic 7) recouvre les champs de la base et porte
   ces compétences de récupération.
+- **Parchemin et plumes de retour** (fiche, fin) : leur sort (6007/6020/6021, `SkillCastKind.Return`) est **incanté** par
+  `ISkillCastService.CastItemSkill` avant la consommation (`CastSkill` de `onItemUseEffect`), le parchemin est dépensé à
+  l'utilisation, une plume au moment du sort (`ReturnItems`), qui laisse une plume de retour arrière (910009, position dans
+  les châsses 0-2). Les autres compétences d'objet restent appliquées sur-le-champ (`ApplyItemSkill`).
 - **Monture par objet** (`docs/packet-specs/socle-monture-objet.md`) : l'effet `TOGGLE_STATE` (8) porte l'objet en
   `WEAR_RIDE_ITEM` (22) et pose son état `EF_RIDING` (200) sans fin, ou le retire si cet objet porté l'a posé ; refus
   `AccessDenied` à un cavalier ou en donjon, **avant** l'accusé. `Riding.ItemRiding` (vitesse `value_0 ÷ 7`, plus

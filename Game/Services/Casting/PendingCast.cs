@@ -28,4 +28,13 @@ public sealed class PendingCast
     public uint StartTick { get; }
     public uint FireTick { get; set; }
     public Navislamia.Game.Network.Clients.GameClient PlayerTarget { get; init; }
+
+    /// <summary>The item that cast the spell (<c>CastSkill( ..., pItem-&gt;GetHandle() )</c>), null for a learned one.</summary>
+    public ItemCast Item { get; init; }
 }
+
+/// <summary>
+/// A spell an item casts (<c>ITEM_EFFECT_INSTANT::SKILL</c>, <c>StructCreature::onItemUseEffect</c>): its level, the item,
+/// and what the item use does when the spell fires (a return feather is spent and leaves its back feather then).
+/// </summary>
+public sealed record ItemCast(byte SkillLevel, uint ItemHandle, System.Action<Navislamia.Game.Network.Clients.GameClient> OnFire);

@@ -1150,7 +1150,10 @@ public partial class CharacterService : ICharacterService
         return removed;
     }
 
-    public Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count)
+    public Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count) =>
+        AddItemAsync(characterName, itemResourceId, count, null);
+
+    public Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count, long[] sockets)
     {
         return RunInventoryAsync(characterName, async repository =>
         {
@@ -1174,6 +1177,11 @@ public partial class CharacterService : ICharacterService
 
             added.Level = 1;
             added.SocketItemIds = new long[4];
+            if (sockets is not null)
+            {
+                Array.Copy(sockets, added.SocketItemIds, Math.Min(sockets.Length, added.SocketItemIds.Length));
+            }
+
             EtherealWearRules.Initialize(added, _itemTemplates);
             character.Items.Add(added);
             await repository.SaveChangesAsync();

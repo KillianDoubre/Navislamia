@@ -418,3 +418,35 @@ Soit `366 + 12` tests : le compte ne baisse pas.
 - Le savoir durable d'un paquet va dans sa fiche `docs/packet-specs/<id>-<nom>.md`, pas ici.
 ```
 
+## Parchemin de retour et plumes : un vrai sort (2026-10-11)
+
+Bug noté : « le parchemin de retour (et autres ?) se consomme instantanément sans lancer le skill ». Un objet dont
+l'effet est `ITEM_EFFECT_INSTANT::SKILL` (5) appelait `ApplyItemSkill`, qui applique un buff ou un soin **sur-le-champ**
+et ignore tout le reste : le parchemin (603001, compétence 6007, effet 604) partait et rien ne se passait.
+
+L'officiel (`StructCreature::onItemUseEffect`, StructCreature.cpp:4491-4501) appelle
+`CastSkill( var1, var2, hTarget, …, pItem->GetHandle() )` : un vrai sort, avec sa barre d'incantation, dont le refus est
+celui de l'utilisation (`UseItem` rend le code de `CastSkill`, rien n'est consommé). Les sorts de retour sont
+répartis sur leur id par `StructSkill::ProcSkill` (StructSkill.cpp:2748-2759) :
+
+| objet | sort | incantation | consommé | effet au moment du sort |
+| --- | --- | --- | --- | --- |
+| 603001 Return Scroll | 6007 `SKILL_TOWN_PORTAL` | 8 s | à l'utilisation | `TOWN_PORTAL` : au point de retour, décalé de ±60 tant que bloqué (300 essais, sinon sur place) |
+| 910006, 910080, 2902104, 2012099, 9000098 plumes de retour | 6020 `SKILL_RETURN_FEATHER` | 4 s | **au moment du sort** | la plume est dépensée, une plume de retour arrière (910009) naît avec la position de départ dans ses châsses 0-2, puis `TOWN_PORTAL` |
+| 910009 Return Back Feather | 6021 `SKILL_RETURN_BACK_FEATHER` | 4 s | **au moment du sort** | retour à la position de ses châsses, puis la plume est dépensée |
+
+La liste des plumes consommées au moment du sort est celle de `StructPlayer::UseItem` (StructPlayer.cpp:3836-3852,
+`ItemBase.h:48-53`) : une incantation annulée ou interrompue garde la plume, pas le parchemin.
+
+Livré : `SkillCastKind.Return` (`BuffCatalog`, ids 6007/6020/6021 à effet 604), jamais appris (une 400 qui le demande
+est refusée `AccessDenied`) ; `ISkillCastService.CastItemSkill` passe par la même incantation que les sorts appris
+(`TryCast`, `PendingCast.Item`, annulation par Échap, recul sur dégâts) et rend le code de refus au lieu d'une
+`ST_Casting` en échec ; `ItemUseService` lance le sort **avant** de consommer et répond le code d'un refus, ne consomme
+pas une plume à l'utilisation (`ReturnItems.IsSpentWhenCast`) et fait l'effet au moment du sort (`TownPortal`,
+`ReturnTo`, `AddItemAsync` avec châsses). Couche : celle du point de retour (les canaux ne sont pas modélisés).
+Tests : `ReturnItemTests`. **À vérifier en jeu.**
+
+Reste du même genre, non traité : le parchemin d'apprivoisement (491008, compétence 4003, 15 s) et six buffs à
+incantation de 0,5-1 s s'appliquent encore sur-le-champ ; les compétences d'objet aux effets 6, 314, 401, 30011, 261,
+231 et 304 (parchemins d'attaque, etc.) ne sont pas lancées par `ApplyItemSkill` et l'objet part sans effet.
+

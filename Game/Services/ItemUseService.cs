@@ -182,9 +182,24 @@ public class ItemUseService : IItemUseService
             }
         }
 
+        // ITEM_EFFECT_INSTANT::SKILL with a spell cast for real (the Return Scroll and the return feathers): CastSkill
+        // runs inside UseItem, before the item is erased, and its refusal is the use's (nothing is spent then).
+        if (hasFields && CastSkillSlot(fields) is { } castSkill)
+        {
+            var itemHandle = request.ItemHandle;
+            var started = _states.CastItemSkill(client, castSkill.SkillId, castSkill.Level, request.TargetHandle,
+                itemHandle, caster => _ = ReturnOnFireAsync(caster, castSkill.SkillId, itemHandle));
+            if (started != ResultCode.Success)
+            {
+                client.SendResult(UseItemRequestId, (ushort)started, value);
+                return;
+            }
+        }
+
         // NGemity erases the unit inside Player::UseItem, so the stack update (TS_SC_UPDATE_ITEM_COUNT,
-        // or TS_SC_DESTROY_ITEM for the last unit) leaves before the result.
-        if (_catalog.IsConsumedOnUse((int)item.ItemResourceId))
+        // or TS_SC_DESTROY_ITEM for the last unit) leaves before the result. A return feather is spent when its
+        // spell fires instead (StructPlayer::UseItem's item code list, StructPlayer.cpp:3836-3852).
+        if (_catalog.IsConsumedOnUse((int)item.ItemResourceId) && !ReturnItems.IsSpentWhenCast((int)item.ItemResourceId))
         {
             long? remaining;
             try
@@ -379,12 +394,108 @@ public class ItemUseService : IItemUseService
                         ServerClock.FromSeconds(fields.StateTime));
                     break;
                 case ItemEffectInstant.Skill when amount > 0:
+                    // A spell cast for real was started before the use was acknowledged (CastItemSkill).
+                    if (_states.IsCastItemSkill(amount)) break;
                     if (!ApplyRecoverySkill(client, fields, amount))
                         _states.ApplyItemSkill(client, amount,
                             levels is not null && i < levels.Length ? (int)levels[i] : 1, targetHandle);
                     break;
             }
         }
+    }
+
+    /// <summary>The first skill slot whose spell is cast for real (<see cref="ISkillCastService.IsCastItemSkill"/>).</summary>
+    private (int SkillId, int Level)? CastSkillSlot(Navislamia.Game.DataAccess.Repositories.Interfaces.ItemUseFields fields)
+    {
+        foreach (var (types, values, levels) in new[] { (fields.BaseTypes, fields.BaseVar1, fields.BaseVar2),
+                     (fields.OptTypes, fields.OptVar1, fields.OptVar2) })
+        {
+            if (types is null || values is null) continue;
+            for (var i = 0; i < Math.Min(types.Length, values.Length); i++)
+            {
+                var skillId = (int)values[i];
+                if ((ItemEffectInstant)types[i] == ItemEffectInstant.Skill && skillId > 0 && _states.IsCastItemSkill(skillId))
+                {
+                    var level = levels is not null && i < levels.Length ? (int)levels[i] : 1;
+                    return (skillId, Math.Max(1, level));
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// What a return spell does when it fires (<c>StructSkill::TOWN_PORTAL</c>, <c>RETURN_FEATHER</c>,
+    /// <c>RETURN_BACK_FEATHER</c>, StructSkill.cpp:6908-7020). The feather is spent then, not at the use.
+    /// </summary>
+    private async Task ReturnOnFireAsync(GameClient client, int skillId, uint itemHandle)
+    {
+        var info = client.ConnectionInfo;
+        try
+        {
+            switch (skillId)
+            {
+                case Buffs.BuffCatalog.ReturnFeatherSkill:
+                {
+                    // The position the player left, kept by the Return Back Feather the feather leaves.
+                    var (x, y) = info.PositionAt(ServerClock.Now);
+                    var layer = info.Layer;
+                    if (!await SpendAsync(client, itemHandle))
+                    {
+                        return;
+                    }
+
+                    var back = await _characterService.AddItemAsync(info.CharacterName, ReturnItems.ReturnBackFeather, 1,
+                        new long[] { (long)x, (long)y, layer, 0 });
+                    if (back is not null)
+                    {
+                        foreach (var frame in GameCharacterPackets.BuildInventory(new[] { back }))
+                        {
+                            client.Connection.Send(frame);
+                        }
+                    }
+
+                    _states.TownPortal(client);
+                    break;
+                }
+                case Buffs.BuffCatalog.ReturnBackFeatherSkill:
+                {
+                    var feather = await _characterService.GetItemByHandleAsync(info.CharacterName, itemHandle);
+                    if (feather?.SocketItemIds is not { Length: >= 3 } sockets)
+                    {
+                        return;
+                    }
+
+                    _states.ReturnTo(client, sockets[0], sockets[1], (byte)sockets[2]);
+                    await SpendAsync(client, itemHandle);
+                    break;
+                }
+                default:
+                    _states.TownPortal(client);
+                    break;
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Return spell {skillId} of {clientTag} failed when it fired", skillId,
+                client.ClientTag);
+        }
+    }
+
+    /// <summary>One unit of the item spent, its stack update sent; false when it is gone.</summary>
+    private async Task<bool> SpendAsync(GameClient client, uint itemHandle)
+    {
+        var remaining = await _characterService.ConsumeItemAsync(client.ConnectionInfo.CharacterName, itemHandle, 1);
+        if (remaining is null)
+        {
+            return false;
+        }
+
+        client.Connection.Send(remaining == 0
+            ? GameCharacterPackets.BuildDestroyItem(itemHandle)
+            : GameCharacterPackets.BuildUpdateItemCount(itemHandle, remaining.Value));
+        return true;
     }
 
     private bool ApplyRecoverySkill(GameClient client,

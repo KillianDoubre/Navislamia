@@ -65,6 +65,15 @@ public class BuffCatalog : IBuffCatalog
     /// <summary>Effect 604 of the two instance game spells (<see cref="SkillCastKind.InstanceGame"/>).</summary>
     public const int InstanceGameEffect = 604;
 
+    /// <summary><c>SKILL_TOWN_PORTAL</c>, <c>SKILL_RETURN_FEATHER</c>, <c>SKILL_RETURN_BACK_FEATHER</c> (StructSkill.h:323-338).</summary>
+    public const int TownPortalSkill = 6007;
+
+    /// <inheritdoc cref="TownPortalSkill"/>
+    public const int ReturnFeatherSkill = 6020;
+
+    /// <inheritdoc cref="TownPortalSkill"/>
+    public const int ReturnBackFeatherSkill = 6021;
+
     public const int WarpToHuntaholicLobbySkill = 64818;
     public const int InstanceGameExitSkill = 64827;
 
@@ -148,7 +157,8 @@ public class BuffCatalog : IBuffCatalog
         // spell carry their effect themselves.
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
                 or SkillCastKind.ActivateProp or SkillCastKind.PropHeal or SkillCastKind.Summon or SkillCastKind.Unsummon
-                or SkillCastKind.Taming or SkillCastKind.Resurrection or SkillCastKind.InstanceGame or SkillCastKind.Energy)
+                or SkillCastKind.Taming or SkillCastKind.Resurrection or SkillCastKind.InstanceGame or SkillCastKind.Energy
+                or SkillCastKind.Return)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -236,6 +246,13 @@ public class BuffCatalog : IBuffCatalog
                 _ => SkillCastKind.Taming
             };
             return true;
+        }
+
+        // The return items' spells, dispatched on their ids too (StructSkill.cpp:2748-2759).
+        if (row.SkillId is TownPortalSkill or ReturnFeatherSkill or ReturnBackFeatherSkill)
+        {
+            kind = SkillCastKind.Return;
+            return row.EffectType == InstanceGameEffect;
         }
 
         // StructSkill::ProcSkill dispatches these two on their ids: 604 is their effect and nothing else's.

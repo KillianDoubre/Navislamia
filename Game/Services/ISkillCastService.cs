@@ -86,6 +86,27 @@ public interface ISkillCastService
         ApplyItemSkill(client, skillId, skillLevel);
 
     /// <summary>Whether an item's skill can land on <paramref name="targetHandle"/>, judged before the item is spent.</summary>
+    /// <summary>
+    /// Whether an item's spell is cast for real (its casting bar, then its effect when it fires) rather than applied at
+    /// once: the return spells (<see cref="Navislamia.Game.DataAccess.Repositories.Interfaces.SkillCastKind.Return"/>).
+    /// </summary>
+    bool IsCastItemSkill(int skillId) => false;
+
+    /// <summary><c>StructSkill::TOWN_PORTAL</c>: to the return point, moved by up to 60 units while it is blocked.</summary>
+    void TownPortal(GameClient client) { }
+
+    /// <summary><c>StructSkill::RETURN_BACK_FEATHER</c>: back to the position a Return Back Feather keeps.</summary>
+    void ReturnTo(GameClient client, float x, float y, byte layer) { }
+
+    /// <summary>
+    /// <c>StructCreature::onItemUseEffect</c>, <c>ITEM_EFFECT_INSTANT::SKILL</c>: <c>CastSkill( var1, var2, hTarget, ...,
+    /// pItem-&gt;GetHandle() )</c>. The cast starts (<c>ST_Casting</c>) or the refusal comes back, before the item is
+    /// spent; <paramref name="onFire"/> runs when it fires.
+    /// </summary>
+    Navislamia.Game.Network.Packets.ResultCode CastItemSkill(GameClient client, int skillId, int skillLevel,
+        uint targetHandle, uint itemHandle, System.Action<GameClient> onFire) =>
+        Navislamia.Game.Network.Packets.ResultCode.NotActable;
+
     Navislamia.Game.Network.Packets.ResultCode CheckItemSkillTarget(GameClient client, int skillId, uint targetHandle) =>
         Navislamia.Game.Network.Packets.ResultCode.Success;
 }

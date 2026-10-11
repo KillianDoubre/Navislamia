@@ -228,6 +228,11 @@ public interface ICharacterService
 
     Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count);
 
+    /// <summary><see cref="AddItemAsync(string,int,long)"/> with its four sockets written (a Return Back Feather keeps
+    /// the position it was made at in sockets 0..2, <c>StructSkill::RETURN_FEATHER</c>).</summary>
+    Task<ItemEntity> AddItemAsync(string characterName, int itemResourceId, long count, long[] sockets) =>
+        AddItemAsync(characterName, itemResourceId, count);
+
     /// <summary>
     /// Moves items from one character's bag to another's and writes both gold balances, in one save under
     /// both characters' gates: every line applies or none does. A whole stack keeps its row (and so its
