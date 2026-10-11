@@ -57,6 +57,14 @@ public class MonsterRewardRulesTests
         MonsterRewardRules.ScaleForLevelGap(0, 5, 20).Should().Be(0);
     }
 
+    [TestCase(100, 5, 220, 1, 1, Description = "a level 220 master on a level 5 monster still gets one point")]
+    [TestCase(100, 5, 220, 5, 5, Description = "the floor is one point before the server rate (x5)")]
+    [TestCase(0, 5, 4, 1, 1, Description = "a monster worth nothing still gives one point")]
+    [TestCase(100, 5, 10, 1, 75, Description = "above the floor the gap rule is unchanged")]
+    public void Kill_experience_never_falls_below_one_point_like_the_official(long amount, int monsterLevel,
+        int beneficiaryLevel, long ratedFloor, long expected) =>
+        MonsterRewardRules.PlayerExperience(amount, monsterLevel, beneficiaryLevel, ratedFloor).Should().Be(expected);
+
     [TestCase(0, 1.0)]
     [TestCase(10, 1.0)]
     [TestCase(11, 0.8)]

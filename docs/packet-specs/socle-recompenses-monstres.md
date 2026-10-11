@@ -588,3 +588,16 @@ de 500 unités sont venus de la fusion (§15). Les pondérations par dégâts, b
 stamina du serveur officiel n'étaient pas modélisés dans ce lot. La pondération, la stamina et le
 bonus de donjon configurable sont maintenant livrés dans `socle-progression-monstres-quetes-titres.md`.
 Le bonus PC bang reste absent. Les règles d'attribution des objets à l'intérieur du groupe sont conservées.
+
+## 16. Plancher d'un point d'expérience (2026-10-11)
+
+Bug noté : « la créature ne gagne pas d'exp ». Le maître (niveau 220) chassait des monstres de bas niveau : la réduction
+de 5 % par niveau d'écart ramenait son gain à 0, et ses créatures, qui reçoivent son expérience
+(`distributeExpToSummons`, `StructPlayer.cpp:8233`), recevaient 0. L'officiel planche le gain du joueur à un point après
+la réduction et avant le taux du serveur (`StructMonster.cpp:1050`, `if( exp < 1 ) exp = 1;`, puis `× fEXPRate`) ; les JP
+n'ont pas de plancher (`if( fJP < 0 ) fJP = 0;`). `MonsterRewardRules.PlayerExperience` porte ce plancher, appelé par
+`CombatService.AwardReward` avec un point au taux courant (`IRateService.Scale(1, Exp)`). Une créature niveau 1 (5 points
+pour le niveau 2) progresse donc d'un point par monstre, même derrière un maître très au-dessus. Non porté : les
+multiplicateurs `m_fActiveSummonExpAmp`/`m_fDeactiveSummonExpAmp` (passif `EF_AMPLIFY_EXP_FOR_SUMMON` et un état),
+qui valent 1 et 0 sans eux.
+

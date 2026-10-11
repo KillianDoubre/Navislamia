@@ -1203,8 +1203,8 @@ public partial class CombatService : ICombatService
                         MoralityRules.Set(client, MoralityRules.AfterMonsterKill(info.ImmoralPoint, monster.Level, info.CharacterLevel,
                             info.PartyId.HasValue ? Math.Max(1, _parties.MemberCount(client)) : 0));
 
-                    var exp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(MonsterContribution.Scale(reward.Exp, group.Factor), members.Length, i),
-                        monster.Level, info.CharacterLevel);
+                    var exp = MonsterRewardRules.PlayerExperience(CombatRewards.Share(MonsterContribution.Scale(reward.Exp, group.Factor), members.Length, i),
+                        monster.Level, info.CharacterLevel, _rates.Scale(1, Rates.RateType.Exp));
                     var jp = MonsterRewardRules.ScaleForLevelGap(CombatRewards.Share(MonsterContribution.Scale(reward.Jp, group.Factor), members.Length, i),
                         monster.Level, info.CharacterLevel);
                     var maxChaos = reward.Chaos > 0 ? CombatRewards.ChaosCapacity(_stats.Compute(info).Total.MaxChaos) : 0;

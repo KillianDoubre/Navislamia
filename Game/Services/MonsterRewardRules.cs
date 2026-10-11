@@ -56,6 +56,18 @@ public static class MonsterRewardRules
     /// like the <c>float</c> to <c>int</c> conversion of the reference, and never goes below zero.
     /// </summary>
     public static long ScaleForLevelGap(long amount, int monsterLevel, int beneficiaryLevel)
+        => ScaleForLevelGapCore(amount, monsterLevel, beneficiaryLevel);
+
+    /// <summary>
+    /// A beneficiary's kill experience: <see cref="ScaleForLevelGap"/>, never below one point
+    /// (<c>StructMonster.cpp:1050</c>, <c>if( exp &lt; 1 ) exp = 1;</c>, before the server rate, which
+    /// <paramref name="floor"/> carries). JP has no such floor. Without it a master far above the monster
+    /// gained nothing, and neither did its summons, which take the master's exp (<c>distributeExpToSummons</c>).
+    /// </summary>
+    public static long PlayerExperience(long amount, int monsterLevel, int beneficiaryLevel, long floor)
+        => Math.Max(Math.Max(1, floor), ScaleForLevelGapCore(amount, monsterLevel, beneficiaryLevel));
+
+    private static long ScaleForLevelGapCore(long amount, int monsterLevel, int beneficiaryLevel)
     {
         if (amount <= 0)
         {
