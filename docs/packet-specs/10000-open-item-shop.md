@@ -501,3 +501,67 @@ git log --oneline origin/master..master  # vide
    absents du dépôt) : à savoir pour les lots suivants.
 7. **Réserve g** — 9000/9001 (`TM_SC_OPEN_URL`, `TM_SC_URL_LIST`) changent d'id en 9.6.3 : les lots
    qui les toucheront devront trancher la version avant de coder. Aucun des deux n'est déclaré ici.
+
+## Boutique livrée (2026-10-11)
+
+Le verdict du haut de cette fiche (« ne pas répondre ») tenait faute de source ; la source officielle 2015 et le client
+officiel le renversent. Ce qui est établi :
+
+| Fait | Source |
+| --- | --- |
+| Le joueur demande la boutique par la ligne de chat **`/cshop`** (bouton de l'interface), le coffre par **`/cstorage`** | `SFrame.exe` 0x49d76e / 0x49d750 (messages internes 2 et 1) ; officiel `NORMAL1( "cshop", onOpenItemShop )`, `NORMAL1( "cstorage", onOpenCommercialItemStorage )` (GameMessage.cpp:5624-5625) |
+| **Le client n'envoie ces deux lignes que s'il est lancé avec l'option `/cash`** | `SFrame.exe` 0x4999e3-0x499a1e : sans la clé `cash`, une ligne qui commence par `/cstorage` ou `/cshop` est jetée |
+| `onOpenItemShop` répond une 10001 : `client_id = GetSID()` (le personnage), `account_id`, `one_time_password = XRandom() % 0x00ffffff` enregistré en base avant l'envoi, `raw_server_name = app.name` ; la 10000 a le même bras | GameMessage.cpp:5061-5070, 12380 |
+| Le client en fait son `open_item_shop(n1 = one_time_password, n2 = client_id, n3 = account_id, nom)` | client officiel `SGameVM.cpp:1171` ; `SFrame.exe` 0x67ecd4, 0x598930 |
+| URL : `shop.url` (défaut `http://itemshop.rappelz.com/login.aspx`) + `?server=<nom>&id=<40 chiffres hexa>` ; `shop_url` (avec un souligné) remplace tout, sans paramètre | `SGameInterface.cpp:2300-2340, 2932-2945` ; `SFrame.exe` 0x62a5b0 (graine constante 0x16ee69e8, pas de `languagecode` dans ce build) |
+| L'`id` : graine, puis `n1 ^ graine`, `n2 ^ n1`, `n3 ^ n2`, somme de contrôle `(n1+n2+n3) ^ n3`, chacun XOR une clé (`D8FB51A9`, `9DC720AC`, `31F42CB7`, `7F9B3D2E`) | outil de Gala Lab `program/client/Tool/ItemShopUrlEncoder/Form1.cs` (encodeur et décodeur) |
+| La page s'ouvre dans la fenêtre Internet Explorer du jeu (`SetNavigate`), sauf pays `HK` (`iexplore.exe`) | `SGameInterface.cpp:2945-2960` |
+| Une option du client se donne `/clé:valeur`, la clé s'arrête au premier `:` | `XEnv.cpp:1206-1228` |
+| Un achat arrivait du serveur d'authentification (`TS_AG_ITEM_PURCHASED`/`SUPPLIED`) : le joueur en jeu reçoit ses compteurs (10003) — et `@442` pour un objet offert | GameMessage.cpp:11626-11669 |
+
+**`@442` n'est pas ce message dans le client 7.3** : son `db_string.rdb` y range `smsg_japan_netcafe`. La ligne
+d'achat est donc un texte en clair (`ItemShopService.PurchaseNotice`), choix du dépôt.
+
+### Ce que fait Navislamia
+
+- **`/cshop` et 10000** → `ItemShopService.OpenShop` : un mot de passe neuf (1..0xFFFFFE) pour ce personnage, gardé
+  en mémoire 5 min (`ItemShop:TicketLifetimeSeconds`) — l'officiel l'écrivait en base pour son site, la page vit ici
+  dans le même processus —, puis la 10001 (`GameCommercialStoragePackets.BuildOpenItemShop`, 51 octets, nom coupé à
+  31 octets et toujours terminé). `client_id` = handle du personnage (= son id), `raw_server_name` = `Server:Name`.
+- **La page** (`DevConsole/ItemShopWebHost.cs`, Kestrel sur `ItemShop:Url`, défaut `http://127.0.0.1:4680`) : toute
+  adresse avec `?id=` est la connexion (le `login.aspx` par défaut du client marche), l'`id` est décodé
+  (`ItemShopRules.TryDecodeId`), le mot de passe doit correspondre au personnage **et** au compte et **ne sert
+  qu'une fois** ; la page porte ensuite un jeton aléatoire (pas de cookie), valable 30 min sans clic
+  (`ItemShopSessions`). HTML simple, sans script, pour la fenêtre IE du client (`ItemShopPages`).
+- **Le catalogue** : `DevConsole/item-shop.73.json`, 52 articles permanents choisis parmi les objets « cash »
+  (`item_use_flag` bit 13, `FLAG_CASHITEM`, ItemBase.h:340) que le client 7.3 connaît, en six onglets (plumes et
+  potions, personnage, enchantement, familiers, montures, teintures). **Prix et choix sont ceux du dépôt** : aucune
+  source officielle de catalogue ni de prix n'existe (le site n'est pas dans le dump). Un article est écarté au
+  démarrage s'il n'a pas un prix positif, une quantité 1..65535 et un objet connu (`ItemShopCatalog`).
+- **La monnaie** : des points par compte, table Telecaster `AccountCashPoints` (`Version0027_AccountCashPoints`).
+  `/addcash <points> [personnage]` (MJ) en crédite ou en retire, `/cash` affiche le solde. Le solde ne passe jamais
+  sous 0 ni au-delà de 10¹².
+- **L'achat** : sous un verrou par compte, une seule sauvegarde retire le prix **et** écrit une ligne `PaidItems` de
+  compte (`CharacterId` nul : tout personnage du compte la prend, le cas « acheté sur le site » de l'officiel,
+  `avatar_id -1`) ; puis le joueur du compte en jeu reçoit la ligne d'avis et sa 10003. Le coffre (10004/10005)
+  existait déjà.
+- **`/cstorage`** → la 10004 seule (`ICommercialStorageService.SendListAsync`) : le client renvoie `/cstorage` sur
+  une 10003 quand la fenêtre est ouverte (`SFrame.exe` 0x49dd44), une 10003 ici bouclerait.
+- **Le retrait suit maintenant l'officiel** (`DB_TakeOutCommercialItem`, DB_CommercialItemStorage.cpp:223-347) :
+  `TS_SC_RESULT(10005, SUCCESS, code de l'objet)` puis les objets, `ACCESS_DENIED` pour tout refus ; un objet sans
+  `FLAG_JOIN` arrive **un par unité**. La paire 10003/10004 repart toujours après (choix du lot 2, inoffensif).
+- **Le client** : `launch-client.ps1` (local) passe `/cash` et `/shop.url:http://127.0.0.1:4680/login.aspx`
+  (`-ShopUrl` pour un autre serveur). Pour un serveur ouvert, `ItemShop:Url` doit écouter une adresse joignable
+  (`http://0.0.0.0:4680`) et `shop.url` la nommer.
+
+Tests : `ItemShopTests` (trame, `id` contre l'encodeur de Gala Lab, mots de passe, catalogue livré, points, page,
+achat), `Tests/Host/ItemShopWebHostTests` (HTTP réel : `login.aspx`, page, formulaire), `CommercialStorageContainerTests`
+(résultat et découpage du retrait). **À vérifier en jeu** : le bouton de boutique, l'affichage de la page dans la
+fenêtre IE du client, la fenêtre « Item Box » après un achat.
+
+### NON ÉTABLI
+
+- Le geste exact de l'interface 7.3 qui envoie `/cshop` (message interne 2) et celui qui envoie `/cstorage`.
+- 10002 `TS_SC_OPEN_PAID_STORAGE` : toujours non émis (§7n de la fiche du coffre).
+- Le rendu de la page dans le moteur IE embarqué du client (mode de compatibilité réel).
+- Le sens de `new_item_count` (`confirmed`) : inchangé, voir la fiche du coffre §7b.

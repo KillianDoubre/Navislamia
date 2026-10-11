@@ -22,6 +22,38 @@ namespace Navislamia.Game.DataAccess.Migrations.Telecaster
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AccountCashPointEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("AccountId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Points")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId")
+                        .IsUnique()
+                        .HasFilter("\"DeletedOn\" IS NULL");
+
+                    b.ToTable("AccountCashPoints");
+                });
+
             modelBuilder.Entity("Navislamia.Game.DataAccess.Entities.Telecaster.AccountStorageGoldEntity", b =>
                 {
                     b.Property<long>("Id")

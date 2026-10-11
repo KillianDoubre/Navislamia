@@ -818,3 +818,17 @@ Deux corrections :
   la paire vide (0/0 puis 9 o), ce qu'envoyait le lot 1 (`AFailedRead_StillSendsTheEmptyPairAtWorldEntry`).
 
 Construction `Release` et `dotnet test` : 1 449 tests, 0 échec.
+
+## Mise à jour du 2026-10-11 : boutique et retrait officiels
+
+La source officielle 2015 (`Game/Db/DB_CommercialItemStorage.cpp`, `GameMessage.cpp`) tranche plusieurs réserves :
+
+- **§7f / §7g — réponse du retrait** : `DB_TakeOutCommercialItem` répond `SendResult(TM_CS_TAKEOUT_COMMERCIAL_ITEM,
+  ERROR_SUCCESS, code)` (:268) et `ERROR_ACCESS_DENIED` sinon (:340, :346). C'est livré ; un objet sans `FLAG_JOIN`
+  est remis un par unité (:296-321, `CommercialStorageRules.DeliveryStacks`). Seul ce qui est entré au sac est
+  retiré de la ligne.
+- **§7k — le producteur** : la boutique existe (`10000-open-item-shop.md`, *Boutique livrée*), elle écrit des lignes
+  de compte (`CharacterId` nul).
+- **Liste** : l'officiel l'envoie sur `/cstorage` seulement (`DB_ReadCommercialStorageList`) et les compteurs à
+  l'entrée et après un achat (`DB_GetCommercialStorageInfo`) : `SendListAsync`/`SendInfoAsync`. L'entrée en jeu garde
+  sa paire.

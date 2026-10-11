@@ -3003,7 +3003,8 @@ public class GameClient : Client
             }
 
             if (header.ID is (ushort)GamePackets.TM_SC_COMMERCIAL_STORAGE_INFO
-                or (ushort)GamePackets.TM_SC_COMMERCIAL_STORAGE_LIST)
+                or (ushort)GamePackets.TM_SC_COMMERCIAL_STORAGE_LIST
+                or (ushort)GamePackets.TM_SC_OPEN_ITEM_SHOP)
             {
                 // TM_SC_COMMERCIAL_STORAGE_INFO (10003) and TM_SC_COMMERCIAL_STORAGE_LIST (10004) are server
                 // to client packets: the 7.3 client builds no frame for either id (SFrame.exe owns no
@@ -3121,16 +3122,21 @@ public class GameClient : Client
                 continue;
             }
 
-            // TM_CS_OPEN_ITEM_SHOP (10000) is a request with an empty body: 7 bytes on the wire, header
-            // only. The 7.3 client never emits it — opening the item shop is a purely local command that
-            // builds the web shop URL from shop_url and the character it already knows — so, like
-            // TM_SC_REGION_ACK above, an incoming frame is an anomaly: logged and dropped, nothing read past
-            // the header and nothing answered. The four fields of TM_SC_OPEN_ITEM_SHOP (10001) are web shop
-            // credentials Navislamia does not hold, so no answer is invented for it.
+            // TM_CS_OPEN_ITEM_SHOP (10000) is a request with an empty body, 7 bytes. The 7.3 client asks for the shop
+            // with the chat line /cshop instead, but the official dispatcher answers both the same way
+            // (GameMessage.cpp:12380, onOpenItemShop): a 10001 carrying a fresh one-time password.
             if (header.ID == (ushort)GamePackets.TM_CS_OPEN_ITEM_SHOP)
             {
-                _logger.Warning("TM_CS_OPEN_ITEM_SHOP ({id}) received from {clientTag}: no item shop backend is configured, ignoring",
-                    header.ID, ClientTag);
+                if (_networkService.ItemShopService is { } itemShop)
+                {
+                    itemShop.OpenShop(this);
+                }
+                else
+                {
+                    _logger.Warning("TM_CS_OPEN_ITEM_SHOP ({id}) received from {clientTag}: no item shop is configured",
+                        header.ID, ClientTag);
+                }
+
                 continue;
             }
 

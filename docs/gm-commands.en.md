@@ -67,6 +67,7 @@ its author and arguments.
 | `/immortal [on\|off]` | Monsters still hit you but deal no damage. Without an argument, toggles. |
 | `/pk [on\|off]` | Turns PK mode on or off immediately, without the countdown. Without an argument, toggles. |
 | `/save` | Saves your progress without disconnecting. |
+| `/addcash <points> [name]` | Credits (or, negative, takes) Item Shop points on your account or on the named online player's account. The balance never goes below 0. |
 
 ### World and combat
 
@@ -124,6 +125,9 @@ These go through the same command handler but need no permission.
 | `/title <id\|0>` | Sets your main title (`0` removes it); 5 minutes between two changes. |
 | `/subtitle <slot 1-5> <id\|0>` | Sets a secondary title in a slot (up to your rank); it grants 10 % of the title's bonuses. |
 | `/change_name <name>` | Renames your character, once: 4 to 18 letters or digits, no banned word, capitalised like the rules require. You leave every other player's friend and block list. |
+| `/cshop` | Opens the Item Shop page (official command; the client's shop button sends it, only when started with `/cash`). |
+| `/cstorage` | Sends the Item Box list (official command; the client's Item Box window sends it). |
+| `/cash` | Shows the Item Shop points of your account. |
 
 Party (`/pcreate`, `/pinvite`…; `/passist <handle>` takes the target of the party member clicked in the party window), guild (`/g…`, `/ga…`, `/rp…`) and friend (`/add_friend`, `/add_denial`…)
 commands are sent by the client's own windows and are documented with their systems

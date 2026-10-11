@@ -11,6 +11,7 @@ using Navislamia.Game.Network.Packets;
 using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Navislamia.Game.Services;
+using Navislamia.Game.Services.Interfaces;
 
 namespace Tests.Game;
 
@@ -37,7 +38,7 @@ public class CommercialStorageContainerTests
         ICharacterService Characters, GameClient Client, StorageTestHarness.FrameConnection Connection,
         ConnectionInfo Session);
 
-    private static Harness Build(string characterName = Character, bool knownCode = true)
+    private static Harness Build(string characterName = Character, bool knownCode = true, bool joinable = true)
     {
         var repository = A.Fake<IPaidItemRepository>();
         var characters = A.Fake<ICharacterService>();
@@ -50,7 +51,10 @@ public class CommercialStorageContainerTests
         session.CharacterName = characterName;
         session.CharacterHandle = 42;
 
-        var service = new CommercialStorageService(repository, new CharacterGate(), characters, catalog);
+        // Joinable (FLAG_JOIN, bit 6) unless a test says otherwise: one stack per takeout.
+        var useCatalog = A.Fake<IItemUseCatalog>();
+        A.CallTo(() => useCatalog.UseFlags(A<int>._)).Returns(joinable ? 1 << 6 : 0);
+        var service = new CommercialStorageService(repository, new CharacterGate(), characters, catalog, useCatalog);
 
         return new Harness(service, repository, characters, client, connection, session);
     }
@@ -83,6 +87,15 @@ public class CommercialStorageContainerTests
     private static Task Takeout(Harness harness, uint uid = Uid, ushort count = 5)
         => harness.Service.HandleTakeoutAsync(harness.Client,
             new GameActionPackets.TakeoutCommercialItemRequest(uid, count));
+
+    /// <summary>The <c>TS_SC_RESULT</c> of a takeout: request 10005 @7, result @9, value @11.</summary>
+    private static void ShouldBeResult(byte[] packet, ResultCode result, int value = 0)
+    {
+        IdOf(packet).Should().Be((ushort)GamePackets.TM_SC_RESULT);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(7, 2)).Should().Be(10005);
+        BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(9, 2)).Should().Be((ushort)result);
+        BinaryPrimitives.ReadInt32LittleEndian(packet.AsSpan(11, 4)).Should().Be(value);
+    }
 
     private static ItemEntity Added(uint id = 77, int amount = 5)
         => new() { Id = id, ItemResourceId = ItemCode, Amount = amount, Idx = 3 };
@@ -269,14 +282,15 @@ public class CommercialStorageContainerTests
 
         await Takeout(harness);
 
-        harness.Connection.Sent.Should().HaveCount(3);
-        IdOf(harness.Connection.Sent[0]).Should().Be(207,
+        harness.Connection.Sent.Should().HaveCount(4);
+        ShouldBeResult(harness.Connection.Sent[0], ResultCode.Success, ItemCode);
+        IdOf(harness.Connection.Sent[1]).Should().Be(207,
             "the goods go to the bag through the ordinary inventory frame");
-        BinaryPrimitives.ReadUInt32LittleEndian(harness.Connection.Sent[0].AsSpan(9, 4)).Should().Be(77u,
+        BinaryPrimitives.ReadUInt32LittleEndian(harness.Connection.Sent[1].AsSpan(9, 4)).Should().Be(77u,
             "the item record of a 207 starts at offset 9 and its handle comes first");
 
-        IdOf(harness.Connection.Sent[1]).Should().Be(10003, "the window is refreshed after the takeout");
-        IdOf(harness.Connection.Sent[2]).Should().Be(10004);
+        IdOf(harness.Connection.Sent[2]).Should().Be(10003, "the window is refreshed after the takeout");
+        IdOf(harness.Connection.Sent[3]).Should().Be(10004);
 
         A.CallTo(() => harness.Repository.ConsumeAsync(Character, Uid, 5)).MustHaveHappenedOnceExactly();
     }
@@ -354,21 +368,22 @@ public class CommercialStorageContainerTests
     }
 
     [Test]
-    public async Task Takeout_AnswersNothingWhenTheUidNamesNoOwnedRow()
+    public async Task Takeout_DeniesWhenTheUidNamesNoOwnedRow()
     {
         var harness = Build();
         A.CallTo(() => harness.Repository.ResolveAsync(Character, Uid)).Returns(Task.FromResult<PaidItemEntity>(null));
 
         await Takeout(harness);
 
-        harness.Connection.Sent.Should().BeEmpty("a refusal has no result packet in this family");
+        harness.Connection.Sent.Should().ContainSingle("DB_TakeOutCommercialItem answers a refusal with ACCESS_DENIED");
+        ShouldBeResult(harness.Connection.Sent[0], ResultCode.AccessDenied);
         A.CallTo(() => harness.Characters.AddItemAsync(A<string>._, A<int>._, A<long>._)).MustNotHaveHappened();
         A.CallTo(() => harness.Repository.ConsumeAsync(A<string>._, A<uint>._, A<ushort>._)).MustNotHaveHappened();
     }
 
-    [TestCase(0, TestName = "Takeout_AnswersNothingOnAZeroQuantity")]
-    [TestCase(6, TestName = "Takeout_AnswersNothingAboveWhatTheLineHolds")]
-    public async Task Takeout_AnswersNothingOutsideTheTakeableBounds(int count)
+    [TestCase(0, TestName = "Takeout_DeniesAZeroQuantity")]
+    [TestCase(6, TestName = "Takeout_DeniesMoreThanTheLineHolds")]
+    public async Task Takeout_DeniesOutsideTheTakeableBounds(int count)
     {
         var harness = Build();
         A.CallTo(() => harness.Repository.ResolveAsync(Character, Uid))
@@ -376,20 +391,20 @@ public class CommercialStorageContainerTests
 
         await Takeout(harness, Uid, (ushort)count);
 
-        harness.Connection.Sent.Should().BeEmpty();
+        ShouldBeResult(harness.Connection.Sent.Single(), ResultCode.AccessDenied);
         A.CallTo(() => harness.Characters.AddItemAsync(A<string>._, A<int>._, A<long>._)).MustNotHaveHappened();
         A.CallTo(() => harness.Repository.ConsumeAsync(A<string>._, A<uint>._, A<ushort>._)).MustNotHaveHappened();
     }
 
     [Test]
-    public async Task Takeout_AnswersNothingForAnItemCodeTheCatalogueDoesNotKnow()
+    public async Task Takeout_DeniesAnItemCodeTheCatalogueDoesNotKnow()
     {
         var harness = Build(knownCode: false);
         A.CallTo(() => harness.Repository.ResolveAsync(Character, Uid)).Returns(Task.FromResult(Row()));
 
         await Takeout(harness);
 
-        harness.Connection.Sent.Should().BeEmpty();
+        ShouldBeResult(harness.Connection.Sent.Single(), ResultCode.AccessDenied);
         A.CallTo(() => harness.Characters.AddItemAsync(A<string>._, A<int>._, A<long>._)).MustNotHaveHappened();
         A.CallTo(() => harness.Repository.ConsumeAsync(A<string>._, A<uint>._, A<ushort>._)).MustNotHaveHappened();
     }
@@ -404,7 +419,7 @@ public class CommercialStorageContainerTests
 
         await Takeout(harness);
 
-        harness.Connection.Sent.Should().BeEmpty();
+        ShouldBeResult(harness.Connection.Sent.Single(), ResultCode.AccessDenied);
         A.CallTo(() => harness.Repository.ConsumeAsync(A<string>._, A<uint>._, A<ushort>._)).MustNotHaveHappened();
     }
 
@@ -424,9 +439,9 @@ public class CommercialStorageContainerTests
 
         await Takeout(harness);
 
-        harness.Connection.Sent.Should().HaveCount(3);
-        IdOf(harness.Connection.Sent[0]).Should().Be(207);
-        IdOf(harness.Connection.Sent[1]).Should().Be(10003);
+        harness.Connection.Sent.Should().HaveCount(4);
+        IdOf(harness.Connection.Sent[1]).Should().Be(207);
+        IdOf(harness.Connection.Sent[2]).Should().Be(10003);
     }
 
     [Test]
@@ -445,7 +460,28 @@ public class CommercialStorageContainerTests
 
         await Takeout(harness, Uid, 7);
 
-        CountOfLine(harness.Connection.Sent[2], 0).Should().Be(5, "the refresh shows what is left");
+        CountOfLine(harness.Connection.Sent[3], 0).Should().Be(5, "the refresh shows what is left");
+    }
+
+    [Test]
+    public async Task Takeout_OfAnItemThatDoesNotStack_LandsOneItemPerUnit()
+    {
+        // DB_TakeOutCommercialItem (DB_CommercialItemStorage.cpp:296-321): without FLAG_JOIN, AllocItem(code, 1)
+        // once per unit.
+        var harness = Build(joinable: false);
+        var row = Row(rest: 5);
+        A.CallTo(() => harness.Repository.ResolveAsync(Character, Uid)).Returns(Task.FromResult(row));
+        A.CallTo(() => harness.Characters.AddItemAsync(Character, ItemCode, 1L)).ReturnsLazily(() => Added(amount: 1));
+        A.CallTo(() => harness.Repository.ConsumeAsync(Character, Uid, 3))
+            .Returns(Task.FromResult(CommercialTakeoutResult.Consumed(row, 2)));
+        A.CallTo(() => harness.Repository.GetVisibleAsync(Character))
+            .Returns(Task.FromResult(Array.Empty<PaidItemEntity>()));
+
+        await Takeout(harness, Uid, 3);
+
+        A.CallTo(() => harness.Characters.AddItemAsync(Character, ItemCode, 1L)).MustHaveHappened(3, Times.Exactly);
+        A.CallTo(() => harness.Repository.ConsumeAsync(Character, Uid, 3)).MustHaveHappenedOnceExactly();
+        ShouldBeResult(harness.Connection.Sent[0], ResultCode.Success, ItemCode);
     }
 
     [Test]

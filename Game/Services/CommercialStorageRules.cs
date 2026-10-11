@@ -143,6 +143,22 @@ public static class CommercialStorageRules
         return count > 0 && count <= takeable;
     }
 
+    /// <summary>
+    /// The stacks a takeout of <paramref name="count"/> units lands in: one stack for a joinable item, otherwise one
+    /// item per unit, as <c>DB_TakeOutCommercialItem</c> does (DB_CommercialItemStorage.cpp:278-321).
+    /// </summary>
+    public static IEnumerable<long> DeliveryStacks(ushort count, bool joinable)
+    {
+        if (count == 0) yield break;
+        if (joinable)
+        {
+            yield return count;
+            yield break;
+        }
+
+        for (var unit = 0; unit < count; unit++) yield return 1;
+    }
+
     /// <summary>The units a line announces: <c>min(rest_item_count, 65535)</c> (§5.3).</summary>
     private static ushort ClampCount(int restItemCount)
         => (ushort)Math.Clamp(restItemCount, 0, MaxCount);

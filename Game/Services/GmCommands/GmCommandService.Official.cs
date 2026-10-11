@@ -20,6 +20,40 @@ public partial class GmCommandService
             && string.Equals(c.ConnectionInfo.CharacterName, name, StringComparison.OrdinalIgnoreCase));
         switch (definition.Command)
         {
+            case GmCommand.CShop:
+                // onOpenItemShop (GameMessage.cpp:5061): the client asks with /cshop, only when started with /cash.
+                _itemShop?.OpenShop(client);
+                return true;
+
+            case GmCommand.CStorage:
+                // onOpenCommercialItemStorage (GameMessage.cpp:5054): the list alone, the Item Box window asks for it.
+                if (_commercialStorage is not null) await _commercialStorage.SendListAsync(client);
+                return true;
+
+            case GmCommand.Cash:
+                if (_itemShop is null) { Reply(client, "The Item Shop is closed."); return true; }
+                Reply(client, $"Item Shop points: {ItemShop.ItemShopPages.Points(await _itemShop.GetPointsAsync(info.AccountId))}");
+                return true;
+
+            case GmCommand.AddCash:
+                if (args.Length is < 1 or > 2 || !long.TryParse(args[0], NumberStyles.AllowLeadingSign,
+                        CultureInfo.InvariantCulture, out var points) || points == 0)
+                { Usage(client, definition); return true; }
+                if (_itemShop is null) { Reply(client, "The Item Shop is closed."); return true; }
+                var payee = args.Length == 2 ? Find(args[1]) : client;
+                if (payee is null) { Reply(client, "Player not found."); return true; }
+                var balance = await _itemShop.AddPointsAsync(payee.ConnectionInfo.AccountId, points);
+                if (balance is null) { Reply(client, "The balance cannot go below zero or past its ceiling."); return true; }
+                Reply(client, $"{payee.ConnectionInfo.CharacterName}: {ItemShop.ItemShopPages.Points(balance.Value)} points.");
+                if (payee != client)
+                {
+                    payee.Connection.Send(GameChatPackets.BuildChat(SystemSender,
+                        (byte)Network.Packets.Enums.ChatType.System,
+                        $"Item Shop points: {ItemShop.ItemShopPages.Points(balance.Value)}"));
+                }
+
+                return true;
+
             case GmCommand.ChangeName:
                 if (args.Length != 1) { Usage(client, definition); return true; }
                 Task renaming;

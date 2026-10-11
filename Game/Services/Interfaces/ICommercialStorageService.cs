@@ -20,9 +20,23 @@ public interface ICommercialStorageService
     Task SendContainerAsync(GameClient client);
 
     /// <summary>
+    /// <c>DB_GetCommercialStorageInfo</c>: the counters alone (10003), what the official sends at world entry and
+    /// after a purchase (<c>onItemPurchased</c>/<c>onItemSupplied</c>, GameMessage.cpp:11626-11669). The client asks
+    /// for the list itself (<c>/cstorage</c>) when its Item Box window is open.
+    /// </summary>
+    Task SendInfoAsync(GameClient client);
+
+    /// <summary>
+    /// <c>DB_ReadCommercialStorageList</c>: the list alone (10004), the answer of <c>/cstorage</c>. Never the counters:
+    /// the client answers a 10003 with a <c>/cstorage</c> while the window is open, so a counter here would loop.
+    /// </summary>
+    Task SendListAsync(GameClient client);
+
+    /// <summary>
     /// Handles a <c>TM_CS_TAKEOUT_COMMERCIAL_ITEM</c> (10005): resolve, bound, validate the code, hand the
     /// goods to the bag through the ordinary inventory packets, consume the line and refresh the pair. A
-    /// refusal writes nothing and answers nothing — there is no result packet for this family (§5.6).
+    /// success answers <c>TS_SC_RESULT(10005, SUCCESS, item code)</c> and a refusal <c>ACCESS_DENIED</c>, as
+    /// <c>DB_TakeOutCommercialItem</c> does (DB_CommercialItemStorage.cpp:268, 340, 346).
     /// </summary>
     Task HandleTakeoutAsync(GameClient client, GameActionPackets.TakeoutCommercialItemRequest request);
 }

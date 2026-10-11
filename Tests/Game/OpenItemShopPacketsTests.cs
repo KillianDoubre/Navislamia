@@ -23,9 +23,9 @@ namespace Tests.Game;
 
 /// <summary>
 /// TM_CS_OPEN_ITEM_SHOP (10000) is a header-only request: 7 bytes on the wire, no field past the checksum
-/// at offset 6. The 7.3 client never sends it (opening the item shop is a purely local command that builds
-/// the web shop URL from shop_url) and Navislamia answers nothing: the four fields of the answer
-/// TM_SC_OPEN_ITEM_SHOP (10001) are web shop credentials the server does not hold.
+/// at offset 6. The 7.3 client asks for the shop with the chat line /cshop instead; the official answers both with
+/// TM_SC_OPEN_ITEM_SHOP (10001), and so does the item shop service when one is configured (ItemShopTests). Without
+/// it, as in this harness, the frame is consumed and answered by nothing.
 /// See docs/packet-specs/10000-open-item-shop.md.
 /// </summary>
 [TestFixture]
@@ -71,10 +71,26 @@ public class OpenItemShopPacketsTests
         Enum.IsDefined(typeof(GamePackets), (ushort)9001).Should().BeFalse();
 
         // The request id must be defined, otherwise OnDataReceived drops the frame as "Undefined packet ID"
-        // before any dispatch. The answer id must NOT be declared: it is a server to client packet with no
-        // dispatch arm, so a declared 10001 would reach the final "Unknown Packet Type" throw.
+        // before any dispatch. The answer 10001 is declared now that the item shop emits it, and it has the
+        // server to client guard arm, so an incoming one never reaches the final "Unknown Packet Type" throw.
         Enum.IsDefined(typeof(GamePackets), (ushort)GamePackets.TM_CS_OPEN_ITEM_SHOP).Should().BeTrue();
-        Enum.IsDefined(typeof(GamePackets), (ushort)10001).Should().BeFalse();
+        ((ushort)GamePackets.TM_SC_OPEN_ITEM_SHOP).Should().Be(10001);
+    }
+
+    [Test]
+    public void OnDataReceived_DropsAnIncomingAnswerWithoutThrowing()
+    {
+        var frame = new byte[51];
+        BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(0, 4), 51);
+        BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(4, 2), (ushort)GamePackets.TM_SC_OPEN_ITEM_SHOP);
+        frame[6] = Checksum(frame);
+        var connection = new FrameConnection(frame);
+        var client = NewGameClient(connection);
+
+        var receive = () => client.OnDataReceived(frame.Length);
+
+        receive.Should().NotThrow();
+        connection.Sent.Should().BeEmpty();
     }
 
     [Test]

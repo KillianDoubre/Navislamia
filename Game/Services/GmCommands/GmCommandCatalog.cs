@@ -42,7 +42,8 @@ public enum GmCommand
     Unride,
     Speed,
     SubTitle, ChangeName, BlockChat, CheckAutoUser, ForceWarp, Invisible, Kick, Rebirth, Lv,
-    Job, Race, MaxSkills
+    Job, Race, MaxSkills,
+    CShop, CStorage, Cash, AddCash
 }
 
 /// <summary>
@@ -76,6 +77,10 @@ public static class GmCommandCatalog
         new GmCommandDefinition(GmCommand.Kick, "kick", true, "/kick <name>", FromOfficial),
         new GmCommandDefinition(GmCommand.Rebirth, "rebirth", true, "/rebirth", FromOfficial),
         new GmCommandDefinition(GmCommand.Lv, "lv", true, "/lv <level>", FromOfficial),
+        new GmCommandDefinition(GmCommand.CShop, "cshop", false, "/cshop", FromOfficial),
+        new GmCommandDefinition(GmCommand.CStorage, "cstorage", false, "/cstorage", FromOfficial),
+        new GmCommandDefinition(GmCommand.Cash, "cash", false, "/cash", FromRepository),
+        new GmCommandDefinition(GmCommand.AddCash, "addcash", true, "/addcash <points> [character]", FromRepository),
         new GmCommandDefinition(GmCommand.Help, "help", false, "/help", FromRepository),
         new GmCommandDefinition(GmCommand.Hold, "hold", false, "/hold [summon handle] [on|off]", FromRepository),
         new GmCommandDefinition(GmCommand.Titles, "titles", false, "/titles", FromRepository),

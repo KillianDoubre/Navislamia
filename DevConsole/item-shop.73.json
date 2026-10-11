@@ -1,0 +1,422 @@
+{
+ "ItemShop": {
+  "Entries": [
+   {
+    "Id": 1,
+    "Category": "Utility",
+    "Code": 910006,
+    "Count": 5,
+    "Price": 50,
+    "Name": "Feather of Return"
+   },
+   {
+    "Id": 2,
+    "Category": "Utility",
+    "Code": 910007,
+    "Count": 5,
+    "Price": 80,
+    "Name": "Feather of Summon"
+   },
+   {
+    "Id": 3,
+    "Category": "Utility",
+    "Code": 910008,
+    "Count": 5,
+    "Price": 80,
+    "Name": "Feather of Union"
+   },
+   {
+    "Id": 4,
+    "Category": "Utility",
+    "Code": 910022,
+    "Count": 5,
+    "Price": 80,
+    "Name": "Feather of Teleportation"
+   },
+   {
+    "Id": 5,
+    "Category": "Utility",
+    "Code": 900000,
+    "Count": 1,
+    "Price": 100,
+    "Name": "Stamina Saver"
+   },
+   {
+    "Id": 6,
+    "Category": "Utility",
+    "Code": 950073,
+    "Count": 1,
+    "Price": 300,
+    "Name": "Stamina Saver Deluxe"
+   },
+   {
+    "Id": 7,
+    "Category": "Utility",
+    "Code": 900005,
+    "Count": 1,
+    "Price": 250,
+    "Name": "Growth Potion"
+   },
+   {
+    "Id": 8,
+    "Category": "Utility",
+    "Code": 2902160,
+    "Count": 1,
+    "Price": 150,
+    "Name": "Lucky Potion"
+   },
+   {
+    "Id": 9,
+    "Category": "Utility",
+    "Code": 2902161,
+    "Count": 10,
+    "Price": 100,
+    "Name": "Animal Cracker"
+   },
+   {
+    "Id": 10,
+    "Category": "Utility",
+    "Code": 910077,
+    "Count": 1,
+    "Price": 120,
+    "Name": "Song of Battle"
+   },
+   {
+    "Id": 11,
+    "Category": "Utility",
+    "Code": 910078,
+    "Count": 1,
+    "Price": 120,
+    "Name": "Four-Leafed Clover"
+   },
+   {
+    "Id": 12,
+    "Category": "Utility",
+    "Code": 910079,
+    "Count": 1,
+    "Price": 200,
+    "Name": "World Blessing"
+   },
+   {
+    "Id": 13,
+    "Category": "Utility",
+    "Code": 920008,
+    "Count": 1,
+    "Price": 150,
+    "Name": "Scroll of Rebirth"
+   },
+   {
+    "Id": 14,
+    "Category": "Utility",
+    "Code": 920001,
+    "Count": 1,
+    "Price": 150,
+    "Name": "Creature Resurrection Spellbook"
+   },
+   {
+    "Id": 15,
+    "Category": "Character",
+    "Code": 920000,
+    "Count": 1,
+    "Price": 400,
+    "Name": "Re-specialization Potion"
+   },
+   {
+    "Id": 16,
+    "Category": "Character",
+    "Code": 920006,
+    "Count": 1,
+    "Price": 300,
+    "Name": "Creature Re-specialization Potion"
+   },
+   {
+    "Id": 17,
+    "Category": "Character",
+    "Code": 930040,
+    "Count": 1,
+    "Price": 500,
+    "Name": "Character Name Change"
+   },
+   {
+    "Id": 18,
+    "Category": "Character",
+    "Code": 920004,
+    "Count": 1,
+    "Price": 200,
+    "Name": "Creature Name Change"
+   },
+   {
+    "Id": 19,
+    "Category": "Character",
+    "Code": 920010,
+    "Count": 1,
+    "Price": 100,
+    "Name": "Decorative Pet Name Change"
+   },
+   {
+    "Id": 20,
+    "Category": "Character",
+    "Code": 920002,
+    "Count": 1,
+    "Price": 200,
+    "Name": "Immorality Soap"
+   },
+   {
+    "Id": 21,
+    "Category": "Character",
+    "Code": 920003,
+    "Count": 1,
+    "Price": 400,
+    "Name": "Immorality Cleanser"
+   },
+   {
+    "Id": 22,
+    "Category": "Enhancement",
+    "Code": 950020,
+    "Count": 1,
+    "Price": 150,
+    "Name": "E-Protect Powder"
+   },
+   {
+    "Id": 23,
+    "Category": "Enhancement",
+    "Code": 950021,
+    "Count": 1,
+    "Price": 200,
+    "Name": "E-Repair Powder"
+   },
+   {
+    "Id": 24,
+    "Category": "Enhancement",
+    "Code": 950083,
+    "Count": 1,
+    "Price": 300,
+    "Name": "S-Protect Card"
+   },
+   {
+    "Id": 25,
+    "Category": "Enhancement",
+    "Code": 940000,
+    "Count": 1,
+    "Price": 100,
+    "Name": "Pixy Dust"
+   },
+   {
+    "Id": 26,
+    "Category": "Enhancement",
+    "Code": 960001,
+    "Count": 1,
+    "Price": 60,
+    "Name": "Rank 2 Blessed Stabilizing Powder"
+   },
+   {
+    "Id": 27,
+    "Category": "Enhancement",
+    "Code": 960002,
+    "Count": 1,
+    "Price": 90,
+    "Name": "Rank 3 Blessed Stabilizing Powder"
+   },
+   {
+    "Id": 28,
+    "Category": "Enhancement",
+    "Code": 960003,
+    "Count": 1,
+    "Price": 130,
+    "Name": "Rank 4 Blessed Stabilizing Powder"
+   },
+   {
+    "Id": 29,
+    "Category": "Enhancement",
+    "Code": 960004,
+    "Count": 1,
+    "Price": 180,
+    "Name": "Rank 5 Blessed Stabilizing Powder"
+   },
+   {
+    "Id": 30,
+    "Category": "Enhancement",
+    "Code": 960005,
+    "Count": 1,
+    "Price": 240,
+    "Name": "Rank 6 Blessed Stabilizing Powder"
+   },
+   {
+    "Id": 31,
+    "Category": "Enhancement",
+    "Code": 960006,
+    "Count": 1,
+    "Price": 320,
+    "Name": "Rank 7 Blessed Stabilizing Powder"
+   },
+   {
+    "Id": 32,
+    "Category": "Pets",
+    "Code": 690403,
+    "Count": 1,
+    "Price": 800,
+    "Name": "Helmet Crab"
+   },
+   {
+    "Id": 33,
+    "Category": "Pets",
+    "Code": 690412,
+    "Count": 1,
+    "Price": 800,
+    "Name": "Sun Rabbit"
+   },
+   {
+    "Id": 34,
+    "Category": "Pets",
+    "Code": 690421,
+    "Count": 1,
+    "Price": 800,
+    "Name": "Love Heart"
+   },
+   {
+    "Id": 35,
+    "Category": "Pets",
+    "Code": 690430,
+    "Count": 1,
+    "Price": 800,
+    "Name": "Pirate Ship"
+   },
+   {
+    "Id": 36,
+    "Category": "Pets",
+    "Code": 690444,
+    "Count": 1,
+    "Price": 1000,
+    "Name": "White Moon Rabbit<15_Permanunt>"
+   },
+   {
+    "Id": 37,
+    "Category": "Pets",
+    "Code": 690447,
+    "Count": 1,
+    "Price": 1000,
+    "Name": "Cookie Moon Rabbit<15_Permanunt>"
+   },
+   {
+    "Id": 38,
+    "Category": "Pets",
+    "Code": 690450,
+    "Count": 1,
+    "Price": 1000,
+    "Name": "Golden Moon Rabbit<15_Permanunt>"
+   },
+   {
+    "Id": 39,
+    "Category": "Pets",
+    "Code": 690496,
+    "Count": 1,
+    "Price": 1000,
+    "Name": "Holly"
+   },
+   {
+    "Id": 40,
+    "Category": "Mounts",
+    "Code": 550016,
+    "Count": 1,
+    "Price": 1500,
+    "Name": "Ash Lydian<Permanent>"
+   },
+   {
+    "Id": 41,
+    "Category": "Mounts",
+    "Code": 550017,
+    "Count": 1,
+    "Price": 1500,
+    "Name": "Dark Lydian<Permanent>"
+   },
+   {
+    "Id": 42,
+    "Category": "Mounts",
+    "Code": 550018,
+    "Count": 1,
+    "Price": 1500,
+    "Name": "Red Lydian<Permanent>"
+   },
+   {
+    "Id": 43,
+    "Category": "Mounts",
+    "Code": 550019,
+    "Count": 1,
+    "Price": 1500,
+    "Name": "Blue Lydian<Permanent>"
+   },
+   {
+    "Id": 44,
+    "Category": "Style",
+    "Code": 960037,
+    "Count": 1,
+    "Price": 80,
+    "Name": "Blonde Hairdye"
+   },
+   {
+    "Id": 45,
+    "Category": "Style",
+    "Code": 960042,
+    "Count": 1,
+    "Price": 80,
+    "Name": "Cherry Red Hairdye"
+   },
+   {
+    "Id": 46,
+    "Category": "Style",
+    "Code": 960045,
+    "Count": 1,
+    "Price": 80,
+    "Name": "Chocolate Brown Hairdye"
+   },
+   {
+    "Id": 47,
+    "Category": "Style",
+    "Code": 960052,
+    "Count": 1,
+    "Price": 80,
+    "Name": "Pink Hairdye"
+   },
+   {
+    "Id": 48,
+    "Category": "Style",
+    "Code": 960053,
+    "Count": 1,
+    "Price": 80,
+    "Name": "Winter White Hairdye"
+   },
+   {
+    "Id": 49,
+    "Category": "Style",
+    "Code": 960055,
+    "Count": 1,
+    "Price": 80,
+    "Name": "Black Hairdye"
+   },
+   {
+    "Id": 50,
+    "Category": "Style",
+    "Code": 960063,
+    "Count": 1,
+    "Price": 100,
+    "Name": "Deva Blue Hairdye"
+   },
+   {
+    "Id": 51,
+    "Category": "Style",
+    "Code": 960065,
+    "Count": 1,
+    "Price": 100,
+    "Name": "Asura Black Hairdye"
+   },
+   {
+    "Id": 52,
+    "Category": "Style",
+    "Code": 960067,
+    "Count": 1,
+    "Price": 100,
+    "Name": "Gaia Red Hairdye"
+   }
+  ]
+ }
+}

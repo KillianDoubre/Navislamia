@@ -49,6 +49,8 @@ public partial class GmCommandService : IGmCommandService
     private readonly Friends.IFriendService _friends;
     private readonly Guilds.IGuildService _guildService;
     private readonly Auction.IAuctionService _auctions;
+    private readonly ItemShop.IItemShopService _itemShop;
+    private readonly ICommercialStorageService _commercialStorage;
 
     public GmCommandService(IWarpService warpService, ICombatService combatService,
         ILevelingService levelingService, IStatService statService, ICharacterService characterService,
@@ -56,8 +58,11 @@ public partial class GmCommandService : IGmCommandService
         ISkillCastService skillCastService, IStateCatalog stateCatalog, IRateService rateService,
         Progression.ITitleService titles = null, Creatures.ICreatureService creatures = null, Party.IPartyService parties = null,
         IResurrectionService resurrection = null, Friends.IFriendService friends = null,
-        Jobs.IJobChangeService jobChange = null, Guilds.IGuildService guildService = null, Auction.IAuctionService auctions = null)
+        Jobs.IJobChangeService jobChange = null, Guilds.IGuildService guildService = null, Auction.IAuctionService auctions = null,
+        ItemShop.IItemShopService itemShop = null, ICommercialStorageService commercialStorage = null)
     {
+        _itemShop = itemShop;
+        _commercialStorage = commercialStorage;
         _jobChange = jobChange;
         _guildService = guildService; _auctions = auctions;
         _friends = friends;

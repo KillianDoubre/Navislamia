@@ -258,17 +258,19 @@ public class CommercialStoragePacketsTests
             .Select(method => method.Name)
             .ToArray();
 
-        builders.Should().BeEquivalentTo("BuildCommercialStorageInfo", "BuildCommercialStorageList");
+        builders.Should().BeEquivalentTo("BuildCommercialStorageInfo", "BuildCommercialStorageList", "BuildOpenItemShop");
 
         var emittedIds = new[]
         {
             BinaryPrimitives.ReadUInt16LittleEndian(
                 GameCommercialStoragePackets.BuildCommercialStorageInfo(0, 0).AsSpan(4, 2)),
             BinaryPrimitives.ReadUInt16LittleEndian(
-                GameCommercialStoragePackets.BuildCommercialStorageList(Items()).AsSpan(4, 2))
+                GameCommercialStoragePackets.BuildCommercialStorageList(Items()).AsSpan(4, 2)),
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                GameCommercialStoragePackets.BuildOpenItemShop(1, 2, 3, "Navislamia").AsSpan(4, 2))
         };
 
-        emittedIds.Should().Equal(10003, 10004);
+        emittedIds.Should().Equal(10003, 10004, 10001);
         emittedIds.Should().NotContain((ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM);
     }
 

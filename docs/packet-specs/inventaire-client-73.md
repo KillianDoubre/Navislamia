@@ -33,7 +33,8 @@ Trois sources ont été croisées.
 | 650-652, 660 | fenêtres de guilde, icône de guilde | **lot de Codex** (emblème) | — |
 | 9000 / 9001 | `TS_SC_OPEN_URL` / `TS_SC_URL_LIST` | ouverture d'URL (boutique web) | hors périmètre |
 | 9002-9011 | numéro de sécurité | création, changement, effacement (le client envoie aussi 9006-9012) | hors périmètre (décision de Killian, 9005) |
-| 10001-10025 | boutique d'objets payants | ouverture de la boutique, sans source établie | hors périmètre sans boutique |
+| 10001 | `TS_SC_OPEN_ITEM_SHOP` | ouverture de la boutique | **livré le 2026-10-11** (`10000-open-item-shop.md`, *Boutique livrée*) |
+| 10002 | `TS_SC_OPEN_PAID_STORAGE` | sens non établi | non émis |
 | 6003/6005/6007 | résultats de la ferme | ferme non implémentée (décision) | — |
 | 103, 506 | sans nom (`TM_SC_HAVOC` pour 506) | non établi | — |
 
@@ -131,7 +132,9 @@ Manquent :
 
 - Numéro de sécurité (9002-9011) : **à faire** — stockage et vérification du code, transport vers le serveur
   d'authentification.
-- Boutique payante et coffre commercial (10001 et suivants, 9000/9001) : **à faire**.
+- ~~Boutique payante et coffre commercial (10001 et suivants, 9000/9001) : à faire.~~ Livré le 2026-10-11 : `/cshop`
+  → 10001, page web servie par le serveur, points par compte (`/addcash`), achats dans le coffre ; 9000/9001 ne sont
+  pas nécessaires (le client bâtit l'URL lui-même).
 - Ferme de créatures (6000-6008) : **à porter** depuis le serveur officiel (cartes Trello `xyPQkALO`, 6002, 6004,
   6006 ; source dans `reference/official2015/` sur le VPS).
 - ~~Instances 50000, 60000 et 70000 (voir ci-dessus) : à vérifier.~~ Vérifié : contenu 9.4, retiré.

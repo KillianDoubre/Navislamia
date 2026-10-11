@@ -96,6 +96,34 @@ public static class GameCommercialStoragePackets
         return packet;
     }
 
+    /// <summary>7-byte header + three <c>int32</c> + <c>raw_server_name[32]</c> (docs/packet-specs/10000-open-item-shop.md §3.2).</summary>
+    public const int OpenItemShopSize = 51;
+
+    /// <summary>The bytes <c>raw_server_name</c> can hold before its terminating zero.</summary>
+    public const int ServerNameCapacity = 31;
+
+    /// <summary>
+    /// <c>TM_SC_OPEN_ITEM_SHOP</c> (10001): <c>client_id</c> @7, <c>account_id</c> @11, <c>one_time_password</c> @15,
+    /// <c>raw_server_name</c> @19 zero padded to 32 bytes, the official <c>onOpenItemShop</c> (GameMessage.cpp:5061-5070).
+    /// The client turns it into its own <c>open_item_shop</c> command and builds the shop URL from it. A name longer
+    /// than 31 bytes is cut, never left without its zero (the client copies it with <c>strcpy</c>).
+    /// </summary>
+    public static byte[] BuildOpenItemShop(int clientId, int accountId, int oneTimePassword, string serverName)
+    {
+        var packet = new byte[OpenItemShopSize];
+        var span = packet.AsSpan();
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(0, 4), (uint)packet.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(4, 2), (ushort)GamePackets.TM_SC_OPEN_ITEM_SHOP);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(HeaderSize, 4), clientId);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(HeaderSize + 4, 4), accountId);
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(HeaderSize + 8, 4), oneTimePassword);
+        var name = System.Text.Encoding.ASCII.GetBytes(serverName ?? string.Empty);
+        name.AsSpan(0, Math.Min(name.Length, ServerNameCapacity)).CopyTo(span.Slice(HeaderSize + 12));
+
+        WriteChecksum(packet);
+        return packet;
+    }
+
     private static void WriteChecksum(byte[] packet)
     {
         byte checksum = 0;

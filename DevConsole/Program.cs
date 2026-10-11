@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Navislamia.Configuration.Options;
 using Navislamia.Game;
 using Navislamia.Game.DataAccess.Contexts;
@@ -128,6 +129,27 @@ public class Program
         ConfigureCreatureCatalog(services, context);
         ConfigureHuntaholicCatalog(services, context);
         ConfigureAuctionCatalog(services, context);
+        ConfigureItemShop(services, context);
+    }
+
+    /// <summary>
+    /// The item shop (docs/packet-specs/10000-open-item-shop.md, *Boutique livrée*): the <c>ItemShop</c> section of
+    /// appsettings, and its articles from <c>item-shop.73.json</c>. Without the file the shop opens empty.
+    /// </summary>
+    private static void ConfigureItemShop(IServiceCollection services, HostBuilderContext context)
+    {
+        services.Configure<ItemShopOptions>(context.Configuration.GetSection("ItemShop"));
+        var catalogPath = Path.Combine(context.HostingEnvironment.ContentRootPath, "item-shop.73.json");
+        if (!File.Exists(catalogPath))
+        {
+            return;
+        }
+
+        using var stream = File.OpenRead(catalogPath);
+        using var document = JsonDocument.Parse(stream);
+        var catalog = document.RootElement.GetProperty("ItemShop")
+            .Deserialize<ItemShopOptions>() ?? new ItemShopOptions();
+        services.PostConfigure<ItemShopOptions>(options => options.Entries = catalog.Entries);
     }
 
     /// <summary>
@@ -446,6 +468,7 @@ public class Program
         services.AddSingleton<IStarterItemsRepository, StarterItemsRepository>();
         services.AddSingleton<IStorageRepository, StorageRepository>();
         services.AddSingleton<IPaidItemRepository, PaidItemRepository>();
+        services.AddSingleton<IItemShopRepository, ItemShopRepository>();
         services.AddSingleton<IStatResourceRepository, StatResourceRepository>();
         services.AddSingleton<IJobResourceRepository, JobResourceRepository>();
         services.AddSingleton<IJobLevelBonusRepository, JobLevelBonusRepository>();
@@ -498,6 +521,11 @@ public class Program
         services.AddSingleton<IInventoryService, InventoryService>();
         services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<ICommercialStorageService, CommercialStorageService>();
+        services.AddSingleton(provider => new Navislamia.Game.Services.ItemShop.ItemShopCatalog(
+            provider.GetRequiredService<IOptions<ItemShopOptions>>(), provider.GetRequiredService<IItemSortCatalog>()));
+        services.AddSingleton<Navislamia.Game.Services.ItemShop.IItemShopService,
+            Navislamia.Game.Services.ItemShop.ItemShopService>();
+        services.AddHostedService<ItemShopWebHost>();
         services.AddSingleton<IItemUseCatalog>(provider => new ItemUseCatalog(
             provider.GetRequiredService<IItemResourceRepository>(),
             Path.Combine(System.AppContext.BaseDirectory, "item-use.73.json")));

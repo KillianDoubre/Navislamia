@@ -33,6 +33,7 @@ public class TelecasterContext : SoftDeletionContext
     public DbSet<PetEntity> Pets { get; set; }
     public DbSet<PaidItemEntity> PaidItems { get; set; }
     public DbSet<AccountStorageGoldEntity> AccountStorageGolds { get; set; }
+    public DbSet<AccountCashPointEntity> AccountCashPoints { get; set; }
     public DbSet<CharacterFavorEntity> CharacterFavors { get; set; }
     public DbSet<SummonEntity> Summons { get; set; }
     public DbSet<StarterItemsEntity> StarterItems { get; set; }
@@ -92,6 +93,9 @@ public class TelecasterContext : SoftDeletionContext
     private static void ConfigureStorageGoldAndFavors(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AccountStorageGoldEntity>()
+            .HasIndex(row => row.AccountId)
+            .IsUnique().HasFilter("\"DeletedOn\" IS NULL");
+        modelBuilder.Entity<AccountCashPointEntity>()
             .HasIndex(row => row.AccountId)
             .IsUnique().HasFilter("\"DeletedOn\" IS NULL");
 

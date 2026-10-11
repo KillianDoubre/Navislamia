@@ -57,6 +57,7 @@ public class NetworkService : INetworkService
     public readonly IWorldLocationService WorldLocationService;
     public readonly Navislamia.Game.Services.Pets.IPetSummonService PetSummonService;
     public readonly ICommercialStorageService CommercialStorageService;
+    public readonly Navislamia.Game.Services.ItemShop.IItemShopService ItemShopService;
     public readonly IPlayerVisibilityService PlayerVisibilityService;
     public readonly IBoothTradeService BoothTradeService;
     public readonly IMarketTradeService MarketTradeService;
@@ -134,8 +135,10 @@ public class NetworkService : INetworkService
         IPlayerLocationService playerLocationService = null,
         Navislamia.Game.Maps.Collision.IWorldCollision worldCollision = null,
         Navislamia.Game.Services.Creatures.ICreatureFarmService creatureFarmService = null,
-        Navislamia.Game.Services.Creatures.ICreatureFarmDepositService creatureFarmDepositService = null)
+        Navislamia.Game.Services.Creatures.ICreatureFarmDepositService creatureFarmDepositService = null,
+        Navislamia.Game.Services.ItemShop.IItemShopService itemShopService = null)
     {
+        ItemShopService = itemShopService;
         WorldCollision = worldCollision;
         CreatureFarmService = creatureFarmService;
         CreatureFarmDepositService = creatureFarmDepositService;

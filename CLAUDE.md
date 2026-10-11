@@ -2837,6 +2837,20 @@ dispatch et `HandleSecurityNo` dans `Game/Network/Clients/GameClient.cs`, tests
   (reproduit par test à la revue du 2026-09-29) ; le second est désormais abandonné.
 - Le producteur est **hors code** (boutique web externe, 10001) : sans boutique ni outil d'administration,
   `PaidItems` reste vide. Fiche : `docs/packet-specs/socle-stockage-commercial-conteneur.md`.
+- **Remplacé le 2026-10-11** : le retrait répond comme l'officiel (`TS_SC_RESULT(10005, SUCCESS, code)`,
+  `ACCESS_DENIED` sinon, objet non empilable un par unité) et la boutique existe, ci-dessous.
+
+### Boutique d'objets — 10000/10001, `/cshop`, `/cstorage` (2026-10-11)
+
+`docs/packet-specs/10000-open-item-shop.md`, *Boutique livrée*. Le client demande la boutique par **`/cshop`** et la
+liste du coffre par **`/cstorage`**, **seulement s'il est lancé avec `/cash`** (`launch-client.ps1` le passe, avec
+`/shop.url:`). `ItemShopService` répond la 10001 (51 octets) avec un mot de passe à usage unique gardé en mémoire ; le
+client ouvre `shop.url?server=…&id=…` (id de l'`ItemShopUrlEncoder` de Gala Lab) dans sa fenêtre IE. La page est
+servie par `DevConsole/ItemShopWebHost` (Kestrel, `ItemShop:Url`, HTML sans script, jeton dans l'URL). Catalogue
+`DevConsole/item-shop.73.json` (objets `FLAG_CASHITEM` permanents, prix du dépôt), monnaie = points par compte
+(`AccountCashPoints`, `/addcash`, `/cash`), un achat = débit + ligne `PaidItems` de compte en une sauvegarde, puis
+avis et 10003 au joueur en jeu. **`/cstorage` ne renvoie que la 10004** : le client répond à une 10003 par un
+`/cstorage` quand la fenêtre est ouverte.
 
 ### Socle compétition entre joueurs — 4500-4506 (`TM_CS/SC_COMPETE_*`)
 

@@ -1,8 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Navislamia.Game.DataAccess.Entities.Telecaster;
 using Navislamia.Game.DataAccess.Repositories.Interfaces;
 using Navislamia.Game.Network.Clients;
+using Navislamia.Game.Network.Packets;
+using Navislamia.Game.Network.Packets.Enums;
 using Navislamia.Game.Network.Packets.Game;
 using Serilog;
 
@@ -12,9 +17,10 @@ namespace Navislamia.Game.Services;
 /// The commercial storage (item shop) container, derived from the dump because neither reference
 /// implements it (docs/packet-specs/socle-stockage-commercial-conteneur.md §6).
 /// <para>
-/// What it holds comes from the table <c>PaidItems</c>, which the external item shop writes; nothing in
-/// this repository feeds it (§5.10). What it does, it does with the ordinary inventory packets: the server
-/// never emits a <c>TM_CS_TAKEOUT_COMMERCIAL_ITEM</c>, and the takeout has no result code at all (§5.6).
+/// What it holds comes from the table <c>PaidItems</c>, which the item shop page writes
+/// (<see cref="ItemShop.ItemShopService"/>). A takeout delivers through the ordinary inventory packets and answers
+/// <c>TS_SC_RESULT(10005)</c> like the official <c>DB_TakeOutCommercialItem</c> (docs/packet-specs/10000-open-item-shop.md,
+/// *Boutique livrée*).
 /// </para>
 /// </summary>
 public class CommercialStorageService : ICommercialStorageService
@@ -23,6 +29,7 @@ public class CommercialStorageService : ICommercialStorageService
     private readonly IPaidItemRepository _repository;
     private readonly ICharacterService _characterService;
     private readonly IItemSortCatalog _itemCatalog;
+    private readonly IItemUseCatalog _useCatalog;
 
     /// <summary>
     /// The gate <c>CharacterService</c> and <c>StorageService</c> take too, keyed by character. Every step
@@ -34,15 +41,22 @@ public class CommercialStorageService : ICommercialStorageService
     private readonly CharacterGate _gate;
 
     public CommercialStorageService(IPaidItemRepository repository, CharacterGate gate,
-        ICharacterService characterService, IItemSortCatalog itemCatalog)
+        ICharacterService characterService, IItemSortCatalog itemCatalog, IItemUseCatalog useCatalog = null)
     {
+        _useCatalog = useCatalog;
         _repository = repository;
         _gate = gate;
         _characterService = characterService;
         _itemCatalog = itemCatalog;
     }
 
-    public async Task SendContainerAsync(GameClient client)
+    public Task SendInfoAsync(GameClient client) => SendAsync(client, info: true, list: false);
+
+    public Task SendListAsync(GameClient client) => SendAsync(client, info: false, list: true);
+
+    public Task SendContainerAsync(GameClient client) => SendAsync(client, info: true, list: true);
+
+    private async Task SendAsync(GameClient client, bool info, bool list)
     {
         var characterName = client.ConnectionInfo.CharacterName;
         if (string.IsNullOrEmpty(characterName))
@@ -69,9 +83,16 @@ public class CommercialStorageService : ICommercialStorageService
             var entries = CommercialStorageRules.BuildEntries(visible);
             var counters = CommercialStorageRules.BuildCounters(emitted);
 
-            client.Connection.Send(
-                GameCommercialStoragePackets.BuildCommercialStorageInfo(counters.Total, counters.New));
-            client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageList(entries));
+            if (info)
+            {
+                client.Connection.Send(
+                    GameCommercialStoragePackets.BuildCommercialStorageInfo(counters.Total, counters.New));
+            }
+
+            if (list)
+            {
+                client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageList(entries));
+            }
 
             _logger.Debug("Commercial storage of {characterName}: {total} lines, {new} new", characterName,
                 counters.Total, counters.New);
@@ -82,9 +103,12 @@ public class CommercialStorageService : ICommercialStorageService
 
             // The world entry sequence keeps its two frames: empty, exactly what it sent before the container
             // was read, rather than nothing at all.
-            client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageInfo(0, 0));
-            client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageList(
-                Array.Empty<(uint Uid, int Code, ushort Count)>()));
+            if (info) client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageInfo(0, 0));
+            if (list)
+            {
+                client.Connection.Send(GameCommercialStoragePackets.BuildCommercialStorageList(
+                    Array.Empty<(uint Uid, int Code, ushort Count)>()));
+            }
         }
     }
 
@@ -129,6 +153,7 @@ public class CommercialStorageService : ICommercialStorageService
             // Not an error: an unknown, foreign or already emptied uid is one and the same answer.
             _logger.Debug("No commercial storage row {uid} for {characterName}: nothing taken", request.Uid,
                 characterName);
+            Deny(client);
             return;
         }
 
@@ -137,6 +162,7 @@ public class CommercialStorageService : ICommercialStorageService
         {
             _logger.Debug("Refused a takeout of {count} from row {uid} of {characterName}: 1..{takeable} takeable",
                 request.Count, request.Uid, characterName, takeable);
+            Deny(client);
             return;
         }
 
@@ -146,32 +172,48 @@ public class CommercialStorageService : ICommercialStorageService
         {
             _logger.Warning("Refused a takeout of unknown item code {code} for {characterName}", row.ItemCode,
                 characterName);
+            Deny(client);
             return;
         }
 
-        // 5. The goods go to the bag through the ordinary packet of the inventory, never through a 10005.
-        var added = await _characterService.AddItemAsync(characterName, row.ItemCode, request.Count);
-        if (added is null)
+        // 5. The goods go to the bag through the ordinary packet of the inventory. A joinable item is one stack; any
+        // other comes one unit per item, the official loop over AllocItem(code, 1) (DB_CommercialItemStorage.cpp:296-321).
+        var joinable = ItemObtainedNotice.IsJoinable(_useCatalog?.UseFlags(row.ItemCode) ?? 0,
+            DataAccess.Entities.Enums.ItemFlag.None);
+        var added = new List<ItemEntity>();
+        long delivered = 0;
+        foreach (var units in CommercialStorageRules.DeliveryStacks(request.Count, joinable))
+        {
+            var item = await _characterService.AddItemAsync(characterName, row.ItemCode, units);
+            if (item is null) break;
+            added.Add(item);
+            delivered += units;
+        }
+
+        if (delivered == 0)
         {
             _logger.Error("Could not add item {code} x{count} of the commercial storage of {characterName}; " +
                           "nothing was taken", row.ItemCode, request.Count, characterName);
+            Deny(client);
             return;
         }
 
-        foreach (var packet in GameCharacterPackets.BuildInventory(new[] { added }))
+        client.SendResult((ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM, (ushort)ResultCode.Success, row.ItemCode);
+        foreach (var packet in GameCharacterPackets.BuildInventory(added.ToArray()))
         {
             client.Connection.Send(packet);
         }
 
-        // 6. Consumption: the line keeps its trace, it is never deleted and confirmed is never written.
+        // 6. Consumption: the line keeps its trace, it is never deleted and confirmed is never written. Only what
+        // reached the bag is taken off the line.
         var consumed = await _gate.RunAsync(characterName,
-            () => _repository.ConsumeAsync(characterName, request.Uid, request.Count));
+            () => _repository.ConsumeAsync(characterName, request.Uid, (ushort)delivered));
         if (consumed.Outcome != CommercialTakeoutOutcome.Consumed)
         {
             // The delivery (5) is not undone: the order keeps the loss on the server's side rather than on
             // the player's, and it is the atomicity the fiche assumes (§5.6, reserve §7h).
             _logger.Error("Item {code} x{count} was handed to {characterName} but its row {uid} could not be " +
-                          "consumed ({outcome})", row.ItemCode, request.Count, characterName, request.Uid,
+                          "consumed ({outcome})", row.ItemCode, delivered, characterName, request.Uid,
                 consumed.Outcome);
         }
 
@@ -179,6 +221,10 @@ public class CommercialStorageService : ICommercialStorageService
         await SendContainerAsync(client);
 
         _logger.Debug("{characterName} took {count} of item {code} from the commercial storage (row {uid})",
-            characterName, request.Count, row.ItemCode, request.Uid);
+            characterName, delivered, row.ItemCode, request.Uid);
     }
+
+    /// <summary>The official refusal of every failed takeout (DB_CommercialItemStorage.cpp:340, 346).</summary>
+    private static void Deny(GameClient client) =>
+        client.SendResult((ushort)GamePackets.TM_CS_TAKEOUT_COMMERCIAL_ITEM, (ushort)ResultCode.AccessDenied);
 }
