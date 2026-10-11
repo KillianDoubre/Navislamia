@@ -187,8 +187,26 @@ public class ItemUseService : IItemUseService
         if (hasFields && CastSkillSlot(fields) is { } castSkill)
         {
             var itemHandle = request.ItemHandle;
+            Action<GameClient> onFire = null;
+            if (castSkill.SkillId is Buffs.BuffCatalog.TownPortalSkill or Buffs.BuffCatalog.ReturnFeatherSkill
+                or Buffs.BuffCatalog.ReturnBackFeatherSkill)
+            {
+                onFire = caster => _ = ReturnOnFireAsync(caster, castSkill.SkillId, itemHandle);
+            }
+            else if (_states.TryGetItemCost(castSkill.SkillId, castSkill.Level, out var costCode, out var costCount))
+            {
+                // StructSkill::Cast: NOT_ENOUGH_ITEM without var(level) units of item var0; ProcSkill spends them.
+                if (await CountCarriedAsync(info.CharacterName, costCode) < costCount)
+                {
+                    client.SendResult(UseItemRequestId, (ushort)ResultCode.NotEnoughItem, value);
+                    return;
+                }
+
+                onFire = caster => _ = SpendCostAsync(caster, costCode, costCount);
+            }
+
             var started = _states.CastItemSkill(client, castSkill.SkillId, castSkill.Level, request.TargetHandle,
-                itemHandle, caster => _ = ReturnOnFireAsync(caster, castSkill.SkillId, itemHandle));
+                itemHandle, onFire);
             if (started != ResultCode.Success)
             {
                 client.SendResult(UseItemRequestId, (ushort)started, value);
@@ -480,6 +498,44 @@ public class ItemUseService : IItemUseService
         {
             _logger.Error(exception, "Return spell {skillId} of {clientTag} failed when it fired", skillId,
                 client.ClientTag);
+        }
+    }
+
+    private async Task<long> CountCarriedAsync(string characterName, int itemCode)
+    {
+        var items = await _characterService.GetCarriedItemsAsync(characterName);
+        long total = 0;
+        foreach (var carried in items)
+        {
+            if (carried.ItemResourceId == itemCode && carried.WearInfo == ItemWearType.None) total += carried.Amount;
+        }
+
+        return total;
+    }
+
+    /// <summary><c>ProcSkill</c>'s <c>EraseItem( costItem, requiredItemCount )</c>, stack by stack.</summary>
+    private async Task SpendCostAsync(GameClient client, int itemCode, long count)
+    {
+        try
+        {
+            var items = await _characterService.GetCarriedItemsAsync(client.ConnectionInfo.CharacterName);
+            foreach (var carried in items)
+            {
+                if (count <= 0) break;
+                if (carried.ItemResourceId != itemCode || carried.WearInfo != ItemWearType.None) continue;
+                var taken = Math.Min(count, carried.Amount);
+                var remaining = await _characterService.ConsumeItemAsync(client.ConnectionInfo.CharacterName,
+                    (uint)carried.Id, taken);
+                if (remaining is null) continue;
+                count -= taken;
+                client.Connection.Send(remaining == 0
+                    ? GameCharacterPackets.BuildDestroyItem((uint)carried.Id)
+                    : GameCharacterPackets.BuildUpdateItemCount((uint)carried.Id, remaining.Value));
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.Error(exception, "Could not spend the cost of an item spell for {clientTag}", client.ClientTag);
         }
     }
 

@@ -2109,7 +2109,10 @@ sanctionner, ne jamais journaliser le contenu**. Le `t` fait **1 octet** — ce 
 - **Parchemin et plumes de retour** (fiche, fin) : leur sort (6007/6020/6021, `SkillCastKind.Return`) est **incanté** par
   `ISkillCastService.CastItemSkill` avant la consommation (`CastSkill` de `onItemUseEffect`), le parchemin est dépensé à
   l'utilisation, une plume au moment du sort (`ReturnItems`), qui laisse une plume de retour arrière (910009, position dans
-  les châsses 0-2). Les autres compétences d'objet restent appliquées sur-le-champ (`ApplyItemSkill`).
+  les châsses 0-2). **Toute compétence d'objet qui a une incantation, une cible ou un effet hors du chemin direct est
+  incantée** (`IsCastItemSkill` : malus, dégâts, 401 `RemoveBadState`, 304 `CastingCancel`, 6 `RespawnMonster`, 314
+  `StateByItem` payé en objets) ; un sort d'objet n'est jamais appris et n'a pas de recharge de sort (`!m_hCastItem`).
+  Les buffs, soins et résurrections instantanés gardent `ApplyItemSkill`.
 - **Monture par objet** (`docs/packet-specs/socle-monture-objet.md`) : l'effet `TOGGLE_STATE` (8) porte l'objet en
   `WEAR_RIDE_ITEM` (22) et pose son état `EF_RIDING` (200) sans fin, ou le retire si cet objet porté l'a posé ; refus
   `AccessDenied` à un cavalier ou en donjon, **avant** l'accusé. `Riding.ItemRiding` (vitesse `value_0 ÷ 7`, plus

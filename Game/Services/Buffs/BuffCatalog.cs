@@ -65,6 +65,19 @@ public class BuffCatalog : IBuffCatalog
     /// <summary>Effect 604 of the two instance game spells (<see cref="SkillCastKind.InstanceGame"/>).</summary>
     public const int InstanceGameEffect = 604;
 
+    /// <summary>The official effect types of <see cref="SkillCastKind.RespawnMonster"/>, <see cref="SkillCastKind.CastingCancel"/>,
+    /// <see cref="SkillCastKind.StateByItem"/> and <see cref="SkillCastKind.RemoveBadState"/> (SkillBase.h).</summary>
+    public const int RespawnMonsterWithDiffCode = 6;
+
+    /// <inheritdoc cref="RespawnMonsterWithDiffCode"/>
+    public const int CastingCancelWithAddState = 304;
+
+    /// <inheritdoc cref="RespawnMonsterWithDiffCode"/>
+    public const int AddStateByUsingItem = 314;
+
+    /// <inheritdoc cref="RespawnMonsterWithDiffCode"/>
+    public const int RemoveBadStateEffect = 401;
+
     /// <summary><c>SKILL_TOWN_PORTAL</c>, <c>SKILL_RETURN_FEATHER</c>, <c>SKILL_RETURN_BACK_FEATHER</c> (StructSkill.h:323-338).</summary>
     public const int TownPortalSkill = 6007;
 
@@ -82,6 +95,7 @@ public class BuffCatalog : IBuffCatalog
         0, 125, 30003, 30006, MagicSingleDamage, AddState, AddRegionState, AddHp, AddHpMp, AddRegionHpMp, AddRegionHp, ToggleAura, ToggleDifferentialAura,
         PhysicalSingleDamage, ActivateFieldProp, Summon, Unsummon, Taming, Resurrection, ResurrectionWithRecover,
         InstanceGameEffect, RegionHealByFieldProp, AreaEffectHealByFieldProp,
+        RespawnMonsterWithDiffCode, CastingCancelWithAddState, AddStateByUsingItem, RemoveBadStateEffect,
         30011, 30012, 30013, 30016, 232, 241, 261, 262, 263, 271
     };
 
@@ -158,7 +172,8 @@ public class BuffCatalog : IBuffCatalog
         if (kind is not (SkillCastKind.Heal or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
                 or SkillCastKind.ActivateProp or SkillCastKind.PropHeal or SkillCastKind.Summon or SkillCastKind.Unsummon
                 or SkillCastKind.Taming or SkillCastKind.Resurrection or SkillCastKind.InstanceGame or SkillCastKind.Energy
-                or SkillCastKind.Return)
+                or SkillCastKind.Return or SkillCastKind.RemoveBadState or SkillCastKind.CastingCancel
+                or SkillCastKind.RespawnMonster)
             && (row.StateId is null || row.StateId == 0))
         {
             return false;
@@ -246,6 +261,14 @@ public class BuffCatalog : IBuffCatalog
                 _ => SkillCastKind.Taming
             };
             return true;
+        }
+
+        switch (row.EffectType)
+        {
+            case RemoveBadStateEffect: kind = SkillCastKind.RemoveBadState; return true;
+            case CastingCancelWithAddState: kind = SkillCastKind.CastingCancel; return true;
+            case RespawnMonsterWithDiffCode: kind = SkillCastKind.RespawnMonster; return true;
+            case AddStateByUsingItem: kind = SkillCastKind.StateByItem; return true;
         }
 
         // The return items' spells, dispatched on their ids too (StructSkill.cpp:2748-2759).

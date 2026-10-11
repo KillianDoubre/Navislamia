@@ -271,8 +271,18 @@ public class MonsterSkillService : IMonsterSkillService
         }
         Send(SkillPacketType.Casting);
         lock (_gate) _casting.Add((id, life));
+        // A cast with a casting time can be broken until it fires (EF_CASTING_CANCEL_WITH_ADD_STATE).
+        var cancellable = delay > 0;
+        var broken = false;
+        if (cancellable) _world.BeginCast(id, fields.Kind == SkillCastKind.MagicAttack);
         bool Fire(uint tick)
         {
+            if (cancellable)
+            {
+                cancellable = false;
+                if (_world.EndCast(id)) { broken = true; return false; }
+            }
+
             if (!_world.IsAlive(id) || _world.LifeVersion(id) != life) return false;
             if (!ground && (info.CharacterHp <= 0 || info.CharacterHandle != targetHandle || info.Layer != layer)) return false;
             if (!ground && _players is not null && (!_players.Registry.TryResolve(targetHandle, out var current)
@@ -332,6 +342,13 @@ public class MonsterSkillService : IMonsterSkillService
         }
         void Finish()
         {
+            if (broken)
+            {
+                lock (_gate) _casting.Remove((id, life));
+                if (_world.IsAlive(id) && _world.LifeVersion(id) == life) Send(SkillPacketType.Cancel);
+                return;
+            }
+
             if (!ground || !created) lock (_gate) _casting.Remove((id, life));
             if (_world.IsAlive(id) && _world.LifeVersion(id) == life && (!ground || !created)) Send(SkillPacketType.Complete);
         }

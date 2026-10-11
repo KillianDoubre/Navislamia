@@ -92,6 +92,15 @@ public interface ISkillCastService
     /// </summary>
     bool IsCastItemSkill(int skillId) => false;
 
+    /// <summary><see cref="Navislamia.Game.DataAccess.Repositories.Interfaces.SkillCastKind.StateByItem"/>'s price: var(level)
+    /// units of item var0, level 1 to 19 (<c>StructSkill::Cast</c>). False for any other spell.</summary>
+    bool TryGetItemCost(int skillId, int skillLevel, out int itemCode, out long count)
+    {
+        itemCode = 0;
+        count = 0;
+        return false;
+    }
+
     /// <summary><c>StructSkill::TOWN_PORTAL</c>: to the return point, moved by up to 60 units while it is blocked.</summary>
     void TownPortal(GameClient client) { }
 

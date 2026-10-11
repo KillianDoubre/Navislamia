@@ -70,6 +70,7 @@ public partial class SkillCastService : ISkillCastService
     private readonly IDynamicFieldProps _dynamicProps;
     private readonly IEtherealWear _ethereal;
     private readonly IFieldPropUse _propUse;
+    private readonly IEventAreaWorldEffects _worldEffects;
 
     /// <summary>How long past its casting time a prop stays held by a cast that never ended.</summary>
     private const uint PropCastGrace = 200;
@@ -85,8 +86,10 @@ public partial class SkillCastService : ISkillCastService
         ILevelingService leveling = null, IBuffPersistence buffPersistence = null,
         Creatures.ICreatureService creatures = null, Dungeons.IDungeonService dungeons = null,
         Huntaholic.IHuntaholicEvents huntaholic = null, IDynamicFieldProps dynamicProps = null, IEtherealWear ethereal = null,
-        Compete.ICompeteService compete = null, IFieldPropUse propUse = null)
+        Compete.ICompeteService compete = null, IFieldPropUse propUse = null,
+        IEventAreaWorldEffects worldEffects = null)
     {
+        _worldEffects = worldEffects;
         _propUse = propUse;
         _compete = compete;
         _ethereal = ethereal;
@@ -189,8 +192,30 @@ public partial class SkillCastService : ISkillCastService
         return TryCast(client, request, true) ? ResultCode.Success : ResultCode.NotActable;
     }
 
-    public bool IsCastItemSkill(int skillId) =>
-        _catalog.TryGet(skillId, out var fields) && fields.Kind == SkillCastKind.Return;
+    /// <summary>
+    /// <c>onItemUseEffect</c> casts every item spell through <c>CastSkill</c>. Here the ones <see cref="ApplyItemSkill"/>
+    /// cannot apply at once go through the real cast: those with a casting time, those landing on a target (harmful
+    /// states, damage, the cast breaker) and those the instant path does not know (return, cure, monster summon).
+    /// </summary>
+    public bool IsCastItemSkill(int skillId)
+    {
+        if (!_catalog.TryGet(skillId, out var fields)) return false;
+        return fields.Kind is SkillCastKind.Return or SkillCastKind.Debuff or SkillCastKind.PhysicalAttack
+                   or SkillCastKind.MagicAttack or SkillCastKind.RemoveBadState or SkillCastKind.CastingCancel
+                   or SkillCastKind.RespawnMonster or SkillCastKind.StateByItem
+               || (fields.Kind is SkillCastKind.Buff or SkillCastKind.Heal && fields.DelayCast > 0);
+    }
+
+    public bool TryGetItemCost(int skillId, int skillLevel, out int itemCode, out long count)
+    {
+        itemCode = 0;
+        count = 0;
+        if (!_catalog.TryGet(skillId, out var fields) || fields.Kind != SkillCastKind.StateByItem) return false;
+        if (skillLevel is < 1 or >= 20 || fields.Vars is null || fields.Vars.Length <= skillLevel) return false;
+        itemCode = (int)fields.Vars[0];
+        count = (long)fields.Vars[skillLevel];
+        return itemCode > 0;
+    }
 
     /// <summary>The tries <c>TOWN_PORTAL</c> makes around a blocked return point before staying where it is.</summary>
     public const int TownPortalTries = 300;
@@ -241,6 +266,14 @@ public partial class SkillCastService : ISkillCastService
         var target = skillId is BuffCatalog.ReturnFeatherSkill or BuffCatalog.ReturnBackFeatherSkill
             ? itemHandle
             : targetHandle == 0 ? info.CharacterHandle : targetHandle;
+        // A ground spell from an item (a bomb) lands where its target stands, else at the user's feet: the 253 carries
+        // no position (CastSkill gets ArPosition()).
+        if (target != info.CharacterHandle && info.TryResolveMonster(target, out var targetId)
+            && _monsterState.TryGetInstance(targetId, out _))
+        {
+            (x, y) = _monsterState.GetPosition(targetId);
+        }
+
         var request = new GameActionPackets.SkillRequest((ushort)skillId, info.CharacterHandle, target, x, y, info.Z,
             (sbyte)info.Layer, level);
         TryCast(client, request, false, new ItemCast(level, itemHandle, onFire), out var failure);
@@ -324,7 +357,8 @@ public partial class SkillCastService : ISkillCastService
         var mpCost = BuffCurve.MpCost(fields, skillLevel);
         info.CharacterMp -= mpCost;
         var cooldown = BuffCurve.CooldownTicks(fields, skillLevel);
-        if (cooldown > 0)
+        // StructSkill::Cast: an item's cast neither waits for nor arms the spell's cool-down (!m_hCastItem).
+        if (cooldown > 0 && item is null)
         {
             info.SkillCooldowns[request.SkillId] = unchecked(now + cooldown);
         }
@@ -505,7 +539,8 @@ public partial class SkillCastService : ISkillCastService
         // above are the same as every other skill's.
         if (IsDamageSequence(fields))
         {
-            CastDamageSequence(client, request, fields, targetInstanceId, skillLevel, now, 0, cast.PlayerTarget);
+            CastDamageSequence(client, request, fields, targetInstanceId, skillLevel, now, 0, cast.PlayerTarget,
+                fromItem: cast.Item is not null);
             return;
         }
 
@@ -546,6 +581,18 @@ public partial class SkillCastService : ISkillCastService
                 }
 
                 fireSent = true;
+                break;
+            case SkillCastKind.RemoveBadState:
+                RemoveBadStates(client, fields, skillLevel);
+                break;
+            case SkillCastKind.CastingCancel:
+                BreakMonsterCast(client, fields, skillLevel, now, targetInstanceId);
+                break;
+            case SkillCastKind.RespawnMonster:
+                RespawnMonsterAt(client, fields, skillLevel, now);
+                break;
+            case SkillCastKind.StateByItem:
+                ApplyDebuff(client, fields, skillLevel, now, targetInstanceId);
                 break;
             case SkillCastKind.Return:
                 // TOWN_PORTAL / RETURN_FEATHER / RETURN_BACK_FEATHER: the item use carries the effect (the feather is
@@ -603,6 +650,12 @@ public partial class SkillCastService : ISkillCastService
                 return;
         }
 
+        // The item's own part of the fire (a cost spent, StructSkill::ProcSkill), once the spell landed.
+        if (fields.Kind != SkillCastKind.Return)
+        {
+            cast.Item?.OnFire?.Invoke(client);
+        }
+
         if (!fireSent)
         {
             SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Fire, 0, 0, hit);
@@ -617,9 +670,12 @@ public partial class SkillCastService : ISkillCastService
 
         SendSkill(client, request, fields.Kind, targetInstanceId, SkillPacketType.Complete, 0, 0);
 
-        var cooldown = BuffCurve.CooldownTicks(fields, skillLevel);
-        client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
-            new[] { new SkillListEntry(request.SkillId, skillLevel, cooldown, cooldown) }));
+        if (cast.Item is null)
+        {
+            var cooldown = BuffCurve.CooldownTicks(fields, skillLevel);
+            client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
+                new[] { new SkillListEntry(request.SkillId, skillLevel, cooldown, cooldown) }));
+        }
 
         _logger.Debug("{clientTag} cast {kind} {skillId} level {level}", client.ClientTag, fields.Kind,
             request.SkillId, skillLevel);
@@ -871,14 +927,25 @@ public partial class SkillCastService : ISkillCastService
         }
         else
         {
-            if (!info.LearnedSkills.TryGetValue(request.SkillId, out skillLevel) || skillLevel == 0)
+            // An item's spell is cast at the item's level, learned or not (onItemUseEffect: CastSkill( var1, var2 )).
+            if (item is not null)
+            {
+                skillLevel = item.SkillLevel;
+            }
+            else if (fields.Kind == SkillCastKind.StateByItem)
+            {
+                // Its price is judged on the bag, which only the item use reads.
+                error = ResultCode.AccessDenied;
+                return false;
+            }
+            else if (!info.LearnedSkills.TryGetValue(request.SkillId, out skillLevel) || skillLevel == 0)
             {
                 error = ResultCode.AccessDenied;
                 return false;
             }
 
             // onSkill: the asked level when it lies in 1..learned, the learned one otherwise.
-            if (request.SkillLevel >= 1 && request.SkillLevel < skillLevel)
+            if (item is null && request.SkillLevel >= 1 && request.SkillLevel < skillLevel)
             {
                 skillLevel = request.SkillLevel;
             }
@@ -944,7 +1011,7 @@ public partial class SkillCastService : ISkillCastService
             }
         }
 
-        if (info.SkillCooldowns.TryGetValue(request.SkillId, out var readyAt)
+        if (item is null && info.SkillCooldowns.TryGetValue(request.SkillId, out var readyAt)
             && unchecked((int)(now - readyAt)) < 0)
         {
             error = ResultCode.CoolTime;
@@ -1184,7 +1251,7 @@ public partial class SkillCastService : ISkillCastService
     private static bool TargetsAMonster(SkillCastKind kind)
     {
         return kind is SkillCastKind.Debuff or SkillCastKind.PhysicalAttack or SkillCastKind.MagicAttack
-            or SkillCastKind.Taming;
+            or SkillCastKind.Taming or SkillCastKind.CastingCancel or SkillCastKind.StateByItem;
     }
 
     /// <summary>The area and multi-hit damage families, which <see cref="CastDamageSequence"/> resolves.</summary>
@@ -1484,7 +1551,8 @@ public partial class SkillCastService : ISkillCastService
     }
 
     private void CastDamageSequence(GameClient client, GameActionPackets.SkillRequest request,
-        CastableBuffFields fields, long targetId, int level, uint now, uint castDelay, GameClient primaryPlayer = null)
+        CastableBuffFields fields, long targetId, int level, uint now, uint castDelay, GameClient primaryPlayer = null,
+        bool fromItem = false)
     {
         var info = client.ConnectionInfo;
         var layer = info.Layer;
@@ -1590,9 +1658,14 @@ public partial class SkillCastService : ISkillCastService
         }
         var sequential = SkillAreaRules.IsSequential(fields.EffectType) || ground;
         _effects.Schedule(unchecked(now + castDelay), SkillAreaRules.Interval(fields), sequential ? count : 1, Fire, Finish);
-        var cooldown = BuffCurve.CooldownTicks(fields, level);
-        client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
-            new[] { new SkillListEntry(fields.SkillId, (byte)level, cooldown, cooldown) }));
+        // An item's cast (a bomb) arms no spell cool-down (StructSkill::Cast, !m_hCastItem).
+        if (!fromItem)
+        {
+            var cooldown = BuffCurve.CooldownTicks(fields, level);
+            client.Connection.Send(GameCharacterPackets.BuildSkillList(info.CharacterHandle,
+                new[] { new SkillListEntry(fields.SkillId, (byte)level, cooldown, cooldown) }));
+        }
+
         if (castDelay == 0) _effects.Tick(now);
     }
 
@@ -1619,6 +1692,73 @@ public partial class SkillCastService : ISkillCastService
             foreach (var other in recipients)
                 if (other.ConnectionInfo.Layer == client.ConnectionInfo.Layer) other.Connection.Send(Frame(other));
         }
+    }
+
+    /// <summary>
+    /// <c>REMOVE_BAD_STATE_SKILL_FUNCTOR</c> (StructSkill.cpp:513-532): state var0, then var4..var8 until a zero, each
+    /// removed when its level is at most var1 + var2 x level (+ var3 x enhance, none here). On the caster: the target
+    /// was validated as the caster.
+    /// </summary>
+    private void RemoveBadStates(GameClient client, CastableBuffFields fields, int skillLevel)
+    {
+        var vars = fields.Vars ?? Array.Empty<decimal>();
+        decimal Var(int i) => i < vars.Length ? vars[i] : 0m;
+        var cap = (int)(Var(1) + Var(2) * skillLevel);
+        var codes = new List<int> { (int)Var(0) };
+        for (var i = 4; i < 9 && Var(i) != 0; i++) codes.Add((int)Var(i));
+        var info = client.ConnectionInfo;
+        foreach (var code in codes.Where(c => c > 0))
+        {
+            bool removable;
+            lock (info.BuffLock)
+            {
+                removable = info.ActiveBuffs.Exists(b => b.StateId == code && b.StateLevel <= cap);
+            }
+
+            if (removable) RemoveState(client, code);
+        }
+    }
+
+    /// <summary>
+    /// <c>StructSkill::CASTING_CANCEL_WITH_ADD_STATE</c> (StructSkill.cpp:7032-7062): the monster's cast breaks when its
+    /// family matches var0 (1 physical, 2 magical, 99 any) and a draw under var1 + var2 x level comes up; then, under
+    /// var11 + var12 x level, state var4 at level var5 + var6 x level for var8 seconds (read as seconds, like every
+    /// duration column: not established for this field).
+    /// </summary>
+    private void BreakMonsterCast(GameClient client, CastableBuffFields fields, int skillLevel, uint now, long instanceId)
+    {
+        if (IsPlayerTarget(instanceId)) return;
+        var vars = fields.Vars ?? Array.Empty<decimal>();
+        decimal Var(int i) => i < vars.Length ? vars[i] : 0m;
+        var rate = (int)(Var(1) + Var(2) * skillLevel);
+        if (_random.Next(100) >= rate || !_monsterState.TryInterruptCast(instanceId, (int)Var(0)))
+        {
+            return;
+        }
+
+        var stateId = (int)Var(4);
+        if (stateId <= 0 || _random.Next(100) >= (int)(Var(11) + Var(12) * skillLevel)) return;
+        // The state lands as a debuff would (icon to the watchers, stacking), at the breaker's own level and time.
+        var level = (int)(Var(5) + Var(6) * skillLevel);
+        ApplyDebuff(client, fields with
+        {
+            StateId = stateId, StateSecond = Var(8), StateSecondPerLevel = 0m, StateLevelBase = level,
+            StateLevelPerSkill = 0m, ProbabilityOnHit = 100, ProbabilityIncBySlv = 0
+        }, skillLevel, now, instanceId);
+    }
+
+    /// <summary>
+    /// <c>StructSkill::RESPAWN_MONSTER</c>, <c>EF_RESPAWN_MONSTER_WITH_DIFF_CODE</c> (StructSkill.cpp:7155-7202): monster
+    /// var(level - 1), level 1 to 20, appears where the caster stands unless it is blocked, for good (no respawn).
+    /// </summary>
+    private void RespawnMonsterAt(GameClient client, CastableBuffFields fields, int skillLevel, uint now)
+    {
+        if (skillLevel is < 1 or > 20 || fields.Vars is null || fields.Vars.Length < skillLevel) return;
+        var monsterId = (int)fields.Vars[skillLevel - 1];
+        var info = client.ConnectionInfo;
+        var (x, y) = info.PositionAt(now);
+        if (monsterId <= 0 || _monsterState.IsBlockedPoint(x, y) || _worldEffects is null) return;
+        _worldEffects.SpawnMonsters(monsterId, 1, x, y, info.Layer, 0);
     }
 
     private void ApplyDebuff(GameClient client, CastableBuffFields fields, int skillLevel, uint now,

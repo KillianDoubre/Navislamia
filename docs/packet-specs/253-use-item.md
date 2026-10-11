@@ -446,7 +446,31 @@ pas une plume à l'utilisation (`ReturnItems.IsSpentWhenCast`) et fait l'effet a
 `ReturnTo`, `AddItemAsync` avec châsses). Couche : celle du point de retour (les canaux ne sont pas modélisés).
 Tests : `ReturnItemTests`. **À vérifier en jeu.**
 
-Reste du même genre, non traité : le parchemin d'apprivoisement (491008, compétence 4003, 15 s) et six buffs à
-incantation de 0,5-1 s s'appliquent encore sur-le-champ ; les compétences d'objet aux effets 6, 314, 401, 30011, 261,
-231 et 304 (parchemins d'attaque, etc.) ne sont pas lancées par `ApplyItemSkill` et l'objet part sans effet.
+### Les autres objets à sort (même jour)
+
+`onItemUseEffect` passe **toute** compétence d'objet par `CastSkill`. Ici, celles que `ApplyItemSkill` ne sait pas
+appliquer sur-le-champ passent par la vraie incantation (`ISkillCastService.IsCastItemSkill`) : retour, malus (301
+nuisible), dégâts (231, 261, 30011), effets 401, 304, 6 et 314, et tout buff ou soin qui a un temps d'incantation. Les
+buffs, soins, résurrections et récupérations instantanés gardent le chemin direct, déjà validé.
+
+Un sort lancé par un objet **n'est jamais appris** (niveau de l'objet), **n'attend ni n'arme** le temps de recharge du
+sort (`StructSkill::Cast`, `!m_hCastItem`, StructSkill.cpp:1200 et 3275 ; aucune 403) ; seul le délai de groupe de
+l'objet (217) compte. Une bombe à zone (cible 2) tombe sur le monstre visé, sinon aux pieds de l'utilisateur : la 253
+ne porte aucune position (`CastSkill` reçoit `ArPosition()`).
+
+| effet | objets | règle officielle | ici |
+| --- | --- | --- | --- |
+| 301 nuisible | boules de neige 2000176/2000177, glace 2600017, orbe 2000191 | `STATE_SKILL_FUNCTOR` sur la cible | `Debuff`, incanté (0,5-1 s) |
+| 301 | tomates 2012427/2012428 | buff, 0,5 s | `Buff`, incanté |
+| 231 / 261 / 30011 | pétrification 1000303/1000304, bombes 2010737, 3620008, 3620017 | dégâts | attaques, incantées |
+| 401 `EF_REMOVE_BAD_STATE` | parchemins de désintoxication 608301-608303 | `REMOVE_BAD_STATE_SKILL_FUNCTOR` (StructSkill.cpp:513-532) : états var0 puis var4..var8 de niveau ≤ var1 + var2 × niveau | `RemoveBadStates`, sur le lanceur |
+| 304 `EF_CASTING_CANCEL_WITH_ADD_STATE` | brise-sort 1000302 | `CASTING_CANCEL_WITH_ADD_STATE` (:7032) : incantation de la cible cassée si sa famille va (var0 : 1 physique, 2 magique, 99 toutes) sous var1 + var2 × niveau, puis état var4 sous var11 + var12 × niveau | `BreakMonsterCast` ; l'incantation d'un monstre (`CastDamageSequence`, délai > 0) est tenue dans `MonsterWorldState.Casts` et finit en `ST_Cancel` |
+| 6 `EF_RESPAWN_MONSTER_WITH_DIFF_CODE` | 27 parchemins d'invocation (3630270-3630296, 2012259) | `RESPAWN_MONSTER` (:7155) : monstre var(niveau − 1) aux pieds du lanceur, sauf obstacle | `IEventAreaWorldEffects.SpawnMonsters`, sans réapparition |
+| 314 `EF_ADD_STATE_BY_USING_ITEM` | puces lunaires 690201-690207 | état comme `ADD_STATE`, payé var(niveau) × objet var0 : `NOT_ENOUGH_ITEM` au lancement, dépensé au sort | `StateByItem` : coût jugé par `ItemUseService` sur le sac, dépensé au sort ; refusé à une 400 |
+
+Écarts et réserves : la durée de l'état du brise-sort (var8) est lue en secondes comme toutes les durées (non établi) ;
+un monstre invoqué en HuntaHolic ou en instance n'est pas remis à leur gestionnaire (`PendRespawnMonster`) ; les
+compétences de joueur aux mêmes effets (3806/53806 en 304, 3209 en 401) deviennent lançables avec cette règle, 50401 (314)
+reste refusée faute de lecture du sac côté sort. Le parchemin d'apprivoisement 491008 **n'existe pas** dans le client 7.3
+(`db_item.rdb`) : rien à porter. Tests : `ItemSkillTests`, `ReturnItemTests`.
 

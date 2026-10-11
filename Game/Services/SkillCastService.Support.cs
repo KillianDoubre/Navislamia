@@ -132,6 +132,9 @@ public partial class SkillCastService
         var hits = ApplySupportEffects(caster, targets, fields, cast.SkillLevel, now);
         SendSupportFire(caster, request, hits, targets, SupportRadius(fields));
         SendSkill(caster, request, fields.Kind, -1, SkillPacketType.Complete, 0, 0);
+        cast.Item?.OnFire?.Invoke(caster);
+        // An item's cast arms no spell cool-down (StructSkill::Cast, !m_hCastItem).
+        if (cast.Item is not null) return;
         var cooldown = BuffCurve.CooldownTicks(fields, cast.SkillLevel);
         caster.Connection.Send(GameCharacterPackets.BuildSkillList(caster.ConnectionInfo.CharacterHandle,
             new[] { new SkillListEntry(request.SkillId, cast.SkillLevel, cooldown, cooldown) }));

@@ -19,6 +19,21 @@ public enum SkillCastKind
     /// </summary>
     Return = 100,
 
+    /// <summary><c>EF_REMOVE_BAD_STATE</c> (401): states var0 and var4..var8 up to level var1 + var2 x level go.</summary>
+    RemoveBadState = 101,
+
+    /// <summary><c>EF_CASTING_CANCEL_WITH_ADD_STATE</c> (304): the target's cast is broken, then maybe a state.</summary>
+    CastingCancel = 102,
+
+    /// <summary><c>EF_RESPAWN_MONSTER_WITH_DIFF_CODE</c> (6): monster var(level - 1) appears at the caster.</summary>
+    RespawnMonster = 103,
+
+    /// <summary>
+    /// <c>EF_ADD_STATE_BY_USING_ITEM</c> (314): a state like <see cref="Debuff"/>, paid with var(level) units of item
+    /// var0 (<c>StructSkill::Cast</c> and <c>ProcSkill</c>). Only an item casts it here: the cost is judged on the bag.
+    /// </summary>
+    StateByItem = 104,
+
     Buff,
     Aura,
     Heal,
